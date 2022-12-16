@@ -20,7 +20,7 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 
 use crate::vm::analysis::type_check;
-use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{CheckError, CheckErrors};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;

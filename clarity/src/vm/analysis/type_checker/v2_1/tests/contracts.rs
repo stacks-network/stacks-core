@@ -21,7 +21,7 @@ use assert_json_diff;
 use serde_json;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
 use crate::vm::ast::parse;
@@ -85,6 +85,7 @@ pub fn type_check_version(
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch21,
         version,
     )
     .map_err(|(e, _)| e)
@@ -1726,7 +1727,7 @@ fn load_versioned(
     epoch: StacksEpochId,
 ) -> Result<ContractAnalysis, String> {
     let source = read_to_string(format!(
-        "{}/src/vm/analysis/type_checker/tests/contracts/{}.clar",
+        "{}/src/vm/analysis/type_checker/v2_1/tests/contracts/{}.clar",
         env!("CARGO_MANIFEST_DIR"),
         name
     ))

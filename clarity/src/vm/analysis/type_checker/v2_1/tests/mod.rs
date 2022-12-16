@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
-use crate::vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
+use crate::vm::analysis::type_checker::v2_1::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
@@ -69,7 +69,7 @@ pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, Contract
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
-        StacksEpochId::latest(),
+        StacksEpochId::Epoch21,
     )
 }
 
@@ -130,7 +130,10 @@ fn test_from_consensus_buff() {
 
         assert!(
             type_result
-                .admits(&execute_v2(good_test).unwrap().unwrap())
+                .admits(
+                    &StacksEpochId::Epoch21,
+                    &execute_v2(good_test).unwrap().unwrap()
+                )
                 .unwrap(),
             "The analyzed type must admit the evaluated type"
         );
@@ -223,7 +226,10 @@ fn test_to_consensus_buff() {
 
         assert!(
             type_result
-                .admits(&execute_v2(good_test).unwrap().unwrap())
+                .admits(
+                    &StacksEpochId::Epoch21,
+                    &execute_v2(good_test).unwrap().unwrap()
+                )
                 .unwrap(),
             "The analyzed type must admit the evaluated type"
         );
@@ -3548,7 +3554,8 @@ fn test_trait_same_contract(#[case] version: ClarityVersion, #[case] epoch: Stac
         (define-public (trigger (f <trait-foo>)) (call-foo f))"];
 
     for good_test in good.iter() {
-        assert!(mem_run_analysis(&good_test, version, epoch).is_ok());
+        let result = mem_run_analysis(&good_test, version, epoch);
+        assert!(result.is_ok());
     }
 }
 

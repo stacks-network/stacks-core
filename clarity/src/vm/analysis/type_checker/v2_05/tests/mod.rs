@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::type_check;
-use crate::vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
+use crate::vm::analysis::type_checker::v2_05::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
@@ -28,6 +30,7 @@ use crate::vm::types::{
     FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
     BUFF_32, BUFF_64,
 };
+use crate::vm::ClarityVersion;
 
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -39,7 +42,8 @@ mod assets;
 mod contracts;
 
 fn type_check_helper(exp: &str) -> TypeResult {
-    mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    mem_type_check(exp, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -103,7 +107,12 @@ fn test_define_trait() {
     ];
 
     for good_test in good.iter() {
-        mem_type_check(&good_test).unwrap();
+        mem_type_check(
+            &good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 
     let bad = [
@@ -133,7 +142,14 @@ fn test_define_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(
+            &contract_identifier,
+            bad_test,
+            &mut (),
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -155,7 +171,14 @@ fn test_use_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(
+            &contract_identifier,
+            bad_test,
+            &mut (),
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -170,7 +193,14 @@ fn test_impl_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(
+            &contract_identifier,
+            bad_test,
+            &mut (),
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -272,7 +302,11 @@ fn test_destructuring_opts() {
     let bad = [
         (
             "(unwrap-err! (some 2) 2)",
-            CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)")),
+            CheckErrors::ExpectedResponseType(TypeSignature::from_string(
+                "(optional int)",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05,
+            )),
         ),
         (
             "(unwrap! (err 3) 2)",
@@ -340,7 +374,11 @@ fn test_destructuring_opts() {
         ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from("int")),
+            CheckErrors::BadMatchInput(TypeSignature::from_string(
+                "int",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05,
+            )),
         ),
         (
             "(default-to 3 5)",
@@ -400,7 +438,16 @@ fn test_destructuring_opts() {
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(expected, &mem_type_check(&bad_test).unwrap_err().err);
+        assert_eq!(
+            expected,
+            &mem_type_check(
+                &bad_test,
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05
+            )
+            .unwrap_err()
+            .err
+        );
     }
 }
 
@@ -440,7 +487,14 @@ fn test_trait_reference_unknown() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(
+            &contract_identifier,
+            bad_test,
+            &mut (),
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -740,7 +794,18 @@ fn test_eqs() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-        CheckErrors::TypeError("(optional bool)".into(), "(optional int)".into()),
+        CheckErrors::TypeError(
+            TypeSignature::from_string(
+                "(optional bool)",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05,
+            ),
+            TypeSignature::from_string(
+                "(optional int)",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05,
+            ),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -939,7 +1004,14 @@ fn test_buff_fold() {
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 }
@@ -1103,7 +1175,14 @@ fn test_buff_filter() {
     let expected = ["(string-ascii 6)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 }
@@ -1115,7 +1194,13 @@ fn test_lists_in_defines() {
     (filter test (list 1 2 3 4 5))";
     assert_eq!(
         "(list 5 int)",
-        &format!("{}", mem_type_check(good).unwrap().0.unwrap())
+        &format!(
+            "{}",
+            mem_type_check(good, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+                .unwrap()
+                .0
+                .unwrap()
+        )
     );
 }
 
@@ -1158,7 +1243,13 @@ fn test_empty_tuple_should_fail() {
     "#;
 
     assert_eq!(
-        mem_type_check(contract_src).unwrap_err().err,
+        mem_type_check(
+            contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05
+        )
+        .unwrap_err()
+        .err,
         CheckErrors::BadSyntaxBinding
     );
 }
@@ -1174,11 +1265,16 @@ fn test_define() {
                      (* (foo 1 2) (bar 3 3))"];
 
     for good_test in good.iter() {
-        mem_type_check(good_test).unwrap();
+        mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 
     for bad_test in bad.iter() {
-        mem_type_check(bad_test).unwrap_err();
+        mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap_err();
     }
 }
 
@@ -1194,7 +1290,14 @@ fn test_high_order_map() {
     let expected = ["(list 3 (list 5 int))", "(list 6 (list 5 int))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 }
@@ -1218,7 +1321,11 @@ fn test_function_order_tuples() {
 ";
 
     assert_eq!(
-        &mem_type_check(snippet).unwrap().0.unwrap().to_string(),
+        &mem_type_check(snippet, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            .unwrap()
+            .0
+            .unwrap()
+            .to_string(),
         "int"
     );
 }
@@ -1245,12 +1352,24 @@ fn test_simple_uints() {
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+        assert_eq!(
+            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+                .unwrap_err()
+                .err,
+            expected
+        );
     }
 }
 
@@ -1290,18 +1409,37 @@ fn test_response_inference() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError("(response bool int)".into(), BoolType),
+        CheckErrors::TypeError(
+            TypeSignature::from_string(
+                "(response bool int)",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch2_05,
+            ),
+            BoolType,
+        ),
         CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
         CheckErrors::CouldNotDetermineResponseOkType,
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+        assert_eq!(
+            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+                .unwrap_err()
+                .err,
+            expected
+        );
     }
 }
 
@@ -1332,7 +1470,13 @@ fn test_function_arg_names() {
     ];
 
     for (func_test, arg_names) in functions.iter().zip(expected_arg_names.iter()) {
-        let contract_analysis = mem_type_check(func_test).unwrap().1;
+        let contract_analysis = mem_type_check(
+            func_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .1;
 
         let func_type_priv = contract_analysis.get_private_function("test").unwrap();
         let func_type_pub = contract_analysis
@@ -1378,7 +1522,7 @@ fn test_factorial() {
                (init-factorial 8008 5))
         ";
 
-    mem_type_check(contract).unwrap();
+    mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1395,7 +1539,7 @@ fn test_options() {
             (foo (bar 0)))
          ";
 
-    mem_type_check(contract).unwrap();
+    mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 
     let contract = "
          (define-private (foo (id (optional bool)))
@@ -1409,12 +1553,26 @@ fn test_options() {
          (+ (foo (bar 1)) 1)
          ";
 
-    assert!(match mem_type_check(contract).unwrap_err().err {
-        CheckErrors::TypeError(t1, t2) => {
-            t1 == "(optional bool)".into() && t2 == "(optional int)".into()
+    assert!(
+        match mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            .unwrap_err()
+            .err
+        {
+            CheckErrors::TypeError(t1, t2) => {
+                t1 == TypeSignature::from_string(
+                    "(optional bool)",
+                    ClarityVersion::Clarity1,
+                    StacksEpochId::Epoch2_05,
+                ) && t2
+                    == TypeSignature::from_string(
+                        "(optional int)",
+                        ClarityVersion::Clarity1,
+                        StacksEpochId::Epoch2_05,
+                    )
+            }
+            _ => false,
         }
-        _ => false,
-    });
+    );
 }
 
 #[test]
@@ -1424,7 +1582,13 @@ fn test_list_nones() {
            (let ((a (list none none none))) (print a)))";
     assert_eq!(
         "(list 3 (optional UnknownType))",
-        &format!("{}", mem_type_check(contract).unwrap().0.unwrap())
+        &format!(
+            "{}",
+            mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+                .unwrap()
+                .0
+                .unwrap()
+        )
     );
 }
 
@@ -1444,7 +1608,12 @@ fn test_set_int_variable() {
                 (get-cursor)))
     "#;
 
-    mem_type_check(contract_src).unwrap();
+    mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1459,7 +1628,12 @@ fn test_set_bool_variable() {
                 (get-ok)))
     "#;
 
-    mem_type_check(contract_src).unwrap();
+    mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1474,7 +1648,12 @@ fn test_set_tuple_variable() {
                 (get-cursor)))
     "#;
 
-    mem_type_check(contract_src).unwrap();
+    mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1489,7 +1668,12 @@ fn test_set_list_variable() {
                 (get-ranking)))
     "#;
 
-    mem_type_check(contract_src).unwrap();
+    mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1504,7 +1688,12 @@ fn test_set_buffer_variable() {
                 (get-name)))
     "#;
 
-    mem_type_check(contract_src).unwrap();
+    mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1513,7 +1702,12 @@ fn test_missing_value_on_declaration_should_fail() {
         (define-data-var cursor int)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::IncorrectArgumentCount(_, _) => true,
         _ => false,
@@ -1526,7 +1720,12 @@ fn test_mismatching_type_on_declaration_should_fail() {
         (define-data-var cursor int true)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::TypeError(_, _) => true,
         _ => false,
@@ -1545,7 +1744,12 @@ fn test_mismatching_type_on_update_should_fail() {
                 0))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::TypeError(_, _) => true,
         _ => false,
@@ -1560,7 +1764,12 @@ fn test_direct_access_to_persisted_var_should_fail() {
             cursor)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::UndefinedVariable(_) => true,
         _ => false,
@@ -1578,7 +1787,12 @@ fn test_data_var_shadowed_by_let_should_fail() {
                     0)))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false,
@@ -1594,7 +1808,12 @@ fn test_mutating_unknown_data_var_should_fail() {
                 0))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NoSuchDataVariable(_) => true,
         _ => false,
@@ -1608,7 +1827,12 @@ fn test_accessing_unknown_data_var_should_fail() {
             (unwrap! (var-get cursor) 0))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NoSuchDataVariable(_) => true,
         _ => false,
@@ -1622,7 +1846,12 @@ fn test_let_shadowed_by_let_should_fail() {
             cursor)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false,
@@ -1637,7 +1866,12 @@ fn test_let_shadowed_by_nested_let_should_fail() {
                 cursor))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false,
@@ -1653,7 +1887,12 @@ fn test_define_constant_shadowed_by_let_should_fail() {
                cursor))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false,
@@ -1668,7 +1907,12 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
             cursor)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
+    let res = mem_type_check(
+        contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false,
@@ -1700,11 +1944,23 @@ fn test_combine_tuples() {
     ];
 
     for (will_pass, expected) in ok.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(will_pass).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            will_pass,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 
-    mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
+    mem_type_check(
+        "(merge { a: 1, b: 2, c: 3 } 5)",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
 }
 
 #[test]
@@ -1715,7 +1971,7 @@ fn test_using_merge() {
             ((user (unwrap-panic (map-get? users u0))))
             (map-set users u0 (merge user { name: none })))
         ";
-    mem_type_check(t).unwrap();
+    mem_type_check(t, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1738,7 +1994,7 @@ fn test_tuple_map() {
          (list      (get-tuple 0)
                     (get-tuple 1))
         ";
-    mem_type_check(t).unwrap();
+    mem_type_check(t, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1756,7 +2012,7 @@ fn test_non_tuple_map_get_set() {
          (list      (get-entry u0)
                     (get-entry u1))
         ";
-    mem_type_check(t).unwrap();
+    mem_type_check(t, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1779,7 +2035,7 @@ fn test_non_tuple_map_kv_store() {
                 (map-delete kv-store key)
                 key))
    ";
-    mem_type_check(contract).unwrap();
+    mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1803,7 +2059,7 @@ fn test_explicit_tuple_map() {
                  key))
          ";
 
-    mem_type_check(contract).unwrap();
+    mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1831,7 +2087,7 @@ fn test_bound_tuple_map() {
                 key))
         ";
 
-    mem_type_check(contract).unwrap();
+    mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 }
 
 #[test]
@@ -1852,7 +2108,12 @@ fn test_fetch_entry_matching_type_signatures() {
             case
         );
 
-        mem_type_check(&contract_src).unwrap();
+        mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 }
 
@@ -1873,7 +2134,12 @@ fn test_fetch_entry_mismatching_type_signatures() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false,
@@ -1892,7 +2158,12 @@ fn test_fetch_entry_unbound_variables() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UndefinedVariable(_) => true,
             _ => false,
@@ -1917,7 +2188,12 @@ fn test_insert_entry_matching_type_signatures() {
                 ({}))",
             case
         );
-        mem_type_check(&contract_src).unwrap();
+        mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 }
 
@@ -1939,7 +2215,12 @@ fn test_insert_entry_mismatching_type_signatures() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false,
@@ -1961,7 +2242,12 @@ fn test_insert_entry_unbound_variables() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UndefinedVariable(_) => true,
             _ => false,
@@ -1986,7 +2272,12 @@ fn test_delete_entry_matching_type_signatures() {
                 ({}))",
             case
         );
-        mem_type_check(&contract_src).unwrap();
+        mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 }
 
@@ -2006,7 +2297,12 @@ fn test_delete_entry_mismatching_type_signatures() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false,
@@ -2025,7 +2321,12 @@ fn test_delete_entry_unbound_variables() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UndefinedVariable(_) => true,
             _ => false,
@@ -2052,7 +2353,12 @@ fn test_set_entry_matching_type_signatures() {
                 ({})))",
             case
         );
-        mem_type_check(&contract_src).unwrap();
+        mem_type_check(
+            &contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap();
     }
 }
 
@@ -2074,7 +2380,12 @@ fn test_set_entry_mismatching_type_signatures() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &&contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false,
@@ -2096,7 +2407,12 @@ fn test_set_entry_unbound_variables() {
                 ({}))",
             case
         );
-        let res = mem_type_check(&&contract_src).unwrap_err();
+        let res = mem_type_check(
+            &&contract_src,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UndefinedVariable(_) => true,
             _ => false,
@@ -2121,7 +2437,14 @@ fn test_string_ascii_fold() {
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 }
@@ -2174,7 +2497,14 @@ fn test_string_utf8_fold() {
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        let type_sig = mem_type_check(
+            good_test,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap()
+        .0
+        .unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 }
@@ -2215,7 +2545,12 @@ fn test_buff_negative_len() {
     let contract_src = "(define-private (func (x (buff -12))) (len x))
         (func 0x00)";
 
-    let res = mem_type_check(&contract_src).unwrap_err();
+    let res = mem_type_check(
+        &contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false,
@@ -2227,7 +2562,12 @@ fn test_string_ascii_negative_len() {
     let contract_src = "(define-private (func (x (string-ascii -12))) (len x))
         (func \"\")";
 
-    let res = mem_type_check(&contract_src).unwrap_err();
+    let res = mem_type_check(
+        &contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false,
@@ -2239,7 +2579,12 @@ fn test_string_utf8_negative_len() {
     let contract_src = "(define-private (func (x (string-utf8 -12))) (len x))
         (func u\"\")";
 
-    let res = mem_type_check(&contract_src).unwrap_err();
+    let res = mem_type_check(
+        &contract_src,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     assert!(match &res.err {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false,

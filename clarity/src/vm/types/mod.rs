@@ -1547,6 +1547,7 @@ mod test {
     fn test_constructors() {
         assert_eq!(
             Value::list_with_type(
+                &StacksEpochId::latest(),
                 vec![Value::Int(5), Value::Int(2)],
                 ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
             ),

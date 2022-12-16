@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{mem_type_check, AnalysisDatabase};
 use crate::vm::ast::parse;
@@ -21,6 +23,7 @@ use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
+use crate::vm::ClarityVersion;
 use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
@@ -109,14 +112,38 @@ fn test_names_tokens_contracts() {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract_id, ASSET_NAMES).unwrap();
+    let mut tokens_contract = parse(
+        &tokens_contract_id,
+        FIRST_CLASS_TOKENS,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
+    let mut names_contract = parse(
+        &names_contract_id,
+        ASSET_NAMES,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
-        type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
-        type_check(&names_contract_id, &mut names_contract, db, true)
+        type_check(
+            &tokens_contract_id,
+            &mut tokens_contract,
+            db,
+            true,
+            &ClarityVersion::Clarity1,
+        )?;
+        type_check(
+            &names_contract_id,
+            &mut names_contract,
+            db,
+            true,
+            &ClarityVersion::Clarity1,
+        )
     })
     .unwrap();
 }
@@ -211,7 +238,12 @@ fn test_bad_asset_usage() {
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
         let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
-        let actual_err = mem_type_check(&tokens_contract).unwrap_err();
+        let actual_err = mem_type_check(
+            &tokens_contract,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         println!("{}", script);
         assert_eq!(&actual_err.err, expected_err);
     }

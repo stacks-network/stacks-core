@@ -16,6 +16,7 @@
 
 use assert_json_diff;
 use serde_json;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::mem_type_check;
@@ -24,6 +25,7 @@ use crate::vm::analysis::{contract_interface_builder::build_contract_interface, 
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::ClarityVersion;
 use crate::vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
@@ -157,12 +159,19 @@ fn test_names_tokens_contracts_interface() {
         (define-read-only (ro-f02 (a1 int)) 0)
     ";
 
-    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
+    let contract_analysis = mem_type_check(
+        INTERFACE_TEST_CONTRACT,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap()
+    .1;
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
     let test_contract_json_expected: serde_json::Value = serde_json::from_str(r#"{
+        "clarity_version": "Clarity1",
         "functions": [
             { "name": "f00",
                 "access": "private",
@@ -385,14 +394,38 @@ fn test_names_tokens_contracts() {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES).unwrap();
+    let mut tokens_contract = parse(
+        &tokens_contract_id,
+        SIMPLE_TOKENS,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
+    let mut names_contract = parse(
+        &names_contract_id,
+        SIMPLE_NAMES,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
-        type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
-        type_check(&names_contract_id, &mut names_contract, db, true)
+        type_check(
+            &tokens_contract_id,
+            &mut tokens_contract,
+            db,
+            true,
+            &ClarityVersion::Clarity1,
+        )?;
+        type_check(
+            &names_contract_id,
+            &mut names_contract,
+            db,
+            true,
+            &ClarityVersion::Clarity1,
+        )
     })
     .unwrap();
 }
@@ -418,19 +451,45 @@ fn test_names_tokens_contracts_bad() {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
+    let mut tokens_contract = parse(
+        &tokens_contract_id,
+        SIMPLE_TOKENS,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
+    let mut names_contract = parse(
+        &names_contract_id,
+        &names_contract,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
         db.test_insert_contract_hash(&tokens_contract_id);
-        type_check(&tokens_contract_id, &mut tokens_contract, db, true)
+        type_check(
+            &tokens_contract_id,
+            &mut tokens_contract,
+            db,
+            true,
+            &ClarityVersion::Clarity1,
+        )
     })
     .unwrap();
 
     let err = db
-        .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
+        .execute(|db| {
+            type_check(
+                &names_contract_id,
+                &mut names_contract,
+                db,
+                true,
+                &ClarityVersion::Clarity1,
+            )
+        })
         .unwrap_err();
     assert!(match &err.err {
         &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
@@ -478,14 +537,22 @@ fn test_bad_map_usage() {
     ];
 
     for contract in tests.iter() {
-        let err = mem_type_check(contract).unwrap_err();
+        let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            .unwrap_err();
         assert!(match err.err {
             CheckErrors::TypeError(_, _) => true,
             _ => false,
         });
     }
 
-    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
+    assert!(match mem_type_check(
+        unhandled_option,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05
+    )
+    .unwrap_err()
+    .err
+    {
         // Bad arg to `+` causes a uniontype error
         CheckErrors::UnionTypeError(_, _) => true,
         _ => false,
@@ -502,14 +569,26 @@ fn test_same_function_name() {
     let contract_a = "(define-read-only (foo-function (a int))
            (contract-call? .contract-b foo-function a))";
 
-    let mut ca = parse(&ca_id, contract_a).unwrap();
-    let mut cb = parse(&cb_id, contract_b).unwrap();
+    let mut ca = parse(
+        &ca_id,
+        contract_a,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
+    let mut cb = parse(
+        &cb_id,
+        contract_b,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
-        type_check(&cb_id, &mut cb, db, true)?;
-        type_check(&ca_id, &mut ca, db, true)
+        type_check(&cb_id, &mut cb, db, true, &ClarityVersion::Clarity1)?;
+        type_check(&ca_id, &mut ca, db, true, &ClarityVersion::Clarity1)
     })
     .unwrap();
 }
@@ -571,10 +650,15 @@ fn test_expects() {
          (define-private (t2) (unwrap! (t1) 0))
     ";
 
-    mem_type_check(okay).unwrap();
+    mem_type_check(okay, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap();
 
     for unmatched_return_types in bad_return_types_tests.iter() {
-        let err = mem_type_check(unmatched_return_types).unwrap_err();
+        let err = mem_type_check(
+            unmatched_return_types,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )
+        .unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
         assert!(match &err.err {
             &CheckErrors::ReturnTypesMustMatch(_, _) => true,
@@ -582,21 +666,36 @@ fn test_expects() {
         })
     }
 
-    let err = mem_type_check(bad_default_type).unwrap_err();
+    let err = mem_type_check(
+        bad_default_type,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::DefaultTypesMustMatch(_, _) => true,
         _ => false,
     });
 
-    let err = mem_type_check(notype_response_type).unwrap_err();
+    let err = mem_type_check(
+        notype_response_type,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseErrType => true,
         _ => false,
     });
 
-    let err = mem_type_check(notype_response_type_2).unwrap_err();
+    let err = mem_type_check(
+        notype_response_type_2,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch2_05,
+    )
+    .unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseOkType => true,

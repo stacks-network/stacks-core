@@ -2906,7 +2906,7 @@ mod test {
             CHAIN_ID_TESTNET,
             conn,
             LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch2_05,
+            StacksEpochId::latest(),
         );
 
         global_context
@@ -2938,7 +2938,7 @@ mod test {
                     if let Some(expected) = expected {
                         assert_eq!(expected, result.as_ref().unwrap().to_string());
                         assert!(
-                            type_result.as_ref().unwrap().admits(result.as_ref().unwrap()).unwrap(),
+                            type_result.as_ref().unwrap().admits(&StacksEpochId::latest(), result.as_ref().unwrap()).unwrap(),
                             "Type checker's expected type must admit result. Expected type = {}. Result = {}",
                             type_result.as_ref().unwrap(),
                             result.as_ref().unwrap()

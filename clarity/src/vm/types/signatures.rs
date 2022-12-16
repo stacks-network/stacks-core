@@ -545,6 +545,8 @@ impl TypeSignature {
                 }
             }
             NoType => Err(CheckErrors::CouldNotDetermineType),
+            CallableType(_) => unreachable!("CallableType should not be used in epoch v2.0"),
+            ListUnionType(_) => unreachable!("ListUnionType should not be used in epoch v2.0"),
             _ => Ok(other == self),
         }
     }
