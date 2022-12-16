@@ -109,6 +109,19 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 
+/// Fault injection struct for various kinds of faults we'd like to introduce into the system
+pub struct StacksChainStateFaults {
+    // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
+    // Stacks block heights to never propagate or announce.
+    pub hide_blocks: bool,
+}
+
+impl StacksChainStateFaults {
+    pub fn new() -> Self {
+        Self { hide_blocks: false }
+    }
+}
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -119,6 +132,7 @@ pub struct StacksChainState {
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
     pub unconfirmed_state: Option<UnconfirmedState>,
+    pub fault_injection: StacksChainStateFaults,
     marf_opts: Option<MARFOpenOpts>,
 }
 
@@ -1717,6 +1731,7 @@ impl StacksChainState {
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
+            fault_injection: StacksChainStateFaults::new(),
             marf_opts: marf_opts,
         };
 
