@@ -408,6 +408,7 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "stdext",
  "stx-genesis",
  "time 0.2.27",
  "url",
@@ -2595,6 +2596,12 @@ checksum = "e113fb6f3de07a243d434a56ec6f186dfd51cb08448239fe7bcae73f87ff28ff"
 dependencies = [
  "version_check",
 ]
+
+[[package]]
+name = "stdext"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f3b6b32ae82412fb897ef134867d53a294f57ba5b758f06d71e865352c3e207"
 
 [[package]]
 name = "stdweb"

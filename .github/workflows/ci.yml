@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: "Execute core contract unit tests in Clarinet"
-        uses: docker://hirosystems/clarinet:latest
+        uses: docker://hirosystems/clarinet:1.1.0
         with:
           args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
       - name: "Export code coverage"

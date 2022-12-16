@@ -769,6 +769,8 @@ fn bitcoind_integration_test() {
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
+    conf.burnchain.max_rbf = 1000000;
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -1902,18 +1904,15 @@ fn bitcoind_forking_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
-
-    eprintln!("account after deep fork: {:?}", &account);
-    // N.B. rewards mature after 2 confirmations...
-    assert_eq!(account.balance, 1020400000);
-    assert_eq!(account.nonce, 4);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 3);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
     // but we're able to keep on mining
-    assert!(account.nonce > 4);
+    assert!(account.nonce >= 3);
 
     eprintln!("End of test");
     channel.stop_chains_coordinator();
