@@ -544,7 +544,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs::<()>(args, &mut ())
+        let mut args = parse_name_type_pairs::<()>(StacksEpochId::Epoch2_05, args, &mut ())
             .map_err(|_| CheckErrors::BadSyntaxBinding)?;
 
         if self.function_return_tracker.is_some() {
@@ -622,10 +622,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
 
-        let key_type = TypeSignature::parse_type_repr(key_type, &mut ())
+        let key_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch2_05, key_type, &mut ())
             .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
-        let value_type = TypeSignature::parse_type_repr(value_type, &mut ())
-            .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
+        let value_type =
+            TypeSignature::parse_type_repr(StacksEpochId::Epoch2_05, value_type, &mut ())
+                .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
 
         Ok((map_name.clone(), (key_type, value_type)))
     }
@@ -740,8 +741,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         initial: &SymbolicExpression,
         context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, TypeSignature)> {
-        let expected_type = TypeSignature::parse_type_repr::<()>(var_type, &mut ())
-            .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
+        let expected_type =
+            TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch2_05, var_type, &mut ())
+                .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
 
@@ -767,8 +769,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         nft_type: &SymbolicExpression,
         _context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, TypeSignature)> {
-        let asset_type = TypeSignature::parse_type_repr::<()>(&nft_type, &mut ())
-            .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
+        let asset_type =
+            TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch2_05, &nft_type, &mut ())
+                .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name.clone(), asset_type))
     }
@@ -782,6 +785,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             &function_types,
             &mut (),
+            StacksEpochId::Epoch2_05,
             crate::vm::ClarityVersion::Clarity1,
         )?;
 

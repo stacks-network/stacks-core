@@ -763,11 +763,12 @@ impl TupleTypeSignature {
     }
 
     pub fn parse_name_type_pair_list<A: CostTracker>(
+        epoch: StacksEpochId,
         type_def: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
-            let mapped_key_types = parse_name_type_pairs(name_type_pairs, accounting)?;
+            let mapped_key_types = parse_name_type_pairs(epoch, name_type_pairs, accounting)?;
             TupleTypeSignature::try_from(mapped_key_types)
         } else {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
@@ -1247,6 +1248,7 @@ impl TypeSignature {
     // Parses list type signatures ->
     // (list maximum-length atomic-type)
     fn parse_list_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
@@ -1256,7 +1258,7 @@ impl TypeSignature {
 
         if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {
             let atomic_type_arg = &type_args[type_args.len() - 1];
-            let entry_type = TypeSignature::parse_type_repr(atomic_type_arg, accounting)?;
+            let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len = u32::try_from(*max_len).map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
@@ -1267,10 +1269,11 @@ impl TypeSignature {
     // Parses type signatures of the following form:
     // (tuple (key-name-0 value-type-0) (key-name-1 value-type-1))
     fn parse_tuple_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
-        let mapped_key_types = parse_name_type_pairs(type_args, accounting)?;
+        let mapped_key_types = parse_name_type_pairs(epoch, type_args, accounting)?;
         let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
         Ok(TypeSignature::from(tuple_type_signature))
     }
@@ -1320,30 +1323,33 @@ impl TypeSignature {
     }
 
     fn parse_optional_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
-        let inner_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
+        let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
         Ok(TypeSignature::new_option(inner_type)?)
     }
 
     pub fn parse_response_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
-        let ok_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
-        let err_type = TypeSignature::parse_type_repr(&type_args[1], accounting)?;
+        let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
+        let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
         Ok(TypeSignature::new_response(ok_type, err_type)?)
     }
 
     pub fn parse_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TypeSignature> {
@@ -1360,17 +1366,27 @@ impl TypeSignature {
                     .ok_or(CheckErrors::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
-                        "list" => TypeSignature::parse_list_type_repr(rest, accounting),
+                        "list" => TypeSignature::parse_list_type_repr(epoch, rest, accounting),
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "string-utf8" => TypeSignature::parse_string_utf8_type_repr(rest),
                         "string-ascii" => TypeSignature::parse_string_ascii_type_repr(rest),
-                        "tuple" => TypeSignature::parse_tuple_type_repr(rest, accounting),
-                        "optional" => TypeSignature::parse_optional_type_repr(rest, accounting),
-                        "response" => TypeSignature::parse_response_type_repr(rest, accounting),
+                        "tuple" => TypeSignature::parse_tuple_type_repr(epoch, rest, accounting),
+                        "optional" => TypeSignature::parse_optional_type_repr(epoch, rest, accounting),
+                        "response" => TypeSignature::parse_response_type_repr(epoch, rest, accounting),
                         _ => Err(CheckErrors::InvalidTypeDescription),
                     }
                 } else {
                     Err(CheckErrors::InvalidTypeDescription)
+                }
+            }
+            SymbolicExpressionType::TraitReference(_, ref trait_definition) if epoch < StacksEpochId::Epoch21 => {
+                match trait_definition {
+                    TraitDefinition::Defined(trait_id) => {
+                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+                    }
+                    TraitDefinition::Imported(trait_id) => {
+                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+                    }
                 }
             }
             SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
@@ -1390,6 +1406,7 @@ impl TypeSignature {
     pub fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
+        epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
@@ -1416,12 +1433,12 @@ impl TypeSignature {
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
-                let arg_t = TypeSignature::parse_type_repr(&arg_type, accounting)?;
+                let arg_t = TypeSignature::parse_type_repr(epoch, &arg_type, accounting)?;
                 fn_args.push(arg_t);
             }
 
             // Extract function's type return - must be a response
-            let fn_return = match TypeSignature::parse_type_repr(&args[2], accounting) {
+            let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
                 Ok(response) => match response {
                     TypeSignature::ResponseType(_) => Ok(response),
                     _ => Err(CheckErrors::DefineTraitBadSignature),
@@ -1456,7 +1473,7 @@ impl TypeSignature {
             epoch,
         )
         .unwrap()[0];
-        TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
+        TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap()
     }
 }
 
@@ -1649,6 +1666,7 @@ use crate::vm::costs::CostTracker;
 use crate::vm::ClarityVersion;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
+    epoch: StacksEpochId,
     name_type_pairs: &[SymbolicExpression],
     accounting: &mut A,
 ) -> Result<Vec<(ClarityName, TypeSignature)>> {
@@ -1682,7 +1700,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
                 .match_atom()
                 .ok_or(CheckErrors::BadSyntaxExpectedListOfPairs)?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(type_symbol, accounting)?;
+            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)?;
             Ok((name, type_info))
         })
         .collect();
@@ -1803,7 +1821,7 @@ mod test {
             epoch,
         )
         .unwrap()[0];
-        TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
+        TypeSignature::parse_type_repr(StacksEpochId::latest(), expr, &mut ()).unwrap_err()
     }
 
     #[apply(test_clarity_versions_signatures)]
