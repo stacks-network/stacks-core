@@ -33,6 +33,7 @@ use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512_256};
 
+use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Address, PublicKey, Txid};
@@ -704,7 +705,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_pox_payouts";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_burn_header_hash_pox_valid";
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -728,6 +729,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash ON snapshots(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_parent_burn_header_hash ON snapshots(parent_burn_header_hash,burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
+    "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
 ];
 
 pub struct SortitionDB {
@@ -840,6 +842,18 @@ impl db_keys {
         "sortition_db::last_anchor_block"
     }
 
+    pub fn pox_last_anchor_txid() -> &'static str {
+        "sortition_db::last_anchor_block_txid"
+    }
+
+    pub fn pox_last_selected_anchor() -> &'static str {
+        "sortition_db::last_selected_anchor_block"
+    }
+
+    pub fn pox_last_selected_anchor_txid() -> &'static str {
+        "sortition_db::last_selected_anchor_block_txid"
+    }
+
     pub fn pox_reward_cycle_unlocks(cycle: u64) -> String {
         format!("sortition_db::reward_set_unlocks::{}", cycle)
     }
@@ -949,10 +963,18 @@ pub trait SortitionHandle {
         block_at_burn_height: u64,
         potential_ancestor: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let earliest_block_height = self.sqlite().query_row(
+        let earliest_block_height_opt = self.sqlite().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
             &[potential_ancestor],
-            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
+            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))
+            .optional()?;
+
+        let earliest_block_height = match earliest_block_height_opt {
+            Some(h) => h,
+            None => {
+                return Ok(false);
+            }
+        };
 
         let mut sn = self
             .get_block_snapshot_by_height(block_at_burn_height)?
@@ -1380,8 +1402,11 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         if let Some(next_pox_info) = next_pox_info {
-            if let PoxAnchorBlockStatus::SelectedAndKnown(ref anchor_block, ref reward_set) =
-                next_pox_info.anchor_status
+            if let PoxAnchorBlockStatus::SelectedAndKnown(
+                ref anchor_block,
+                ref _txid,
+                ref reward_set,
+            ) = next_pox_info.anchor_status
             {
                 if burnchain.is_in_prepare_phase(block_height) {
                     debug!(
@@ -1426,7 +1451,10 @@ impl<'a> SortitionHandleTx<'a> {
                         .collect(),
                 }))
             } else {
-                test_debug!("No anchor block known for this reward cycle");
+                test_debug!(
+                    "No anchor block known for this reward cycle (starting at {})",
+                    block_height
+                );
                 Ok(None)
             }
         } else {
@@ -1517,11 +1545,19 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(anchor_block_hash)
     }
 
+    pub fn get_last_anchor_block_txid(&mut self) -> Result<Option<Txid>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(
+            self.get_indexed(&chain_tip, &db_keys::pox_last_anchor_txid())?,
+        );
+        Ok(anchor_block_txid)
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
     /// stacks chain tip metadata on the burn chain tip.
-    // TODO: this method's inner call to get_indexed() occurs within a MARF transaction, which
+    // TODO: this method's inner call to get_indexed() can occur within a MARF transaction, which
     // means it will clone() the underlying TrieRAM.  Until this is rectified, care should be taken
     // to ensure that no keys are inserted until after this method is called.  This should already
     // be the case, since the only time keys are inserted into the sortition DB MARF is when the
@@ -1685,6 +1721,29 @@ impl<'a> SortitionHandleConn<'a> {
             self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor())?,
         );
         Ok(anchor_block_hash)
+    }
+
+    pub fn get_last_anchor_block_txid(&self) -> Result<Option<Txid>, db_error> {
+        let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(
+            self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor_txid())?,
+        );
+        Ok(anchor_block_txid)
+    }
+
+    pub fn get_last_selected_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
+        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(self.get_indexed(
+            &self.context.chain_tip,
+            &db_keys::pox_last_selected_anchor(),
+        )?);
+        Ok(anchor_block_hash)
+    }
+
+    pub fn get_last_selected_anchor_block_txid(&self) -> Result<Option<Txid>, db_error> {
+        let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(self.get_indexed(
+            &self.context.chain_tip,
+            &db_keys::pox_last_selected_anchor_txid(),
+        )?);
+        Ok(anchor_block_txid)
     }
 
     pub fn get_reward_cycle_unlocks(
@@ -2067,7 +2126,7 @@ impl<'a> SortitionHandleConn<'a> {
         burnchain_db_conn: Option<&DBConn>,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
         match burnchain_db_conn {
             Some(conn) => self.get_chosen_pox_anchor_v210(conn, prepare_end_bhh, pox_consts),
             None => self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts),
@@ -2088,7 +2147,7 @@ impl<'a> SortitionHandleConn<'a> {
         burnchain_db_conn: &DBConn,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
         let rc = match self.get_heights_for_prepare_phase_end_block(
             prepare_end_bhh,
             pox_consts,
@@ -2132,7 +2191,11 @@ impl<'a> SortitionHandleConn<'a> {
         // that miners confirmed it.  If the winning block hash doesn't even correspond to a Stacks
         // block, then the honest miners in the network will affirm that it's absent.
         let ch = anchor_sn.consensus_hash;
-        Ok(Some((ch, anchor_block_op.block_header_hash)))
+        Ok(Some((
+            ch,
+            anchor_block_op.block_header_hash,
+            anchor_block_op.txid,
+        )))
     }
 
     /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
@@ -2146,9 +2209,9 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
         match self.get_chosen_pox_anchor_check_position_v205(prepare_end_bhh, pox_consts, true) {
-            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Ok((c_hash, bh_hash, txid, _))) => Ok(Some((c_hash, bh_hash, txid))),
             Ok(Err(_)) => Ok(None),
             Err(e) => Err(e),
         }
@@ -2161,7 +2224,7 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
         check_position: bool,
-    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
+    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, Txid, u32), u32>, CoordinatorError> {
         let (effective_height, block_height) = match self.get_heights_for_prepare_phase_end_block(
             prepare_end_bhh,
             pox_consts,
@@ -2251,6 +2314,7 @@ impl<'a> SortitionHandleConn<'a> {
                         .replace((
                             sn.consensus_hash,
                             sn.winning_stacks_block_hash,
+                            sn.winning_block_txid,
                             confirmed_by
                         ))
                         .is_none(),
@@ -3228,38 +3292,103 @@ impl SortitionDB {
         .flatten()
     }
 
-    pub fn revalidate_snapshot(
+    fn parse_last_anchor_block_txid(s: Option<String>) -> Option<Txid> {
+        s.map(|s| {
+            if s == "" {
+                None
+            } else {
+                Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
+            }
+        })
+        .flatten()
+    }
+
+    /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
+    /// height and block-accepted flag.
+    pub fn revalidate_snapshot_with_block(
         tx: &SortitionDBTx,
         sortition_id: &SortitionId,
+        canonical_stacks_ch: &ConsensusHash,
+        canonical_stacks_bhh: &BlockHeaderHash,
+        canonical_stacks_height: u64,
+        clear_block_accepted: bool,
     ) -> Result<(), BurnchainError> {
-        tx.tx().execute(
-            "UPDATE snapshots SET pox_valid = 1 WHERE sortition_id = ?1",
-            &[sortition_id],
-        )?;
+        if clear_block_accepted {
+            let args: &[&dyn ToSql] = &[
+                sortition_id,
+                &u64_to_sql(canonical_stacks_height)?,
+                canonical_stacks_bhh,
+                canonical_stacks_ch,
+            ];
+            tx.tx().execute(
+                "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4, stacks_block_accepted = 0 WHERE sortition_id = ?1",
+                args
+            )?;
+        } else {
+            let args: &[&dyn ToSql] = &[
+                sortition_id,
+                &u64_to_sql(canonical_stacks_height)?,
+                canonical_stacks_bhh,
+                canonical_stacks_ch,
+            ];
+            tx.tx().execute(
+                "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4 WHERE sortition_id = ?1",
+                args
+            )?;
+        }
         Ok(())
     }
 
+    /// Invalidate all block snapshots that descend from the given burnchain block, and for each
+    /// invalidated snapshot, apply `cls` to it with the given sortition DB transaction, the
+    /// current burnchain block being considered, and the list of burnchain blocks still to be
+    /// considered.  That last argument will have length 0 on the last call to `cls`.
     pub fn invalidate_descendants_with_closure<F>(
         &mut self,
         burn_block: &BurnchainHeaderHash,
         mut cls: F,
     ) -> Result<(), BurnchainError>
     where
-        F: FnMut(&SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>) -> (),
+        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>) -> (),
     {
-        let db_tx = self.tx_begin()?;
+        let mut db_tx = self.tx_begin()?;
         let mut queue = vec![burn_block.clone()];
 
         while let Some(header) = queue.pop() {
-            let mut stmt = db_tx.prepare(
-                "SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?",
-            )?;
-            for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
-                queue.push(next_header?);
+            {
+                // scope this to keep the borrow-checker happy
+                let mut stmt = db_tx.prepare(
+                    "SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?",
+                )?;
+                for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
+                    queue.push(next_header?);
+                }
             }
-            cls(&db_tx, &header, &queue);
+            cls(&mut db_tx, &header, &queue);
+
+            debug!("Invalidate descendants of burn block {}", &header);
+
+            #[cfg(any(test, feature = "testing"))]
+            {
+                let to_invalidate: Vec<BlockSnapshot> = query_rows(
+                    &db_tx,
+                    "SELECT * FROM snapshots WHERE parent_burn_header_hash = ?1",
+                    &[&header],
+                )?;
+                for invalid in to_invalidate {
+                    debug!("Invalidate child of {}: {:?}", &header, &invalid);
+                }
+            }
+
             db_tx.tx().execute(
-                "UPDATE snapshots SET pox_valid = 0 WHERE parent_burn_header_hash = ?",
+                r#"UPDATE snapshots SET
+                pox_valid = 0,
+                arrival_index = 0,
+                canonical_stacks_tip_height = 0,
+                canonical_stacks_tip_hash = "0000000000000000000000000000000000000000000000000000000000000000",
+                canonical_stacks_tip_consensus_hash = "0000000000000000000000000000000000000000",
+                stacks_block_accepted = 0
+                WHERE parent_burn_header_hash = ?"#,
                 &[&header],
             )?;
         }
@@ -3273,6 +3402,17 @@ impl SortitionDB {
         burn_block: &BurnchainHeaderHash,
     ) -> Result<(), BurnchainError> {
         self.invalidate_descendants_with_closure(burn_block, |_tx, _bhh, _queue| {})
+    }
+
+    /// Find all sortition IDs with memoized canonical stacks block pointers that are higher than the
+    /// given height.  This is used to identify "dirty" but still valid snapshots whose memoized
+    /// pointers are no longer valid.
+    pub fn find_snapshots_with_dirty_canonical_block_pointers(
+        conn: &DBConn,
+        canonical_stacks_height: u64,
+    ) -> Result<Vec<SortitionId>, Error> {
+        let dirty_sortitions : Vec<SortitionId> = query_rows(conn, "SELECT sortition_id FROM snapshots WHERE canonical_stacks_tip_height > ?1 AND pox_valid = 1", &[&u64_to_sql(canonical_stacks_height)?])?;
+        Ok(dirty_sortitions)
     }
 
     /// Get the last sortition in the prepare phase that chose a particular Stacks block as the anchor,
@@ -3331,6 +3471,38 @@ impl SortitionDB {
         Ok(Some((snapshot, transition_ops)))
     }
 
+    /// Compute the next PoX ID
+    pub fn make_next_pox_id(parent_pox: PoxId, next_pox_info: Option<&RewardCycleInfo>) -> PoxId {
+        let mut next_pox = parent_pox;
+        if let Some(ref next_pox_info) = next_pox_info {
+            if next_pox_info.is_reward_info_known() {
+                info!(
+                    "Begin reward-cycle sortition with present anchor block={:?}",
+                    &next_pox_info.selected_anchor_block(),
+                );
+                next_pox.extend_with_present_block();
+            } else {
+                info!(
+                    "Begin reward-cycle sortition with absent anchor block={:?}",
+                    &next_pox_info.selected_anchor_block(),
+                );
+                next_pox.extend_with_not_present_block();
+            }
+        };
+        next_pox
+    }
+
+    /// Calculate the next sortition ID, given the PoX ID so far and the reward info
+    pub fn make_next_sortition_id(
+        parent_pox: PoxId,
+        this_block_hash: &BurnchainHeaderHash,
+        next_pox_info: Option<&RewardCycleInfo>,
+    ) -> SortitionId {
+        let next_pox = Self::make_next_pox_id(parent_pox, next_pox_info);
+        let next_sortition_id = SortitionId::new(this_block_hash, &next_pox);
+        next_sortition_id
+    }
+
     /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
     /// `burn_header`. Returns the new snapshot and burnchain state
     /// transition.
@@ -3374,13 +3546,20 @@ impl SortitionDB {
             })?;
 
         let parent_pox = sortition_db_handle.get_pox_id()?;
+        test_debug!(
+            "parent PoX ID of {:?} off of {} is {}",
+            &burn_header.parent_block_hash,
+            &from_tip,
+            &parent_pox
+        );
 
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info = if cur_epoch.epoch_id < StacksEpochId::Epoch21
-            && burn_header.block_height >= burnchain.pox_constants.sunset_end
+        let reward_set_info = if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(burn_header.block_height, cur_epoch.epoch_id)
         {
             test_debug!(
                 "No recipients for burn height {}: epoch = {}, sunset_end = {}",
@@ -3597,6 +3776,14 @@ impl SortitionDB {
         query_row(conn, qry, NO_PARAMS)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
+    
+    /// Get the highest burn chain tip even if it's not PoX-valid.
+    /// Break ties deterministically by ordering on burnchain block hash.
+    pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+        let qry = "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
+            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+    }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
@@ -3618,6 +3805,81 @@ impl SortitionDB {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
+    }
+
+    /// Find the affirmation map represented by a given sortition ID.
+    pub fn find_sortition_tip_affirmation_map(
+        burnchain_db: &BurnchainDB,
+        sortition_db: &SortitionDB,
+        tip_id: &SortitionId,
+    ) -> Result<AffirmationMap, db_error> {
+        let tip = SortitionDB::get_block_snapshot(sortition_db.conn(), tip_id)?
+            .ok_or(db_error::NotFoundError)?;
+        let cur_reward_cycle = sortition_db
+            .pox_constants
+            .block_height_to_reward_cycle(sortition_db.first_block_height, tip.block_height)
+            .expect("FATAL: tip precedes system start height");
+
+        let ih = sortition_db.index_handle(tip_id);
+        let last_anchor_txid_opt = ih.get_last_selected_anchor_block_txid()?;
+        let am = if let Some(last_anchor_txid) = last_anchor_txid_opt {
+            let commit = BurnchainDB::get_block_commit(burnchain_db.conn(), &last_anchor_txid)?
+                .expect(&format!(
+                    "FATAL: no block-commit for last anchor txid {}",
+                    &last_anchor_txid
+                ));
+
+            let commit_metadata = BurnchainDB::get_commit_metadata(
+                burnchain_db.conn(),
+                &commit.burn_header_hash,
+                &last_anchor_txid,
+            )?
+            .expect(&format!(
+                "FATAL: no block-commit metadata for block-commit txid {}",
+                &last_anchor_txid
+            ));
+
+            let mut am = BurnchainDB::get_affirmation_map(
+                burnchain_db.conn(),
+                commit_metadata.affirmation_id,
+            )?
+            .expect(&format!(
+                "FATAL: no affirmation map for stored block-commit {} (am ID {})",
+                &last_anchor_txid, commit_metadata.affirmation_id
+            ));
+
+            if am.len() == 0 {
+                for _ in 0..cur_reward_cycle {
+                    am.push(AffirmationMapEntry::Nothing);
+                }
+            }
+
+            let commit_sn = ih
+                .get_block_snapshot_by_height(commit.block_height as u64)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+
+            if commit_sn.stacks_block_accepted {
+                debug!(
+                    "Last-selected anchor block {}/{} is processed",
+                    &commit_sn.consensus_hash, &commit.block_header_hash
+                );
+                am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
+            } else {
+                debug!(
+                    "Last-selected anchor block {}/{} is not processed",
+                    &commit_sn.consensus_hash, &commit.block_header_hash
+                );
+                am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
+            }
+            am
+        } else {
+            let mut am = AffirmationMap::empty();
+            for _ in 0..cur_reward_cycle {
+                am.push(AffirmationMapEntry::Nothing);
+            }
+            am
+        };
+        Ok(am)
     }
 
     /// Get the list of Stack-STX operations processed in a given burnchain block.
@@ -4401,7 +4663,7 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    fn get_pox_id(&mut self) -> Result<PoxId, db_error> {
+    pub fn get_pox_id(&mut self) -> Result<PoxId, db_error> {
         let chain_tip = self.context.chain_tip.clone();
         let pox_id = self
             .get_indexed(&chain_tip, db_keys::pox_identifier())?
@@ -4613,11 +4875,13 @@ impl<'a> SortitionHandleTx<'a> {
         let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
 
         debug!(
-            "Parent sortition of {},{},{} is {}",
+            "Parent sortition of {},{},{} is {} (parent at {},{})",
             &block_commit.txid,
             block_commit.block_height,
             block_commit.vtxindex,
-            &parent_sortition_id
+            &parent_sortition_id,
+            block_commit.parent_block_ptr,
+            block_commit.parent_vtxindex
         );
         let res = self.execute("INSERT INTO block_commit_parents (block_commit_sortition_id, block_commit_txid, parent_sortition_id) VALUES (?1, ?2, ?3)", parent_args);
 
@@ -4709,6 +4973,19 @@ impl<'a> SortitionHandleTx<'a> {
             snapshot.parent_burn_header_hash,
             snapshot.num_sortitions
         );
+
+        // there had better not be any other valid snapshots for this block
+        if snapshot.pox_valid {
+            let all_valid_sortitions: Vec<i64> = query_rows(
+                self,
+                "SELECT 1 FROM snapshots WHERE burn_header_hash = ?1 AND pox_valid = 1 LIMIT 1",
+                &[&snapshot.burn_header_hash],
+            )?;
+            if all_valid_sortitions.len() > 0 {
+                error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
+                panic!();
+            }
+        }
 
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(snapshot.block_height)?,
@@ -4887,16 +5164,39 @@ impl<'a> SortitionHandleTx<'a> {
                 } else {
                     pox_id.extend_with_not_present_block();
                 }
-                // if we have selected an anchor block, write that info
-                if let Some(ref anchor_block) = reward_info.selected_anchor_block() {
+                // if we have selected an anchor block (known or unknown), write that info
+                if let Some((ref anchor_block, ref anchor_block_txid)) =
+                    reward_info.selected_anchor_block()
+                {
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
 
                     keys.push(db_keys::pox_last_anchor().to_string());
                     values.push(anchor_block.to_hex());
+
+                    keys.push(db_keys::pox_last_anchor_txid().to_string());
+                    values.push(anchor_block_txid.to_hex());
+
+                    keys.push(db_keys::pox_last_selected_anchor().to_string());
+                    values.push(anchor_block.to_hex());
+
+                    keys.push(db_keys::pox_last_selected_anchor_txid().to_string());
+                    values.push(anchor_block_txid.to_hex());
+                    debug!(
+                        "Known anchor block {} txid {} at reward cycle starting at burn height {}",
+                        anchor_block, anchor_block_txid, snapshot.block_height
+                    );
                 } else {
                     keys.push(db_keys::pox_last_anchor().to_string());
                     values.push("".to_string());
+
+                    keys.push(db_keys::pox_last_anchor_txid().to_string());
+                    values.push("".to_string());
+
+                    debug!(
+                        "No anchor block at reward cycle starting at burn height {}",
+                        snapshot.block_height
+                    );
                 }
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
@@ -5037,6 +5337,12 @@ impl<'a> SortitionHandleTx<'a> {
             values.push(db_keys::reward_set_size_to_string(0));
             keys.push(db_keys::pox_last_anchor().to_string());
             values.push("".to_string());
+            keys.push(db_keys::pox_last_anchor_txid().to_string());
+            values.push("".to_string());
+            keys.push(db_keys::pox_last_selected_anchor().to_string());
+            values.push("".to_string());
+            keys.push(db_keys::pox_last_selected_anchor_txid().to_string());
+            values.push("".to_string());
 
             // no payouts
             vec![]
@@ -5102,12 +5408,17 @@ impl<'a> SortitionHandleTx<'a> {
                     continue;
                 }
             };
+            if !arrival_sn.pox_valid {
+                continue;
+            }
 
             // must be an ancestor of this tip, or must be this tip
             if let Some(sn) =
                 self.get_block_snapshot(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)?
             {
-                assert_eq!(sn, arrival_sn);
+                if !sn.pox_valid || sn != arrival_sn {
+                    continue;
+                }
 
                 debug!(
                     "New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}",
@@ -5206,6 +5517,9 @@ pub mod tests {
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
+
+    use crate::burnchains::affirmation::AffirmationMap;
+    use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
 
     use super::*;
 
@@ -8839,8 +9153,6 @@ pub mod tests {
 
     #[test]
     fn test_get_chosen_pox_anchor() {
-        use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
-
         let path_root = "/tmp/test_get_chosen_pox_anchor";
         if fs::metadata(path_root).is_ok() {
             fs::remove_dir_all(path_root).unwrap();
@@ -8931,14 +9243,16 @@ pub mod tests {
                 anchor_2_05,
                 (
                     expected_anchor_ch.clone(),
-                    commits[6][0].as_ref().unwrap().block_header_hash.clone()
+                    commits[6][0].as_ref().unwrap().block_header_hash.clone(),
+                    commits[6][0].as_ref().unwrap().txid.clone(),
                 )
             );
             assert_eq!(
                 anchor_2_1,
                 (
                     expected_anchor_ch,
-                    commits[6][1].as_ref().unwrap().block_header_hash.clone()
+                    commits[6][1].as_ref().unwrap().block_header_hash.clone(),
+                    commits[6][1].as_ref().unwrap().txid.clone(),
                 )
             );
         }
