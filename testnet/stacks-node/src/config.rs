@@ -664,7 +664,17 @@ impl Config {
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
-                    always_use_affirmation_maps: node.always_use_affirmation_maps.unwrap_or(false),
+                    always_use_affirmation_maps: node
+                        .always_use_affirmation_maps
+                        .unwrap_or(default_node_config.always_use_affirmation_maps),
+                    // miners should always try to mine, even if they don't have the anchored
+                    // blocks in the canonical affirmation map. Followers, however, can stall.
+                    require_affirmed_anchor_blocks: node
+                        .require_affirmed_anchor_blocks
+                        .unwrap_or(!node.miner.unwrap_or(!default_node_config.miner)),
+                    // chainstate fault_injection activation for hide_blocks.
+                    // you can't set this in the config file.
+                    fault_injection_hide_blocks: false,
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1438,6 +1448,10 @@ pub struct NodeConfig {
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
+    pub require_affirmed_anchor_blocks: bool,
+    // fault injection for hiding blocks.
+    // not part of the config file.
+    pub fault_injection_hide_blocks: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1713,6 +1727,8 @@ impl NodeConfig {
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: false,
+            require_affirmed_anchor_blocks: true,
+            fault_injection_hide_blocks: false,
         }
     }
 
@@ -1913,6 +1929,7 @@ pub struct NodeConfigFile {
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
+    pub require_affirmed_anchor_blocks: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Debug)]

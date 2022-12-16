@@ -269,7 +269,7 @@ pub fn new_test_conf() -> Config {
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
     conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
-    conf.node.data_url = format!("https://{}:{}", localhost, rpc_port);
+    conf.node.data_url = format!("http://{}:{}", localhost, rpc_port);
     conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
     conf
 }

@@ -575,6 +575,60 @@ fn fault_injection_long_tenure() {
 #[cfg(not(test))]
 fn fault_injection_long_tenure() {}
 
+/// Fault injection to skip mining in this bitcoin block height
+/// Only used in testing
+#[cfg(test)]
+fn fault_injection_skip_mining(rpc_bind: &str, target_burn_height: u64) -> bool {
+    match std::env::var("STACKS_DISABLE_MINER") {
+        Ok(disable_heights) => {
+            let disable_schedule: serde_json::Value =
+                serde_json::from_str(&disable_heights).unwrap();
+            let disable_schedule = disable_schedule.as_array().unwrap();
+            for disabled in disable_schedule {
+                let target_miner_rpc_bind = disabled
+                    .get("rpc_bind")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                if target_miner_rpc_bind != rpc_bind {
+                    continue;
+                }
+                let target_block_heights = disabled.get("blocks").unwrap().as_array().unwrap();
+                for target_block_value in target_block_heights {
+                    let target_block = target_block_value.as_i64().unwrap() as u64;
+                    if target_block == target_burn_height {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        Err(_) => {
+            return false;
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: u64) -> bool {
+    false
+}
+
+/// Open the chainstate, and inject faults from the config file
+fn open_chainstate_with_faults(config: &Config) -> Result<StacksChainState, ChainstateError> {
+    let stacks_chainstate_path = config.get_chainstate_path_str();
+    let (mut chainstate, _) = StacksChainState::open(
+        config.is_mainnet(),
+        config.burnchain.chain_id,
+        &stacks_chainstate_path,
+        Some(config.node.get_marf_opts()),
+    )?;
+
+    chainstate.fault_injection.hide_blocks = config.node.fault_injection_hide_blocks;
+    Ok(chainstate)
+}
+
 /// Types of errors that can arise during mining
 enum Error {
     /// Can't find the header record for the chain tip
@@ -782,20 +836,15 @@ impl MicroblockMinerThread {
             })
             .ok()?;
 
-        let (mut chainstate, _) = StacksChainState::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &stacks_chainstate_path,
-            Some(config.node.get_marf_opts()),
-        )
-        .map_err(|e| {
-            error!(
-                "Relayer: Could not open chainstate '{}' ({:?}); skipping microblock tenure",
-                &stacks_chainstate_path, &e
-            );
-            e
-        })
-        .ok()?;
+        let mut chainstate = open_chainstate_with_faults(&config)
+            .map_err(|e| {
+                error!(
+                    "Relayer: Could not open chainstate '{}' ({:?}); skipping microblock tenure",
+                    &stacks_chainstate_path, &e
+                );
+                e
+            })
+            .ok()?;
 
         let mempool = MemPoolDB::open(
             config.is_mainnet(),
@@ -1158,6 +1207,7 @@ impl MicroblockMinerThread {
         &mut self,
         cur_tip: MinerTip,
     ) -> Result<Option<(StacksMicroblock, ExecutionCost)>, NetError> {
+        debug!("microblock miner thread ID is {:?}", thread::current().id());
         self.with_chainstate(|mblock_miner, sortdb, chainstate, mempool| {
             mblock_miner.inner_try_mine_microblock(cur_tip, sortdb, chainstate, mempool)
         })
@@ -1700,11 +1750,63 @@ impl BlockMinerThread {
         Some(op)
     }
 
+    /// Are there enough unprocessed blocks that we shouldn't mine?
+    fn unprocessed_blocks_prevent_mining(
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> bool {
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: could not query canonical sortition DB tip");
+
+        if let Some(stacks_tip) = chainstate
+            .get_stacks_chain_tip(sortdb)
+            .expect("FATAL: could not query canonical Stacks chain tip")
+        {
+            let has_unprocessed =
+                StacksChainState::has_higher_unprocessed_blocks(chainstate.db(), stacks_tip.height)
+                    .expect("FATAL: failed to query staging blocks");
+            if has_unprocessed {
+                let highest_unprocessed_opt =
+                    StacksChainState::get_highest_unprocessed_block(chainstate.db())
+                        .expect("FATAL: failed to query staging blocks");
+
+                if let Some(highest_unprocessed) = highest_unprocessed_opt {
+                    let highest_unprocessed_block_sn_opt =
+                        SortitionDB::get_block_snapshot_consensus(
+                            sortdb.conn(),
+                            &highest_unprocessed.consensus_hash,
+                        )
+                        .expect("FATAL: could not query sortition DB");
+
+                    // NOTE: this could be None if it's not part of the canonical PoX fork any
+                    // longer
+                    if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
+                        if stacks_tip.height + (burnchain.pox_constants.prepare_length as u64) - 1
+                            >= highest_unprocessed.height
+                            && highest_unprocessed_block_sn.block_height
+                                + (burnchain.pox_constants.prepare_length as u64)
+                                - 1
+                                >= sort_tip.block_height
+                        {
+                            // we're close enough to the chain tip that it's a bad idea for us to mine
+                            // -- we'll likely create an orphan
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        // we can mine
+        return false;
+    }
+
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {
+        debug!("block miner thread ID is {:?}", thread::current().id());
         fault_injection_long_tenure();
 
         let burn_db_path = self.config.get_burn_db_file_path();
@@ -1730,13 +1832,8 @@ impl BlockMinerThread {
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
 
-        let (mut chain_state, _) = StacksChainState::open(
-            self.config.is_mainnet(),
-            self.config.burnchain.chain_id,
-            &stacks_chainstate_path,
-            Some(self.config.node.get_marf_opts()),
-        )
-        .expect("FATAL: could not open chainstate DB");
+        let mut chain_state =
+            open_chainstate_with_faults(&self.config).expect("FATAL: could not open chainstate DB");
 
         let mut mem_pool = MemPoolDB::open(
             self.config.is_mainnet(),
@@ -1907,11 +2004,9 @@ impl BlockMinerThread {
                 .lock()
                 .expect("FATAL: mutex poisoned")
                 .is_blocked();
-            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
-                chain_state.db(),
-                stacks_tip.height,
-            )
-            .expect("FATAL: failed to query staging blocks");
+
+            let has_unprocessed =
+                Self::unprocessed_blocks_prevent_mining(&self.burnchain, &burn_db, &chain_state);
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
@@ -2002,13 +2097,8 @@ impl RelayerThread {
         let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
             .expect("FATAL: failed to open burnchain DB");
 
-        let (chainstate, _) = StacksChainState::open(
-            is_mainnet,
-            chain_id,
-            &stacks_chainstate_path,
-            Some(config.node.get_marf_opts()),
-        )
-        .expect("FATAL: failed to open chainstate DB");
+        let chainstate =
+            open_chainstate_with_faults(&config).expect("FATAL: failed to open chainstate DB");
 
         let cost_estimator = config
             .make_cost_estimator()
@@ -2486,7 +2576,12 @@ impl RelayerThread {
                 let height = mined_block.header.total_work.work;
 
                 let mut broadcast = true;
-                if Relayer::fault_injection_is_block_hidden(&mined_block.header) {
+                if self.chainstate_ref().fault_injection.hide_blocks
+                    && Relayer::fault_injection_is_block_hidden(
+                        &mined_block.header,
+                        snapshot.block_height,
+                    )
+                {
                     broadcast = false;
                 }
                 if broadcast {
@@ -2538,6 +2633,7 @@ impl RelayerThread {
         block_header_hash: BlockHeaderHash,
     ) -> bool {
         let mut miner_tip = None;
+        let mut num_sortitions = 0;
 
         // process all sortitions between the last-processed consensus hash and this
         // one.  ProcessTenure(..) messages can get lost.
@@ -2557,6 +2653,7 @@ impl RelayerThread {
                 burn_tip.block_height + 1
             );
             for block_to_process in (last_sn.block_height + 1)..(burn_tip.block_height + 1) {
+                num_sortitions += 1;
                 let sn = {
                     let ic = self.sortdb_ref().index_conn();
                     SortitionDB::get_ancestor_snapshot(
@@ -2600,6 +2697,10 @@ impl RelayerThread {
         let num_tenures = tenures.len();
         if num_tenures > 0 {
             // temporarily halt mining
+            debug!(
+                "Relayer: block mining to process {} tenures",
+                &tenures.len()
+            );
             signal_mining_blocked(self.globals.get_miner_status());
         }
 
@@ -2674,7 +2775,7 @@ impl RelayerThread {
         self.setup_microblock_mining_state(miner_tip);
 
         // resume mining if we blocked it
-        if num_tenures > 0 {
+        if num_tenures > 0 || num_sortitions > 0 {
             if self.miner_tip.is_some() {
                 // we won the highest tenure
                 if self.config.node.mine_microblocks {
@@ -2829,6 +2930,14 @@ impl RelayerThread {
             return None;
         }
 
+        if fault_injection_skip_mining(&self.config.node.rpc_bind, last_burn_block.block_height) {
+            debug!(
+                "Relayer: fault injection skip mining at block height {}",
+                last_burn_block.block_height
+            );
+            return None;
+        }
+
         // start a new tenure
         if let Some(cur_sortition) = self.globals.get_last_sortition() {
             if last_burn_block.sortition_id != cur_sortition.sortition_id {
@@ -2856,23 +2965,18 @@ impl RelayerThread {
             return None;
         }
 
-        if let Some(stacks_tip) = self
-            .chainstate_ref()
-            .get_stacks_chain_tip(self.sortdb_ref())
-            .expect("FATAL: could not query chain tip")
-        {
-            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
-                self.chainstate_ref().db(),
-                stacks_tip.height,
-            )
-            .expect("FATAL: failed to query staging blocks");
-            if has_unprocessed {
-                debug!(
-                    "Relayer: Drop RunTenure for {} because there are pending blocks",
-                    &burn_header_hash
-                );
-                return None;
-            }
+        let has_unprocessed = BlockMinerThread::unprocessed_blocks_prevent_mining(
+            &self.burnchain,
+            self.sortdb_ref(),
+            self.chainstate_ref(),
+        );
+        if has_unprocessed {
+            debug!(
+                "Relayer: Drop RunTenure for {} because there are fewer than {} pending blocks",
+                &burn_header_hash,
+                self.burnchain.pox_constants.prepare_length - 1
+            );
+            return None;
         }
 
         if burn_chain_sn.block_height != self.last_network_block_height
@@ -3463,17 +3567,12 @@ impl PeerThread {
         let config = runloop.config().clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
-        let stacks_chainstate_path = config.get_chainstate_path_str();
 
         let sortdb = SortitionDB::open(&burn_db_path, false, runloop.get_burnchain().pox_constants)
             .expect("FATAL: could not open sortition DB");
-        let (chainstate, _) = StacksChainState::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &stacks_chainstate_path,
-            Some(config.node.get_marf_opts()),
-        )
-        .expect("FATAL: could not open chainstate DB");
+
+        let chainstate =
+            open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
 
         let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
             "Failed to parse socket: {}",
@@ -3954,6 +4053,7 @@ impl StacksNode {
             let _jh = thread::Builder::new()
                 .name("dns-resolver".to_string())
                 .spawn(move || {
+                    debug!("DNS resolver thread ID is {:?}", thread::current().id());
                     dns_resolver.thread_main();
                 })
                 .unwrap();
@@ -4066,6 +4166,7 @@ impl StacksNode {
             .name(format!("relayer-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
+                debug!("relayer thread ID is {:?}", thread::current().id());
                 Self::relayer_main(relayer_thread, relay_recv);
             })
             .expect("FATAL: failed to start relayer thread");
@@ -4079,6 +4180,7 @@ impl StacksNode {
                 &config.node.p2p_bind, &config.node.rpc_bind
             ))
             .spawn(move || {
+                debug!("p2p thread ID is {:?}", thread::current().id());
                 Self::p2p_main(p2p_thread, p2p_event_dispatcher);
             })
             .expect("FATAL: failed to start p2p thread");
