@@ -2342,8 +2342,6 @@ fn test_pox_reorgs_three_flaps() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
-
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnpp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2373,7 +2371,6 @@ fn test_pox_reorgs_three_flaps() {
         // miner 1's history overtakes miner 0's.
         // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
         // 23 and affirmed cycle 22's anchor block's absence.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppa").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2403,7 +2400,6 @@ fn test_pox_reorgs_three_flaps() {
         // miner 1's history continues to overtake miner 0's.
         // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
         // 23 and cycle 24 which both affirm cycle 22's anchor block's absence.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppap").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2431,7 +2427,6 @@ fn test_pox_reorgs_three_flaps() {
         info!("Tip for miner {}: {:?}", i, &tip_info);
 
         // miner 0 may have won here, but its affirmation map isn't yet the heaviest.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppap").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2459,7 +2454,6 @@ fn test_pox_reorgs_three_flaps() {
         info!("Tip for miner {}: {:?}", i, &tip_info);
 
         // miner 0's affirmation map now becomes the heaviest.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppaaap").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2488,7 +2482,6 @@ fn test_pox_reorgs_three_flaps() {
         info!("Tip for miner {}: {:?}", i, &tip_info);
 
         // miner 0's affirmation map is now the heaviest, and there's no longer a tie.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppaaapp").unwrap());
         max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
     }
     info!("####################### end of cycle ##############################");
@@ -2513,12 +2506,45 @@ fn test_pox_reorgs_three_flaps() {
     );
     loop {
         let mut straggler = false;
+        let mut stacker_am = None;
+        let mut heaviest_am = None;
+        let mut sortition_am = None;
+
         for (i, c) in confs.iter().enumerate() {
             let tip_info = get_chain_info(&c);
             info!("Tip for miner {}: {:?}", i, &tip_info);
 
             if tip_info.stacks_tip_height < max_stacks_tip {
                 straggler = true;
+            }
+
+            let affirmations = tip_info.affirmations.unwrap();
+
+            if let Some(stacker_am) = stacker_am.as_ref() {
+                if affirmations.stacks_tip != *stacker_am {
+                    straggler = true;
+                }
+            } else {
+                stacker_am = Some(affirmations.stacks_tip);
+            }
+            if let Some(heaviest_am) = heaviest_am.as_ref() {
+                if affirmations.heaviest != *heaviest_am {
+                    straggler = true;
+                }
+            } else {
+                heaviest_am = Some(affirmations.heaviest);
+            }
+            // sortition affirmation map can differ by the last affirmation
+            if let Some(sortition_am) = sortition_am.as_ref() {
+                let mut tip_sort_am = affirmations.sortition_tip.clone();
+                tip_sort_am.pop();
+                if tip_sort_am != *sortition_am {
+                    straggler = true;
+                }
+            } else {
+                let mut tip_sort_am = affirmations.sortition_tip.clone();
+                tip_sort_am.pop();
+                sortition_am = Some(tip_sort_am);
             }
         }
         if !straggler {
@@ -2527,11 +2553,10 @@ fn test_pox_reorgs_three_flaps() {
         sleep_ms(block_time_ms);
     }
 
-    // nodes now agree on stacks affirmation map
+    // nodes now agree on affirmation maps
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Final tip for miner {}: {:?}", i, &tip_info);
-        // assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppaaapp").unwrap());
     }
 }
 
@@ -2866,8 +2891,6 @@ fn test_pox_reorg_one_flap() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
-
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2899,8 +2922,6 @@ fn test_pox_reorg_one_flap() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
-
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnpp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2974,7 +2995,6 @@ fn test_pox_reorg_one_flap() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Final tip for miner {}: {:?}", i, &tip_info);
-        // assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppa").unwrap());
     }
 }
 
