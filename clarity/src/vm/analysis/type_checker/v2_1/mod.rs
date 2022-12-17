@@ -1152,7 +1152,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
         {
             let typed_function = TypedNativeFunction::type_native_function(native_function);
-            Some(typed_function.type_check_appliction(self, args, context))
+            Some(typed_function.type_check_application(self, args, context))
         } else {
             None
         }

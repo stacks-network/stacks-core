@@ -668,7 +668,7 @@ fn check_get_burn_block_info(
 }
 
 impl TypedNativeFunction {
-    pub fn type_check_appliction(
+    pub fn type_check_application(
         &self,
         checker: &mut TypeChecker,
         args: &[SymbolicExpression],
