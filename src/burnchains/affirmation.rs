@@ -429,6 +429,22 @@ impl AffirmationMap {
         None
     }
 
+    /// Is `other` a prefix of `self`?
+    /// Returns true if so; false if not
+    pub fn has_prefix(&self, prefix: &AffirmationMap) -> bool {
+        if self.len() < prefix.len() {
+            return false;
+        }
+
+        for i in 0..prefix.len() {
+            if self.affirmations[i] != prefix.affirmations[i] {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// What is the PoX ID if this affirmation map?
     /// This is a surjective mapping: `n` and `p` are 1, and `a` is 0
     pub fn as_pox_id(&self) -> PoxId {
