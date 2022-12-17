@@ -23,8 +23,7 @@ use crate::vm::functions::tuples;
 
 use super::check_special_tuple_cons;
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, CheckError, CheckErrors, TypeChecker, TypeResult,
-    TypingContext,
+    check_arguments_at_least, CheckError, CheckErrors, TypeChecker, TypeResult, TypingContext,
 };
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;

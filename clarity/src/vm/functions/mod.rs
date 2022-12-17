@@ -578,7 +578,8 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            arg_type = TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
+            arg_type =
+                TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false));
             }
