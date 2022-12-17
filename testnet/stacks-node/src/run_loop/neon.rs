@@ -648,6 +648,26 @@ impl RunLoop {
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
+
+        let highest_sn = SortitionDB::get_highest_known_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: could not read sortition DB");
+
+        let canonical_burnchain_tip = burnchain_db
+            .get_canonical_chain_tip()
+            .expect("FATAL: could not read burnchain DB");
+
+        let sortition_tip_affirmation_map = match SortitionDB::find_sortition_tip_affirmation_map(
+            &burnchain_db,
+            sortdb,
+            &sn.sortition_id,
+        ) {
+            Ok(am) => am,
+            Err(e) => {
+                warn!("Failed to find sortition affirmation map: {:?}", &e);
+                return;
+            }
+        };
+
         let stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
             &burnchain_db,
             sortdb.conn(),
@@ -661,7 +681,36 @@ impl RunLoop {
                 .find_divergence(&heaviest_affirmation_map)
                 .is_some()
         {
-            debug!("Drive stacks block processing if there's a PoX reorg");
+            // the sortition affirmation map might also be inconsistent, so we'll need to fix that
+            // (i.e. the underlying sortitions) before we can fix the stacks fork
+            if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
+                || sortition_tip_affirmation_map
+                    .find_divergence(&heaviest_affirmation_map)
+                    .is_some()
+            {
+                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map);
+                globals.coord().announce_new_burn_block();
+            } else if highest_sn.block_height == sn.block_height
+                && sn.block_height == canonical_burnchain_tip.block_height
+            {
+                // need to force an affirmation reorg because there will be no more burn block
+                // announcements.
+                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, burn height {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height);
+                globals.coord().announce_new_burn_block();
+            }
+
+            debug!(
+                "Drive stacks block processing: possible PoX reorg (stacks tip: {}, heaviest: {})",
+                &stacks_tip_affirmation_map, &heaviest_affirmation_map
+            );
+            globals.coord().announce_new_stacks_block();
+        } else {
+            debug!(
+                "Drive stacks block processing: no need (stacks tip: {}, heaviest: {})",
+                &stacks_tip_affirmation_map, &heaviest_affirmation_map
+            );
+
+            // do it anyway since it's harmless
             globals.coord().announce_new_stacks_block();
         }
 
@@ -709,7 +758,7 @@ impl RunLoop {
             );
             return;
         }
-        
+
         // NOTE: this could be lower than the highest_sn
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
@@ -741,9 +790,18 @@ impl RunLoop {
             || sortition_tip_affirmation_map
                 .find_divergence(&heaviest_affirmation_map)
                 .is_some()
+            || sn.block_height < highest_sn.block_height
         {
-            debug!("Drive burn block processing if there's a PoX reorg");
-            globals.coord().announce_new_stacks_block();
+            debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, {} <? {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height, highest_sn.block_height);
+            globals.coord().announce_new_burn_block();
+        } else {
+            debug!(
+                "Drive burn block processing: no need (sortition tip: {}, heaviest: {}, {} </ {})",
+                &sortition_tip_affirmation_map,
+                &heaviest_affirmation_map,
+                sn.block_height,
+                highest_sn.block_height
+            );
         }
 
         self.last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
@@ -896,6 +954,9 @@ impl RunLoop {
                     break;
                 }
 
+                self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
+                self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
+
                 let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(burnchain_height + 1)) {
                         Ok(x) => x,
@@ -990,15 +1051,15 @@ impl RunLoop {
                 }
             }
 
+            self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
+            self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
+
             target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
                 burnchain_config
                     .block_height_to_reward_cycle(burnchain_height)
                     .expect("BUG: block height is not in a reward cycle")
                     + 1,
             );
-
-            self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
-            self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
 
             if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
