@@ -179,8 +179,14 @@ impl DefinedFunction {
             // Clarity 1 behavior
             if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
                 match (type_sig, value) {
+                    // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
+                        Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    )
+                    // Epoch >= 2.1 uses CallableType
+                    | (
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
                     ) => {
                         // Argument is a trait reference, probably leading to a dynamic contract call

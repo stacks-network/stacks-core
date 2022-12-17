@@ -1110,8 +1110,12 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
         .unwrap_err();
 
     match err.err {
+        CheckErrors::TypeError(
+            TypeSignature::TraitReferenceType(_),
+            TypeSignature::TraitReferenceType(_),
+        ) if epoch < StacksEpochId::Epoch21 => {}
         CheckErrors::TypeError(TypeSignature::CallableType(_), TypeSignature::CallableType(_))
-            if version < ClarityVersion::Clarity2 => {}
+            if epoch >= StacksEpochId::Epoch21 && version < ClarityVersion::Clarity2 => {}
         CheckErrors::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
         _ => panic!("{:?}", err),
     }
