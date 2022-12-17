@@ -215,6 +215,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
@@ -232,7 +233,6 @@ type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1Priv
 enum MinerThreadResult {
     Block(
         AssembledAnchorBlock,
-        Keychain,
         Secp256k1PrivateKey,
         Option<OngoingBlockCommit>,
     ),
@@ -474,10 +474,11 @@ impl Globals {
 
     /// Advance the leader key registration state to pending, given a txid we just sent.
     /// Only the relayer thread calls this.
-    fn set_pending_leader_key_registration(&self, txid: Txid) {
+    fn set_pending_leader_key_registration(&self, target_block_height: u64, txid: Txid) {
         match self.leader_key_registration_state.lock() {
             Ok(ref mut leader_key_registration_state) => {
-                **leader_key_registration_state = LeaderKeyRegistrationState::Pending(txid);
+                **leader_key_registration_state =
+                    LeaderKeyRegistrationState::Pending(target_block_height, txid);
             }
             Err(_e) => {
                 error!("FATAL: failed to lock leader key registration state mutex");
@@ -498,7 +499,7 @@ impl Globals {
         match self.leader_key_registration_state.lock() {
             Ok(ref mut leader_key_registration_state) => {
                 for op in key_registers.into_iter() {
-                    if let LeaderKeyRegistrationState::Pending(txid) =
+                    if let LeaderKeyRegistrationState::Pending(target_block_height, txid) =
                         **leader_key_registration_state
                     {
                         info!(
@@ -508,6 +509,7 @@ impl Globals {
                         if txid == op.txid {
                             **leader_key_registration_state =
                                 LeaderKeyRegistrationState::Active(RegisteredKey {
+                                    target_block_height,
                                     vrf_public_key: op.public_key,
                                     block_height: op.block_height as u64,
                                     op_vtxindex: op.vtxindex as u32,
@@ -662,8 +664,9 @@ enum LeaderKeyRegistrationState {
     /// Not started yet
     Inactive,
     /// Waiting for burnchain confirmation
+    /// `u64` is the target block height in which we intend this key to land
     /// `txid` is the burnchain transaction ID
-    Pending(Txid),
+    Pending(u64, Txid),
     /// Ready to go!
     Active(RegisteredKey),
 }
@@ -1527,73 +1530,59 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        if self.config.node.mock_mining {
-            self.keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
-        }
-
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = match self.keychain.generate_proof(
-            &self.registered_key.vrf_public_key,
-            self.burn_block.sortition_hash.as_bytes(),
-        ) {
-            Some(vrfp) => vrfp,
-            None => {
-                // Try to recover a key registered in a former session.
-                // registered_key.block_height gives us a pointer to the height of the block
-                // holding the key register op, but the VRF was derived using the height of one
-                // of the parents blocks.
-                let _ = self
-                    .keychain
-                    .rotate_vrf_keypair(self.registered_key.block_height - 1);
-                match self.keychain.generate_proof(
-                    &self.registered_key.vrf_public_key,
-                    self.burn_block.sortition_hash.as_bytes(),
-                ) {
-                    Some(vrfp) => vrfp,
-                    None => {
-                        error!(
-                            "Relayer: Failed to generate proof with {:?}",
-                            &self.registered_key.vrf_public_key
-                        );
-                        return None;
-                    }
-                }
-            }
+        let vrf_proof = if self.config.node.mock_mining {
+            self.keychain.generate_proof(
+                VRF_MOCK_MINER_KEY,
+                self.burn_block.sortition_hash.as_bytes(),
+            )
+        } else {
+            self.keychain.generate_proof(
+                self.registered_key.target_block_height,
+                self.burn_block.sortition_hash.as_bytes(),
+            )
         };
 
         debug!(
-            "Generated VRF Proof: {} over {} with key {}",
+            "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
             &self.burn_block.sortition_hash,
+            &self.burn_block.block_height,
+            &self.burn_block.burn_header_hash,
             &self.registered_key.vrf_public_key.to_hex()
         );
         Some(vrf_proof)
     }
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
-    /// Return the private key on success
-    /// return None if we were unable to generate the key.
-    fn make_microblock_private_key(&mut self, attempt: u64) -> Option<Secp256k1PrivateKey> {
+    /// Return the private key.
+    ///
+    /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
+    /// reproduce it in integration tests.
+    #[cfg(not(any(test, feature = "testing")))]
+    fn make_microblock_private_key(
+        &mut self,
+        parent_stacks_hash: &StacksBlockId,
+    ) -> Secp256k1PrivateKey {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = if attempt > 1 {
-            match self.keychain.get_microblock_key() {
-                Some(k) => k,
-                None => {
-                    error!(
-                        "Relayer: Failed to obtain microblock key for mining attempt";
-                        "attempt" => %attempt
-                    );
-                    return None;
-                }
-            }
-        } else {
-            // NOTE: this is a no-op if run in a separate thread with a moved copy of the keychain
-            self.keychain
-                .rotate_microblock_keypair(self.burn_block.block_height)
-        };
+        self.keychain
+            .make_microblock_secret_key(self.burn_block.block_height, &parent_stacks_hash.0)
+    }
 
-        Some(microblock_secret_key)
+    /// Get the microblock private key we'll be using for this tenure, should we win.
+    /// Return the private key on success
+    #[cfg(any(test, feature = "testing"))]
+    fn make_microblock_private_key(
+        &mut self,
+        _parent_stacks_hash: &StacksBlockId,
+    ) -> Secp256k1PrivateKey {
+        // Generates a new secret key for signing the trail of microblocks
+        // of the upcoming tenure.
+        warn!("test version of make_microblock_secret_key");
+        self.keychain.make_microblock_secret_key(
+            self.burn_block.block_height,
+            &self.burn_block.block_height.to_be_bytes(),
+        )
     }
 
     /// Load the parent microblock stream and vet it for the absence of forks.
@@ -1868,9 +1857,26 @@ impl BlockMinerThread {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_private_key = self.make_microblock_private_key(attempt)?;
-        let mblock_pubkey_hash =
-            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
+        let microblock_private_key = self.make_microblock_private_key(
+            &parent_block_info.stacks_parent_header.index_block_hash(),
+        );
+        let mblock_pubkey_hash = {
+            let mut pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &microblock_private_key,
+            ));
+            if cfg!(test) {
+                if let Ok(mblock_pubkey_hash_str) = std::env::var("STACKS_MICROBLOCK_PUBKEY_HASH") {
+                    if let Ok(bad_pubkh) = Hash160::from_hex(&mblock_pubkey_hash_str) {
+                        debug!(
+                            "Fault injection: set microblock public key hash to {}",
+                            &bad_pubkh
+                        );
+                        pubkh = bad_pubkh
+                    }
+                }
+            }
+            pubkh
+        };
 
         // create our coinbase
         let coinbase_tx =
@@ -2072,7 +2078,6 @@ impl BlockMinerThread {
                 attempt,
                 tenure_begin,
             },
-            self.keychain.clone(),
             microblock_private_key,
             bitcoin_controller.get_ongoing_commit(),
         ))
@@ -2423,12 +2428,10 @@ impl RelayerThread {
     /// Return Err(..) if we couldn't reach the chains coordiantor thread
     fn process_new_block(&self) -> Result<bool, Error> {
         // process the block
+        let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
         if !self.globals.coord_comms.announce_new_stacks_block() {
             return Err(Error::CoordinatorClosed);
         }
-        let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
-
-        debug!("Relayer: Wait for Stacks block to be processed");
         if !self
             .globals
             .coord_comms
@@ -2730,21 +2733,44 @@ impl RelayerThread {
             self.last_tenure_consensus_hash = Some(consensus_hash);
         }
 
-        if let Some(miner_tip) = miner_tip.as_ref() {
-            debug!(
-                "Relayer: Microblock miner tip is now {}/{} ({})",
-                miner_tip.consensus_hash,
-                miner_tip.block_hash,
-                StacksBlockHeader::make_index_block_hash(
-                    &miner_tip.consensus_hash,
-                    &miner_tip.block_hash
-                )
-            );
+        if let Some(mtip) = miner_tip.take() {
+            // sanity check -- is this also the canonical tip?
+            let (stacks_tip_consensus_hash, stacks_tip_block_hash) =
+                self.with_chainstate(|_relayer_thread, sortdb, _chainstate, _| {
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).expect(
+                        "FATAL: failed to query sortition DB for canonical stacks chain tip hashes",
+                    )
+                });
 
-            self.with_chainstate(|relayer_thread, sortdb, chainstate, _mempool| {
-                Relayer::refresh_unconfirmed(chainstate, sortdb);
-                relayer_thread.globals.send_unconfirmed_txs(chainstate);
-            });
+            if mtip.consensus_hash != stacks_tip_consensus_hash
+                || mtip.block_hash != stacks_tip_block_hash
+            {
+                debug!(
+                    "Relayer: miner tip {}/{} is NOT canonical ({}/{})",
+                    &mtip.consensus_hash,
+                    &mtip.block_hash,
+                    &stacks_tip_consensus_hash,
+                    &stacks_tip_block_hash
+                );
+                miner_tip = None;
+            } else {
+                debug!(
+                    "Relayer: Microblock miner tip is now {}/{} ({})",
+                    mtip.consensus_hash,
+                    mtip.block_hash,
+                    StacksBlockHeader::make_index_block_hash(
+                        &mtip.consensus_hash,
+                        &mtip.block_hash
+                    )
+                );
+
+                self.with_chainstate(|relayer_thread, sortdb, chainstate, _mempool| {
+                    Relayer::refresh_unconfirmed(chainstate, sortdb);
+                    relayer_thread.globals.send_unconfirmed_txs(chainstate);
+                });
+
+                miner_tip = Some(mtip);
+            }
         }
 
         // update state for microblock mining
@@ -2827,14 +2853,19 @@ impl RelayerThread {
             // already in-flight
             return;
         }
-
         let cur_epoch =
             SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block.block_height)
                 .expect("FATAL: failed to query sortition DB")
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
+        let (vrf_pk, _) = self.keychain.make_vrf_keypair(burn_block.block_height);
 
-        let vrf_pk = self.keychain.rotate_vrf_keypair(burn_block.block_height);
+        debug!(
+            "Submit leader-key-register for {} {}",
+            &vrf_pk.to_hex(),
+            burn_block.block_height
+        );
+
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
         let op = Self::inner_generate_leader_key_register_op(vrf_pk, burnchain_tip_consensus_hash);
 
@@ -2845,7 +2876,8 @@ impl RelayerThread {
         {
             // advance key registration state
             self.last_vrf_key_burn_height = burn_block.block_height;
-            self.globals.set_pending_leader_key_registration(txid);
+            self.globals
+                .set_pending_leader_key_registration(burn_block.block_height, txid);
         }
     }
 
@@ -3174,7 +3206,6 @@ impl RelayerThread {
             match miner_result {
                 MinerThreadResult::Block(
                     last_mined_block,
-                    modified_keychain,
                     microblock_privkey,
                     ongoing_commit_opt,
                 ) => {
@@ -3198,9 +3229,6 @@ impl RelayerThread {
                     let bhh = last_mined_block.my_burn_hash.clone();
                     let orig_bhh = last_mined_block.orig_burn_hash.clone();
                     let tenure_begin = last_mined_block.tenure_begin;
-
-                    // keep our keychain up-to-date with the miner's progress
-                    self.keychain = modified_keychain;
 
                     self.last_mined_blocks.insert(
                         last_mined_block.anchored_block.block_hash(),
@@ -4101,7 +4129,7 @@ impl StacksNode {
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
-        let mut keychain = Keychain::default(config.node.seed.clone());
+        let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -4132,8 +4160,9 @@ impl StacksNode {
         // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
-            let vrf_public_key = keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
+            let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
+                target_block_height: VRF_MOCK_MINER_KEY,
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,

@@ -387,7 +387,7 @@ pub fn special_mint_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -450,7 +450,7 @@ pub fn special_mint_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -515,7 +515,7 @@ pub fn special_transfer_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -601,7 +601,7 @@ pub fn special_transfer_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -819,7 +819,7 @@ pub fn special_get_owner_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -861,7 +861,7 @@ pub fn special_get_owner_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -992,7 +992,7 @@ pub fn special_burn_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -1069,7 +1069,7 @@ pub fn special_burn_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(&asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 

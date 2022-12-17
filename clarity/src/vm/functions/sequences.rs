@@ -415,7 +415,7 @@ pub fn special_replace_at(
     let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
 
-    if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element) {
+    if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element)? {
         return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
     }
 

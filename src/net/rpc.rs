@@ -533,6 +533,19 @@ impl RPCNeighborsInfo {
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
     ) -> Result<RPCNeighborsInfo, net_error> {
+        let bootstrap_nodes =
+            PeerDB::get_bootstrap_peers(peerdb.conn(), network_id).map_err(net_error::DBError)?;
+        let bootstrap = bootstrap_nodes
+            .into_iter()
+            .map(|n| {
+                RPCNeighbor::from_neighbor_key_and_pubkh(
+                    n.addr.clone(),
+                    Hash160::from_node_public_key(&n.public_key),
+                    true,
+                )
+            })
+            .collect();
+
         let neighbor_sample = PeerDB::get_random_neighbors(
             peerdb.conn(),
             network_id,
@@ -575,9 +588,10 @@ impl RPCNeighborsInfo {
         }
 
         Ok(RPCNeighborsInfo {
-            sample: sample,
-            inbound: inbound,
-            outbound: outbound,
+            bootstrap,
+            sample,
+            inbound,
+            outbound,
         })
     }
 }
@@ -4208,7 +4222,7 @@ mod test {
         let peer_server_info = RefCell::new(None);
         let client_stacks_height = 17;
         test_rpc(
-            "test_rpc_getinfo",
+            function_name!(),
             40000,
             40001,
             50000,
@@ -4276,7 +4290,7 @@ mod test {
         // Thus, the query for pox info will be against the canonical Stacks tip, which we expect to succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
-            "test_rpc_getpoxinfo",
+            function_name!(),
             40002,
             40003,
             50002,
@@ -4334,7 +4348,7 @@ mod test {
         // info against the unconfirmed state will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
-            "test_rpc_getpoxinfo_use_latest_tip",
+            function_name!(),
             40004,
             40005,
             50004,
@@ -4387,7 +4401,7 @@ mod test {
     #[ignore]
     fn test_rpc_getneighbors() {
         test_rpc(
-            "test_rpc_getneighbors",
+            function_name!(),
             40010,
             40011,
             50010,
@@ -4408,6 +4422,11 @@ mod test {
                     HttpResponseType::Neighbors(response_md, neighbor_info) => {
                         assert_eq!(neighbor_info.sample.len(), 1);
                         assert_eq!(neighbor_info.sample[0].port, peer_client.config.server_port); // we see ourselves as the neighbor
+                        assert_eq!(neighbor_info.bootstrap.len(), 1);
+                        assert_eq!(
+                            neighbor_info.bootstrap[0].port,
+                            peer_client.config.server_port
+                        ); // we see ourselves as the bootstrap
                         true
                     }
                     _ => {
@@ -4425,7 +4444,7 @@ mod test {
         let server_blocks_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_getheaders",
+            function_name!(),
             40012,
             40013,
             50012,
@@ -4518,7 +4537,7 @@ mod test {
         let server_block_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_unconfirmed_getblock",
+            function_name!(),
             40020,
             40021,
             50020,
@@ -4581,7 +4600,7 @@ mod test {
         let server_block_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_confirmed_getblock",
+            function_name!(),
             40030,
             40031,
             50030,
@@ -4650,7 +4669,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_indexed_microblocks",
+            function_name!(),
             40040,
             40041,
             50040,
@@ -4768,7 +4787,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_confirmed_microblocks",
+            function_name!(),
             40042,
             40043,
             50042,
@@ -4882,7 +4901,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_unconfirmed_microblocks",
+            function_name!(),
             40050,
             40051,
             50050,
@@ -4951,7 +4970,7 @@ mod test {
         let last_mblock = RefCell::new(BlockHeaderHash([0u8; 32]));
 
         test_rpc(
-            "test_rpc_unconfirmed_transaction",
+            function_name!(),
             40052,
             40053,
             50052,
@@ -5029,7 +5048,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_getblock() {
         test_rpc(
-            "test_rpc_missing_getblock",
+            function_name!(),
             40060,
             40061,
             50060,
@@ -5071,7 +5090,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_index_getmicroblocks() {
         test_rpc(
-            "test_rpc_missing_index_getmicroblocks",
+            function_name!(),
             40070,
             40071,
             50070,
@@ -5113,7 +5132,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_confirmed_getmicroblocks() {
         test_rpc(
-            "test_rpc_missing_confirmed_getmicroblocks",
+            function_name!(),
             40072,
             40073,
             50072,
@@ -5157,7 +5176,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_missing_unconfirmed_microblocks",
+            function_name!(),
             40080,
             40081,
             50080,
@@ -5221,7 +5240,7 @@ mod test {
         // The contract source we are querying for exists in the anchored state, so we expect the
         // query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src",
+            function_name!(),
             40090,
             40091,
             50090,
@@ -5269,7 +5288,7 @@ mod test {
         // The contract source we are querying for only exists in the unconfirmed state, so we
         // expect the query to fail.
         test_rpc(
-            "test_rpc_get_contract_src_unconfirmed_with_canonical_tip",
+            function_name!(),
             40100,
             40101,
             50100,
@@ -5316,7 +5335,7 @@ mod test {
         // The contract source we are querying for exists in the unconfirmed state, so we expect
         // the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_with_unconfirmed_tip",
+            function_name!(),
             40102,
             40103,
             50102,
@@ -5370,7 +5389,7 @@ mod test {
         // The contract source we are querying for exists in the unconfirmed state, so we expect
         // the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_use_latest_tip",
+            function_name!(),
             40104,
             40105,
             50104,
@@ -5413,7 +5432,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account() {
         test_rpc(
-            "test_rpc_get_account",
+            function_name!(),
             40110,
             40111,
             50110,
@@ -5461,7 +5480,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_account_use_latest_tip",
+            function_name!(),
             40112,
             40113,
             50112,
@@ -5510,7 +5529,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_use_latest_tip_no_microblocks() {
         test_rpc(
-            "test_rpc_get_account",
+            function_name!(),
             40114,
             40115,
             50114,
@@ -5555,7 +5574,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_unconfirmed() {
         test_rpc(
-            "test_rpc_get_account_unconfirmed",
+            function_name!(),
             40120,
             40121,
             50120,
@@ -5607,7 +5626,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var() {
         test_rpc(
-            "test_rpc_get_data_var",
+            function_name!(),
             40122,
             40123,
             50122,
@@ -5654,7 +5673,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var_unconfirmed() {
         test_rpc(
-            "test_rpc_get_data_var_unconfirmed",
+            function_name!(),
             40124,
             40125,
             50124,
@@ -5708,7 +5727,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var_nonexistant() {
         test_rpc(
-            "test_rpc_get_data_var_nonexistant",
+            function_name!(),
             40125,
             40126,
             50125,
@@ -5755,7 +5774,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying for map data
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_get_map_entry",
+            function_name!(),
             40130,
             40131,
             50130,
@@ -5817,7 +5836,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for map data
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_get_map_entry_unconfirmed",
+            function_name!(),
             40140,
             40141,
             50140,
@@ -5883,7 +5902,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_map_entry_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_map_entry_use_latest_tip",
+            function_name!(),
             40142,
             40143,
             50142,
@@ -5945,7 +5964,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_get_contract_abi",
+            function_name!(),
             40150,
             40151,
             50150,
@@ -5990,7 +6009,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_get_contract_abi_unconfirmed",
+            function_name!(),
             40152,
             40153,
             50152,
@@ -6036,7 +6055,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_abi_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_contract_abi_use_latest_tip",
+            function_name!(),
             40154,
             40155,
             50154,
@@ -6078,7 +6097,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_call_read_only",
+            function_name!(),
             40170,
             40171,
             50170,
@@ -6132,7 +6151,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_call_read_only_use_latest_tip",
+            function_name!(),
             40172,
             40173,
             50172,
@@ -6186,7 +6205,7 @@ mod test {
     #[ignore]
     fn test_rpc_call_read_only_unconfirmed() {
         test_rpc(
-            "test_rpc_call_read_only_unconfirmed",
+            function_name!(),
             40180,
             40181,
             50180,
@@ -6247,7 +6266,7 @@ mod test {
     #[ignore]
     fn test_rpc_getattachmentsinv_limit_reached() {
         test_rpc(
-            "test_rpc_getattachmentsinv",
+            function_name!(),
             40190,
             40191,
             50190,
@@ -6286,7 +6305,7 @@ mod test {
     #[ignore]
     fn test_rpc_mempool_query_txtags() {
         test_rpc(
-            "test_rpc_mempool_query_txtags",
+            function_name!(),
             40813,
             40814,
             50813,
@@ -6325,7 +6344,7 @@ mod test {
     #[ignore]
     fn test_rpc_mempool_query_bloom() {
         test_rpc(
-            "test_rpc_mempool_query_bloom",
+            function_name!(),
             40815,
             40816,
             50815,

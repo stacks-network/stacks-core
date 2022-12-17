@@ -1402,8 +1402,6 @@ impl BurnchainDB {
             }
         };
 
-        test_debug!("Header at {}: {}", block_ptr, &header_hash);
-
         BurnchainDB::get_commit_in_block_at(conn, &header_hash, block_ptr, vtxindex)
     }
 

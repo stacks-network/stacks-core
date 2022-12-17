@@ -2791,7 +2791,6 @@ impl StacksChainState {
                 Some(ref mut sort_tx) => {
                     sort_tx.set_stacks_block_accepted(
                         consensus_hash,
-                        &block.parent_anchored_block_hash,
                         &block.anchored_block_hash,
                         block.height,
                     )?;
@@ -6743,7 +6742,8 @@ impl StacksChainState {
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
-    /// stream execution cost, and block execution cost
+    /// stream execution cost, and block execution cost.  A value of None will be returned for the
+    /// epoch receipt if the block was invalid.
     pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
         mut sort_tx: SortitionHandleTx,
@@ -6778,15 +6778,18 @@ impl StacksChainState {
                 },
                 Err(Error::InvalidStacksBlock(msg)) => {
                     warn!("Encountered invalid block: {}", &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(Error::InvalidStacksMicroblock(msg, hash)) => {
                     warn!("Encountered invalid microblock {}: {}", hash, &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(Error::NetError(net_error::DeserializeError(msg))) => {
                     // happens if we load a zero-sized block (i.e. an invalid block)
                     warn!("Encountered invalid block: {}", &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(e) => {
@@ -6837,6 +6840,19 @@ impl StacksChainState {
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
         let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
+        query_row(&self.db(), sql, args).map_err(Error::DBError)
+    }
+
+    /// Get the parent block of `staging_block`.
+    pub fn get_stacks_block_parent(
+        &self,
+        staging_block: &StagingBlock,
+    ) -> Result<Option<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[
+            &staging_block.parent_consensus_hash,
+            &staging_block.parent_anchored_block_hash,
+        ];
         query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
@@ -11203,11 +11219,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory_for_reward_cycle() {
-        let mut peer_config = TestPeerConfig::new(
-            "stacks_db_get_blocks_inventory_for_reward_cycle",
-            21313,
-            21314,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
 
         let privk = StacksPrivateKey::new();
         let addr = StacksAddress::from_public_keys(
@@ -11499,7 +11511,7 @@ pub mod test {
 
     #[test]
     fn test_get_parent_block_header() {
-        let peer_config = TestPeerConfig::new("test_get_parent_block_header", 21313, 21314);
+        let peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();

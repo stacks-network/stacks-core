@@ -888,6 +888,7 @@ fn integration_test_get_info() {
                 let old_tip = StacksBlockId::consensus_deserialize(&mut &buf[..]).unwrap();
 
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip={}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1", &old_tip);
+
                 let res = client.get(&path).send().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");

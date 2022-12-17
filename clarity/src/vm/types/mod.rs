@@ -324,7 +324,7 @@ impl SequenceData {
             }
             (SequenceData::List(mut data), elem) => {
                 let entry_type = data.type_signature.get_list_item_type();
-                if !entry_type.admits(&elem) {
+                if !entry_type.admits(&elem)? {
                     return Err(CheckErrors::ListTypesMustMatch.into());
                 }
                 data.data[index] = elem;
@@ -893,7 +893,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(&item) {
+                if !expected_item_type.admits(&item)? {
                     return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
@@ -1484,7 +1484,7 @@ impl TupleData {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
-            if !expected_type.admits(&value) {
+            if !expected_type.admits(&value)? {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
             }
             data_map.insert(name, value);
