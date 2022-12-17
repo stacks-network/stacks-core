@@ -3782,8 +3782,7 @@ impl SortitionDB {
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS)
-            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+        query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
