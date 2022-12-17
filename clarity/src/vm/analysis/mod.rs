@@ -98,6 +98,7 @@ pub fn type_check(
     expressions: &mut [SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     insert_contract: bool,
+    epoch: &StacksEpochId,
     version: &ClarityVersion,
 ) -> CheckResult<ContractAnalysis> {
     run_analysis(
@@ -108,7 +109,7 @@ pub fn type_check(
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
         LimitedCostTracker::new_free(),
-        StacksEpochId::Epoch21,
+        epoch.clone(),
         version.clone(),
     )
     .map_err(|(e, _cost_tracker)| e)

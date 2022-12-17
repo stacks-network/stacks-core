@@ -417,6 +417,7 @@ fn test_names_tokens_contracts() {
             &mut tokens_contract,
             db,
             true,
+            &StacksEpochId::Epoch2_05,
             &ClarityVersion::Clarity1,
         )?;
         type_check(
@@ -424,6 +425,7 @@ fn test_names_tokens_contracts() {
             &mut names_contract,
             db,
             true,
+            &StacksEpochId::Epoch2_05,
             &ClarityVersion::Clarity1,
         )
     })
@@ -475,6 +477,7 @@ fn test_names_tokens_contracts_bad() {
             &mut tokens_contract,
             db,
             true,
+            &StacksEpochId::Epoch2_05,
             &ClarityVersion::Clarity1,
         )
     })
@@ -487,6 +490,7 @@ fn test_names_tokens_contracts_bad() {
                 &mut names_contract,
                 db,
                 true,
+                &StacksEpochId::Epoch2_05,
                 &ClarityVersion::Clarity1,
             )
         })
@@ -587,8 +591,22 @@ fn test_same_function_name() {
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
-        type_check(&cb_id, &mut cb, db, true, &ClarityVersion::Clarity1)?;
-        type_check(&ca_id, &mut ca, db, true, &ClarityVersion::Clarity1)
+        type_check(
+            &cb_id,
+            &mut cb,
+            db,
+            true,
+            &StacksEpochId::Epoch2_05,
+            &ClarityVersion::Clarity1,
+        )?;
+        type_check(
+            &ca_id,
+            &mut ca,
+            db,
+            true,
+            &StacksEpochId::Epoch2_05,
+            &ClarityVersion::Clarity1,
+        )
     })
     .unwrap();
 }

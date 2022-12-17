@@ -2860,6 +2860,7 @@ mod test {
                 &mut parsed,
                 &mut analysis_db,
                 false,
+                &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
@@ -2885,6 +2886,7 @@ mod test {
                 &mut parsed,
                 &mut analysis_db,
                 false,
+                &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
@@ -3001,6 +3003,7 @@ mod test {
                         &mut parsed,
                         &mut analysis_db,
                         true,
+                        &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
                     .expect("Failed to type check sample-contracts/tokens");
@@ -3023,6 +3026,7 @@ mod test {
                         &mut parsed,
                         &mut analysis_db,
                         true,
+                        &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
                     .expect("Failed to type check sample-contracts/tokens");

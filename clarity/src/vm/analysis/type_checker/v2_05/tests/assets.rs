@@ -135,6 +135,7 @@ fn test_names_tokens_contracts() {
             &mut tokens_contract,
             db,
             true,
+            &StacksEpochId::Epoch2_05,
             &ClarityVersion::Clarity1,
         )?;
         type_check(
@@ -142,6 +143,7 @@ fn test_names_tokens_contracts() {
             &mut names_contract,
             db,
             true,
+            &StacksEpochId::Epoch2_05,
             &ClarityVersion::Clarity1,
         )
     })

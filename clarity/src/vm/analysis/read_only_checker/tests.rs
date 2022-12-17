@@ -228,15 +228,33 @@ fn test_contract_call_read_only_violations(
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
         db.test_insert_contract_hash(&contract_1_id);
-        type_check(&contract_1_id, &mut contract1, db, true, &version)
+        type_check(&contract_1_id, &mut contract1, db, true, &epoch, &version)
     })
     .unwrap();
 
     let err = db
-        .execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true, &version))
+        .execute(|db| {
+            type_check(
+                &contract_bad_caller_id,
+                &mut bad_caller,
+                db,
+                true,
+                &epoch,
+                &version,
+            )
+        })
         .unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false, &version))
-        .unwrap();
+    db.execute(|db| {
+        type_check(
+            &contract_ok_caller_id,
+            &mut ok_caller,
+            db,
+            false,
+            &epoch,
+            &version,
+        )
+    })
+    .unwrap();
 }
