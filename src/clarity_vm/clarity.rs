@@ -447,7 +447,7 @@ impl ClarityInstance {
         conn
     }
 
-    /// begin a genesis block with the default cost contract
+    /// begin with a 2.1 genesis block with the default cost contract
     ///  used in testing + benchmarking
     pub fn begin_test_genesis_block_2_1<'a, 'b>(
         &'a mut self,
@@ -458,7 +458,7 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a, 'b> {
         let writable = self.datastore.begin(current, next);
 
-        let epoch = GENESIS_EPOCH;
+        let epoch = StacksEpochId::Epoch21;
 
         let cost_track = Some(LimitedCostTracker::new_free());
 

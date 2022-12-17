@@ -300,7 +300,9 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
 }
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
-    if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
+    if let Some(variable) =
+        NativeVariables::lookup_by_name_at_version(variable_name, &ClarityVersion::Clarity1)
+    {
         use crate::vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,

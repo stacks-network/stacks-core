@@ -27,7 +27,7 @@ use crate::vm::types::{
     TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
     MAX_VALUE_SIZE,
 };
-use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 use std::convert::TryFrom;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -512,10 +512,13 @@ fn check_get_block_info(
         .match_atom()
         .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
 
-    let block_info_prop =
-        BlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
-            CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
-        ))?;
+    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
+        block_info_prop_str,
+        &ClarityVersion::Clarity1,
+    )
+    .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(
+        block_info_prop_str.to_string(),
+    )))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
 

@@ -22,6 +22,7 @@ pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Len
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 use crate::vm::types::{Value, MAX_VALUE_SIZE};
+use crate::vm::ClarityVersion;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
@@ -39,7 +40,9 @@ fn get_simple_native_or_user_define(
     checker: &mut TypeChecker,
 ) -> CheckResult<FunctionType> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
-    if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
+    if let Some(ref native_function) =
+        NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
+    {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(native_function)
         {
