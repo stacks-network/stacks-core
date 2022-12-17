@@ -2427,6 +2427,8 @@ impl RelayerThread {
             return Err(Error::CoordinatorClosed);
         }
         let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
+
+        debug!("Relayer: Wait for Stacks block to be processed");
         if !self
             .globals
             .coord_comms
@@ -2436,6 +2438,8 @@ impl RelayerThread {
             warn!("ChainsCoordinator timed out while waiting for new stacks block to be processed");
             return Ok(false);
         }
+        debug!("Relayer: Stacks block has been processed");
+
         Ok(true)
     }
 
@@ -3330,23 +3334,32 @@ impl RelayerThread {
         debug!("Relayer: received next directive");
         let continue_running = match directive {
             RelayerDirective::HandleNetResult(net_result) => {
+                debug!("Relayer: directive Handle network result");
                 self.process_network_result(net_result);
+                debug!("Relayer: directive Handled network result");
                 true
             }
             RelayerDirective::RegisterKey(last_burn_block) => {
+                debug!("Relayer: directive Register VRF key");
                 self.rotate_vrf_and_register(&last_burn_block);
                 self.globals.counters.bump_blocks_processed();
+                debug!("Relayer: directive Registered VRF key");
                 true
             }
             RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
-                self.process_new_tenures(consensus_hash, burn_hash, block_header_hash)
+                debug!("Relayer: directive Process tenures");
+                let res = self.process_new_tenures(consensus_hash, burn_hash, block_header_hash);
+                debug!("Relayer: directive Processed tenures");
+                res
             }
             RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
+                debug!("Relayer: directive Run tenure");
                 self.block_miner_thread_try_start(
                     registered_key,
                     last_burn_block,
                     issue_timestamp_ms,
                 );
+                debug!("Relayer: directive Ran tenure");
                 true
             }
             RelayerDirective::Exit => false,
