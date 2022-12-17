@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
@@ -66,7 +68,7 @@ fn test_all() {
         test_let3_trait,
     ];
     for test in to_test.iter() {
-        with_memory_environment(test, false);
+        with_memory_environment(test, StacksEpochId::latest(), false);
     }
 }
 

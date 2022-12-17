@@ -55,13 +55,13 @@ mod sequences;
 mod simple_apply_eval;
 mod traits;
 
-pub fn with_memory_environment<F>(f: F, top_level: bool)
+pub fn with_memory_environment<F>(f: F, epoch: StacksEpochId, top_level: bool)
 where
     F: FnOnce(&mut OwnedEnvironment) -> (),
 {
     let mut marf_kv = MemoryBackingStore::new();
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), epoch);
     // start an initial transaction.
     if !top_level {
         owned_env.begin();

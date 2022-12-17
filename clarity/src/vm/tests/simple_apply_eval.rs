@@ -102,7 +102,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
     if let Ok(parsed_program) = parse(&contract_id, &program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
-        let mut env = OwnedEnvironment::new(marf.as_clarity_db());
+        let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
 
         assert_eq!(
             Ok(Value::Int(7)),

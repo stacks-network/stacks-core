@@ -29,6 +29,7 @@ use crate::vm::types::{
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -1382,6 +1383,6 @@ fn test_all() {
         test_native_stx_ops,
     ];
     for test in to_test.iter() {
-        with_memory_environment(test, true);
+        with_memory_environment(test, StacksEpochId::latest(), true);
     }
 }

@@ -3035,7 +3035,7 @@ mod test {
                 let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);
-                let mut env = OwnedEnvironment::new(conn);
+                let mut env = OwnedEnvironment::new(conn, StacksEpochId::latest());
                 let balance = STXBalance::initial(1000);
                 env.execute_in_env::<_, _, ()>(
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),

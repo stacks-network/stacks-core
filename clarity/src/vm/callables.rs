@@ -82,10 +82,11 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
+    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -98,6 +99,7 @@ impl NativeHandle {
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
+            Self::MoreArgEnv(function) => function(args, env),
         }
     }
 }
@@ -178,7 +180,7 @@ impl DefinedFunction {
             if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
                 match (type_sig, value) {
                     (
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+                        TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
                     ) => {
                         // Argument is a trait reference, probably leading to a dynamic contract call

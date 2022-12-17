@@ -289,7 +289,7 @@ pub fn apply(
             CallableType::NativeFunction(_, function, cost_function) => {
                 runtime_cost(*cost_function, env, evaluated_args.len())
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args))
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
                 let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
@@ -299,7 +299,7 @@ pub fn apply(
                 };
                 runtime_cost(*cost_function, env, cost_input)
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args))
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => panic!("Should be unreachable."),
