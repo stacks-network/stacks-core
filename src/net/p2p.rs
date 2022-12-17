@@ -5008,13 +5008,6 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
         }
 
-        if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
-            // try processing previously-buffered messages (best-effort)
-            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
-        }
-
         if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
             || sn.canonical_stacks_tip_consensus_hash
                 != self.burnchain_tip.canonical_stacks_tip_consensus_hash
@@ -5029,9 +5022,17 @@ impl PeerNetwork {
             )?;
         }
 
+        // can't fail after this point
+
+        if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
+            // try processing previously-buffered messages (best-effort)
+            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            ret =
+                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
+        }
+
         // update cached stacks chain view for /v2/info
         self.burnchain_tip = sn;
-
         Ok(ret)
     }
 
@@ -5342,9 +5343,14 @@ impl PeerNetwork {
             .expect("FATAL: failed to read local peer from the peer DB");
 
         // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self
-            .refresh_burnchain_view(sortdb, chainstate, ibd)
-            .expect("FATAL: failed to refresh burnchain view");
+        let unsolicited_buffered_messages =
+            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
+                Ok(msgs) => msgs,
+                Err(e) => {
+                    warn!("Failed to refresh burnchain view: {:?}", &e);
+                    HashMap::new()
+                }
+            };
 
         let mut network_result = NetworkResult::new(
             self.num_state_machine_passes,
