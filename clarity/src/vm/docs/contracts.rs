@@ -96,7 +96,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
 
 pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
     let (_, contract_analysis) =
-        mem_type_check(content, ClarityVersion::Clarity2, StacksEpochId::Epoch21)
+        mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
             .expect("BUG: failed to type check boot contract");
 
     let ContractAnalysis {
