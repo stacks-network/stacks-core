@@ -1371,15 +1371,21 @@ impl TypeSignature {
                         "string-utf8" => TypeSignature::parse_string_utf8_type_repr(rest),
                         "string-ascii" => TypeSignature::parse_string_ascii_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(epoch, rest, accounting),
-                        "optional" => TypeSignature::parse_optional_type_repr(epoch, rest, accounting),
-                        "response" => TypeSignature::parse_response_type_repr(epoch, rest, accounting),
+                        "optional" => {
+                            TypeSignature::parse_optional_type_repr(epoch, rest, accounting)
+                        }
+                        "response" => {
+                            TypeSignature::parse_response_type_repr(epoch, rest, accounting)
+                        }
                         _ => Err(CheckErrors::InvalidTypeDescription),
                     }
                 } else {
                     Err(CheckErrors::InvalidTypeDescription)
                 }
             }
-            SymbolicExpressionType::TraitReference(_, ref trait_definition) if epoch < StacksEpochId::Epoch21 => {
+            SymbolicExpressionType::TraitReference(_, ref trait_definition)
+                if epoch < StacksEpochId::Epoch21 =>
+            {
                 match trait_definition {
                     TraitDefinition::Defined(trait_id) => {
                         Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
