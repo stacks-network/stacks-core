@@ -233,7 +233,7 @@ pub fn special_concat_v200(
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
-            seq.append(&StacksEpochId::Epoch20, other_seq)
+            seq.append(env.epoch(), other_seq)
         }
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
@@ -259,7 +259,7 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.append(&StacksEpochId::Epoch2_05, other_seq)
+            seq.append(env.epoch(), other_seq)
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
