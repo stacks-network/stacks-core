@@ -4208,6 +4208,12 @@ impl StacksChainState {
 
         block_tx.commit()?;
 
+        debug!(
+            "Stored {}/{} to staging",
+            &consensus_hash,
+            &block.block_hash()
+        );
+
         // ready to go
         Ok(true)
     }
