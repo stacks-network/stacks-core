@@ -88,6 +88,7 @@ jobs:
           - tests::epoch_21::transition_adds_mining_from_segwit
           - tests::epoch_21::transition_removes_pox_sunset
           - tests::epoch_21::transition_empty_blocks
+          - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

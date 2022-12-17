@@ -160,7 +160,7 @@ impl FunctionType {
                 check_arguments_at_least(1, args)?;
                 for found_type in args.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if !expected_type.admits_type(found_type) {
+                    if !expected_type.admits_type(found_type)? {
                         return Err(CheckErrors::TypeError(
                             expected_type.clone(),
                             found_type.clone(),
@@ -178,7 +178,7 @@ impl FunctionType {
                 for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args)
                 {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if !expected_type.admits_type(found_type) {
+                    if !expected_type.admits_type(found_type)? {
                         return Err(CheckErrors::TypeError(
                             expected_type.clone(),
                             found_type.clone(),
@@ -193,7 +193,7 @@ impl FunctionType {
                 let found_type = &args[0];
                 for expected_type in arg_types.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if expected_type.admits_type(found_type) {
+                    if expected_type.admits_type(found_type)? {
                         return Ok(return_type.clone());
                     }
                 }
@@ -438,7 +438,7 @@ impl FunctionType {
                         contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
                     }
                     (expected_type, value) => {
-                        if !expected_type.admits(&value) {
+                        if !expected_type.admits(&value)? {
                             let actual_type = TypeSignature::type_of(&value);
                             return Err(
                                 CheckErrors::TypeError(expected_type.clone(), actual_type).into()
@@ -476,7 +476,7 @@ fn check_function_arg_signature<T: CostTracker>(
     match expected_sig {
         FunctionArgSignature::Single(expected_type) => {
             analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
-            if !expected_type.admits_type(actual_type) {
+            if !expected_type.admits_type(actual_type)? {
                 return Err(
                     CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
                 );
@@ -486,7 +486,7 @@ fn check_function_arg_signature<T: CostTracker>(
             let mut admitted = false;
             for expected_type in expected_types.iter() {
                 analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
-                if expected_type.admits_type(actual_type) {
+                if expected_type.admits_type(actual_type)? {
                     admitted = true;
                     break;
                 }
@@ -751,7 +751,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         }
         (TypeSignature::NoType, _) => (),
         (_, _) => {
-            if !expected_type.admits_type(&actual_type) {
+            if !expected_type.admits_type(&actual_type)? {
                 return Err(
                     CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
                 );
@@ -1235,7 +1235,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let actual_type = self.type_check(expr, context)?;
         analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
-        if !expected_type.admits_type(&actual_type) {
+        if !expected_type.admits_type(&actual_type)? {
             let mut err: CheckError =
                 CheckErrors::TypeError(expected_type.clone(), actual_type).into();
             err.set_expression(expr);

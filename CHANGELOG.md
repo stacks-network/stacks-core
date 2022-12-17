@@ -32,6 +32,30 @@ This release will contain consensus-breaking changes.
   stacks-node uses for logging.
   Example: `STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node`
 
+## [2.05.0.6.0]
+
+### Changed
+
+- The `/v2/neighbors` endpoint now reports a node's bootstrap peers, so other
+  nodes can find high-quality nodes to boot from (#3401)
+- If there are two or more Stacks chain tips that are tied for the canonical
+  tip, the node deterministically chooses one _independent_ of the arrival order
+(#3419). 
+- If Stacks blocks for a different fork arrive out-of-order and, in doing so,
+  constitute a better fork than the fork the node considers canonical, the node
+will update the canonical Stacks tip pointer in the sortition DB before
+processing the next sortition (#3419).
+
+### Fixed
+
+- The node keychain no longer maintains any internal state, but instead derives
+  keys based on the chain tip the miner is building off of.  This prevents the
+node from accidentally producing an invalid block that reuses a microblock
+public key hash (#3387).
+- If a node mines an invalid block for some reason, it will no longer stall
+  forever.  Instead, it will detect that its last-mined block is not the chain
+tip, and resume mining (#3406).
+
 ## [2.05.0.5.0]
 
 ### Changed

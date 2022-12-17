@@ -885,7 +885,7 @@ mod test {
     #[test]
     fn test_http_getinfo() {
         test_http_server(
-            "test_http_getinfo",
+            function_name!(),
             51000,
             51001,
             ConnectionOptions::default(),
@@ -915,7 +915,7 @@ mod test {
     #[ignore]
     fn test_http_10_threads_getinfo() {
         test_http_server(
-            "test_http_10_threads_getinfo",
+            function_name!(),
             51010,
             51011,
             ConnectionOptions::default(),
@@ -944,7 +944,7 @@ mod test {
     #[test]
     fn test_http_getblock() {
         test_http_server(
-            "test_http_getblock",
+            function_name!(),
             51020,
             51021,
             ConnectionOptions::default(),
@@ -1008,7 +1008,7 @@ mod test {
     #[ignore]
     fn test_http_10_threads_getblock() {
         test_http_server(
-            "test_http_getblock",
+            function_name!(),
             51030,
             51031,
             ConnectionOptions::default(),
@@ -1079,7 +1079,7 @@ mod test {
         let have_error = RefCell::new(false);
 
         test_http_server(
-            "test_http_too_many_clients",
+            function_name!(),
             51040,
             51041,
             conn_opts,
@@ -1135,7 +1135,7 @@ mod test {
         conn_opts.timeout = 3; // kill a connection after 3 seconds of idling
 
         test_http_server(
-            "test_http_slow_client",
+            function_name!(),
             51050,
             51051,
             conn_opts,
@@ -1169,7 +1169,7 @@ mod test {
     fn test_http_endless_data_client() {
         let conn_opts = ConnectionOptions::default();
         test_http_server(
-            "test_http_endless_data_client",
+            function_name!(),
             51060,
             51061,
             conn_opts,
@@ -1243,7 +1243,7 @@ mod test {
     #[test]
     fn test_http_400() {
         test_http_server(
-            "test_http_400",
+            function_name!(),
             51070,
             51071,
             ConnectionOptions::default(),
@@ -1270,7 +1270,7 @@ mod test {
     #[test]
     fn test_http_404() {
         test_http_server(
-            "test_http_404",
+            function_name!(),
             51072,
             51073,
             ConnectionOptions::default(),
@@ -1302,7 +1302,7 @@ mod test {
         conn_opts.connect_timeout = 10;
 
         let num_events = test_http_server(
-            "test_http_no_connecting_event_id_leak",
+            function_name!(),
             51082,
             51083,
             conn_opts,
@@ -1342,7 +1342,7 @@ mod test {
         // doesn't do anything; just runs a server for 10 minutes
         let conn_opts = ConnectionOptions::default();
         test_http_server(
-            "test_http_noop",
+            function_name!(),
             51080,
             51081,
             conn_opts,
