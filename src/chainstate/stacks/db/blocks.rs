@@ -2580,6 +2580,38 @@ impl StacksChainState {
         Ok(AffirmationMap::empty())
     }
 
+    /// Is a block compatible with the heaviest affirmation map?
+    pub fn is_block_compatible_with_affirmation_map(
+        heaviest_am: &AffirmationMap,
+        burnchain_db: &BurnchainDB,
+        sort_db_conn: &DBConn,
+        block_ch: &ConsensusHash,
+        block_bhh: &BlockHeaderHash,
+    ) -> Result<bool, Error> {
+        let stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
+            burnchain_db,
+            sort_db_conn,
+            &block_ch,
+            &block_bhh,
+        )?;
+        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
+        // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
+        // and `heaviest_am` against each other depending on their lengths.
+        if (stacks_tip_affirmation_map.len() > heaviest_am.len()
+            && stacks_tip_affirmation_map
+                .find_divergence(&heaviest_am)
+                .is_some())
+            || (stacks_tip_affirmation_map.len() <= heaviest_am.len()
+                && heaviest_am
+                    .find_divergence(&stacks_tip_affirmation_map)
+                    .is_some())
+        {
+            return Ok(false);
+        } else {
+            return Ok(true);
+        }
+    }
+
     /// Delete a microblock's data from the DB
     fn delete_microblock_data(
         tx: &mut DBTx,
@@ -6750,8 +6782,25 @@ impl StacksChainState {
         max_blocks: usize,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
-        debug!("Process up to {} blocks", max_blocks);
+        // first, clear out orphans
+        let blocks_path = self.blocks_path.clone();
+        let mut block_tx = self.db_tx_begin()?;
+        let mut num_orphans = 0;
+        loop {
+            // delete up to max_blocks blocks
+            let deleted =
+                StacksChainState::process_next_orphaned_staging_block(&mut block_tx, &blocks_path)?;
+            if !deleted {
+                break;
+            }
+            num_orphans += 1;
+        }
+        block_tx.commit()?;
 
+        debug!("Processed {} orphans", num_orphans);
+
+        // now proceed to process new blocks
+        debug!("Process up to {} new blocks", max_blocks);
         let mut ret = vec![];
 
         if max_blocks == 0 {
@@ -6800,19 +6849,6 @@ impl StacksChainState {
         }
 
         sort_tx.commit()?;
-
-        let blocks_path = self.blocks_path.clone();
-        let mut block_tx = self.db_tx_begin()?;
-        for _ in 0..max_blocks {
-            // delete up to max_blocks blocks
-            let deleted =
-                StacksChainState::process_next_orphaned_staging_block(&mut block_tx, &blocks_path)?;
-            if !deleted {
-                break;
-            }
-        }
-        block_tx.commit()?;
-
         Ok(ret)
     }
 
