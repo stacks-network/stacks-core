@@ -3234,7 +3234,7 @@ impl SortitionDB {
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
     /// height and block-accepted flag.
     pub fn revalidate_snapshot_with_block(
-        tx: &SortitionDBTx,
+        tx: &DBTx,
         sortition_id: &SortitionId,
         canonical_stacks_ch: &ConsensusHash,
         canonical_stacks_bhh: &BlockHeaderHash,
@@ -3248,7 +3248,7 @@ impl SortitionDB {
                 canonical_stacks_bhh,
                 canonical_stacks_ch,
             ];
-            tx.tx().execute(
+            tx.execute(
                 "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4, stacks_block_accepted = 0 WHERE sortition_id = ?1",
                 args
             )?;
@@ -3259,7 +3259,7 @@ impl SortitionDB {
                 canonical_stacks_bhh,
                 canonical_stacks_ch,
             ];
-            tx.tx().execute(
+            tx.execute(
                 "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4 WHERE sortition_id = ?1",
                 args
             )?;
@@ -3271,13 +3271,17 @@ impl SortitionDB {
     /// invalidated snapshot, apply `cls` to it with the given sortition DB transaction, the
     /// current burnchain block being considered, and the list of burnchain blocks still to be
     /// considered.  That last argument will have length 0 on the last call to `cls`.
-    pub fn invalidate_descendants_with_closure<F>(
+    ///
+    /// Run `after` with the sorition handle tx right before committing.
+    pub fn invalidate_descendants_with_closures<F, G>(
         &mut self,
         burn_block: &BurnchainHeaderHash,
         mut cls: F,
+        mut after: G,
     ) -> Result<(), BurnchainError>
     where
         F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>) -> (),
+        G: FnMut(&mut SortitionDBTx) -> (),
     {
         let mut db_tx = self.tx_begin()?;
         let mut queue = vec![burn_block.clone()];
@@ -3321,6 +3325,8 @@ impl SortitionDB {
             )?;
         }
 
+        after(&mut db_tx);
+
         db_tx.commit()?;
         Ok(())
     }
@@ -3329,7 +3335,7 @@ impl SortitionDB {
         &mut self,
         burn_block: &BurnchainHeaderHash,
     ) -> Result<(), BurnchainError> {
-        self.invalidate_descendants_with_closure(burn_block, |_tx, _bhh, _queue| {})
+        self.invalidate_descendants_with_closures(burn_block, |_tx, _bhh, _queue| {}, |_tx| {})
     }
 
     /// Find all sortition IDs with memoized canonical stacks block pointers that are higher than the
@@ -4472,6 +4478,52 @@ impl SortitionDB {
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
+    }
+
+    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Search snapshots up to (but excluding) the given block height.
+    /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
+    pub fn get_last_snapshot_with_sortition_tx(
+        tx: &mut SortitionDBTx,
+        burn_block_height: u64,
+        chain_tip: &SortitionId,
+    ) -> Result<BlockSnapshot, db_error> {
+        assert!(burn_block_height < BLOCK_HEIGHT_MAX);
+        test_debug!(
+            "Get snapshot at from sortition tip {}, expect height {}",
+            chain_tip,
+            burn_block_height
+        );
+        let get_from = match get_ancestor_sort_id_tx(tx, burn_block_height, chain_tip)? {
+            Some(sortition_id) => sortition_id,
+            None => {
+                error!(
+                    "No blockheight {} ancestor at sortition identifier {}",
+                    burn_block_height, &chain_tip
+                );
+                return Err(db_error::NotFoundError);
+            }
+        };
+
+        let ancestor_hash = match tx.get_indexed(&get_from, &db_keys::last_sortition())? {
+            Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).expect(&format!(
+                "FATAL: corrupt database: failed to parse {} into a hex string",
+                &hex_str
+            )),
+            None => {
+                // no prior sortitions, so get the first
+                return SortitionDB::get_first_block_snapshot(tx);
+            }
+        };
+
+        let sortition_identifier_key = db_keys::sortition_id_for_bhh(&ancestor_hash);
+        let sortition_id = match tx.get_indexed(chain_tip, &sortition_identifier_key)? {
+            None => return SortitionDB::get_first_block_snapshot(tx),
+            Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
+        };
+
+        SortitionDB::get_block_snapshot(tx, &sortition_id)
+            .map(|x| x.expect("FATAL: no snapshot for MARF'ed sortition ID"))
     }
 }
 
