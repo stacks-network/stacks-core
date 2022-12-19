@@ -641,6 +641,9 @@ impl TypeSignature {
                 }
             }
             NoType => Err(CheckErrors::CouldNotDetermineType),
+            TraitReferenceType(_) => {
+                unreachable!("TraitReferenceType should not be used in epoch v2.1")
+            }
             _ => Ok(&other == self),
         }
     }

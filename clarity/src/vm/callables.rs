@@ -183,12 +183,23 @@ impl DefinedFunction {
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    )
+                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: callee_contract_id.clone(),
+                                trait_identifier: Some(trait_identifier.clone()),
+                            },
+                        );
+                    }
                     // Epoch >= 2.1 uses CallableType
-                    | (
+                    (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) => {
+                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
