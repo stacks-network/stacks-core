@@ -239,7 +239,7 @@
 
 ;; Helper function for `withdraw-nft-asset`
 ;; Returns response<bool, int>
-(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract (optional <mint-from-hyperchain-trait>)) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
@@ -249,7 +249,15 @@
                          (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))
 
-        (asserts! (try! (as-contract (inner-transfer-or-mint-nft-asset id recipient nft-contract nft-mint-contract))) (err ERR_TRANSFER_FAILED))
+        (asserts!
+            (try!
+                (match nft-mint-contract
+                    mint-contract (as-contract (inner-transfer-or-mint-nft-asset id recipient nft-contract mint-contract))
+                    (as-contract (inner-transfer-without-mint-nft-asset id recipient nft-contract))
+                )
+            )
+            (err ERR_TRANSFER_FAILED)
+        )
 
         (asserts! 
           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
@@ -265,7 +273,7 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>)  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract (optional <mint-from-hyperchain-trait>))  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
@@ -294,23 +302,6 @@
     )
 )
 
-;; Like `inner-withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
-;; have the appropriate balance.
-(define-public (inner-withdraw-nft-asset-no-mint (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
-        (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
-
-        ;; check that the withdrawal request data matches the supplied leaf hash
-        (asserts! (is-eq withdrawal-leaf-hash
-                         (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
-                  (err ERR_VALIDATION_LEAF_FAILED))
-
-        (asserts! (try! (as-contract (inner-transfer-without-mint-nft-asset id recipient nft-contract))) (err ERR_TRANSFER_FAILED))
-
-        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
-    )
-)
-
 ;; Like `withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
 ;; have the appropriate balance.
 (define-public (withdraw-nft-asset-no-mint (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
@@ -318,7 +309,7 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        (asserts! (try! (inner-withdraw-nft-asset-no-mint id recipient withdrawal-id height nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (inner-withdraw-nft-asset id recipient withdrawal-id height nft-contract none withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })

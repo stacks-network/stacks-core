@@ -378,7 +378,7 @@ Clarinet.test({
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -408,7 +408,7 @@ Clarinet.test({
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1015,7 +1015,7 @@ Clarinet.test({
                     types.uint(2),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1112,7 +1112,7 @@ Clarinet.test({
                     types.uint(2),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1207,7 +1207,7 @@ Clarinet.test({
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1291,7 +1291,7 @@ Clarinet.test({
                     types.uint(0),
                     types.uint(0),                    
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1318,7 +1318,7 @@ Clarinet.test({
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
+                    types.some(types.principal(nft_contract.contract_id)),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
