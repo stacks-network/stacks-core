@@ -1159,32 +1159,12 @@ impl MemPoolDB {
         MemPoolDB::open(mainnet, chain_id, chainstate_path, estimator, metric)
     }
 
-    /// Open the mempool db within the chainstate directory.
-    /// The chainstate must be instantiated already.
-    pub fn open(
-        mainnet: bool,
-        chain_id: u32,
-        chainstate_path: &str,
+    pub fn open_db(
+        db_path: &str,
         cost_estimator: Box<dyn CostEstimator>,
         metric: Box<dyn CostMetric>,
     ) -> Result<MemPoolDB, db_error> {
-        match fs::metadata(chainstate_path) {
-            Ok(md) => {
-                if !md.is_dir() {
-                    return Err(db_error::NotFoundError);
-                }
-            }
-            Err(_e) => {
-                return Err(db_error::NotFoundError);
-            }
-        }
-
-        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path, None)
-            .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
-
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
-
-        let db_path = MemPoolDB::db_path(&chainstate.root_path)?;
 
         let mut create_flag = false;
         let open_flags = if fs::metadata(&db_path).is_err() {
@@ -1212,8 +1192,8 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            path: db_path,
-            admitter: admitter,
+            path: db_path.to_owned(),
+            admitter,
             bloom_counter,
             max_tx_tags: DEFAULT_MAX_TX_TAGS,
             cost_estimator,
@@ -1221,6 +1201,34 @@ impl MemPoolDB {
             blacklist_timeout: DEFAULT_BLACKLIST_TIMEOUT,
             blacklist_max_size: DEFAULT_BLACKLIST_MAX_SIZE,
         })
+    }
+
+    /// Open the mempool db within the chainstate directory.
+    /// The chainstate must be instantiated already.
+    pub fn open(
+        mainnet: bool,
+        chain_id: u32,
+        chainstate_path: &str,
+        cost_estimator: Box<dyn CostEstimator>,
+        metric: Box<dyn CostMetric>,
+    ) -> Result<MemPoolDB, db_error> {
+        match fs::metadata(chainstate_path) {
+            Ok(md) => {
+                if !md.is_dir() {
+                    return Err(db_error::NotFoundError);
+                }
+            }
+            Err(_e) => {
+                return Err(db_error::NotFoundError);
+            }
+        }
+
+        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path, None)
+            .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
+
+        let db_path = MemPoolDB::db_path(&chainstate.root_path)?;
+
+        MemPoolDB::open_db(&db_path, cost_estimator, metric)
     }
 
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
@@ -1839,7 +1847,7 @@ impl MemPoolDB {
             } else {
                 // there's a >= fee tx in this fork, cannot add
                 info!("TX conflicts with sponsor/origin nonce in same fork with >= fee";
-                      "new_txid" => %txid, 
+                      "new_txid" => %txid,
                       "old_txid" => %prior_tx.txid,
                       "origin_addr" => %origin_address,
                       "origin_nonce" => origin_nonce,

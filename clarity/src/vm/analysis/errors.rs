@@ -72,6 +72,7 @@ pub enum CheckErrors {
     UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
+    CouldNotDetermineType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
@@ -357,6 +358,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::CouldNotDetermineResponseOkType => format!("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
             CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
+            CheckErrors::CouldNotDetermineType => format!("type of expression cannot be determined"),
             CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
@@ -430,7 +432,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
-                format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
+                format!("internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain")
             },
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),

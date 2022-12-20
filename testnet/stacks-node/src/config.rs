@@ -622,7 +622,8 @@ impl Config {
                             .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
-                    working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
+                    working_dir: std::env::var("STACKS_WORKING_DIR")
+                        .unwrap_or(node.working_dir.unwrap_or(default_node_config.working_dir)),
                     rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                     p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),

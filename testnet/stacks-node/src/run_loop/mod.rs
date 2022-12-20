@@ -153,8 +153,13 @@ impl RunLoopCallbacks {
 
 #[derive(Clone, Debug)]
 pub struct RegisteredKey {
+    /// burn block height we intended this VRF key register to land in
+    pub target_block_height: u64,
+    /// burn block height it actually landed in
     pub block_height: u64,
+    /// offset in the block's tx list where this operation is
     pub op_vtxindex: u32,
+    /// the public key itself
     pub vrf_public_key: VRFPublicKey,
 }
 

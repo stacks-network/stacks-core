@@ -264,7 +264,7 @@ pub fn from_consensus_buff(
         Ok(value) => value,
         Err(_) => return Ok(Value::none()),
     };
-    if !type_arg.admits(&result) {
+    if !type_arg.admits(&result)? {
         return Ok(Value::none());
     }
 

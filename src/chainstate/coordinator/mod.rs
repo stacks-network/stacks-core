@@ -1725,7 +1725,12 @@ impl<
                 .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
-            if let (Some(block_receipt), _) = block_result {
+            if block_result.0.is_none() && block_result.1.is_none() {
+                // this block was invalid
+                debug!("Bump blocks processed (invalid)");
+                self.notifier.notify_stacks_block_processed();
+                increment_stx_blocks_processed_counter();
+            } else if let (Some(block_receipt), _) = block_result {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
                 //  TODO: we should update the staging block logic to prevent
@@ -1746,6 +1751,7 @@ impl<
                     let new_canonical_stacks_block =
                         new_canonical_block_snapshot.get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
+
                     debug!("Bump blocks processed");
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
