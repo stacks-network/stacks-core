@@ -981,7 +981,7 @@ inputted value. The function always returns `true`.",
 
 const MAP_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B, ..., N) -> X, sequence_A, sequence_B, ..., sequence_N",
-    snippet: "map ${1:sequence} ${2:sequence}",
+    snippet: "map ${1:func} ${2:sequence}",
     output_type: "(list X)",
     signature: "(map func sequence_A sequence_B ... sequence_N)",
     description: "The `map` function applies the function `func` to each corresponding element of the input sequences,
