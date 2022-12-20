@@ -28,10 +28,14 @@ depends_on = ["trait-standards"]
 [contracts.hyperchains]
 path = "contracts/hyperchains.clar"
 depends_on = ["trait-standards"]
+clarity_version = 2 
+epoch = 2.1
 
 [contracts.multi-miner]
 path = "contracts/multi-miner.clar"
 depends_on = ["hyperchains"]
+clarity_version = 2 
+epoch = 2.1
 
 [contracts.test-helpers]
 path = "contracts/helper/test-helpers.clar"

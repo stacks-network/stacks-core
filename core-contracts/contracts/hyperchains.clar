@@ -491,7 +491,7 @@
 )
 
 (define-read-only (leaf-hash-withdraw-stx (amount uint) (recipient principal) (withdrawal-id uint) (height uint))
-    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff?
         {
             type: "stx",
             amount: amount,
@@ -502,7 +502,7 @@
 )))))
 
 (define-read-only (leaf-hash-withdraw-nft (asset-contract principal) (nft-id uint) (recipient principal) (withdrawal-id uint) (height uint))
-    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff?
         {
             type: "nft",
             nft-id: nft-id,
@@ -514,7 +514,7 @@
 )))))
 
 (define-read-only (leaf-hash-withdraw-ft (asset-contract principal) (amount uint) (recipient principal) (withdrawal-id uint) (height uint))
-    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff?
         {
             type: "ft",
             amount: amount,
