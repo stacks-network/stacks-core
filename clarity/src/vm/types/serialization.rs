@@ -614,7 +614,7 @@ impl Value {
                 }
 
                 if let Some(list_type) = list_type {
-                    Value::list_with_type(&StacksEpochId::latest(), items, list_type.clone())
+                    Value::list_with_type(&StacksEpochId::Epoch21, items, list_type.clone())
                         .map_err(|_| "Illegal list type".into())
                 } else {
                     Value::list_from(items).map_err(|_| "Illegal list type".into())
