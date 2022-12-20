@@ -1387,13 +1387,14 @@ Clarinet.test({
 
         // Miner should *not* be able to withdraw NFT asset because the contract doesn't own it.
         block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(user.address),
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
+                    types.none(),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1489,13 +1490,14 @@ Clarinet.test({
 
         // Miner should be able to withdraw NFT asset to original user.
         block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(user.address),
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
+                    types.none(),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({
@@ -1606,13 +1608,14 @@ Clarinet.test({
 
         // Miner should be able to withdraw NFT asset to other_user.
         block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(other_user.address),
                     types.uint(0),
                     types.uint(0),
                     types.principal(nft_contract.contract_id),
+                    types.none(),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
                     types.list([types.tuple({

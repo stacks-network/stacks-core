@@ -302,22 +302,6 @@
     )
 )
 
-;; Like `withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
-;; have the appropriate balance.
-(define-public (withdraw-nft-asset-no-mint (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (begin
-        ;; Check that the asset belongs to the allowed-contracts map
-        (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
-
-        (asserts! (try! (inner-withdraw-nft-asset id recipient withdrawal-id height nft-contract none withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
-
-        ;; Emit a print event
-        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
-
-        (ok true)
-    )
-)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR FUNGIBLE TOKEN ASSET TRANSFERS
 
