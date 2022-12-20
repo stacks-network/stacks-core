@@ -1830,7 +1830,7 @@ mod test {
             epoch,
         )
         .unwrap()[0];
-        TypeSignature::parse_type_repr(StacksEpochId::latest(), expr, &mut ()).unwrap_err()
+        TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap_err()
     }
 
     #[apply(test_clarity_versions_signatures)]
