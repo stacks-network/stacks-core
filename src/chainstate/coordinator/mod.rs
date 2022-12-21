@@ -906,12 +906,21 @@ impl<
             self.burnchain_blocks_db.conn(),
             &self.burnchain,
         )?;
+
+        let canonical_affirmation_map = StacksChainState::find_canonical_affirmation_map(
+            &self.burnchain,
+            &self.burnchain_blocks_db,
+            &self.chain_state_db,
+        )
+        .expect("FATAL: failed to load canonical Stacks affirmation map");
+
         debug!(
-            "Heaviest anchor block affirmation map is `{}` at height {}, Stacks tip is `{}`, sortition tip is `{}`",
+            "Heaviest anchor block affirmation map is `{}` at height {}, Stacks tip is `{}`, sortition tip is `{}`, canonical is `{}`",
             &heaviest_am,
             canonical_burnchain_tip.block_height,
             &stacks_tip_affirmation_map,
-            &sortition_tip_affirmation_map
+            &sortition_tip_affirmation_map,
+            &canonical_affirmation_map,
         );
 
         // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
@@ -925,13 +934,32 @@ impl<
             }
         };
 
-        let sortition_changed_reward_cycle_opt = {
+        let mut sortition_changed_reward_cycle_opt = {
             if heaviest_am.len() <= sortition_tip_affirmation_map.len() {
                 sortition_tip_affirmation_map.find_divergence(&heaviest_am)
             } else {
                 heaviest_am.find_divergence(&sortition_tip_affirmation_map)
             }
         };
+
+        if sortition_changed_reward_cycle_opt.is_none() {
+            if sortition_tip_affirmation_map.len() >= heaviest_am.len()
+                && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
+            {
+                if let Some(divergence_rc) =
+                    canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
+                {
+                    if divergence_rc + 1 >= (heaviest_am.len() as u64) {
+                        // this can arise if there are unaffirmed PoX anchor blocks that are not
+                        // reflected in the sortiiton affirmation map
+                        debug!("Update sortition-changed reward cycle to {} from canonical affirmation map `{}` (sortition AM is `{}`)",
+                            divergence_rc, &canonical_affirmation_map, &sortition_tip_affirmation_map);
+
+                        sortition_changed_reward_cycle_opt = Some(divergence_rc);
+                    }
+                }
+            }
+        }
 
         // find the lowest of the two
         let lowest_changed_reward_cycle_opt = match (

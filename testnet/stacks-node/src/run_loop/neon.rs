@@ -812,7 +812,7 @@ impl RunLoop {
             if let Some(divergence_rc) =
                 canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
             {
-                if divergence_rc >= (heaviest_affirmation_map.len() as u64) {
+                if divergence_rc + 1 >= (heaviest_affirmation_map.len() as u64) {
                     // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
                     debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {}, heaviest: {}, canonical: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, &canonical_affirmation_map);
                     globals.coord().announce_new_burn_block();
