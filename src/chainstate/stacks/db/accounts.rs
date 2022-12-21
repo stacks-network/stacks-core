@@ -1357,6 +1357,7 @@ mod test {
             vec![],
             vec![],
             vec![],
+            parent_header_info.anchored_header.total_work.work + 1,
         )
         .unwrap();
         tx.commit().unwrap();
