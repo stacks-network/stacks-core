@@ -350,7 +350,7 @@ impl PoxConstants {
 
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn static_active_pox_contract(v1_unlock_height: u64, burn_height: u64) -> &'static str {
-        if burn_height >= v1_unlock_height {
+        if burn_height > v1_unlock_height {
             POX_2_NAME
         } else {
             POX_1_NAME
