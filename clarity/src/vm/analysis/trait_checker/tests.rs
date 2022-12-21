@@ -73,6 +73,7 @@ fn test_dynamic_dispatch_by_defining_trait(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -80,6 +81,7 @@ fn test_dynamic_dispatch_by_defining_trait(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -102,8 +104,8 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
     let mut db = marf.as_analysis_db();
     let err = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-            type_check(&impl_contract_id, &mut c3, db, true, &version)
+            type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+            type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err.err {
@@ -129,8 +131,8 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
     let mut db = marf.as_analysis_db();
     let err = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-            type_check(&impl_contract_id, &mut c3, db, true, &version)
+            type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+            type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err.err {
@@ -153,8 +155,8 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
     let mut db = marf.as_analysis_db();
     let err = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-            type_check(&impl_contract_id, &mut c3, db, true, &version)
+            type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+            type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err.err {
@@ -176,8 +178,8 @@ fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion, #[case] epoc
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -195,8 +197,8 @@ fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion, #[case] epoc
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -218,8 +220,8 @@ fn test_complete_impl_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -244,8 +246,8 @@ fn test_complete_impl_trait_mixing_readonly(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -284,6 +286,7 @@ fn test_get_trait_reference_from_tuple(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -291,6 +294,7 @@ fn test_get_trait_reference_from_tuple(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -333,6 +337,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -426,6 +431,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -433,6 +439,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -477,6 +484,7 @@ fn test_dynamic_dispatch_unknown_method(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -484,6 +492,7 @@ fn test_dynamic_dispatch_unknown_method(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -539,6 +548,7 @@ fn test_nested_literal_implicitly_compliant(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -546,6 +556,7 @@ fn test_nested_literal_implicitly_compliant(
             &mut nested_target_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -553,6 +564,7 @@ fn test_nested_literal_implicitly_compliant(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -590,6 +602,7 @@ fn test_passing_trait_reference_instances(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -628,6 +641,7 @@ fn test_passing_nested_trait_reference_instances(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -787,6 +801,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
                 &mut contract_defining_trait,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -794,6 +809,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -801,6 +817,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -855,6 +872,7 @@ fn test_dynamic_dispatch_importing_trait(
             &mut contract_defining_trait,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -862,6 +880,7 @@ fn test_dynamic_dispatch_importing_trait(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -869,6 +888,7 @@ fn test_dynamic_dispatch_importing_trait(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -943,6 +963,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             &mut contract_defining_nested_trait,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -950,6 +971,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             &mut contract_defining_trait,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -957,6 +979,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -964,6 +987,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -971,6 +995,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             &mut target_nested_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -1046,6 +1071,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 &mut contract_defining_nested_trait,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1053,6 +1079,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 &mut contract_defining_trait,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1060,6 +1087,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1067,6 +1095,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1074,14 +1103,19 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 &mut target_nested_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
         .unwrap_err();
 
     match err.err {
+        CheckErrors::TypeError(
+            TypeSignature::TraitReferenceType(_),
+            TypeSignature::TraitReferenceType(_),
+        ) if epoch < StacksEpochId::Epoch21 => {}
         CheckErrors::TypeError(TypeSignature::CallableType(_), TypeSignature::CallableType(_))
-            if version < ClarityVersion::Clarity2 => {}
+            if epoch >= StacksEpochId::Epoch21 && version < ClarityVersion::Clarity2 => {}
         CheckErrors::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
         _ => panic!("{:?}", err),
     }
@@ -1122,6 +1156,7 @@ fn test_dynamic_dispatch_mismatched_args(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1129,6 +1164,7 @@ fn test_dynamic_dispatch_mismatched_args(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -1174,6 +1210,7 @@ fn test_dynamic_dispatch_mismatched_returns(
                 &mut dispatching_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )?;
             type_check(
@@ -1181,6 +1218,7 @@ fn test_dynamic_dispatch_mismatched_returns(
                 &mut target_contract,
                 db,
                 true,
+                &epoch,
                 &version,
             )
         })
@@ -1215,10 +1253,10 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let mut db = marf.as_analysis_db();
     let err = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c2, db, true, &version).unwrap();
-            type_check(&impl_contract_id, &mut c3, db, true, &version).unwrap();
-            type_check(&call_contract_id, &mut c4, db, true, &version)
+            type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
+            type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
+            type_check(&call_contract_id, &mut c4, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err.err {
@@ -1252,10 +1290,10 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Sta
     println!("c4: {:?}", c4);
 
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&disp_contract_id, &mut c2, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version).unwrap();
-        type_check(&call_contract_id, &mut c4, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
+        type_check(&call_contract_id, &mut c4, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -1286,10 +1324,10 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: S
     println!("c4: {:?}", c4);
 
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&disp_contract_id, &mut c2, db, true, &version).unwrap();
-        type_check(&impl_contract_id, &mut c3, db, true, &version).unwrap();
-        type_check(&call_contract_id, &mut c4, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
+        type_check(&call_contract_id, &mut c4, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -1339,6 +1377,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
             &mut contract_defining_trait,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1346,6 +1385,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1353,6 +1393,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -1405,6 +1446,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
             &mut contract_defining_trait,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1412,6 +1454,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1419,6 +1462,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     });
@@ -1449,8 +1493,8 @@ fn test_contract_of_good(#[case] version: ClarityVersion, #[case] epoch: StacksE
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
-        type_check(&def_contract_id, &mut c1, db, true, &version).unwrap();
-        type_check(&disp_contract_id, &mut c2, db, true, &version)
+        type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
+        type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version)
     })
     .unwrap();
 }
@@ -1507,8 +1551,15 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
 
     let err_principal = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_principal, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(
+                &disp_contract_id,
+                &mut c_principal,
+                db,
+                true,
+                &epoch,
+                &version,
+            )
         })
         .unwrap_err();
     match err_principal.err {
@@ -1517,8 +1568,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_int = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_int.err {
@@ -1527,8 +1578,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_uint = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_uint.err {
@@ -1537,8 +1588,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_bool = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_bool.err {
@@ -1547,8 +1598,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_list = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_list.err {
@@ -1557,8 +1608,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_buff = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_buff.err {
@@ -1567,8 +1618,8 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
     let err_tuple = db
         .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &version)
+            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
         })
         .unwrap_err();
     match err_tuple.err {
@@ -1612,6 +1663,7 @@ fn test_return_trait_with_contract_of(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1619,6 +1671,7 @@ fn test_return_trait_with_contract_of(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -1660,6 +1713,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1667,6 +1721,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -1708,6 +1763,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
             &mut dispatching_contract,
             db,
             true,
+            &epoch,
             &version,
         )?;
         type_check(
@@ -1715,6 +1771,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
             &mut target_contract,
             db,
             true,
+            &epoch,
             &version,
         )
     })
@@ -1747,8 +1804,22 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
     // Referring to a trait from the current contract is supported in Clarity2,
     // but not in Clarity1.
     match db.execute(|db| {
-        type_check(&impl_contract_id, &mut impl_contract, db, true, &version)?;
-        type_check(&trait_contract_id, &mut trait_contract, db, true, &version)
+        type_check(
+            &impl_contract_id,
+            &mut impl_contract,
+            db,
+            true,
+            &epoch,
+            &version,
+        )?;
+        type_check(
+            &trait_contract_id,
+            &mut trait_contract,
+            db,
+            true,
+            &epoch,
+            &version,
+        )
     }) {
         Err(CheckError {
             err: CheckErrors::NoSuchContract(contract),

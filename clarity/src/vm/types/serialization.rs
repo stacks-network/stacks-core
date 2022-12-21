@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
 use serde_json::Value as JSONValue;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
 use crate::vm::errors::{
@@ -355,7 +356,8 @@ impl TypeSignature {
                     .ok_or_else(|| CheckErrors::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
-            | TypeSignature::CallableType(CallableSubtype::Principal(_)) => {
+            | TypeSignature::CallableType(CallableSubtype::Principal(_))
+            | TypeSignature::TraitReferenceType(_) => {
                 // version byte + 20 byte hash160
                 let maximum_issuer_size = 21;
                 let contract_name_length_encode = 1;
@@ -612,7 +614,7 @@ impl Value {
                 }
 
                 if let Some(list_type) = list_type {
-                    Value::list_with_type(items, list_type.clone())
+                    Value::list_with_type(&StacksEpochId::Epoch21, items, list_type.clone())
                         .map_err(|_| "Illegal list type".into())
                 } else {
                     Value::list_from(items).map_err(|_| "Illegal list type".into())
@@ -658,7 +660,7 @@ impl Value {
                 }
 
                 if let Some(tuple_type) = tuple_type {
-                    TupleData::from_data_typed(items, tuple_type)
+                    TupleData::from_data_typed(&StacksEpochId::latest(), items, tuple_type)
                         .map_err(|_| "Illegal tuple type".into())
                         .map(Value::from)
                 } else {
