@@ -879,13 +879,22 @@ impl Node {
             parent_consensus_hash
         };
 
+        let burnchain = self.config.get_burnchain();
+        let burnchain_db = burnchain
+            .open_db(false)
+            .expect("FATAL: failed to open burnchain db")
+            .0;
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state
-                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
+                self.chain_state.process_blocks(
+                    burnchain_db.conn(),
+                    tx,
+                    1,
+                    Some(&self.event_dispatcher),
+                )
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
