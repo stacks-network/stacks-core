@@ -147,9 +147,6 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
-    /// times of the last attempt to recover from a PoX reorg, in seconds
-    last_stacks_pox_reorg_recover_time: u128,
-    last_burn_pox_reorg_recover_time: u128,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -196,8 +193,6 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
-            last_stacks_pox_reorg_recover_time: 0,
-            last_burn_pox_reorg_recover_time: 0,
         }
     }
 
@@ -614,30 +609,34 @@ impl RunLoop {
     /// Be careful not to saturate calls to announce new stacks blocks, because that will disable
     /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
     /// progress).
-    fn drive_pox_reorg_stacks_block_processing(&mut self, globals: &Globals, sortdb: &SortitionDB) {
+    fn drive_pox_reorg_stacks_block_processing(
+        globals: &Globals,
+        config: &Config,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        last_stacks_pox_reorg_recover_time: &mut u128,
+    ) {
         let delay = cmp::max(
             1,
             cmp::max(
-                self.config.miner.first_attempt_time_ms,
-                self.config.miner.subsequent_attempt_time_ms,
+                config.miner.first_attempt_time_ms,
+                config.miner.subsequent_attempt_time_ms,
             ) / 1000,
         );
 
-        if self.last_stacks_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into()
-        {
+        if *last_stacks_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
             // too soon
             return;
         }
 
         // compare stacks and heaviest AMs
-        let burnchain_db = self
-            .get_burnchain()
+        let burnchain_db = burnchain
             .open_burnchain_db(false)
             .expect("FATAL: failed to open burnchain DB");
 
         let heaviest_affirmation_map = match BurnchainDB::get_heaviest_anchor_block_affirmation_map(
             burnchain_db.conn(),
-            &self.get_burnchain(),
+            burnchain,
         ) {
             Ok(am) => am,
             Err(e) => {
@@ -714,7 +713,7 @@ impl RunLoop {
             globals.coord().announce_new_stacks_block();
         }
 
-        self.last_stacks_pox_reorg_recover_time = get_epoch_time_secs().into();
+        *last_stacks_pox_reorg_recover_time = get_epoch_time_secs().into();
     }
 
     /// Wake up and drive sortition processing if there's been a PoX reorg.
@@ -723,23 +722,29 @@ impl RunLoop {
     /// progress).
     ///
     /// only call if no in ibd
-    fn drive_pox_reorg_burn_block_processing(&mut self, globals: &Globals, sortdb: &SortitionDB) {
+    fn drive_pox_reorg_burn_block_processing(
+        globals: &Globals,
+        config: &Config,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        chain_state_db: &StacksChainState,
+        last_burn_pox_reorg_recover_time: &mut u128,
+    ) {
         let delay = cmp::max(
             1,
             cmp::max(
-                self.config.miner.first_attempt_time_ms,
-                self.config.miner.subsequent_attempt_time_ms,
+                config.miner.first_attempt_time_ms,
+                config.miner.subsequent_attempt_time_ms,
             ) / 1000,
         );
 
-        if self.last_burn_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
+        if *last_burn_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
             // too soon
             return;
         }
 
         // compare sortition and heaviest AMs
-        let burnchain_db = self
-            .get_burnchain()
+        let burnchain_db = burnchain
             .open_burnchain_db(false)
             .expect("FATAL: failed to open burnchain DB");
 
@@ -777,7 +782,7 @@ impl RunLoop {
 
         let heaviest_affirmation_map = match BurnchainDB::get_heaviest_anchor_block_affirmation_map(
             burnchain_db.conn(),
-            &self.get_burnchain(),
+            burnchain,
         ) {
             Ok(am) => am,
             Err(e) => {
@@ -785,6 +790,13 @@ impl RunLoop {
                 return;
             }
         };
+
+        let canonical_affirmation_map = StacksChainState::find_canonical_affirmation_map(
+            &burnchain,
+            &burnchain_db,
+            chain_state_db,
+        )
+        .expect("FATAL: failed to load canonical Stacks affirmation map");
 
         if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
             || sortition_tip_affirmation_map
@@ -794,6 +806,18 @@ impl RunLoop {
         {
             debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, {} <? {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height, highest_sn.block_height);
             globals.coord().announce_new_burn_block();
+        } else if sortition_tip_affirmation_map.len() >= heaviest_affirmation_map.len()
+            && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
+        {
+            if let Some(divergence_rc) =
+                canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
+            {
+                if divergence_rc >= (heaviest_affirmation_map.len() as u64) {
+                    // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
+                    debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {}, heaviest: {}, canonical: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, &canonical_affirmation_map);
+                    globals.coord().announce_new_burn_block();
+                }
+            }
         } else {
             debug!(
                 "Drive burn block processing: no need (sortition tip: {}, heaviest: {}, {} </ {})",
@@ -804,7 +828,65 @@ impl RunLoop {
             );
         }
 
-        self.last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
+        *last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
+    }
+
+    /// In a separate thread, periodically drive coordinator liveness by checking to see if there's
+    /// a pending reorg and if so, waking up the coordinator to go and process new blocks
+    fn drive_chain_liveness(
+        globals: Globals,
+        config: Config,
+        burnchain: Burnchain,
+        sortdb: SortitionDB,
+        chain_state_db: StacksChainState,
+    ) {
+        let mut last_burn_pox_reorg_recover_time = 0;
+        let mut last_stacks_pox_reorg_recover_time = 0;
+
+        while globals.keep_running() {
+            Self::drive_pox_reorg_burn_block_processing(
+                &globals,
+                &config,
+                &burnchain,
+                &sortdb,
+                &chain_state_db,
+                &mut last_burn_pox_reorg_recover_time,
+            );
+            Self::drive_pox_reorg_stacks_block_processing(
+                &globals,
+                &config,
+                &burnchain,
+                &sortdb,
+                &mut last_stacks_pox_reorg_recover_time,
+            );
+        }
+    }
+
+    /// Spawn a thread to drive chain liveness
+    fn spawn_chain_liveness_thread(&self, globals: Globals) -> JoinHandle<()> {
+        let config = self.config.clone();
+        let burnchain = self.get_burnchain();
+        let sortdb = burnchain
+            .open_sortition_db(true)
+            .expect("FATAL: could not open sortition DB");
+
+        let (chain_state_db, _) = StacksChainState::open(
+            config.is_mainnet(),
+            config.burnchain.chain_id,
+            &config.get_chainstate_path_str(),
+            Some(config.node.get_marf_opts()),
+        )
+        .unwrap();
+
+        let liveness_thread_handle = thread::Builder::new()
+            .name(format!("chain-liveness-{}", config.node.rpc_bind))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
+            .spawn(move || {
+                Self::drive_chain_liveness(globals, config, burnchain, sortdb, chain_state_db)
+            })
+            .expect("FATAL: failed to spawn chain liveness thread");
+
+        liveness_thread_handle
     }
 
     /// Starts the node runloop.
@@ -906,6 +988,8 @@ impl RunLoop {
         );
 
         let mut last_tenure_sortition_height = 0;
+        let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
+
         loop {
             if !globals.keep_running() {
                 // The p2p thread relies on the same atomic_bool, it will
@@ -917,6 +1001,7 @@ impl RunLoop {
                 globals.coord().stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
                 node.join();
+                liveness_thread.join().unwrap();
 
                 info!("Exiting stacks-node");
                 break;
@@ -953,9 +1038,6 @@ impl RunLoop {
                 if !globals.keep_running() {
                     break;
                 }
-
-                self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
-                self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
 
                 let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(burnchain_height + 1)) {
@@ -1050,9 +1132,6 @@ impl RunLoop {
                     break;
                 }
             }
-
-            self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
-            self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
 
             target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
                 burnchain_config
