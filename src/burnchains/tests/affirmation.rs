@@ -140,6 +140,88 @@ fn affirmation_map_find_divergence() {
     );
 }
 
+#[test]
+fn affirmation_map_find_inv_search() {
+    assert_eq!(
+        AffirmationMap::decode("aaa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aaa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("aaa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aaaa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("aaa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("apa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aaa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("apa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aaaa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("naa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aa").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("napn")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("pn")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("n").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("paap")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("pap").unwrap()),
+        1
+    );
+    assert_eq!(
+        AffirmationMap::decode("paap")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("paap").unwrap()),
+        3
+    );
+    assert_eq!(
+        AffirmationMap::decode("papa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("apap").unwrap()),
+        0
+    );
+    assert_eq!(
+        AffirmationMap::decode("paapapap")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("paappapa").unwrap()),
+        4
+    );
+    assert_eq!(
+        AffirmationMap::decode("aaaaa")
+            .unwrap()
+            .find_inv_search(&AffirmationMap::decode("aaaaa").unwrap()),
+        0
+    );
+}
+
 pub fn make_simple_key_register(
     burn_header_hash: &BurnchainHeaderHash,
     block_height: u64,
