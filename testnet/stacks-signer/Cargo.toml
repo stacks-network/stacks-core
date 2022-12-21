@@ -18,3 +18,7 @@ frost = { git = "https://github.com/trust-machines/frost" }
 rand_core = { version  = "0.5"}
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
+
+[build-dependencies]
+build-utils = { path = "../../build-utils" }
+
