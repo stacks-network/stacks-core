@@ -1777,21 +1777,9 @@ impl PeerNetwork {
     fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
         // start scaning at the reward cycle just before that.
-
-        let stacks_changed_reward_cycle_opt = {
-            if self.heaviest_affirmation_map.len() <= self.stacks_tip_affirmation_map.len() {
-                self.stacks_tip_affirmation_map
-                    .find_divergence(&self.heaviest_affirmation_map)
-            } else {
-                // if the stacks AM is shorter, then we definitely need to start the inv sync at
-                // the end of the heaviest affirmation map's reward cycle
-                Some(self.stacks_tip_affirmation_map.len() as u64)
-            }
-        };
-        if let Some(diverged_rc) = stacks_changed_reward_cycle_opt {
-            test_debug!("Stacks tip affirmation map `{}` diverges from heaviest affirmation map `{}` at reward cycle {}", &self.stacks_tip_affirmation_map, &self.heaviest_affirmation_map, diverged_rc);
-            return diverged_rc.saturating_sub(1);
-        }
+        let am_rescan_rc = self
+            .stacks_tip_affirmation_map
+            .find_inv_search(&self.heaviest_affirmation_map);
 
         // affirmation maps are compatible, so just resume scanning off of wherever we are at the
         // tip.
@@ -1816,13 +1804,16 @@ impl PeerNetwork {
             highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
         );
 
+        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+
         test_debug!(
-            "begin blocks inv scan at {} = min({},{})",
-            start_reward_cycle,
+            "begin blocks inv scan at {} = min({},{},{})",
+            rescan_rc,
             stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+            am_rescan_rc
         );
-        start_reward_cycle
+        rescan_rc
     }
 
     /// Start requesting the next batch of PoX inventories
