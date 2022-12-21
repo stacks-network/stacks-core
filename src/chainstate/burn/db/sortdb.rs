@@ -2616,15 +2616,8 @@ impl SortitionDB {
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
-        let (index_root, pox_payout) = db_tx.index_add_fork_info(
-            &mut first_sn,
-            &first_snapshot,
-            &vec![],
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let (index_root, pox_payout) =
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
@@ -2703,15 +2696,8 @@ impl SortitionDB {
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
-        let (index_root, pox_payout) = db_tx.index_add_fork_info(
-            &mut first_sn,
-            &first_snapshot,
-            &vec![],
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let (index_root, pox_payout) =
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
         db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
@@ -4485,7 +4471,6 @@ impl<'a> SortitionHandleTx<'a> {
     ///    and this method should initialize the `initial_mining_bonus` fields in the sortition db.
     pub fn append_chain_tip_snapshot(
         &mut self,
-        burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
@@ -4514,7 +4499,6 @@ impl<'a> SortitionHandleTx<'a> {
             next_pox_info,
             reward_info,
             initialize_bonus,
-            Some(burnchain),
         )?;
 
         let mut sn = snapshot.clone();
@@ -5018,7 +5002,6 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
-        burnchain: Option<&Burnchain>,
     ) -> Result<(TrieHash, (Vec<PoxAddress>, u128)), db_error> {
         if !snapshot.is_initial() {
             assert_eq!(
@@ -5088,10 +5071,6 @@ impl<'a> SortitionHandleTx<'a> {
         let pox_payout = self.get_pox_payout_per_output(block_ops);
         let mut pox_payout_addrs = if !snapshot.is_initial() {
             if let Some(reward_info) = next_pox_info {
-                // burnchain must be given
-                let burnchain =
-                    burnchain.expect("FATAL: burnchain is None when processing new PoX state");
-
                 let mut pox_id = self.get_pox_id()?;
                 let pox_payout_addrs;
 
