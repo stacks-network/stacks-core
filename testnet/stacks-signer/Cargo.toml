@@ -18,6 +18,8 @@ frost = { git = "https://github.com/trust-machines/frost" }
 rand_core = { version  = "0.5"}
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
+secp256k1-math = { git = "https://github.com/Trust-Machines/rust-secp256k1-math", rev = "3b9fe0c8f95c53f7068d980fac38dc00ecf784cd"  }
+
 
 [build-dependencies]
 build-utils = { path = "../../build-utils" }
