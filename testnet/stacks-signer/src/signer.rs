@@ -18,7 +18,7 @@ impl Signer {
     pub fn new() -> Signer {
         Signer { parties: vec![] }
     }
-    pub fn reset(threshold: usize, total: usize) -> Signer {
+    pub fn reset(&mut self, threshold: usize, total: usize) {
         assert!(threshold <= total);
         let mut rng = OsRng::default();
 
@@ -26,13 +26,13 @@ impl Signer {
         let parties: Vec<frost::Party> = (0..total)
             .map(|i| frost::Party::new(i, total, threshold, &mut rng))
             .collect();
-        return Signer { parties };
+        self.parties = parties;
     }
 
-    pub fn process(&self, message: MessageTypes) -> bool{
+    pub fn process(&mut self, message: MessageTypes) -> bool{
         match message {
             MessageTypes::Join => {
-                Signer::reset(1, 2);
+                self.reset(1, 2);
             }
         };
         true

@@ -21,7 +21,7 @@ fn main() {
     handle.join().unwrap();
 }
 
-pub fn mainloop(signer: Signer, net: net::Net) {
+pub fn mainloop(mut signer: Signer, net: net::Net) {
     info!("mainloop");
     loop {
         let message = net.next_message().r#type;
