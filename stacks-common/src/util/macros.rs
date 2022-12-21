@@ -100,7 +100,7 @@ macro_rules! define_versioned_named_enum {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
             pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
 
-            fn lookup_by_name(name: &str) -> Option<Self> {
+            pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
                     $(
                         $VarName => Some($Name::$Variant),

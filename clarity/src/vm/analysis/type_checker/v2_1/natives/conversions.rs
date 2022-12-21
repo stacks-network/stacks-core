@@ -1,6 +1,8 @@
+use stacks_common::types::StacksEpochId;
+
+use super::{TypeChecker, TypeResult};
 use crate::vm::analysis::read_only_checker::check_argument_count;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-use crate::vm::analysis::type_checker::{TypeChecker, TypeResult};
 use crate::vm::analysis::CheckError;
 use crate::vm::types::{BufferLength, SequenceSubtype, TypeSignature};
 use crate::vm::SymbolicExpression;
@@ -33,7 +35,7 @@ pub fn check_special_from_consensus_buff(
     context: &TypingContext,
 ) -> TypeResult {
     check_argument_count(2, args)?;
-    let result_type = TypeSignature::parse_type_repr(&args[0], checker)?;
+    let result_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch21, &args[0], checker)?;
     checker.type_check_expects(&args[1], context, &TypeSignature::max_buffer())?;
     TypeSignature::new_option(result_type).map_err(CheckError::from)
 }

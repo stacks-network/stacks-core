@@ -21,6 +21,7 @@ use crate::types::chainstate::StacksBlockId;
 use rstest::rstest;
 #[cfg(any(test, feature = "testing"))]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast;
 use crate::vm::ast::errors::ParseErrors;
@@ -140,7 +141,7 @@ fn test_get_block_info_eval() {
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
-        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
             .initialize_contract(
@@ -1016,7 +1017,7 @@ fn test_at_unknown_block() {
         }
     }
 
-    with_memory_environment(test, true);
+    with_memory_environment(test, StacksEpochId::latest(), true);
 }
 
 #[test]
@@ -1036,7 +1037,7 @@ fn test_as_max_len() {
             .unwrap();
     }
 
-    with_memory_environment(test, true);
+    with_memory_environment(test, StacksEpochId::latest(), true);
 }
 
 #[test]
@@ -1115,6 +1116,7 @@ fn test_cc_stack_depth() {
                 RuntimeErrorType::MaxStackDepthReached.into()
             );
         },
+        StacksEpochId::latest(),
         false,
     );
 }
@@ -1157,6 +1159,7 @@ fn test_cc_trait_stack_depth() {
                 RuntimeErrorType::MaxStackDepthReached.into()
             );
         },
+        StacksEpochId::latest(),
         false,
     );
 }
@@ -1174,6 +1177,6 @@ fn test_all() {
     ];
     for test in to_test.iter() {
         eprintln!("..");
-        with_memory_environment(test, false);
+        with_memory_environment(test, StacksEpochId::latest(), false);
     }
 }

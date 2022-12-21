@@ -19,6 +19,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::costs::{cost_functions, runtime_cost};
 
 use crate::vm::analysis::errors::CheckErrors;
@@ -80,10 +82,11 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
+    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -96,6 +99,7 @@ impl NativeHandle {
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
+            Self::MoreArgEnv(function) => function(args, env),
         }
     }
 }
@@ -175,10 +179,27 @@ impl DefinedFunction {
             // Clarity 1 behavior
             if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
                 match (type_sig, value) {
+                    // Epoch < 2.1 uses TraitReferenceType
+                    (
+                        TypeSignature::TraitReferenceType(trait_identifier),
+                        Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: callee_contract_id.clone(),
+                                trait_identifier: Some(trait_identifier.clone()),
+                            },
+                        );
+                    }
+                    // Epoch >= 2.1 uses CallableType
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) => {
+                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -191,7 +212,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(value)? {
+                        if !type_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
                                 type_sig.clone(),
                                 value.clone(),
@@ -232,7 +253,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(&cast_value)? {
+                        if !type_sig.admits(env.epoch(), &cast_value)? {
                             return Err(
                                 CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
                             );
@@ -261,6 +282,7 @@ impl DefinedFunction {
 
     pub fn check_trait_expectations(
         &self,
+        epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
     ) -> Result<()> {
@@ -277,7 +299,7 @@ impl DefinedFunction {
                 ))?;
 
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
-        if !expected_sig.check_args_trait_compliance(args)? {
+        if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
             );
