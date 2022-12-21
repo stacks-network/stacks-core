@@ -8,13 +8,12 @@ pub struct Signer {
 }
 
 pub enum MessageTypes {
-    Join
+    Join,
 }
 
 impl Signer {
     pub fn new() -> Signer {
-        Signer { parties: vec![]}
-
+        Signer { parties: vec![] }
     }
     pub fn reset(threshold: usize, total: usize) -> Signer {
         assert!(threshold <= total);
@@ -27,14 +26,12 @@ impl Signer {
         return Signer { parties };
     }
 
-    pub fn mainloop(&self, net: net::Net) {
-        info!("mainloop");
-        loop {
-            match net.next_message().r#type {
-                MessageTypes::Join => {
-                    Signer::reset(1, 2);
-                }
+    pub fn process(&self, message: MessageTypes) -> bool{
+        match message {
+            MessageTypes::Join => {
+                Signer::reset(1, 2);
             }
-        }
+        };
+        true
     }
 }
