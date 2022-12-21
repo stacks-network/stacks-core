@@ -116,6 +116,7 @@ impl StacksChainState {
         parent_id: &StacksBlockId,
         tip_info: &StacksHeaderInfo,
         anchored_block_cost: &ExecutionCost,
+        affirmation_weight: u64,
     ) -> Result<(), Error> {
         assert_eq!(
             tip_info.stacks_block_height,
@@ -164,6 +165,7 @@ impl StacksChainState {
             anchored_block_cost,
             &block_size_str,
             parent_id,
+            &u64_to_sql(affirmation_weight)?,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -187,8 +189,9 @@ impl StacksChainState {
                     index_root,
                     cost,
                     block_size,
-                    parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                    parent_block_id,
+                    affirmation_weight) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -362,19 +365,32 @@ impl StacksChainState {
     }
 
     /// Get all headers at a given Stacks height
-    pub fn get_all_headers_at_height(
+    pub fn get_all_headers_at_height_and_weight(
         conn: &Connection,
         height: u64,
+        affirmation_weight: u64,
     ) -> Result<Vec<StacksHeaderInfo>, Error> {
         let qry =
-            "SELECT * FROM block_headers WHERE block_height = ?1 ORDER BY burn_header_height DESC";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+            "SELECT * FROM block_headers WHERE block_height = ?1 AND affirmation_weight = ?2 ORDER BY burn_header_height DESC";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(affirmation_weight)?];
         query_rows(conn, qry, args).map_err(|e| e.into())
     }
 
     /// Get the highest known header height
-    pub fn get_max_header_height(conn: &Connection) -> Result<u64, Error> {
-        let qry = "SELECT block_height FROM block_headers ORDER BY block_height DESC LIMIT 1";
+    pub fn get_max_header_height_with_weight(
+        conn: &Connection,
+        affirmation_weight: u64,
+    ) -> Result<u64, Error> {
+        let qry = "SELECT block_height FROM block_headers WHERE affirmation_weight = ?1 ORDER BY block_height DESC LIMIT 1";
+        query_row(conn, qry, &[&u64_to_sql(affirmation_weight)?])
+            .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
+            .map_err(|e| e.into())
+    }
+
+    /// Get the highest known header affirmation weight
+    pub fn get_max_affirmation_weight(conn: &Connection) -> Result<u64, Error> {
+        let qry =
+            "SELECT affirmation_weight FROM block_headers ORDER BY affirmation_weight DESC LIMIT 1";
         query_row(conn, qry, NO_PARAMS)
             .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
             .map_err(|e| e.into())
