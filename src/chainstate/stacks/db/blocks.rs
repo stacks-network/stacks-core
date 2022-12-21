@@ -7206,7 +7206,7 @@ impl StacksChainState {
 
                 let contract_identifier =
                     QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
-
+                let epoch = clarity_connection.get_epoch().clone();
                 clarity_connection.with_analysis_db_readonly(|db| {
                     let function_type = db
                         .get_public_function_type(&contract_identifier, &function_name)
@@ -7216,7 +7216,12 @@ impl StacksChainState {
                         .get_clarity_version(&contract_identifier)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?;
                     function_type
-                        .check_args_by_allowing_trait_cast(db, clarity_version, &function_args)
+                        .check_args_by_allowing_trait_cast(
+                            db,
+                            &function_args,
+                            epoch,
+                            clarity_version,
+                        )
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }

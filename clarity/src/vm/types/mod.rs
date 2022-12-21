@@ -25,6 +25,7 @@ use std::{cmp, fmt};
 use regex::Regex;
 
 use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 use stacks_common::types::chainstate::StacksAddress;
@@ -298,7 +299,7 @@ impl SequenceData {
         Some(result)
     }
 
-    pub fn replace_at(self, index: usize, element: Value) -> Result<Value> {
+    pub fn replace_at(self, epoch: &StacksEpochId, index: usize, element: Value) -> Result<Value> {
         let seq_length = self.len();
 
         // Check that the length of the provided element is 1. In the case that SequenceData
@@ -324,7 +325,7 @@ impl SequenceData {
             }
             (SequenceData::List(mut data), elem) => {
                 let entry_type = data.type_signature.get_list_item_type();
-                if !entry_type.admits(&elem)? {
+                if !entry_type.admits(epoch, &elem)? {
                     return Err(CheckErrors::ListTypesMustMatch.into());
                 }
                 data.data[index] = elem;
@@ -462,12 +463,12 @@ impl SequenceData {
         Ok(())
     }
 
-    pub fn append(&mut self, other_seq: &mut SequenceData) -> Result<()> {
+    pub fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut SequenceData) -> Result<()> {
         match (self, other_seq) {
             (
                 SequenceData::List(ref mut inner_data),
                 SequenceData::List(ref mut other_inner_data),
-            ) => inner_data.append(other_inner_data),
+            ) => inner_data.append(epoch, other_inner_data),
             (
                 SequenceData::Buffer(ref mut inner_data),
                 SequenceData::Buffer(ref mut other_inner_data),
@@ -881,7 +882,11 @@ impl Value {
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
-    pub fn list_with_type(list_data: Vec<Value>, expected_type: ListTypeData) -> Result<Value> {
+    pub fn list_with_type(
+        epoch: &StacksEpochId,
+        list_data: Vec<Value>,
+        expected_type: ListTypeData,
+    ) -> Result<Value> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         //   so we do not need to perform that check here.
@@ -893,7 +898,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(&item)? {
+                if !expected_item_type.admits(epoch, &item)? {
                     return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
@@ -1183,10 +1188,10 @@ impl ListData {
         self.data.len().try_into().unwrap()
     }
 
-    fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
+    fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
-        let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
+        let entry_type = TypeSignature::factor_out_no_type(epoch, &entry_type_a, &entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
         self.data.append(&mut other_seq.data);
@@ -1476,6 +1481,7 @@ impl TupleData {
     }
 
     pub fn from_data_typed(
+        epoch: &StacksEpochId,
         mut data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
     ) -> Result<TupleData> {
@@ -1484,7 +1490,7 @@ impl TupleData {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
-            if !expected_type.admits(&value)? {
+            if !expected_type.admits(epoch, &value)? {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
             }
             data_map.insert(name, value);
@@ -1541,6 +1547,7 @@ mod test {
     fn test_constructors() {
         assert_eq!(
             Value::list_with_type(
+                &StacksEpochId::latest(),
                 vec![Value::Int(5), Value::Int(2)],
                 ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
             ),
