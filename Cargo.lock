@@ -2896,6 +2896,7 @@ dependencies = [
 name = "stacks-signer"
 version = "0.0.1"
 dependencies = [
+ "build-utils",
  "frost",
  "rand_core 0.5.1",
  "serde",
