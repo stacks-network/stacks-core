@@ -6,3 +6,8 @@ fn receive_message() {
     let join = MessageTypes::Join;
     assert!(signer.process(join));
 }
+
+#[test]
+fn broadcast_share() {
+
+}

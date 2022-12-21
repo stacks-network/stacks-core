@@ -1,7 +1,10 @@
-use crate::net;
+use std::collections::HashMap;
+
 use frost::frost;
 use rand_core::OsRng;
-use tracing::info;
+use secp256k1_math::scalar::Scalar;
+
+type KeyShare = HashMap<usize, Scalar>;
 
 pub struct Signer {
     parties: Vec<frost::Party>,
@@ -34,4 +37,9 @@ impl Signer {
         };
         true
     }
+
+    pub fn key_share(&self, party_id: usize) -> KeyShare {
+        self.parties[party_id].get_shares()
+    }
 }
+

@@ -2895,6 +2895,7 @@ dependencies = [
  "build-utils",
  "frost",
  "rand_core 0.5.1",
+ "secp256k1-math",
  "serde",
  "sha3",
  "toml",
