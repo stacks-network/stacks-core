@@ -18,6 +18,7 @@ use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::env;
+use std::f32::consts::E;
 use std::fmt;
 use std::fs;
 use std::fs::OpenOptions;
@@ -26,12 +27,14 @@ use std::io;
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::iter::FromIterator;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 use std::os;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::{cmp, error};
 
+use lru::LruCache;
 use rusqlite::{
     types::{FromSql, ToSql},
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
@@ -65,14 +68,59 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
+use lz4_flex::{
+    compress_prepend_size as lz4_compress_prepend_size, 
+    decompress_size_prepended as lz4_decompress_size_prepended,
+    block::uncompressed_size as lz4_uncompressed_size
+};
+
 /// Mapping between block IDs and trie offsets
-pub type TrieIdOffsets = HashMap<u32, u64>;
+pub type TrieIdOffsets = HashMap<u32, TrieIdOffset>;
+
+#[derive(Debug, Clone, Copy)]
+pub struct TrieIdOffset {
+    pub offset: u64,
+    pub length: u64
+}
+
+pub const HEADER_INDICATOR: [u8; 3] = [255u8, 255u8, 1u8];
+
+#[derive(Debug, Clone, Copy)]
+pub enum TrieBlobCompression {
+    None,
+    LZ4
+}
+
+impl TrieBlobCompression {
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            TrieBlobCompression::None => 0u8,
+            TrieBlobCompression::LZ4 => 1u8
+        }
+    }
+}
+
+pub struct BlobCompressionResult {
+    pub compressed_bytes: Vec<u8>,
+    pub compressed_blob_size: usize,
+    pub compression_algorithm: TrieBlobCompression
+}
+
+pub struct BlobStorageResult {
+    pub offset: u64,
+    pub uncompressed_blob_size: usize,
+    pub storage_size: usize,
+    pub compression: Option<BlobCompressionResult>
+}
 
 /// Handle to a flat file containing Trie blobs
 pub struct TrieFileDisk {
     fd: fs::File,
     path: String,
     trie_offsets: TrieIdOffsets,
+    decompressed_lru: LruCache<u32, Vec<u8>>,
+    current_trie: Option<Cursor<Vec<u8>>>,
+    current_block_id: Option<u32>
 }
 
 /// Handle to a flat in-memory buffer containing Trie blobs (used for testing)
@@ -101,10 +149,16 @@ impl TrieFile {
             .write(!readonly)
             .create(!readonly)
             .open(path)?;
+
+        let lru_cache: LruCache<u32, Vec<u8>> = LruCache::new(NonZeroUsize::new(50).unwrap());
+
         Ok(TrieFile::Disk(TrieFileDisk {
             fd,
             path: path.to_string(),
             trie_offsets: TrieIdOffsets::new(),
+            decompressed_lru: lru_cache,
+            current_trie: None,
+            current_block_id: None
         }))
     }
 
@@ -165,9 +219,14 @@ impl TrieFile {
         bhh: &T,
         buffer: &[u8],
     ) -> Result<u32, Error> {
-        let offset = self.append_trie_blob(db, buffer)?;
-        test_debug!("Stored trie blob {} to offset {}", bhh, offset);
-        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
+        let result = self.append_trie_blob(db, buffer)?;
+        test_debug!("Stored trie blob {} to offset {}", bhh, result.offset);
+        trie_sql::write_external_trie_blob(
+            db, 
+            bhh, 
+            result.offset, 
+            result.storage_size as u64, 
+            result.compression)
     }
 
     /// Read a trie blob in its entirety from the DB
@@ -184,12 +243,18 @@ impl TrieFile {
     /// Read a trie blob in its entirety from the blobs file
     #[cfg(test)]
     pub fn read_trie_blob(&mut self, db: &Connection, block_id: u32) -> Result<Vec<u8>, Error> {
-        let (offset, length) = trie_sql::get_external_trie_offset_length(db, block_id)?;
-        self.seek(SeekFrom::Start(offset))?;
+        let extern_trie = trie_sql::get_external_trie_offset_length(db, block_id)?;
+        self.seek(SeekFrom::Start(extern_trie.offset))?;
 
-        let mut buf = vec![0u8; length as usize];
+        let mut buf = vec![0u8; extern_trie.length as usize];
         self.read_exact(&mut buf)?;
-        Ok(buf)
+
+        let buffer = match extern_trie.compression {
+            TrieBlobCompression::None => buf,
+            TrieBlobCompression::LZ4 => lz4_decompress_size_prepended(&buf).unwrap()
+        };
+
+        Ok(buffer)
     }
 
     /// Vacuum the database and report the size before and after.
@@ -260,6 +325,70 @@ impl TrieFile {
         }
     }
 
+    /// Recreates the external trie blob file, iterating through all uncompressed trie blobs
+    /// and writing the new compressed value to a new file.  After this is done, the trie
+    /// file will be replaced with the new compressed file.
+    pub fn compress_trie_blobs<T: MarfTrieId>(
+        &mut self,
+        db: &Connection
+    ) -> Result<(), Error>
+    {
+        if trie_sql::detect_partial_migration_for_schema_v3(db)? {
+            panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+        }
+
+        let max_block = trie_sql::count_blocks(db)?;
+        info!(
+            "Compress {} blocks in external blob storage at {}",
+            max_block,
+            &self.get_path()
+        );
+
+        let check = trie_sql::get_uncompressed_external_trie_blobs(db, 1)?;
+        if check.len() == 0
+        {
+            eprintln!("No uncompressed blobs were found.");
+            trie_sql::set_migrated(db)?;
+            return Ok(())
+        }
+
+        
+        let tmp_path = format!("{}.v3", self.get_path());
+        eprintln!("Creating new TrieFile on disk: {}", tmp_path);
+        let mut v3_file = Self::new_disk(&tmp_path, false)?;
+        eprintln!("File created.");
+
+        loop { 
+            let results = trie_sql::get_uncompressed_external_trie_blobs(db, 1000)?;
+            if results.len() == 0 {
+                trie_sql::set_migrated(db)?;
+                break;
+            }
+
+            let first = results.first().unwrap();
+            let last = results.last().unwrap();
+
+            info!("Compressing blocks {} to {} (of {})", first.block_id, last.block_id, max_block);
+
+            for extern_trie in results {
+                self.seek(SeekFrom::Start(extern_trie.offset))?;
+
+                let mut buf = vec![0u8; extern_trie.length as usize];
+                self.read_exact(&mut buf)?;
+
+                let blob_storage_result = v3_file.append_trie_blob(db, buf.as_slice())?;
+                
+                trie_sql::update_external_trie_blob_after_compression(db,
+                    extern_trie.block_id, 
+                    blob_storage_result.offset, 
+                    blob_storage_result.storage_size as u64, 
+                    blob_storage_result.compression.unwrap().compression_algorithm)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Copy the trie blobs out of a sqlite3 DB into their own file.
     /// NOTE: this is *not* thread-safe.  Do not call while the DB is being used by another thread.
     pub fn export_trie_blobs<T: MarfTrieId>(
@@ -267,7 +396,7 @@ impl TrieFile {
         db: &Connection,
         db_path: &str,
     ) -> Result<(), Error> {
-        if trie_sql::detect_partial_migration(db)? {
+        if trie_sql::detect_partial_migration_for_schema_v2(db)? {
             panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
         }
 
@@ -306,7 +435,13 @@ impl TrieFile {
                     // append directly to file, so we can get the true offset
                     self.seek(SeekFrom::End(0))?;
                     let offset = self.stream_position()?;
-                    self.write_all(&trie_blob)?;
+
+                    let compression_result = Self::compress_blob(&trie_blob)?;
+                    let compressed = &compression_result.compressed_bytes;
+
+                    test_debug!("Write trie of {} (uncompressed) and {} (compressed) bytes at {}", &trie_blob.len(), compressed.len(), offset);
+
+                    self.write_all(&compressed)?;
                     self.flush()?;
 
                     test_debug!("Stored trie blob {} to offset {}", bhh, offset);
@@ -314,7 +449,8 @@ impl TrieFile {
                         db,
                         &bhh,
                         offset,
-                        trie_blob.len() as u64,
+                        compressed.len() as u64,
+                        Some(compression_result),
                         block_id,
                     )?;
                 }
@@ -356,32 +492,79 @@ impl<'a> TrieFileNodeHashReader<'a> {
 
 impl NodeHashReader for TrieFileNodeHashReader<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let trie_offset = self.file.get_trie_offset(self.db, self.block_id)?;
         self.file
-            .seek(SeekFrom::Start(trie_offset + (ptr.ptr() as u64)))?;
+            .seek(SeekFrom::Start(ptr.ptr() as u64))?;
+            //.seek(SeekFrom::Start(trie_offset + (ptr.ptr() as u64)))?;
         let hash_buff = read_hash_bytes(self.file)?;
         w.write_all(&hash_buff).map_err(|e| e.into())
+    }
+}
+
+impl TrieFileDisk {
+    pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<TrieIdOffset, Error> {
+        let cached_offset = self.trie_offsets.get(&block_id);
+
+        match cached_offset {
+            Some(offset) => Ok(TrieIdOffset { offset: offset.offset, length: offset.length }),
+            None => {
+                let extern_trie = trie_sql::get_external_trie_offset_length(db, block_id)?;
+                let offset = TrieIdOffset { offset: extern_trie.offset, length: extern_trie.length };
+                self.trie_offsets.insert(block_id, offset);
+                Ok(offset)
+            }
+        }
+    }
+
+    pub fn load_trie_blob(&mut self, db: &Connection, block_id: u32) -> Result<(), Error> {
+        if let Some(current_block_id) = self.current_block_id {
+            if current_block_id == block_id {
+                return Ok(());
+            }
+        }
+
+        if let Some(cached_trie) = self.decompressed_lru.get(&block_id) {
+            self.current_block_id = Some(block_id);
+            self.current_trie = Some(Cursor::new(cached_trie.to_vec()));
+        }
+
+        //eprintln!(">> load_trie_blob()");
+        let extern_trie = self.get_trie_offset(db, block_id)?;
+        self.seek(SeekFrom::Start(extern_trie.offset))?;
+        let mut take_adapter = self.take(extern_trie.length);
+        let buf= &mut Vec::<u8>::new();
+        take_adapter.read_to_end(buf)?;
+        //eprintln!("take_adapter length: {}", &buf.len());
+        let decompressed = lz4_decompress_size_prepended(buf.as_slice()).unwrap();
+        
+        self.decompressed_lru.put(block_id, decompressed.clone());
+        
+        self.current_block_id = Some(block_id);
+        self.current_trie = Some(Cursor::new(decompressed));
+        //eprintln!("<< load_trie_blob()");
+        Ok(())
+    }
+}
+
+impl TrieFileRAM {
+    pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<TrieIdOffset, Error> {
+        if let Some(cached) = self.trie_offsets.get(&block_id) {
+            Ok(TrieIdOffset { offset: cached.offset, length: cached.length })
+        } else {
+            let extern_trie = trie_sql::get_external_trie_offset_length(db, block_id)?;
+            let offset = TrieIdOffset { offset: extern_trie.offset, length: extern_trie.length };
+            self.trie_offsets.insert(block_id, offset);
+            Ok(offset)
+        }
     }
 }
 
 impl TrieFile {
     /// Determine the file offset in the TrieFile where a serialized trie starts.
     /// The offsets are stored in the given DB, and are cached indefinitely once loaded.
-    pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<u64, Error> {
-        let offset_opt = match self {
-            TrieFile::RAM(ref ram) => ram.trie_offsets.get(&block_id),
-            TrieFile::Disk(ref disk) => disk.trie_offsets.get(&block_id),
-        };
-        match offset_opt {
-            Some(offset) => Ok(*offset),
-            None => {
-                let (offset, _length) = trie_sql::get_external_trie_offset_length(db, block_id)?;
-                match self {
-                    TrieFile::RAM(ref mut ram) => ram.trie_offsets.insert(block_id, offset),
-                    TrieFile::Disk(ref mut disk) => disk.trie_offsets.insert(block_id, offset),
-                };
-                Ok(offset)
-            }
+    pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<TrieIdOffset, Error> {
+        match self {
+            TrieFile::Disk(disk) => disk.get_trie_offset(db, block_id),
+            TrieFile::RAM(ram) => ram.get_trie_offset(db, block_id),
         }
     }
 
@@ -392,10 +575,21 @@ impl TrieFile {
         block_id: u32,
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
-        let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        let hash_buff = read_hash_bytes(self)?;
-        Ok(TrieHash(hash_buff))
+        match self {
+            TrieFile::RAM(_) => {
+                self.seek_to(db, block_id, ptr)?;
+                let hash_buff = read_hash_bytes(self)?;
+                Ok(TrieHash(hash_buff))
+            },
+            TrieFile::Disk(disk) => {
+                disk.load_trie_blob(db, block_id)?;
+                let blob = disk.current_trie.as_mut().unwrap();
+                blob.seek(SeekFrom::Start(ptr.ptr() as u64))?;
+                let hash_buff = read_hash_bytes(blob)?;
+                Ok(TrieHash(hash_buff))
+            }
+        }
+        
     }
 
     /// Obtain a TrieNodeType and its associated TrieHash for a node, given its block ID and
@@ -406,9 +600,32 @@ impl TrieFile {
         block_id: u32,
         ptr: &TriePtr,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
-        let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head(self, ptr.id())
+        match self {
+            TrieFile::RAM(ram) => {
+                let trie = ram.get_trie_offset(db, block_id)?;
+                ram.seek(SeekFrom::Start(trie.offset + (ptr.ptr() as u64)))?;
+                read_nodetype_at_head(ram, ptr.id())
+            },
+            TrieFile::Disk(disk) => {
+                disk.load_trie_blob(db, block_id)?;
+                let blob = disk.current_trie.as_mut().unwrap();
+                blob.seek(SeekFrom::Start(ptr.ptr() as u64))?;
+                read_nodetype_at_head(blob, ptr.id())
+            }
+        }
+    }
+
+    fn seek_to(&mut self, db: &Connection, block_id: u32, ptr: &TriePtr) -> Result<(), Error> {
+        let trie = self.get_trie_offset(db, block_id)?;
+        match self {
+            TrieFile::RAM(_) => { self.seek(SeekFrom::Start(trie.offset + (ptr.ptr() as u64)))?; },
+            TrieFile::Disk(disk) => {
+                disk.load_trie_blob(db, block_id)?;
+                let cursor = disk.current_trie.as_mut().unwrap();
+                cursor.seek(SeekFrom::Start(ptr.ptr() as u64))?; 
+            }
+        }
+        Ok(())
     }
 
     /// Obtain a TrieNodeType, given its block ID and pointer
@@ -418,9 +635,19 @@ impl TrieFile {
         block_id: u32,
         ptr: &TriePtr,
     ) -> Result<TrieNodeType, Error> {
-        let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head_nohash(self, ptr.id())
+
+        match self {
+            TrieFile::Disk(disk) => { 
+                disk.load_trie_blob(db, block_id)?;
+                let trie = disk.current_trie.as_mut().unwrap();
+                trie.seek(SeekFrom::Start(ptr.ptr() as u64))?;
+                read_nodetype_at_head_nohash(trie, ptr.id())
+            },
+            _ => { 
+                self.seek_to(db, block_id, ptr)?; 
+                read_nodetype_at_head_nohash(self, ptr.id())
+            }
+        }
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
@@ -432,9 +659,22 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let (offset, _length) = trie_sql::get_external_trie_offset_length_by_bhh(db, bhh)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        let hash_buff = read_hash_bytes(self)?;
-        Ok(TrieHash(hash_buff))
+        let block_id = trie_sql::get_block_identifier(db, bhh)?;
+
+        match self {
+            TrieFile::Disk(disk) => {
+                disk.load_trie_blob(db, block_id)?;
+                let blob = disk.current_trie.as_mut().unwrap();
+                blob.seek(SeekFrom::Start(ptr.ptr() as u64))?;
+                let hash_buff = read_hash_bytes(blob)?;
+                Ok(TrieHash(hash_buff))
+            },
+            TrieFile::RAM(ram) => {
+                self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+                let hash_buff = read_hash_bytes(self)?;
+                Ok(TrieHash(hash_buff))
+            }
+        }
     }
 
     /// Get all (root hash, trie hash) pairs for this TrieFile
@@ -443,17 +683,43 @@ impl TrieFile {
         &mut self,
         db: &Connection,
     ) -> Result<Vec<(TrieHash, T)>, Error> {
+
         let mut s =
-            db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
+            db.prepare("SELECT block_hash, external_offset, external_length FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
+
+        let start = TrieStorageConnection::<T>::root_ptr_disk() as u64;
+
         let rows = s.query_and_then(NO_PARAMS, |row| {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
+            let length_i64: i64 = row.get_unwrap("external_length");
+            let length = length_i64 as u64;
             let offset = offset_i64 as u64;
-            let start = TrieStorageConnection::<T>::root_ptr_disk() as u64;
 
-            self.seek(SeekFrom::Start(offset + start))?;
-            let hash_buff = read_hash_bytes(self)?;
-            let root_hash = TrieHash(hash_buff);
+            //eprintln!("block_hash: {}, offset:{}, start: {}, length: {}",
+            //    block_hash, offset, start, length);
+
+            let root_hash = match self {
+                TrieFile::RAM(ram) => {
+                    ram.seek(SeekFrom::Start(offset + start))?;
+                    let hash_buff = read_hash_bytes(ram)?;
+                    TrieHash(hash_buff)
+                },
+                TrieFile::Disk(disk) => {
+                    disk.seek(SeekFrom::Start(offset))?;
+                    let mut take_adapter = self.take(length);
+                    let buf= &mut Vec::<u8>::new();
+                    take_adapter.read_to_end(buf)?;
+                    //eprintln!("take_adapter length: {}", &buf.len());
+                    let decompressed = lz4_decompress_size_prepended(buf.as_slice()).unwrap();
+                    //eprintln!("decompressed: {:02X?}", decompressed); 
+                    let mut cursor = Cursor::new(decompressed);
+                    cursor.seek(SeekFrom::Start(start))?;
+                    let hash_buff = read_hash_bytes(&mut cursor)?;
+                    //eprintln!("hash_buff: {:02X?}", hash_buff);
+                    TrieHash(hash_buff)
+                }
+            };
 
             trace!(
                 "Root hash for block {} at offset {} is {}",
@@ -463,25 +729,61 @@ impl TrieFile {
             );
             Ok((root_hash, block_hash))
         })?;
+
         rows.collect()
     }
 
-    /// Append a serialized trie to the TrieFile.
-    /// Returns the offset at which it was appended.
-    pub fn append_trie_blob(&mut self, db: &Connection, buf: &[u8]) -> Result<u64, Error> {
-        let offset = trie_sql::get_external_blobs_length(db)?;
-        test_debug!("Write trie of {} bytes at {}", buf.len(), offset);
-        self.seek(SeekFrom::Start(offset))?;
-        self.write_all(buf)?;
-        self.flush()?;
+    /// Compresses a trie blob
+    fn compress_blob(buf: &[u8]) -> Result<BlobCompressionResult, Error> {
+        // Compress the blob
+        let compressed = lz4_compress_prepend_size(buf);
+        let compressed_blob_size = compressed.len();
 
-        match self {
-            TrieFile::Disk(ref mut data) => {
-                data.fd.sync_data()?;
+        Ok(BlobCompressionResult {
+            compressed_bytes: compressed,
+            compressed_blob_size,
+            compression_algorithm: TrieBlobCompression::LZ4
+        })
+    }
+
+    /// Append a serialized and compressed trie to the TrieFile.
+    /// Returns the offset at which it was appended.
+    pub fn append_trie_blob(&mut self, db: &Connection, buf: &[u8]) -> Result<BlobStorageResult, Error> {
+        let offset = trie_sql::get_external_blobs_length(db)?;
+        self.seek(SeekFrom::Start(offset))?;
+
+        let result = match self {
+            TrieFile::RAM(ram) => {
+                ram.fd.write_all(buf)?;
+                ram.fd.flush()?;
+                BlobStorageResult {
+                    offset,
+                    uncompressed_blob_size: buf.len(),
+                    storage_size: buf.len(),
+                    compression: None
+                }
+            },
+            TrieFile::Disk(disk) => {
+                let compression_result = Self::compress_blob(buf)?;
+                let compressed = &compression_result.compressed_bytes;
+
+                eprintln!("Write trie of {} (uncompressed) and {} (compressed) bytes at {}", buf.len(), compressed.len(), offset);
+
+                disk.fd.seek(SeekFrom::Start(offset))?;
+                disk.fd.write_all(compressed)?;
+                disk.fd.flush()?;
+                disk.fd.sync_data()?;
+
+                BlobStorageResult {
+                    offset,
+                    uncompressed_blob_size: buf.len(),
+                    storage_size: compressed.len(),
+                    compression: Some(compression_result)
+                }
             }
-            _ => {}
-        }
-        Ok(offset)
+        };
+
+        Ok(result)
     }
 }
 
@@ -527,6 +829,7 @@ impl Write for TrieFile {
 /// Boilerplate Read implementation for TrieFileDisk.  Plumbs through to the inner fd.
 impl Read for TrieFileDisk {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        //eprintln!("Read for TrieFileDisk - buf len: {}", &buf.len());
         self.fd.read(buf)
     }
 }
@@ -534,6 +837,7 @@ impl Read for TrieFileDisk {
 /// Boilerplate Read implementation for TrieFileRAM.  Plumbs through to the inner fd.
 impl Read for TrieFileRAM {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        //eprintln!("Read for TrieFileRAM - buf len: {}", &buf.len());
         self.fd.read(buf)
     }
 }

@@ -1438,12 +1438,16 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile::exists(&db_path)? {
+                    eprintln!("Migrating trie blobs to external blobs file at {}.", &db_path);
                     // migrate blobs out of the old DB
                     blobs.export_trie_blobs::<T>(&db, &db_path)?;
+
+                    eprintln!("Compacting external trie blobs file at {}.", &db_path);
+                    blobs.compress_trie_blobs::<T>(&db)?;
                 }
             }
         }
-        if trie_sql::detect_partial_migration(&db)? {
+        if trie_sql::detect_partial_migration_for_schema_v2(&db)? {
             panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
         }
 
@@ -2552,6 +2556,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             &self.unconfirmed_block_id,
             self.unconfirmed()
         );
+
         if self.unconfirmed_block_id == Some(block_id) {
             trace!("Read persisted node from unconfirmed block id {}", block_id);
 
@@ -2563,11 +2568,15 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     .map(|node| (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE])));
             }
         }
+
         let (node_inst, node_hash) = match self.blobs.as_mut() {
             Some(blobs) => {
                 if read_hash {
+                    //eprintln!("read_node_type(): block_id: {:?}, ptr: {:?}", block_id, &ptr);
                     blobs.read_node_type(&self.db, block_id, &ptr)?
                 } else {
+                    //eprintln!("read_node_type_nohash(): block_id: {:?}, ptr: {:?}", block_id, &ptr);
+                    // !here
                     blobs
                         .read_node_type_nohash(&self.db, block_id, &ptr)
                         .map(|node| (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE])))?
@@ -2582,6 +2591,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                 }
             }
         };
+
+        //eprintln!("<< inner_read_persisted_roadtype()");
         Ok((node_inst, node_hash))
     }
 
@@ -2594,7 +2605,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         ptr: &TriePtr,
         read_hash: bool,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
-        trace!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
+        //trace!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
 
         self.data.read_count += 1;
         if is_backptr(ptr.id()) {
@@ -2616,9 +2627,11 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // some other block
-        match self.data.cur_block_id {
+        let ret = match self.data.cur_block_id {
             Some(id) => {
+                //eprintln!("read_nodetype(), id: {:?}, read_hash: {:?}", id, read_hash);
                 self.bench.read_nodetype_start();
+
                 let (node_inst, node_hash) = if read_hash {
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
@@ -2639,10 +2652,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
+                        //eprintln!("read_nodetype() - inner_read_persisted_nodetype(): id: {:?}, clear_ptr: {:?}, read_hash: {:?}",
+                        //id, &clear_ptr, read_hash);
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
+                        //eprintln!("read_nodetype() - 2");
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
+                        //eprintln!("read_nodetype() - 3");
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     }
                 };
@@ -2654,7 +2671,10 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                 debug!("Not found (no file is open)");
                 Err(Error::NotFoundError)
             }
-        }
+        };
+
+        //eprintln!("<< read_nodetype()");
+        ret
     }
 
     /// Store a node and its hash to the uncommitted state.

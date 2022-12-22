@@ -900,7 +900,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         // walk to insertion point
         let mut node = Trie::read_root_nohash(storage).map_err(|e| {
-            test_debug!("Failed to read root of {:?}: {:?}", block_hash, &e);
+            eprintln!("Failed to read root of {:?}: {:?}", block_hash, &e);
             e
         })?;
 
@@ -976,7 +976,7 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
 
-        trace!("Trie has a cycle");
+        eprintln!("Trie has a cycle");
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
 
@@ -1006,7 +1006,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).map_err(|e| {
-            test_debug!("Failed to open block {:?}: {:?}", block_hash, &e);
+            eprintln!("Failed to open block {:?}: {:?}", block_hash, &e);
             e
         })?;
 

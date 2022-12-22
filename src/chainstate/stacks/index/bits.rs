@@ -127,6 +127,7 @@ pub fn ptrs_from_bytes<R: Read>(
     }
 
     let num_ptrs = node_id_to_ptr_count(node_id);
+    //eprintln!("num_ptrs: {:?}", num_ptrs);
     let mut bytes = vec![0u8; 1 + num_ptrs * TRIEPTR_SIZE];
     r.read_exact(&mut bytes).map_err(|e| {
         if e.kind() == ErrorKind::UnexpectedEof {
@@ -351,22 +352,27 @@ fn inner_read_nodetype_at_head<F: Read + Seek>(
         Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id))
     })? {
         TrieNodeID::Node4 => {
+            //eprintln!("Node4");
             let node = TrieNode4::from_bytes(f)?;
             TrieNodeType::Node4(node)
         }
         TrieNodeID::Node16 => {
+            //eprintln!("Node16");
             let node = TrieNode16::from_bytes(f)?;
             TrieNodeType::Node16(node)
         }
         TrieNodeID::Node48 => {
+            //eprintln!("Node48");
             let node = TrieNode48::from_bytes(f)?;
             TrieNodeType::Node48(Box::new(node))
         }
         TrieNodeID::Node256 => {
+            //eprintln!("Node256");
             let node = TrieNode256::from_bytes(f)?;
             TrieNodeType::Node256(Box::new(node))
         }
         TrieNodeID::Leaf => {
+            //eprintln!("Leaf");
             let node = TrieLeaf::from_bytes(f)?;
             TrieNodeType::Leaf(node)
         }

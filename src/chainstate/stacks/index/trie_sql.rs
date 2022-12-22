@@ -35,7 +35,7 @@ use regex::Regex;
 use rusqlite::{
     blob::Blob,
     types::{FromSql, ToSql},
-    Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS,
+    Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS, Statement
 };
 
 use crate::chainstate::stacks::index::bits::{
@@ -52,18 +52,21 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
-use crate::util_lib::db::query_count;
+use crate::util_lib::db::{query_count, u8_to_sql, FromRow, FromColumn};
 use crate::util_lib::db::query_row;
 use crate::util_lib::db::query_rows;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db;
 use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+
+use super::file::{TrieBlobCompression, BlobCompressionResult};
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -109,7 +112,26 @@ INSERT OR REPLACE INTO schema_version (version) VALUES (2);
 INSERT OR REPLACE INTO migrated_version (version) VALUES (1);
 ";
 
-pub static SQL_MARF_SCHEMA_VERSION: u64 = 2;
+static SQL_MARF_DATA_TABLE_SCHEMA_3: &str = "
+-- Indicates the compression type used for external blob storage.
+-- 0 = uncompressed
+-- 1 = lz4_flex
+ALTER TABLE marf_data ADD COLUMN compression INTEGER DEFAULT 0 NOT NULL;
+
+UPDATE schema_version SET version = 3;
+";
+
+pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
+
+impl From<u64> for TrieBlobCompression {
+    fn from(e: u64) -> Self {
+        match e {
+            0u64 => TrieBlobCompression::None,
+            1u64 => TrieBlobCompression::LZ4,
+            _ => panic!("Unsupported blob compression")
+        }
+    }
+}
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
@@ -140,7 +162,7 @@ fn get_migrated_version(conn: &Connection) -> u64 {
     match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
         Ok(x) => x as u64,
         Err(e) => {
-            debug!("Failed to get schema version: {:?}", &e);
+            debug!("Failed to get migrated version: {:?}", &e);
             1u64
         }
     }
@@ -161,6 +183,13 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
                 tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_2)?;
                 tx.commit()?;
             }
+            2 => {
+                debug!("Migrate MARF data from schema 2 to schema 3");
+
+                let tx = tx_begin_immediate(conn)?;
+                tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_3)?;
+                tx.commit()?;
+            }
             x if x == SQL_MARF_SCHEMA_VERSION => {
                 // done
                 debug!("Migrated MARF data to schema {}", &SQL_MARF_SCHEMA_VERSION);
@@ -176,14 +205,17 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
             }
         }
     }
+
     if first_version == SQL_MARF_SCHEMA_VERSION
         && get_migrated_version(conn) != SQL_MARF_SCHEMA_VERSION
-        && !trie_sql::detect_partial_migration(conn)?
+        && !trie_sql::detect_partial_migration_for_schema_v2(conn)?
+        && !trie_sql::detect_partial_migration_for_schema_v3(conn)?
     {
         // no migration will need to happen, so stop checking
         debug!("Marking MARF data as fully-migrated");
         set_migrated(conn)?;
     }
+
     Ok(first_version)
 }
 
@@ -273,21 +305,29 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
+    compression: Option<BlobCompressionResult>,
     block_id: Option<u32>,
 ) -> Result<u32, Error> {
+    let compression_algorithm = match compression {
+        Some(c) => c.compression_algorithm,
+        None => TrieBlobCompression::None
+    };
+
     let block_id = if let Some(block_id) = block_id {
         // existing entry (i.e. a migration)
         let empty_blob: &[u8] = &[];
+
         let args: &[&dyn ToSql] = &[
             block_hash,
             &empty_blob,
             &0,
             &u64_to_sql(offset)?,
             &u64_to_sql(length)?,
+            &compression_algorithm.as_u8(),
             &block_id,
         ];
         let mut s =
-            conn.prepare("UPDATE marf_data SET block_hash = ?1, data = ?2, unconfirmed = ?3, external_offset = ?4, external_length = ?5 WHERE block_id = ?6")?;
+            conn.prepare("UPDATE marf_data SET block_hash = ?1, data = ?2, unconfirmed = ?3, external_offset = ?4, external_length = ?5, compression = ?6 WHERE block_id = ?7")?;
         s.execute(args)?;
 
         debug!(
@@ -304,9 +344,10 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
             &0,
             &u64_to_sql(offset)?,
             &u64_to_sql(length)?,
+            &compression_algorithm.as_u8()
         ];
         let mut s =
-            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
+            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length, compression) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
         let block_id = s
             .insert(args)?
             .try_into()
@@ -329,9 +370,10 @@ pub fn update_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
+    compression: Option<BlobCompressionResult>,
     block_id: u32,
 ) -> Result<u32, Error> {
-    inner_write_external_trie_blob(conn, block_hash, offset, length, Some(block_id))
+    inner_write_external_trie_blob(conn, block_hash, offset, length, compression, Some(block_id))
 }
 
 /// Add a new row for an external trie blob -- i.e. we're creating a new trie whose blob will be
@@ -342,8 +384,9 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
+    compression: Option<BlobCompressionResult>
 ) -> Result<u32, Error> {
-    inner_write_external_trie_blob(conn, block_hash, offset, length, None)
+    inner_write_external_trie_blob(conn, block_hash, offset, length, compression, None)
 }
 
 /// Write a serialized trie blob for a trie that was mined
@@ -527,15 +570,72 @@ pub fn read_node_type_nohash(
     read_nodetype_nohash(&mut blob, ptr)
 }
 
+pub struct ExternalTrie {
+    pub block_id: u32,
+    pub offset: u64,
+    pub length: u64,
+    pub compression: TrieBlobCompression
+}
+
+impl FromRow<ExternalTrie> for ExternalTrie {
+    fn from_row<'a>(row: &'a rusqlite::Row) -> Result<ExternalTrie, crate::util_lib::db::Error> {
+        let block_id: u32 = u32::from_column(row, "block_id")?;
+        let offset: u64 = u64::from_column(row, "external_offset")?;
+        let length: u64 = u64::from_column(row, "external_length")?;
+        let compression: u64 = u64::from_column(row, "compression")?;
+
+        Ok(ExternalTrie {
+            block_id,
+            offset,
+            length,
+            compression: compression.into()
+        })
+    }
+}
+
 /// Get the offset and length of a trie blob in the trie blobs file.
 pub fn get_external_trie_offset_length(
     conn: &Connection,
     block_id: u32,
-) -> Result<(u64, u64), Error> {
-    let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
+) -> Result<ExternalTrie, Error> {
+    let qry = "SELECT block_id, external_offset, external_length, compression FROM marf_data WHERE block_id = ?1";
     let args: &[&dyn ToSql] = &[&block_id];
-    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
-    Ok((offset, length))
+    let external_trie: ExternalTrie = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    Ok(external_trie)
+}
+
+/// Get uncompressed tries from the database, limited to the the number of results specified
+/// using the `limit` parameter.
+pub fn get_uncompressed_external_trie_blobs(
+    conn: &Connection,
+    limit: u32
+) -> Result<Vec<ExternalTrie>, Error> {
+    let query = "SELECT block_id, external_offset, external_length, compression FROM marf_data WHERE compression = 0 ORDER BY block_id ASC LIMIT ?1";
+    let args: &[&dyn ToSql] = &[&limit];
+    let result: Vec<ExternalTrie> = query_rows(conn, query, args)?;
+    Ok(result)
+}
+
+pub fn update_external_trie_blob_after_compression(
+    conn: &Connection,
+    block_id: u32,
+    offset: u64,
+    limit: u64,
+    compression: TrieBlobCompression
+) -> Result<(), Error> {
+    let query = "UPDATE marf_data SET external_offset = ?1, external_length = ?2, compression = ?3 WHERE block_id = ?4";
+    let args: &[&dyn ToSql] = &[
+        &u64_to_sql(offset)?, 
+        &u64_to_sql(limit)?, 
+        &(compression as u8), 
+        &block_id];
+
+    let updated_count = conn.execute(query, args)?;
+    if updated_count != 1 {
+        panic!("Failed to update index database with new external offset, length and compression flags during v3 migration.");
+    }
+
+    Ok(())
 }
 
 /// Get the offset of a trie blob in the blobs file, given its block header hash.
@@ -560,7 +660,7 @@ pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
 /// Do we have a partially-migrated database?
 /// Either all tries have offset and length 0, or they all don't.  If we have a mixture, then we're
 /// corrupted.
-pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
+pub fn detect_partial_migration_for_schema_v2(conn: &Connection) -> Result<bool, Error> {
     let migrated_version = get_migrated_version(conn);
     let schema_version = get_schema_version(conn);
     if migrated_version == schema_version {
@@ -577,6 +677,29 @@ pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
         "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0 AND unconfirmed = 0",
         NO_PARAMS,
     )?;
+
+    Ok(num_migrated > 0 && num_not_migrated > 0)
+}
+
+pub fn detect_partial_migration_for_schema_v3(conn: &Connection) -> Result<bool, Error> {
+    let migrated_version = get_migrated_version(conn);
+    let schema_version = get_schema_version(conn);
+    if migrated_version == schema_version {
+        return Ok(false);
+    }
+
+    let num_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE compression != 0",
+        NO_PARAMS
+    )?;
+
+    let num_not_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE compression = 0",
+        NO_PARAMS
+    )?;
+
     Ok(num_migrated > 0 && num_not_migrated > 0)
 }
 

@@ -1122,7 +1122,9 @@ impl TrieNode for TrieNode256 {
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
+        // !here
         let mut ptrs_slice = [TriePtr::default(); 256];
+        //eprintln!("ptrs_slice: {:02X?}", ptrs_slice);
         ptrs_from_bytes(TrieNodeID::Node256 as u8, r, &mut ptrs_slice)?;
 
         let path = path_from_bytes(r)?;

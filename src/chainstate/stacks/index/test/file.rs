@@ -66,13 +66,13 @@ fn test_load_store_trie_blob() {
         .unwrap();
 
     let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x01; 32])).unwrap();
-    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap(), 0);
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 0);
 
     let buf = blobs.read_trie_blob(&db, block_id).unwrap();
     assert_eq!(buf, vec![1, 2, 3, 4, 5]);
 
     let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x02; 32])).unwrap();
-    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap(), 5);
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 10);
 
     let buf = blobs.read_trie_blob(&db, block_id).unwrap();
     assert_eq!(buf, vec![10, 20, 30, 40, 50]);
@@ -97,6 +97,7 @@ fn test_migrate_existing_trie_blobs() {
 
         // make data to insert
         let data = make_test_insert_data(128, 128);
+        //eprintln!("{:?}",data);
         let mut last_block_header = BlockHeaderHash::sentinel();
         for (i, block_data) in data.iter().enumerate() {
             let mut block_hash_bytes = [0u8; 32];
@@ -117,6 +118,7 @@ fn test_migrate_existing_trie_blobs() {
         let root_header_map =
             trie_sql::read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
                 .unwrap();
+        //eprintln!("{:?}", root_header_map);
         (data, last_block_header, root_header_map)
     };
 
@@ -139,6 +141,8 @@ fn test_migrate_existing_trie_blobs() {
         blob_root_header_map
     };
 
+    //eprintln!("{:?}", blob_root_header_map);
+
     assert_eq!(blob_root_header_map.len(), root_header_map.len());
     for (e1, e2) in blob_root_header_map.iter().zip(root_header_map.iter()) {
         assert_eq!(e1, e2);
@@ -146,7 +150,10 @@ fn test_migrate_existing_trie_blobs() {
 
     // verify that we can read everything from the blobs
     for (i, block_data) in data.iter().enumerate() {
+        //eprintln!(">> VERIFYING BLOCK #{} >>>>>>>>>>>", i);
         for (key, value) in block_data.iter() {
+            //eprintln!(">> VERIFYING KV {}: {}", key, value);
+            //eprintln!("{:02X?}", block_data);
             let path = TriePath::from_key(key);
             let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
 
@@ -159,6 +166,8 @@ fn test_migrate_existing_trie_blobs() {
             .unwrap();
 
             assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
+            //eprintln!("<< VERIFYING KV {}: {}", key, value);
         }
+        //eprintln!("<< VERIFYING BLOCK #{} <<<<<<<<<<<", i);
     }
 }

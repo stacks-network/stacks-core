@@ -98,22 +98,32 @@ impl Trie {
             0,
             storage.root_ptr(),
         );
+
+        //eprintln!("TriePtr: {:?}", ptr);
+
         let res = if read_hash {
+            //eprintln!("read_hash - 1");
             storage
                 .read_nodetype(&ptr)
                 .map(|(node, hash)| (node, Some(hash)))
         } else {
+            //eprintln!("read_hash - 2");
+            // !here
             storage.read_nodetype_nohash(&ptr).map(|node| (node, None))
         };
 
         match res {
             Err(Error::CorruptionError(_)) => {
+                //eprintln!("read_hash() res = {:?}", res);
                 let non_backptr_ptr = storage.root_trieptr();
+                //eprintln!("read_hash - root_trieptr: {:?}", non_backptr_ptr);
                 if read_hash {
+                    //eprintln!("read_hash - 3");
                     storage
                         .read_nodetype(&non_backptr_ptr)
                         .map(|(node, hash)| (node, Some(hash)))
                 } else {
+                    //eprintln!("read_hash - 4");
                     storage
                         .read_nodetype_nohash(&non_backptr_ptr)
                         .map(|node| (node, None))
@@ -161,7 +171,7 @@ impl Trie {
                     }
                     Some(ptr) => {
                         // end of node path
-                        trace!("Walked to {:?}", &ptr);
+                        //eprintln!("Walked to {:?}", &ptr);
                         let (node, hash) = if read_hash {
                             storage.read_nodetype(&ptr)?
                         } else {

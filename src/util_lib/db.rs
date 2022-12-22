@@ -201,6 +201,16 @@ impl FromColumn<u64> for u64 {
     }
 }
 
+impl FromColumn<u32> for u32 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u32, Error> {
+        let x: i32 = row.get_unwrap(column_name);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u32)
+    }
+}
+
 impl FromColumn<Option<u64>> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
         let x: Option<i64> = row.get_unwrap(column_name);
@@ -271,6 +281,13 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
+}
+
+pub fn u8_to_sql(x: u8) -> Result<i8, Error> {
+    if x > (i8::MAX as u8) {
+        return Err(Error::ParseError);
+    }
+    Ok(x as i8)
 }
 
 pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
