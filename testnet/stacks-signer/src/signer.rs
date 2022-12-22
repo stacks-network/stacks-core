@@ -1,7 +1,7 @@
 pub use frost::frost;
+use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
-use hashbrown::HashMap;
 
 type KeyShare = HashMap<usize, Scalar>;
 
