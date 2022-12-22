@@ -3918,7 +3918,7 @@ impl SortitionDB {
     fn get_max_arrival_index(conn: &Connection) -> Result<u64, db_error> {
         match conn
             .query_row(
-                "SELECT IFNULL(MAX(arrival_index), 0) FROM snapshots",
+                "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
                 NO_PARAMS,
                 |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
