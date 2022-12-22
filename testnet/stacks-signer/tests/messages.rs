@@ -1,4 +1,4 @@
-use stacks_signer::{net, signer};
+use stacks_signer::signer;
 use stacks_signer::net::Net;
 use stacks_signer::signer::{MessageTypes, Signer};
 use secp256k1_math::scalar::Scalar;
@@ -11,7 +11,7 @@ fn setup() -> (Signer, Net) {
 
 #[test]
 fn receive_message() {
-    let (signer, net) = setup();
+    let (mut signer, _net) = setup();
 
     let join = MessageTypes::Join;
     assert!(signer.process(join));
@@ -19,7 +19,7 @@ fn receive_message() {
 
 #[test]
 fn broadcast_share() {
-    let (mut signer, net) = setup();
+    let (_signer, net) = setup();
 
     let share = signer::frost::SignatureShare{
         id: 0,
