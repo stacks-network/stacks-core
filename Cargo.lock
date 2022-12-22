@@ -84,6 +84,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
 
 [[package]]
+name = "ahash"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf6ccdb167abbf410dcb915cabd428929d7f6a04980b54a11f26a39f1c7f7107"
+dependencies = [
+ "cfg-if 1.0.0",
+ "once_cell",
+ "version_check",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -321,6 +332,15 @@ name = "base64"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bindgen"
@@ -1018,13 +1038,16 @@ dependencies = [
 [[package]]
 name = "frost"
 version = "0.1.0"
-source = "git+https://github.com/trust-machines/frost#fe1d188201ec7fa372524a0e42dc9aab9b6b38d7"
+source = "git+https://github.com/trust-machines/frost?branch=feat/serde_support#d0e5a19029ab98cc5f449e7b27ab8eeec971a79e"
 dependencies = [
+ "bincode",
+ "hashbrown 0.13.1",
  "hex",
  "num-traits",
  "polynomial",
  "rand_core 0.5.1",
  "secp256k1-math",
+ "serde",
  "sha3",
 ]
 
@@ -1215,7 +1238,7 @@ version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 dependencies = [
- "ahash",
+ "ahash 0.4.7",
 ]
 
 [[package]]
@@ -1223,6 +1246,16 @@ name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab5ef0d4909ef3724cc8cce6ccc8572c5c817592e9285f5464f8e86f8bd3726e"
+
+[[package]]
+name = "hashbrown"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ff8ae62cd3a9102e5637afc8452c55acf3844001bd5374e0b0bd7b6616c038"
+dependencies = [
+ "ahash 0.8.2",
+ "serde",
+]
 
 [[package]]
 name = "hashlink"
@@ -1291,6 +1324,15 @@ checksum = "c1441c6b1e930e2817404b5046f1f989899143a12bf92de603b69f4e0aee1e15"
 dependencies = [
  "crypto-mac",
  "digest 0.9.0",
+]
+
+[[package]]
+name = "home"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "747309b4b440c06d57b0b25f2aee03ee9b5e5397d288c60e21fc709bb98a7408"
+dependencies = [
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -1457,9 +1499,9 @@ checksum = "68f2d64f2edebec4ce84ad108148e67e1064789bee435edc5b60ad398714a3a9"
 
 [[package]]
 name = "itertools"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
 dependencies = [
  "either",
 ]
@@ -2092,9 +2134,9 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quote"
-version = "1.0.15"
+version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "864d3e96a899863136fc6e99f3d7cae289dafe43bf2c5ac19b70df7210c0a145"
+checksum = "8856d8364d252a14d474036ea1358d63c9e6965c8e5c1885c18f73d70bff9c7b"
 dependencies = [
  "proc-macro2",
 ]
@@ -2408,6 +2450,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustfmt-wrapper"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed729e3bee08ec2befd593c27e90ca9fdd25efdc83c94c3b82eaef16e4f7406e"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "toolchain_find",
+]
+
+[[package]]
 name = "rustls"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2491,14 +2546,20 @@ dependencies = [
 [[package]]
 name = "secp256k1-math"
 version = "0.1.0"
-source = "git+https://github.com/Trust-Machines/rust-secp256k1-math?rev=3b9fe0c8f95c53f7068d980fac38dc00ecf784cd#3b9fe0c8f95c53f7068d980fac38dc00ecf784cd"
+source = "git+https://github.com/Trust-Machines/rust-secp256k1-math?rev=ad35f79ce18d67fdd3c11697066b28ea38c5fbde#ad35f79ce18d67fdd3c11697066b28ea38c5fbde"
 dependencies = [
  "bindgen",
  "cc",
  "hex",
+ "itertools",
  "num-traits",
+ "proc-macro2",
+ "quote",
  "rand_core 0.5.1",
+ "rustfmt-wrapper",
+ "serde",
  "sha3",
+ "syn",
 ]
 
 [[package]]
@@ -2898,6 +2959,8 @@ version = "0.0.1"
 dependencies = [
  "build-utils",
  "frost",
+ "hashbrown 0.13.1",
+ "itertools",
  "rand_core 0.5.1",
  "secp256k1-math",
  "serde",
@@ -3247,6 +3310,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d82e1a7758622a465f8cee077614c73484dac5b836c02ff6a40d5d1010324d7"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "toolchain_find"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e85654a10e7a07a47c6f19d93818f3f343e22927f2fa280c84f7c8042743413"
+dependencies = [
+ "home",
+ "lazy_static",
+ "regex",
+ "semver 0.11.0",
+ "walkdir",
 ]
 
 [[package]]

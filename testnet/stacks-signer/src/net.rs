@@ -1,4 +1,5 @@
 use crate::signer;
+use serde::Serialize;
 
 pub struct Net {}
 pub struct Message {
@@ -15,4 +16,6 @@ impl Net {
             r#type: signer::MessageTypes::Join,
         }
     }
+
+    pub fn send_message<S: Serialize>(&self, _msg: S) {}
 }
