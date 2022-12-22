@@ -3924,8 +3924,8 @@ impl SortitionDB {
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index),
-            None => Ok(0),
+            Some(arrival_index) => Ok(if arrival_index == 0 { 1 } else { arrival_index }),
+            None => Ok(1),
         }
     }
 
@@ -5396,7 +5396,7 @@ impl<'a> SortitionHandleTx<'a> {
                 &parent_tip.sortition_id,
                 &db_keys::stacks_block_max_arrival_index(),
             )?
-            .unwrap_or("0".into())
+            .unwrap_or("1".into())
             .parse::<u64>()
             .expect("BUG: max arrival index is not a u64");
 
@@ -5446,6 +5446,11 @@ impl<'a> SortitionHandleTx<'a> {
         let mut best_tip_consensus_hash = parent_tip.canonical_stacks_tip_consensus_hash.clone();
         let mut best_tip_height = parent_tip.canonical_stacks_tip_height;
         let mut ret = vec![];
+
+        debug!(
+            "Current best tip is {}/{} (height {})",
+            &best_tip_consensus_hash, &best_tip_block_bhh, best_tip_height
+        );
 
         for (consensus_hash, block_bhh, height) in new_block_arrivals.iter() {
             ret.push((block_bhh.clone(), *height));

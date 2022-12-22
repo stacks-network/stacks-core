@@ -739,19 +739,26 @@ impl<
         sort_tx: &mut SortitionDBTx,
         chainstate_conn: &DBConn,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), Error> {
-        let mut search_weight = StacksChainState::get_max_affirmation_weight(chainstate_conn)?;
+        let mut search_height = StacksChainState::get_max_header_height(chainstate_conn)?;
         loop {
-            let mut search_height = StacksChainState::get_max_header_height_with_weight(
+            let mut search_weight = StacksChainState::get_max_affirmation_weight_at_height(
                 chainstate_conn,
-                search_weight,
+                search_height,
             )?;
-            while search_height > 0 {
+            while search_weight > 0 {
                 let all_headers = StacksChainState::get_all_headers_at_height_and_weight(
                     chainstate_conn,
                     search_height,
                     search_weight,
                 )?;
-                search_height -= 1;
+                debug!(
+                    "Headers with weight {} height {}: {}",
+                    search_weight,
+                    search_height,
+                    all_headers.len()
+                );
+
+                search_weight -= 1;
 
                 for hdr in all_headers {
                     // load this block's affirmation map
@@ -840,13 +847,14 @@ impl<
 
                     // found it!
                     debug!(
-                        "Canonical Stacks tip of {} is now {}/{} height {} burn height {} AM `{}`",
+                        "Canonical Stacks tip of {} is now {}/{} height {} burn height {} AM `{}` weight {}",
                         sort_tip,
                         &hdr.consensus_hash,
                         &hdr.anchored_header.block_hash(),
                         hdr.stacks_block_height,
                         hdr.burn_header_height,
-                        &am
+                        &am,
+                        am.weight()
                     );
                     return Ok((
                         hdr.consensus_hash,
@@ -855,10 +863,10 @@ impl<
                     ));
                 }
             }
-            if search_weight == 0 {
+            if search_height == 0 {
                 break;
             } else {
-                search_weight -= 1;
+                search_height -= 1;
             }
         }
 
