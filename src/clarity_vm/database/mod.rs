@@ -26,6 +26,8 @@ use std::ops::{Deref, DerefMut};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use clarity::vm::database::SpecialCaseHandler;
+use clarity::vm::types::TupleData;
+use stacks_common::types::chainstate::ConsensusHash;
 
 pub mod marf;
 
@@ -46,6 +48,10 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_hash)
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.consensus_hash)
+    }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_timestamp)
     }
@@ -61,6 +67,18 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.0, id_bhh).map(|x| x.address)
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
     }
 }
 
@@ -79,6 +97,10 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_hash)
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.consensus_hash)
+    }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_timestamp)
     }
@@ -94,6 +116,18 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.deref().deref(), id_bhh).map(|x| x.address)
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
     }
 }
 
@@ -112,6 +146,10 @@ impl HeadersDB for crate::chainstate::stacks::index::marf::MARF<StacksBlockId> {
         get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_hash)
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.consensus_hash)
+    }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_timestamp)
     }
@@ -127,6 +165,18 @@ impl HeadersDB for crate::chainstate::stacks::index::marf::MARF<StacksBlockId> {
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.sqlite_conn(), id_bhh).map(|x| x.address)
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        None
     }
 }
 
@@ -185,6 +235,43 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
     }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        0
+    }
+    fn get_burn_start_height(&self) -> u32 {
+        todo!()
+    }
+    fn get_pox_prepare_length(&self) -> u32 {
+        todo!()
+    }
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        todo!()
+    }
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        todo!()
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
+            Ok(Some(x)) => Some(x.sortition_id),
+            _ => return None,
+        }
+    }
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.tx(), height.into()).expect("BUG: failed to get AST rules")
+    }
+
+    fn get_pox_payout_addrs(
+        &self,
+        _: u32,
+        _: &SortitionId,
+    ) -> std::option::Option<(Vec<TupleData>, u128)> {
+        todo!()
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -215,6 +302,44 @@ impl BurnStateDB for SortitionDBConn<'_> {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        self.context.pox_constants.v1_unlock_height
+    }
+    fn get_burn_start_height(&self) -> u32 {
+        self.context.first_block_height as u32
+    }
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.context.pox_constants.prepare_length
+    }
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.context.pox_constants.reward_cycle_length
+    }
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.context.pox_constants.pox_rejection_fraction
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
+            Ok(Some(x)) => Some(x.sortition_id),
+            _ => return None,
+        }
+    }
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.conn(), height.into())
+            .expect("BUG: failed to get AST rules")
+    }
+
+    fn get_pox_payout_addrs(
+        &self,
+        _: u32,
+        _: &SortitionId,
+    ) -> std::option::Option<(Vec<TupleData>, u128)> {
+        todo!()
     }
 }
 

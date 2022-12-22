@@ -3152,6 +3152,7 @@ mod test {
                         TransactionPayload::new_smart_contract(
                             &name.to_string(),
                             &contract.to_string(),
+                            None,
                         )
                         .unwrap(),
                     );

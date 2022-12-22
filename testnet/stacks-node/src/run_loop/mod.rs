@@ -111,7 +111,7 @@ impl RunLoopCallbacks {
             }
             match &tx.payload {
                 TransactionPayload::Coinbase(_) => println!("   Coinbase"),
-                TransactionPayload::SmartContract(contract) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
+                TransactionPayload::SmartContract(contract, _) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
                 TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent.to_string()),
                 _ => println!("   {:?}", tx.payload)
             }

@@ -723,7 +723,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             ));
                         }
                     }
-                    TransactionPayload::SmartContract(_) => {
+                    TransactionPayload::SmartContract(_, _) => {
                         return Ok(TransactionResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
@@ -1324,7 +1324,7 @@ impl StacksBlockBuilder {
                             );
                         }
                     }
-                    TransactionPayload::SmartContract(_) => {
+                    TransactionPayload::SmartContract(_, _) => {
                         return TransactionResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
@@ -2914,7 +2914,7 @@ pub mod test {
             for bc in miner.block_commits.iter().rev() {
                 let consensus_hash = match SortitionDB::get_block_snapshot(
                     sortdb.conn(),
-                    &SortitionId::new(&bc.burn_header_hash),
+                    &SortitionId::stubbed(&bc.burn_header_hash),
                 )
                 .unwrap()
                 {
@@ -2994,7 +2994,7 @@ pub mod test {
         pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
                 db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
-                    .amount_unlocked
+                    .amount_unlocked()
             })
         }
 
@@ -4069,6 +4069,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}-{}", burnchain_height, stacks_block_height),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -4618,7 +4619,7 @@ pub mod test {
                 // NOTE: this only works because there are no PoX forks in this test
                 let sn = SortitionDB::get_block_snapshot(
                     miner_trace.burn_node.sortdb.conn(),
-                    &SortitionId::new(&bc.burn_header_hash),
+                    &SortitionId::stubbed(&bc.burn_header_hash),
                 )
                 .unwrap()
                 .unwrap();

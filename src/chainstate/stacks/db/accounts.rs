@@ -245,16 +245,8 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut balance = STXBalance::initial(amount);
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
-                let existing_balance = snapshot.balance().amount_unlocked;
-                if existing_balance > 0 {
-                    balance.amount_unlocked = balance
-                        .amount_unlocked
-                        .checked_add(existing_balance)
-                        .expect("Genesis credit balance overflow");
-                }
-                snapshot.set_balance(balance);
+                snapshot.credit(amount);
                 snapshot.save();
                 Ok(())
             })
@@ -293,12 +285,12 @@ impl StacksChainState {
         if !snapshot.can_transfer(lock_amount) {
             return Err(Error::PoxInsufficientBalance);
         }
-        snapshot.lock_tokens(lock_amount, unlock_burn_height);
+        snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
 
         debug!(
             "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            snapshot.balance().amount_locked,
-            snapshot.balance().amount_unlocked,
+            snapshot.balance().amount_locked(),
+            snapshot.balance().amount_unlocked(),
             unlock_burn_height,
             principal
         );

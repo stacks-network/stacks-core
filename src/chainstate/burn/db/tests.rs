@@ -58,7 +58,7 @@ pub fn test_append_snapshot(
     sn.burn_header_hash = next_hash;
     sn.block_height += 1;
     sn.num_sortitions += 1;
-    sn.sortition_id = SortitionId::new(&sn.burn_header_hash);
+    sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
     sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
     let index_root = tx

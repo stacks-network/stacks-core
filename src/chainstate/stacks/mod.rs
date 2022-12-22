@@ -570,11 +570,12 @@ impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
 impl_byte_array_serde!(TokenTransferMemo);
 pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 
+use clarity::vm::ClarityVersion;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract),
+    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload),
 }
@@ -1151,10 +1152,13 @@ pub mod test {
                 function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(hello_contract_name).unwrap(),
-                code_body: StacksString::from_str(hello_contract_body).unwrap(),
-            }),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                None,
+            ),
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32])),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
         ];

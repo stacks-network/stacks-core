@@ -16,6 +16,7 @@
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::clarity_vm::clarity::ClarityInstance;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -38,8 +39,10 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
+use clarity::vm::ClarityVersion;
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+    let version = ClarityVersion::Clarity2;
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf);
 
@@ -117,11 +120,21 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, contract_trait)
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    version,
+                    contract_trait,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&trait_contract_id, &ct_ast, contract_trait, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &trait_contract_id,
+                version,
+                &ct_ast,
+                contract_trait,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
                 .unwrap();
@@ -139,11 +152,21 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, contract_other)
+                .analyze_smart_contract(
+                    &other_contract_id,
+                    version,
+                    contract_other,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&other_contract_id, &ct_ast, contract_other, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &other_contract_id,
+                version,
+                &ct_ast,
+                contract_other,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
                 .unwrap();
@@ -162,11 +185,21 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, &contract_self)
+                .analyze_smart_contract(
+                    &self_contract_id,
+                    version,
+                    &contract_self,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&self_contract_id, &ct_ast, &contract_self, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &self_contract_id,
+                version,
+                &ct_ast,
+                &contract_self,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
         });

@@ -53,8 +53,10 @@ use stacks_common::util::vrf::*;
 use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
+use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::ClarityVersion;
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
@@ -231,6 +233,7 @@ pub fn setup_states(
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
+                    None,
                     &contract,
                     "set-burnchain-parameters",
                     &[
@@ -751,7 +754,10 @@ fn test_simple_setup() {
                 |conn| conn
                     .with_readonly_clarity_env(
                         false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -783,7 +789,10 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
             |conn| {
                 conn.with_readonly_clarity_env(
                     false,
+                    CHAIN_ID_TESTNET,
+                    ClarityVersion::Clarity1,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                    None,
                     LimitedCostTracker::new_free(),
                     |env| env.eval_raw(eval),
                 )

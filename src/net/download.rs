@@ -3569,8 +3569,8 @@ pub mod test {
 
                             // extend to 10 microblocks
                             while microblocks.len() != num_blocks {
-                                let next_microblock_payload =
-                                    TransactionPayload::SmartContract(TransactionSmartContract {
+                                let next_microblock_payload = TransactionPayload::SmartContract(
+                                    TransactionSmartContract {
                                         name: ContractName::try_from(format!(
                                             "hello-world-{}",
                                             thread_rng().gen::<u64>()
@@ -3580,7 +3580,9 @@ pub mod test {
                                             "(begin (print \"hello world\"))",
                                         )
                                         .expect("FATAL: valid code"),
-                                    });
+                                    },
+                                    None,
+                                );
                                 let mut mblock = microblocks.last().unwrap().clone();
                                 let last_nonce = mblock
                                     .txs

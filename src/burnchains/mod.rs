@@ -322,12 +322,27 @@ pub struct Burnchain {
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
+    /// the length (in burn blocks) of the prepare phase
+    pub prepare_length: u32,
+    /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
+    /// also defines the burn height at which PoX reward sets are calculated using
+    /// PoX v2 rather than v1
+    pub v1_unlock_height: u32,
+    /// fraction of liquid STX that must vote to reject PoX for
+    /// it to revert to PoB in the next reward cycle
+    pub pox_rejection_fraction: u64,
 }
 
 impl PoxConstants {
+    pub fn default() -> PoxConstants {
+        PoxConstants::new(1000)
+    }
     pub fn new(reward_cycle_length: u32) -> PoxConstants {
         PoxConstants {
             reward_cycle_length,
+            prepare_length: 0,
+            v1_unlock_height: 0,
+            pox_rejection_fraction: 0,
         }
     }
     #[cfg(test)]

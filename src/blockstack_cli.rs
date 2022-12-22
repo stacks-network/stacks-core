@@ -48,6 +48,7 @@ use blockstack_lib::vm::{
     types::PrincipalData,
     ClarityName, ContractName, Value,
 };
+use clarity::vm::ClarityVersion;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -451,7 +452,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity_cli::vm_execute(input)?
+                blockstack_lib::clarity_cli::vm_execute(input, ClarityVersion::Clarity2)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {

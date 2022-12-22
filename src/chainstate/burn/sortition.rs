@@ -69,7 +69,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            sortition_id: SortitionId::zero(),
+            sortition_id: SortitionId([0; 32]),
             parent_sortition_id: SortitionId::sentinel(),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,

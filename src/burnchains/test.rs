@@ -445,7 +445,7 @@ impl TestBurnchainBlock {
         );
 
         let header = block.header();
-        let sort_id = SortitionId::new(&header.parent_block_hash);
+        let sort_id = SortitionId::stubbed(&header.parent_block_hash);
         let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
         let parent_snapshot = sortition_db_handle

@@ -24,7 +24,7 @@ use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use clarity::vm::ast::build_ast;
+use clarity::vm::ast::build_ast_with_rules;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
@@ -126,7 +126,7 @@ impl StacksMessageCodec for TransactionPayload {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
                 cc.consensus_serialize(fd)?;
             }
-            TransactionPayload::SmartContract(ref sc) => {
+            TransactionPayload::SmartContract(ref sc, _) => {
                 write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
                 sc.consensus_serialize(fd)?;
             }
@@ -158,7 +158,7 @@ impl StacksMessageCodec for TransactionPayload {
             }
             x if x == TransactionPayloadID::SmartContract as u8 => {
                 let payload: TransactionSmartContract = read_next(fd)?;
-                TransactionPayload::SmartContract(payload)
+                TransactionPayload::SmartContract(payload, None)
             }
             x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
                 let h1: StacksMicroblockHeader = read_next(fd)?;
@@ -228,7 +228,11 @@ impl TransactionPayload {
         }))
     }
 
-    pub fn new_smart_contract(name: &str, contract: &str) -> Option<TransactionPayload> {
+    pub fn new_smart_contract(
+        name: &str,
+        contract: &str,
+        version_opt: Option<ClarityVersion>,
+    ) -> Option<TransactionPayload> {
         match (
             ContractName::try_from(name.to_string()),
             StacksString::from_str(contract),
@@ -238,6 +242,7 @@ impl TransactionPayload {
                     name: s_name,
                     code_body: s_body,
                 },
+                version_opt,
             )),
             (_, _) => None,
         }
@@ -519,7 +524,7 @@ impl StacksMessageCodec for StacksTransaction {
 
 impl From<TransactionSmartContract> for TransactionPayload {
     fn from(value: TransactionSmartContract) -> Self {
-        TransactionPayload::SmartContract(value)
+        TransactionPayload::SmartContract(value, None)
     }
 }
 
@@ -1441,13 +1446,14 @@ mod test {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 TransactionPayload::TokenTransfer(addr.clone(), amount + 1, memo.clone())
             }
-            TransactionPayload::ContractCall(_) => {
-                TransactionPayload::SmartContract(TransactionSmartContract {
+            TransactionPayload::ContractCall(_) => TransactionPayload::SmartContract(
+                TransactionSmartContract {
                     name: ContractName::try_from("corrupt-name").unwrap(),
                     code_body: StacksString::from_str("corrupt body").unwrap(),
-                })
-            }
-            TransactionPayload::SmartContract(_) => {
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(..) => {
                 TransactionPayload::ContractCall(TransactionContractCall {
                     address: StacksAddress {
                         version: 1,
@@ -1651,7 +1657,7 @@ mod test {
             &transaction_contract_call,
         );
         check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(smart_contract.clone()),
+            &TransactionPayload::SmartContract(smart_contract.clone(), None),
             &transaction_smart_contract,
         );
     }
@@ -3175,6 +3181,7 @@ mod test {
             TransactionPayload::new_smart_contract(
                 &"name-contract".to_string(),
                 &"hello smart contract".to_string(),
+                None,
             )
             .unwrap(),
         );

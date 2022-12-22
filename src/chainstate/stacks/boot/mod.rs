@@ -49,27 +49,34 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use clarity::vm::ClarityVersion;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
-const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+pub const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &'static str = std::include_str!("costs-2.clar");
+pub const BOOT_CODE_COSTS_3: &'static str = std::include_str!("costs-3.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &'static str = std::include_str!("costs-2-testnet.clar");
-const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
-const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
-const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
+pub const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
+pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
+const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 
 pub mod docs;
 
 lazy_static! {
-    static ref BOOT_CODE_POX_MAINNET: String =
+    pub static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+    pub static ref POX_2_MAINNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
+    pub static ref POX_2_TESTNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -192,19 +199,28 @@ impl StacksChainState {
     ) -> Result<u128, Error> {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
         let contract_identifier = boot::boot_code_id("pox", mainnet);
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
-                    env.execute_contract(
-                        &contract_identifier,
-                        function,
-                        &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
-                        true,
-                    )
-                })
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    chain_id,
+                    ClarityVersion::Clarity1,
+                    sender,
+                    None,
+                    cost_track,
+                    |env| {
+                        env.execute_contract(
+                            &contract_identifier,
+                            function,
+                            &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                            true,
+                        )
+                    },
+                )
             })?
             .ok_or_else(|| Error::NoSuchBlockError)??
             .expect_u128();
@@ -749,7 +765,7 @@ pub mod test {
         name: &str,
         code: &str,
     ) -> StacksTransaction {
-        let payload = TransactionPayload::new_smart_contract(name, code).unwrap();
+        let payload = TransactionPayload::new_smart_contract(name, code, None).unwrap();
         make_tx(key, nonce, tx_fee, payload)
     }
 

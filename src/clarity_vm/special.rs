@@ -112,6 +112,10 @@ fn handle_pox_api_contract_call(
                                     locked_amount,
                                     unlock_height,
                                     locked_address: stacker,
+                                    contract_identifier: boot_code_id(
+                                        "pox",
+                                        global_context.mainnet,
+                                    ),
                                 }),
                             ));
                         }
@@ -140,13 +144,11 @@ fn handle_pox_api_contract_call(
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
     sender: Option<&PrincipalData>,
+    _sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
+    args: &Vec<Value>,
     result: &Value,
 ) -> Result<()> {
-    if *contract_id == boot_code_id("pox", global_context.mainnet) {
-        return handle_pox_api_contract_call(global_context, sender, function_name, result);
-    }
-    // TODO: insert more special cases here, as needed
     Ok(())
 }

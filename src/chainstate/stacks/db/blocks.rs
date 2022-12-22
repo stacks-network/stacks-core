@@ -62,14 +62,14 @@ use crate::util_lib::db::{
 use crate::util_lib::strings::StacksString;
 pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
+use clarity::vm::ast::build_ast_with_rules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
 use clarity::vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use stacks_common::util::get_epoch_time_ms;
@@ -87,6 +87,7 @@ use crate::monitoring::set_last_execution_cost_observed;
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 
+use clarity::vm::ClarityVersion;
 use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
@@ -4507,6 +4508,9 @@ impl StacksChainState {
                     StacksEpochId::Epoch2_05 => {
                         panic!("No defined transition from Epoch2_05 forward")
                     }
+                    StacksEpochId::Epoch21 => {
+                        panic!("No defined transition from Epoch21 forward")
+                    }
                 }
             }
         }
@@ -4536,6 +4540,7 @@ impl StacksChainState {
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.into(),
+                    None,
                     &boot_code_id("pox", mainnet),
                     "stack-stx",
                     &[
@@ -4614,7 +4619,12 @@ impl StacksChainState {
                             ..
                         } = transfer_stx_op;
                         let result = clarity_tx.connection().as_transaction(|tx| {
-                            tx.run_stx_transfer(&sender.into(), &recipient.into(), transfered_ustx)
+                            tx.run_stx_transfer(
+                                &sender.into(),
+                                &recipient.into(),
+                                transfered_ustx,
+                                &BuffData { data: vec![] },
+                            )
                         });
                         match result {
                             Ok((value, _, events)) => Some(StacksTransactionReceipt {
@@ -4715,6 +4725,7 @@ impl StacksChainState {
                 let result = clarity_tx.connection().as_transaction(|tx| {
                     tx.run_contract_call(
                         &sender.clone(),
+                        None,
                         &hc_contract_id,
                         &*hc_function_name,
                         &[Value::UInt(amount), Value::Principal(sender)],
@@ -4773,6 +4784,7 @@ impl StacksChainState {
                 let result = clarity_tx.connection().as_transaction(|tx| {
                     tx.run_contract_call(
                         &sender.clone(),
+                        None,
                         &hc_contract_id,
                         &*hc_function_name,
                         &[Value::UInt(id), Value::Principal(sender)],
@@ -6417,14 +6429,20 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let block_height = clarity_connection
-            .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height() as u64);
+        let (block_height, v1_unlock_height) =
+            clarity_connection.with_clarity_db_readonly(|ref mut db| {
+                (
+                    db.get_current_burnchain_block_height() as u64,
+                    db.get_v1_unlock_height(),
+                )
+            });
 
         // 5: the paying account must have enough funds
-        if !payer
-            .stx_balance
-            .can_transfer_at_burn_block(fee as u128, block_height)
-        {
+        if !payer.stx_balance.can_transfer_at_burn_block(
+            fee as u128,
+            block_height,
+            v1_unlock_height,
+        ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
@@ -6432,7 +6450,7 @@ impl StacksChainState {
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         fee as u128,
-                        payer.stx_balance.amount_unlocked,
+                        payer.stx_balance.amount_unlocked(),
                     ));
                 }
             }
@@ -6451,27 +6469,29 @@ impl StacksChainState {
 
                 // does the owner have the funds for the token transfer?
                 let total_spent = (*amount as u128) + if origin == payer { fee as u128 } else { 0 };
-                if !origin
-                    .stx_balance
-                    .can_transfer_at_burn_block(total_spent, block_height)
-                {
+                if !origin.stx_balance.can_transfer_at_burn_block(
+                    total_spent,
+                    block_height,
+                    v1_unlock_height,
+                ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
                         origin
                             .stx_balance
-                            .get_available_balance_at_burn_block(block_height),
+                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
                     ));
                 }
 
                 // if the payer for the tx is different from owner, check if they can afford fee
                 if origin != payer {
-                    if !payer
-                        .stx_balance
-                        .can_transfer_at_burn_block(fee as u128, block_height)
-                    {
+                    if !payer.stx_balance.can_transfer_at_burn_block(
+                        fee as u128,
+                        block_height,
+                        v1_unlock_height,
+                    ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
-                            payer.stx_balance.amount_unlocked,
+                            payer.stx_balance.amount_unlocked(),
                         ));
                     }
                 }
@@ -6499,11 +6519,18 @@ impl StacksChainState {
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
                     function_type
-                        .check_args_by_allowing_trait_cast(db, &function_args)
+                        .check_args_by_allowing_trait_cast(
+                            db,
+                            ClarityVersion::Clarity1, // DO NOT SUBMIT
+                            function_args,
+                        )
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }
-            TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
+            TransactionPayload::SmartContract(
+                TransactionSmartContract { name, code_body: _ },
+                version_opt,
+            ) => {
                 let contract_identifier =
                     QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
 
@@ -6736,6 +6763,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                 &contract_16k.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -6825,6 +6853,7 @@ pub mod test {
                 TransactionPayload::new_smart_contract(
                     &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                     &contract_16k.to_string(),
+                    None,
                 )
                 .unwrap(),
             );
@@ -8474,6 +8503,7 @@ pub mod test {
                             TransactionPayload::new_smart_contract(
                                 &"name-contract".to_string(),
                                 &format!("conflicting smart contract {}", i),
+                                None,
                             )
                             .unwrap(),
                         );
@@ -11342,8 +11372,12 @@ pub mod test {
         let mut hc_deposit_contract_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_user.clone(),
-            TransactionPayload::new_smart_contract("hc-deposit-contract", hyperchain_simple_ft)
-                .unwrap(),
+            TransactionPayload::new_smart_contract(
+                "hc-deposit-contract",
+                hyperchain_simple_ft,
+                None,
+            )
+            .unwrap(),
         );
 
         hc_deposit_contract_tx.chain_id = 0x80000000;
@@ -11445,8 +11479,12 @@ pub mod test {
         let mut hc_deposit_contract_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_user.clone(),
-            TransactionPayload::new_smart_contract("hc-deposit-contract", hyperchain_simple_nft)
-                .unwrap(),
+            TransactionPayload::new_smart_contract(
+                "hc-deposit-contract",
+                hyperchain_simple_nft,
+                None,
+            )
+            .unwrap(),
         );
 
         hc_deposit_contract_tx.chain_id = 0x80000000;
@@ -11531,7 +11569,7 @@ pub mod test {
         );
 
         let account = StacksChainState::get_account(&mut conn, &addr_publisher.into());
-        let orig_balance = account.stx_balance.amount_unlocked;
+        let orig_balance = account.stx_balance.amount_unlocked();
 
         // create deposit stx ops
         let ops = vec![
@@ -11550,7 +11588,7 @@ pub mod test {
 
         // check that the account now has 2 more micro STX
         let account = StacksChainState::get_account(&mut conn, &addr_publisher.into());
-        assert_eq!(orig_balance + 2, account.stx_balance.amount_unlocked);
+        assert_eq!(orig_balance + 2, account.stx_balance.amount_unlocked());
     }
 
     #[cfg(test)]

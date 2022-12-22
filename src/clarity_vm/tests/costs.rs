@@ -23,6 +23,7 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -40,6 +41,7 @@ use clarity::vm::test_util::{
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use clarity::vm::ClarityVersion;
 use stacks_common::util::hash::hex_bytes;
 use std::collections::HashMap;
 
@@ -151,7 +153,7 @@ fn execute_transaction(
     tx: &str,
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-    env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
+    env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 fn with_owned_env<F, R>(epoch: StacksEpochId, use_mainnet: bool, to_do: F) -> R
@@ -207,7 +209,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(contract_id.clone(), contract)
+            .initialize_contract(contract_id.clone(), contract, None, ASTRules::PrecheckSize)
             .unwrap();
 
         let cost_before = owned_env.get_cost_total();
@@ -793,6 +795,7 @@ fn epoch205_nfts_testnet() {
 }
 
 fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+    let version = ClarityVersion::Clarity2;
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -833,13 +836,31 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(trait_contract_id.clone(), contract_trait)
+            .initialize_versioned_contract(
+                trait_contract_id.clone(),
+                version,
+                contract_trait,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_contract(other_contract_id.clone(), contract_other)
+            .initialize_versioned_contract(
+                other_contract_id.clone(),
+                version,
+                contract_other,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_contract(self_contract_id.clone(), &contract_self)
+            .initialize_versioned_contract(
+                self_contract_id.clone(),
+                version,
+                &contract_self,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
 
         let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
@@ -861,24 +882,27 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.00
-fn test_all(use_mainnet: bool) {
+fn epoch_20_test_all(use_mainnet: bool) {
     let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
-        assert!(cost.exceeds(&baseline));
+        // Note: The 2.05 test assumes Clarity1.
+        if f.get_version() == ClarityVersion::Clarity1 {
+            let test = get_simple_test(f);
+            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
+            assert!(cost.exceeds(&baseline));
+        }
     }
 }
 
 #[test]
-fn test_all_mainnet() {
-    test_all(true)
+fn epoch_20_test_all_mainnet() {
+    epoch_20_test_all(true)
 }
 
 #[test]
-fn test_all_testnet() {
-    test_all(false)
+fn epoch_20_test_all_testnet() {
+    epoch_20_test_all(false)
 }
 
 // test each individual cost function can be correctly invoked as
@@ -904,6 +928,7 @@ fn epoch_205_test_all_testnet() {
 }
 
 fn test_cost_contract_short_circuits(use_mainnet: bool) {
+    let clarity_version = ClarityVersion::Clarity2;
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
@@ -972,10 +997,22 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
-                    .unwrap();
+                tx.initialize_smart_contract(
+                    contract_name,
+                    clarity_version,
+                    &ast,
+                    contract_src,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
         }
@@ -1129,6 +1166,7 @@ fn test_cost_contract_short_circuits_testnet() {
 }
 
 fn test_cost_voting_integration(use_mainnet: bool) {
+    let clarity_version = ClarityVersion::Clarity2;
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
@@ -1234,10 +1272,22 @@ fn test_cost_voting_integration(use_mainnet: bool) {
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
-                    .unwrap();
+                tx.initialize_smart_contract(
+                    contract_name,
+                    clarity_version,
+                    &ast,
+                    contract_src,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
         }

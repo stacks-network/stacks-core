@@ -36,10 +36,12 @@ use crate::util_lib::db::{query_count, query_rows, DBConn};
 use stacks_common::util::hash::to_hex;
 
 use crate::util_lib::strings::{StacksString, VecDisplay};
+use crate::vm::ast::ASTRules;
 pub use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::ast::build_ast;
+use clarity::vm::ast::build_ast_with_rules;
+use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::contracts::Contract;
@@ -56,6 +58,7 @@ use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use clarity::vm::ClarityVersion;
 
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
@@ -374,12 +377,17 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let cur_burn_block_height = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height());
+        let (cur_burn_block_height, v1_unlock_ht) =
+            clarity_tx.with_clarity_db_readonly(|ref mut db| {
+                (
+                    db.get_current_burnchain_block_height(),
+                    db.get_v1_unlock_height(),
+                )
+            });
 
         let consolidated_balance = payer_account
             .stx_balance
-            .get_available_balance_at_burn_block(cur_burn_block_height as u64);
+            .get_available_balance_at_burn_block(cur_burn_block_height as u64, v1_unlock_ht);
 
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);
@@ -681,7 +689,12 @@ impl StacksChainState {
 
                 let cost_before = clarity_tx.cost_so_far();
                 let (value, _asset_map, events) = clarity_tx
-                    .run_stx_transfer(&origin_account.principal, addr, *amount as u128)
+                    .run_stx_transfer(
+                        &origin_account.principal,
+                        addr,
+                        *amount as u128,
+                        &BuffData { data: vec![] },
+                    )
                     .map_err(Error::ClarityError)?;
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -705,9 +718,12 @@ impl StacksChainState {
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
+                let epoch_id = clarity_tx.get_epoch();
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
+                    sponsor.as_ref(),
                     &contract_id,
                     &contract_call.function_name,
                     &contract_call.function_args,
@@ -763,7 +779,7 @@ impl StacksChainState {
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
-                            error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
+                            error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),
@@ -782,7 +798,10 @@ impl StacksChainState {
                 );
                 Ok(receipt)
             }
-            TransactionPayload::SmartContract(ref smart_contract) => {
+            TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
+                let epoch_id = clarity_tx.get_epoch();
+                let clarity_version = version_opt
+                    .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
                 let issuer_principal = match origin_account.principal {
                     PrincipalData::Standard(ref p) => p.clone(),
                     _ => {
@@ -810,8 +829,13 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
-                let analysis_resp =
-                    clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
+                let ast_rules = ASTRules::PrecheckSize;
+                let analysis_resp = clarity_tx.analyze_smart_contract(
+                    &contract_id,
+                    clarity_version,
+                    &contract_code_str,
+                    ast_rules,
+                );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
@@ -824,16 +848,32 @@ impl StacksChainState {
                                     budget.clone(),
                                 ));
                             }
-                            _ => {
+                            other_error => {
+                                if ast_rules == ASTRules::PrecheckSize {
+                                    // a [Vary]ExpressionDepthTooDeep error in this situation
+                                    // invalidates the block, since this should have prevented the
+                                    // block from getting relayed in the first place
+                                    if let clarity_error::Parse(ref parse_error) = &other_error {
+                                        match parse_error.err {
+                                            ParseErrors::ExpressionStackDepthTooDeep
+                                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                                                info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
+                                                return Err(Error::ClarityError(other_error));
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
                                 // this analysis isn't free -- convert to runtime error
                                 let mut analysis_cost = clarity_tx.cost_so_far();
                                 analysis_cost
                                     .sub(&cost_before)
                                     .expect("BUG: total block cost decreased");
 
-                                error!(
+                                warn!(
                                     "Runtime error in contract analysis for {}: {:?}",
-                                    &contract_id, &e
+                                    &contract_id, &other_error;
+                                    "AST rules" => %format!("{:?}", &ast_rules)
                                 );
                                 let receipt = StacksTransactionReceipt::from_analysis_failure(
                                     tx.clone(),
@@ -851,13 +891,16 @@ impl StacksChainState {
                 analysis_cost
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
+                    clarity_version,
                     &contract_ast,
                     &contract_code_str,
+                    sponsor,
                     |asset_map, _| {
                         !StacksChainState::check_transaction_postconditions(
                             &tx.post_conditions,
@@ -1048,7 +1091,7 @@ pub mod test {
         let recv_account =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
 
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
 
         conn.connection().as_transaction(|tx| {
@@ -1059,12 +1102,12 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 100);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 100);
 
         let recv_account_after =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 123);
 
         assert_eq!(fee, 0);
 
@@ -1096,18 +1139,18 @@ pub mod test {
 
         let recv_account = StacksChainState::get_account(&mut conn, &recv_addr);
 
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 2);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 0);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr);
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 100);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 100);
 
         assert_eq!(fee, 0);
 
@@ -1283,7 +1326,7 @@ pub mod test {
             // give the spending account some stx
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
 
-            assert_eq!(account.stx_balance.amount_unlocked, 123);
+            assert_eq!(account.stx_balance.amount_unlocked(), 123);
             assert_eq!(account.nonce, 0);
 
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false);
@@ -1302,7 +1345,7 @@ pub mod test {
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
-            assert_eq!(account_after.stx_balance.amount_unlocked, 123);
+            assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
             assert_eq!(account_after.nonce, 0);
         }
 
@@ -1374,9 +1417,9 @@ pub mod test {
 
         assert_eq!(account.nonce, 0);
         assert_eq!(account_sponsor.nonce, 0);
-        assert_eq!(account_sponsor.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_sponsor.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
 
         // give the spending account some stx
         conn.connection().as_transaction(|tx| {
@@ -1387,17 +1430,17 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 0);
 
         let account_sponsor_after =
             StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor_after.nonce, 1);
-        assert_eq!(account_sponsor_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_sponsor_after.stx_balance.amount_unlocked(), 0);
 
         let recv_account_after =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 123);
 
         conn.commit_block();
 
@@ -1428,6 +1471,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -1526,7 +1570,7 @@ pub mod test {
             let mut tx_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
-                TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap(),
+                TransactionPayload::new_smart_contract(&contract_name, &contract, None).unwrap(),
             );
 
             tx_contract.chain_id = 0x80000000;
@@ -1625,7 +1669,7 @@ pub mod test {
             let mut tx_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
-                TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap(),
+                TransactionPayload::new_smart_contract(&contract_name, &contract, None).unwrap(),
             );
 
             tx_contract.chain_id = 0x80000000;
@@ -1698,6 +1742,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -1774,6 +1819,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -1896,6 +1942,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2008,6 +2055,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2070,6 +2118,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2203,6 +2252,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2421,6 +2471,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3114,6 +3165,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3752,7 +3804,8 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_origin.clone(),
-            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract).unwrap(),
+            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract, None)
+                .unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -6874,6 +6927,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -6959,6 +7013,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &rng.gen::<u32>()),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
