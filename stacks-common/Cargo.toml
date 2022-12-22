@@ -45,7 +45,7 @@ version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
-version = "=1.0.0-pre.3"
+version = "=1.0.1"
 features = ["serde"]
 
 [dependencies.curve25519-dalek]
