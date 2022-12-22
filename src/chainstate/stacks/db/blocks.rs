@@ -6521,8 +6521,9 @@ impl StacksChainState {
                     function_type
                         .check_args_by_allowing_trait_cast(
                             db,
-                            ClarityVersion::Clarity1, // DO NOT SUBMIT
                             function_args,
+                            StacksEpochId::Epoch21,
+                            ClarityVersion::Clarity1, // DO NOT SUBMIT
                         )
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;

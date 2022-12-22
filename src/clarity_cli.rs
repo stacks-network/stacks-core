@@ -255,6 +255,7 @@ fn run_analysis_free<C: ClarityStorage>(
         save_contract,
         LimitedCostTracker::new_free(),
         StacksEpochId::Epoch21,
+        ClarityVersion::Clarity2,
     )
 }
 
@@ -285,6 +286,7 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        DEFAULT_CLI_EPOCH,
         clarity_version,
     )
 }

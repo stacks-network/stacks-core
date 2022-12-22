@@ -124,7 +124,7 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
@@ -1547,7 +1547,7 @@ impl ConversationHttp {
                         let trait_definition =
                             trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
-                            .check_trait_compliance(trait_id, trait_definition)
+                            .check_trait_compliance(&StacksEpochId::Epoch21, trait_id, trait_definition)
                             .is_ok();
                         Some(GetIsTraitImplementedResponse { is_implemented })
                     }
