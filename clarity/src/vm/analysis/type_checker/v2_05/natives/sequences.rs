@@ -14,24 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 use crate::vm::types::{Value, MAX_VALUE_SIZE};
+use crate::vm::ClarityVersion;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
-use crate::vm::analysis::type_checker::{
+use crate::vm::analysis::type_checker::v2_05::{
     check_argument_count, check_arguments_at_least, no_type, CheckErrors, CheckResult, TypeChecker,
     TypeResult, TypingContext,
 };
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
-use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
     function_name: &str,
@@ -39,7 +41,7 @@ fn get_simple_native_or_user_define(
 ) -> CheckResult<FunctionType> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
-        NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
+        NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
     {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(native_function)
@@ -105,7 +107,8 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    let mapped_type = function_type.check_args(checker, &func_args, checker.clarity_version)?;
+    let mapped_type =
+        function_type.check_args(checker, &func_args, context.epoch, context.clarity_version)?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
@@ -133,8 +136,12 @@ pub fn check_special_filter(
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
-        let filter_type =
-            function_type.check_args(checker, &[input_type], checker.clarity_version)?;
+        let filter_type = function_type.check_args(
+            checker,
+            &[input_type],
+            context.epoch,
+            context.clarity_version,
+        )?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
@@ -176,12 +183,17 @@ pub fn check_special_fold(
     let return_type = function_type.check_args(
         checker,
         &[input_type.clone(), initial_value_type],
-        checker.clarity_version,
+        context.epoch,
+        context.clarity_version,
     )?;
 
     // f must _also_ accepts its own return type!
-    let return_type =
-        function_type.check_args(checker, &[input_type, return_type], checker.clarity_version)?;
+    let return_type = function_type.check_args(
+        checker,
+        &[input_type, return_type],
+        context.epoch,
+        context.clarity_version,
+    )?;
 
     Ok(return_type)
 }
@@ -209,8 +221,11 @@ pub fn check_special_concat(
                     let (rhs_entry_type, rhs_max_len) =
                         (rhs_list.get_list_item_type(), rhs_list.get_max_len());
 
-                    let list_entry_type =
-                        TypeSignature::least_supertype(lhs_entry_type, rhs_entry_type)?;
+                    let list_entry_type = TypeSignature::least_supertype(
+                        &StacksEpochId::Epoch2_05,
+                        lhs_entry_type,
+                        rhs_entry_type,
+                    )?;
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(CheckErrors::MaxLengthOverflow)?;
@@ -262,7 +277,11 @@ pub fn check_special_append(
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
 
-            let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_type)?;
+            let list_entry_type = TypeSignature::least_supertype(
+                &StacksEpochId::Epoch2_05,
+                &lhs_entry_type,
+                &rhs_type,
+            )?;
             let new_len = lhs_max_len
                 .checked_add(1)
                 .ok_or(CheckErrors::MaxLengthOverflow)?;
@@ -396,55 +415,4 @@ pub fn check_special_index_of(
     checker.type_check_expects(&args[1], context, &expected_input_type)?;
 
     TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
-}
-
-/// This function type checks the Clarity2 function `slice?`.
-pub fn check_special_slice(
-    checker: &mut TypeChecker,
-    args: &[SymbolicExpression],
-    context: &TypingContext,
-) -> TypeResult {
-    check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    // Check sequence
-    let seq_type = checker.type_check(&args[0], context)?;
-    let seq = match seq_type {
-        TypeSignature::SequenceType(seq) => {
-            TypeSignature::new_option(TypeSignature::SequenceType(seq))?
-        }
-        _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
-    };
-
-    // Check left position argument
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
-    // Check right position argument
-    checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
-
-    Ok(seq)
-}
-
-/// This function type checks the Clarity2 function `replace-at?`.
-pub fn check_special_replace_at(
-    checker: &mut TypeChecker,
-    args: &[SymbolicExpression],
-    context: &TypingContext,
-) -> TypeResult {
-    check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    // Check sequence
-    let input_type = checker.type_check(&args[0], context)?;
-    let seq_type = match &input_type {
-        TypeSignature::SequenceType(seq) => seq,
-        _ => return Err(CheckErrors::ExpectedSequence(input_type).into()),
-    };
-    let unit_seq = seq_type.unit_type();
-    // Check index argument
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
-    // Check element argument
-    checker.type_check_expects(&args[2], context, &unit_seq)?;
-
-    let final_type = TypeSignature::new_option(input_type)?;
-    Ok(final_type)
 }

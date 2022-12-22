@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::type_checker::natives::SimpleNativeFunction;
-use crate::vm::analysis::type_checker::TypedNativeFunction;
+use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
+use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
@@ -2860,6 +2860,7 @@ mod test {
                 &mut parsed,
                 &mut analysis_db,
                 false,
+                &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
@@ -2885,6 +2886,7 @@ mod test {
                 &mut parsed,
                 &mut analysis_db,
                 false,
+                &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
@@ -2906,7 +2908,7 @@ mod test {
             CHAIN_ID_TESTNET,
             conn,
             LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch2_05,
+            StacksEpochId::latest(),
         );
 
         global_context
@@ -2938,7 +2940,7 @@ mod test {
                     if let Some(expected) = expected {
                         assert_eq!(expected, result.as_ref().unwrap().to_string());
                         assert!(
-                            type_result.as_ref().unwrap().admits(result.as_ref().unwrap()).unwrap(),
+                            type_result.as_ref().unwrap().admits(&StacksEpochId::latest(), result.as_ref().unwrap()).unwrap(),
                             "Type checker's expected type must admit result. Expected type = {}. Result = {}",
                             type_result.as_ref().unwrap(),
                             result.as_ref().unwrap()
@@ -3001,6 +3003,7 @@ mod test {
                         &mut parsed,
                         &mut analysis_db,
                         true,
+                        &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
                     .expect("Failed to type check sample-contracts/tokens");
@@ -3023,6 +3026,7 @@ mod test {
                         &mut parsed,
                         &mut analysis_db,
                         true,
+                        &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
                     .expect("Failed to type check sample-contracts/tokens");
@@ -3031,7 +3035,7 @@ mod test {
                 let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);
-                let mut env = OwnedEnvironment::new(conn);
+                let mut env = OwnedEnvironment::new(conn, StacksEpochId::latest());
                 let balance = STXBalance::initial(1000);
                 env.execute_in_env::<_, _, ()>(
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),

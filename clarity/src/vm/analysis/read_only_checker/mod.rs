@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::tuples;
@@ -53,6 +55,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
 
 impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
     fn run_pass(
+        _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
