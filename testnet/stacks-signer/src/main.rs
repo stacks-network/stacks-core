@@ -25,11 +25,21 @@ async fn mainloop(mut signer: Signer, mut net: Box<net::Net>) {
     info!("mainloop");
     loop {
         libp2p::futures::select! {
-                    event = net.swarm.select_next_some() => match event {
-                _ => todo!()
+        event = net.swarm.select_next_some() => match event {
+            libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } => {
+                println!("Listening on {address:?}");
+            },
+            libp2p::swarm::SwarmEvent::Behaviour(libp2p::floodsub::FloodsubEvent::Message(message)) => {
+                println!(
+                "Received: '{:?}' from {:?}",
+                String::from_utf8_lossy(&message.data),
+                message.source
+                );
+                //signer.process(&message.data);
+            },
+            _ => todo!()
             }
+
         }
-        let message = net.next_message().r#type;
-        signer.process(message);
     }
 }

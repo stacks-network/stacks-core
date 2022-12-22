@@ -4,9 +4,6 @@ use libp2p;
 use serde::Serialize;
 use tracing::info;
 
-type Transport =
-    libp2p::core::transport::Boxed<(libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox)>;
-
 pub struct Net {
     _local_key: libp2p::identity::Keypair,
     pub swarm: libp2p::Swarm<libp2p::floodsub::Floodsub>,
