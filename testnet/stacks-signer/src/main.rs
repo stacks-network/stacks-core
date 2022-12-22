@@ -1,15 +1,17 @@
+use async_std;
 use stacks_signer::config::Config;
 use stacks_signer::signer::Signer;
 use stacks_signer::{logger, net, signer};
 use std::thread;
 use tracing::info;
 
-fn main() {
+#[async_std::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     logger::setup();
     let _config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net = net::Net::new();
+    let net = net::Net::new().await?;
 
     // start p2p sync
     let handle = thread::spawn(|| {
@@ -19,9 +21,10 @@ fn main() {
 
     // let thread finish
     handle.join().unwrap();
+    Ok(())
 }
 
-pub fn mainloop(mut signer: Signer, net: net::Net) {
+fn mainloop(mut signer: Signer, net: net::Net) {
     info!("mainloop");
     loop {
         let message = net.next_message().r#type;
