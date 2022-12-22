@@ -6605,12 +6605,23 @@ impl StacksChainState {
             &next_staging_block.anchored_block_hash,
         )?;
 
+        test_debug!(
+            "About to load affirmation map for {}/{}",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash
+        );
         let block_am = StacksChainState::inner_find_stacks_tip_affirmation_map(
             burnchain_dbconn,
             sort_tx.tx(),
             &next_staging_block.consensus_hash,
             &next_staging_block.anchored_block_hash,
         )?;
+        test_debug!(
+            "Affirmation map for {}/{} is `{}`",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+            &block_am
+        );
 
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then

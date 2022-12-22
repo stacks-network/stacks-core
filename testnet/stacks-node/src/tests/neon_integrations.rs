@@ -4681,7 +4681,7 @@ fn mining_events_integration_test() {
                     write_count: 2,
                     read_length: 1,
                     read_count: 1,
-                    runtime: 300887
+                    runtime: 311000
                 }
             )
         }

@@ -37,6 +37,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::UrlString;
 use stacks::{
+    burnchains::db::BurnchainDB,
     burnchains::PoxConstants,
     chainstate::burn::operations::{
         leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -880,10 +881,10 @@ impl Node {
         };
 
         let burnchain = self.config.get_burnchain();
-        let burnchain_db = burnchain
-            .open_db(false)
-            .expect("FATAL: failed to open burnchain db")
-            .0;
+        let burnchain_db =
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
+                .expect("FATAL: failed to connect to burnchain DB");
+
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {

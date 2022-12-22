@@ -697,6 +697,11 @@ impl Burnchain {
             );
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
+        test_debug!(
+            "Open burnchain DB at {} (rw? {})",
+            &burnchain_db_path,
+            readwrite
+        );
         let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
         Ok(burnchain_db)
     }
@@ -711,6 +716,7 @@ impl Burnchain {
             );
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
+        test_debug!("Open sortition DB at {} (rw? {})", &sort_db_path, readwrite);
         let sortition_db = SortitionDB::open(&sort_db_path, readwrite, self.pox_constants.clone())?;
         Ok(sortition_db)
     }
