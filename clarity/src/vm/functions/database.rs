@@ -29,8 +29,8 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
-    BlockInfoProperty, BuffData, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
-    BUFF_32,
+    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
+    TupleData, TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -94,10 +94,11 @@ pub fn special_contract_call(
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
             match context.lookup_callable_contract(contract_ref) {
-                Some((ref contract_identifier, trait_identifier)) => {
+                Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
-                    if *contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrors::CircularReference(vec![contract_identifier
+                    if trait_data.contract_identifier == env.contract_context.contract_identifier {
+                        return Err(CheckErrors::CircularReference(vec![trait_data
+                            .contract_identifier
                             .name
                             .to_string()])
                         .into());
@@ -106,18 +107,25 @@ pub fn special_contract_call(
                     let contract_to_check = env
                         .global_context
                         .database
-                        .get_contract(contract_identifier)
+                        .get_contract(&trait_data.contract_identifier)
                         .map_err(|_e| {
-                            CheckErrors::NoSuchContract(contract_identifier.to_string())
+                            CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
                         })?;
                     let contract_context_to_check = contract_to_check.contract_context;
+
+                    // This error case indicates a bad implementation. Only traits should be
+                    // added to callable_contracts.
+                    let trait_identifier = trait_data
+                        .trait_identifier
+                        .as_ref()
+                        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
                     if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
                     {
-                        (contract_identifier, None)
+                        (&trait_data.contract_identifier, None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
@@ -150,13 +158,14 @@ pub fn special_contract_call(
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
                             return Err(CheckErrors::NoSuchPublicFunction(
-                                contract_identifier.to_string(),
+                                trait_data.contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
                             .into());
                         }
 
                         function_to_check.check_trait_expectations(
+                            env.epoch(),
                             &contract_context_defining_trait,
                             &trait_identifier,
                         )?;
@@ -168,7 +177,10 @@ pub fn special_contract_call(
                         let expected_sig = constraining_trait.get(function_name).ok_or(
                             CheckErrors::TraitMethodUnknown(trait_name, function_name.to_string()),
                         )?;
-                        (contract_identifier, Some(expected_sig.returns.clone()))
+                        (
+                            &trait_data.contract_identifier,
+                            Some(expected_sig.returns.clone()),
+                        )
                     }
                 }
                 _ => return Err(CheckErrors::ContractCallExpectName.into()),
@@ -196,7 +208,7 @@ pub fn special_contract_call(
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result);
-        if !returns_type_signature.admits_type(&actual_returns) {
+        if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
             return Err(
                 CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
             );
@@ -702,8 +714,11 @@ pub fn special_get_block_info(
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-    let block_info_prop = BlockInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
+        property_name,
+        env.contract_context.get_clarity_version(),
+    )
+    .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
@@ -764,7 +779,118 @@ pub fn special_get_block_info(
             let miner_address = env.global_context.database.get_miner_address(height_value);
             Value::from(miner_address)
         }
+        BlockInfoProperty::MinerSpendWinner => {
+            let winner_spend = env
+                .global_context
+                .database
+                .get_miner_spend_winner(height_value);
+            Value::UInt(winner_spend)
+        }
+        BlockInfoProperty::MinerSpendTotal => {
+            let total_spend = env
+                .global_context
+                .database
+                .get_miner_spend_total(height_value);
+            Value::UInt(total_spend)
+        }
+        BlockInfoProperty::BlockReward => {
+            // this is already an optional
+            let block_reward_opt = env.global_context.database.get_block_reward(height_value);
+            return Ok(match block_reward_opt {
+                Some(x) => Value::some(Value::UInt(x))?,
+                None => Value::none(),
+            });
+        }
     };
 
     Ok(Value::some(result)?)
+}
+
+/// Interprets `args` as variables `[property_name, burn_block_height]`, and returns
+/// a property value determined by `property_name`:
+/// - `header_hash` returns the burn block header hash at `burn_block_height`
+/// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
+///
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+pub fn special_get_burn_block_info(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
+
+    check_argument_count(2, args)?;
+
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+
+    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
+        CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+    )?;
+
+    // Handle the block-height input arg clause.
+    let height_eval = eval(&args[1], env, context)?;
+    let height_value = match height_eval {
+        Value::UInt(result) => result,
+        x => {
+            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+        }
+    };
+
+    // Note: We assume that we will not have a height bigger than u32::MAX.
+    let height_value = match u32::try_from(height_value) {
+        Ok(result) => result,
+        _ => return Ok(Value::none()),
+    };
+
+    match block_info_prop {
+        BurnBlockInfoProperty::HeaderHash => {
+            let burnchain_header_hash_opt = env
+                .global_context
+                .database
+                .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+
+            match burnchain_header_hash_opt {
+                Some(burnchain_header_hash) => {
+                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: burnchain_header_hash.as_bytes().to_vec(),
+                    })))
+                }
+                None => Ok(Value::none()),
+            }
+        }
+        BurnBlockInfoProperty::PoxAddrs => {
+            let pox_addrs_and_payout = env
+                .global_context
+                .database
+                .get_pox_payout_addrs_for_burnchain_height(height_value);
+
+            match pox_addrs_and_payout {
+                Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
+                    TupleData::from_data(vec![
+                        (
+                            "addrs".into(),
+                            Value::list_from(
+                                addrs
+                                    .into_iter()
+                                    .map(|addr_tuple| Value::Tuple(addr_tuple))
+                                    .collect(),
+                            )
+                            .expect("FATAL: could not convert address list to Value"),
+                        ),
+                        ("payout".into(), Value::UInt(payout)),
+                    ])
+                    .expect("FATAL: failed to build pox addrs and payout tuple"),
+                ))
+                .expect("FATAL: could not build Some(..)")),
+                None => Ok(Value::none()),
+            }
+        }
+    }
 }

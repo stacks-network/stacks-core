@@ -30,7 +30,7 @@ use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -68,6 +68,35 @@ native_hash_func!(native_sha512, hash::Sha512Sum);
 native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
 native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
+// Note: Clarity1 had a bug in how the address is computed (issues/2619).
+// This method preserves the old, incorrect behavior for those running Clarity1.
+fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> StacksAddress {
+    StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pub_key],
+    )
+    .unwrap()
+}
+
+// Note: Clarity1 had a bug in how the address is computed (issues/2619).
+// This version contains the code for Clarity2 and going forward.
+fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> StacksAddress {
+    let network_byte = if is_mainnet {
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+    } else {
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+    };
+    StacksAddress::from_public_keys(
+        network_byte,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pub_key],
+    )
+    .unwrap()
+}
+
 pub fn special_principal_of(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -91,13 +120,13 @@ pub fn special_principal_of(
     };
 
     if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
-        let addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![pub_key],
-        )
-        .unwrap();
+        // Note: Clarity1 had a bug in how the address is computed (issues/2619).
+        // We want to preserve the old behavior unless the version is greater.
+        let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
+            pubkey_to_address_v2(pub_key, env.global_context.mainnet)
+        } else {
+            pubkey_to_address_v1(pub_key)
+        };
         let principal = addr.to_account_principal();
         return Ok(Value::okay(Value::Principal(principal)).unwrap());
     } else {

@@ -48,6 +48,7 @@ pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 // TODO: factor out into a boot lib?
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
+pub const COSTS_3_NAME: &'static str = "costs-3";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
@@ -241,6 +242,7 @@ pub struct TrackerData {
     ///  evaluated, so no epoch identifier is necessary.
     epoch: StacksEpochId,
     mainnet: bool,
+    chain_id: u32,
 }
 
 #[derive(Clone)]
@@ -549,6 +551,12 @@ fn load_cost_functions(
         if target_contract == boot_code_id("costs", mainnet) {
             // refering to one of the boot code cost functions
             let target = match ClarityCostFunction::lookup_by_name(&target_function) {
+                Some(ClarityCostFunction::Unimplemented) => {
+                    warn!("Attempted vote on unimplemented cost function";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "cost_function" => %target_function);
+                    continue;
+                }
                 Some(cost_func) => cost_func,
                 None => {
                     warn!("Confirmed cost proposal invalid: function-name does not reference a Clarity cost function";
@@ -617,6 +625,7 @@ fn load_cost_functions(
 impl LimitedCostTracker {
     pub fn new(
         mainnet: bool,
+        chain_id: u32,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
@@ -631,6 +640,7 @@ impl LimitedCostTracker {
             memory: 0,
             epoch,
             mainnet,
+            chain_id,
         };
         assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db, true)?;
@@ -639,6 +649,7 @@ impl LimitedCostTracker {
 
     pub fn new_mid_block(
         mainnet: bool,
+        chain_id: u32,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
@@ -653,6 +664,7 @@ impl LimitedCostTracker {
             memory: 0,
             epoch,
             mainnet,
+            chain_id,
         };
         cost_tracker.load_costs(clarity_db, false)?;
         Ok(Self::Limited(cost_tracker))
@@ -664,8 +676,16 @@ impl LimitedCostTracker {
         epoch: StacksEpochId,
         use_mainnet: bool,
     ) -> Result<LimitedCostTracker> {
+        use crate::vm::tests::test_only_mainnet_to_chain_id;
+        let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
         assert!(clarity_db.is_stack_empty());
-        LimitedCostTracker::new(use_mainnet, ExecutionCost::max_value(), clarity_db, epoch)
+        LimitedCostTracker::new(
+            use_mainnet,
+            chain_id,
+            ExecutionCost::max_value(),
+            clarity_db,
+            epoch,
+        )
     }
 
     pub fn new_free() -> LimitedCostTracker {
@@ -679,6 +699,7 @@ impl LimitedCostTracker {
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
+            StacksEpochId::Epoch21 => COSTS_3_NAME.to_string(),
         }
     }
 }
@@ -778,6 +799,18 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+    pub fn get_memory(&self) -> u64 {
+        match self {
+            Self::Limited(TrackerData { memory, .. }) => *memory,
+            Self::Free => 0,
+        }
+    }
+    pub fn get_memory_limit(&self) -> u64 {
+        match self {
+            Self::Limited(TrackerData { memory_limit, .. }) => *memory_limit,
+            Self::Free => u64::MAX,
+        }
+    }
 }
 
 fn parse_cost(
@@ -833,10 +866,16 @@ fn compute_cost(
     eval_in_epoch: StacksEpochId,
 ) -> Result<ExecutionCost> {
     let mainnet = cost_tracker.mainnet;
+    let chain_id = cost_tracker.chain_id;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free(), eval_in_epoch);
+    let mut global_context = GlobalContext::new(
+        mainnet,
+        chain_id,
+        conn,
+        LimitedCostTracker::new_free(),
+        eval_in_epoch,
+    );
 
     let cost_contract = cost_tracker
         .cost_contracts
@@ -858,13 +897,22 @@ fn compute_cost(
 
     let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
 
-    let eval_result = eval_all(&function_invocation, cost_contract, &mut global_context);
+    let eval_result = eval_all(
+        &function_invocation,
+        cost_contract,
+        &mut global_context,
+        None,
+    );
 
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
     s.total.add(&cost)?;
+    if cfg!(feature = "disable-costs") {
+        // Disable check for exceeding the cost limit to allow mining large blocks for profiling purposes.
+        return Ok(());
+    }
     if s.total.exceeds(&s.limit) {
         Err(CostErrors::CostBalanceExceeded(
             s.total.clone(),
@@ -903,6 +951,9 @@ impl CostTracker for LimitedCostTracker {
                 return Ok(ExecutionCost::zero());
             }
             Self::Limited(ref mut data) => {
+                if cost_function == ClarityCostFunction::Unimplemented {
+                    panic!("Used unimplemented cost function");
+                }
                 let cost_function_ref = data
                     .cost_function_references
                     .get(&cost_function)

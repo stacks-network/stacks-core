@@ -74,13 +74,6 @@ impl StacksTransactionEvent {
                 "type": "stx_lock_event",
                 "stx_lock_event": event_data.json_serialize()
             }),
-            StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(event_data)) => json!({
-                "txid": format!("0x{:?}", txid),
-                "event_index": event_index,
-                "committed": committed,
-                "type": "stx_withdraw_event",
-                "stx_withdraw_event": event_data.json_serialize()
-            }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
@@ -101,13 +94,6 @@ impl StacksTransactionEvent {
                 "committed": committed,
                 "type": "nft_burn_event",
                 "nft_burn_event": event_data.json_serialize()
-            }),
-            StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(event_data)) => json!({
-                "txid": format!("0x{:?}", txid),
-                "event_index": event_index,
-                "committed": committed,
-                "type": "nft_withdraw_event",
-                "nft_withdraw_event": event_data.json_serialize()
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
@@ -130,13 +116,6 @@ impl StacksTransactionEvent {
                 "type": "ft_burn_event",
                 "ft_burn_event": event_data.json_serialize()
             }),
-            StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(event_data)) => json!({
-                "txid": format!("0x{:?}", txid),
-                "event_index": event_index,
-                "committed": committed,
-                "type": "ft_withdraw_event",
-                "ft_withdraw_event": event_data.json_serialize()
-            }),
         }
     }
 }
@@ -147,7 +126,6 @@ pub enum STXEventType {
     STXMintEvent(STXMintEventData),
     STXBurnEvent(STXBurnEventData),
     STXLockEvent(STXLockEventData),
-    STXWithdrawEvent(STXWithdrawEventData),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,7 +133,6 @@ pub enum NFTEventType {
     NFTTransferEvent(NFTTransferEventData),
     NFTMintEvent(NFTMintEventData),
     NFTBurnEvent(NFTBurnEventData),
-    NFTWithdrawEvent(NFTWithdrawEventData),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,7 +140,6 @@ pub enum FTEventType {
     FTTransferEvent(FTTransferEventData),
     FTMintEvent(FTMintEventData),
     FTBurnEvent(FTBurnEventData),
-    FTWithdrawEvent(FTWithdrawEventData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,6 +147,7 @@ pub struct STXTransferEventData {
     pub sender: PrincipalData,
     pub recipient: PrincipalData,
     pub amount: u128,
+    pub memo: BuffData,
 }
 
 impl STXTransferEventData {
@@ -179,6 +156,7 @@ impl STXTransferEventData {
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
             "amount": format!("{}", self.amount),
+            "memo": format!("{}", self.memo),
         })
     }
 }
@@ -203,6 +181,7 @@ pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
     pub locked_address: PrincipalData,
+    pub contract_identifier: QualifiedContractIdentifier,
 }
 
 impl STXLockEventData {
@@ -211,6 +190,7 @@ impl STXLockEventData {
             "locked_amount": format!("{}",self.locked_amount),
             "unlock_height": format!("{}", self.unlock_height),
             "locked_address": format!("{}", self.locked_address),
+            "contract_identifier": self.contract_identifier.to_string(),
         })
     }
 }
@@ -227,25 +207,6 @@ impl STXBurnEventData {
             "sender": format!("{}", self.sender),
             "amount": format!("{}", self.amount),
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct STXWithdrawEventData {
-    pub sender: PrincipalData,
-    pub amount: u128,
-    pub withdrawal_id: Option<u32>,
-}
-
-impl STXWithdrawEventData {
-    /// Serialize to a JSON value. This method fails to serialize if
-    /// `withdrawal_id` is not set, returning `None`
-    pub fn json_serialize(&self) -> Option<serde_json::Value> {
-        Some(json!({
-            "sender": self.sender.to_string(),
-            "amount": self.amount.to_string(),
-            "withdrawal_id": self.withdrawal_id?,
-        }))
     }
 }
 
@@ -324,27 +285,6 @@ impl NFTBurnEventData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NFTWithdrawEventData {
-    pub asset_identifier: AssetIdentifier,
-    pub sender: PrincipalData,
-    pub id: u128,
-    pub withdrawal_id: Option<u32>,
-}
-
-impl NFTWithdrawEventData {
-    /// Serialize to a JSON value. This method fails to serialize if
-    /// `withdrawal_id` is not set, returning `None`
-    pub fn json_serialize(&self) -> Option<serde_json::Value> {
-        Some(json!({
-            "asset_identifier": format!("{}", self.asset_identifier),
-            "sender": format!("{}",self.sender),
-            "id": self.id,
-            "withdrawal_id": self.withdrawal_id?,
-        }))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct FTTransferEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
@@ -394,27 +334,6 @@ impl FTBurnEventData {
             "sender": format!("{}",self.sender),
             "amount": format!("{}", self.amount),
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FTWithdrawEventData {
-    pub asset_identifier: AssetIdentifier,
-    pub sender: PrincipalData,
-    pub amount: u128,
-    pub withdrawal_id: Option<u32>,
-}
-
-impl FTWithdrawEventData {
-    /// Serialize to a JSON value. This method fails to serialize if
-    /// `withdrawal_id` is not set, returning `None`
-    pub fn json_serialize(&self) -> Option<serde_json::Value> {
-        Some(json!({
-            "asset_identifier": format!("{}", self.asset_identifier),
-            "sender": format!("{}",self.sender),
-            "amount": format!("{}", self.amount),
-            "withdrawal_id": self.withdrawal_id?,
-        }))
     }
 }
 

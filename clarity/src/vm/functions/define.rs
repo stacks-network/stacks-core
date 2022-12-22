@@ -146,7 +146,7 @@ fn handle_define_function(
 
     check_legal_define(&function_name, &env.contract_context)?;
 
-    let arguments = parse_name_type_pairs(arg_symbols, env)?;
+    let arguments = parse_name_type_pairs(*env.epoch(), arg_symbols, env)?;
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
@@ -171,7 +171,7 @@ fn handle_define_persisted_variable(
 ) -> Result<DefineResult> {
     check_legal_define(&variable_str, &env.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(value_type, env)?;
+    let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
 
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
@@ -190,7 +190,7 @@ fn handle_define_nonfungible_asset(
 ) -> Result<DefineResult> {
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
+    let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
 
     Ok(DefineResult::NonFungibleAsset(
         asset_name.clone(),
@@ -229,8 +229,8 @@ fn handle_define_map(
 ) -> Result<DefineResult> {
     check_legal_define(&map_str, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
-    let value_type_signature = TypeSignature::parse_type_repr(value_type, env)?;
+    let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
+    let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
 
     Ok(DefineResult::Map(
         map_str.clone(),
@@ -246,7 +246,12 @@ fn handle_define_trait(
 ) -> Result<DefineResult> {
     check_legal_define(&name, &env.contract_context)?;
 
-    let trait_signature = TypeSignature::parse_trait_type_repr(&functions, env)?;
+    let trait_signature = TypeSignature::parse_trait_type_repr(
+        &functions,
+        env,
+        *env.epoch(),
+        *env.contract_context.get_clarity_version(),
+    )?;
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }
@@ -335,6 +340,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 }
             }
             DefineFunctions::FungibleToken => {
+                check_arguments_at_least(1, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }

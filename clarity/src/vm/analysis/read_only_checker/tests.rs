@@ -14,12 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::mem_type_check;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
+
 use crate::vm::analysis::type_check;
+use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{CheckError, CheckErrors};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_read_only_checker(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
 #[test]
 fn test_argument_count_violations() {
@@ -143,13 +161,15 @@ fn test_simple_read_only_violations() {
         "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
+            (replace-at? (func1) u0 3))",
+        "(define-map tokens { account: principal } { balance: int })
+         (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
+         (define-read-only (not-reading-only)
             (as-max-len? (func1) 3))",
         "(define-read-only (not-reading-only)
             (stx-burn? u10 tx-sender))",
         "(define-read-only (not-reading-only)
             (stx-transfer? u10 tx-sender tx-sender))",
-        "(define-read-only (not-reading-only)
-            (stx-burn? u10 tx-sender))",
     ];
 
     for contract in bad_contracts.iter() {
@@ -177,8 +197,11 @@ fn test_nested_writing_closure() {
     }
 }
 
-#[test]
-fn test_contract_call_read_only_violations() {
+#[apply(test_clarity_versions_read_only_checker)]
+fn test_contract_call_read_only_violations(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract1 = "(define-map tokens { account: principal } { balance: int })
          (define-read-only (get-token-balance)
             (get balance (map-get? tokens (tuple (account tx-sender))) ))
@@ -196,24 +219,42 @@ fn test_contract_call_read_only_violations() {
     let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
     let contract_ok_caller_id = QualifiedContractIdentifier::local("ok_caller").unwrap();
 
-    let mut contract1 = parse(&contract_1_id, contract1).unwrap();
-    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
-    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
+    let mut contract1 = parse(&contract_1_id, contract1, version, epoch).unwrap();
+    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller, version, epoch).unwrap();
+    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller, version, epoch).unwrap();
 
     let mut marf = MemoryBackingStore::new();
 
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
         db.test_insert_contract_hash(&contract_1_id);
-        type_check(&contract_1_id, &mut contract1, db, true)
+        type_check(&contract_1_id, &mut contract1, db, true, &epoch, &version)
     })
     .unwrap();
 
     let err = db
-        .execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true))
+        .execute(|db| {
+            type_check(
+                &contract_bad_caller_id,
+                &mut bad_caller,
+                db,
+                true,
+                &epoch,
+                &version,
+            )
+        })
         .unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false))
-        .unwrap();
+    db.execute(|db| {
+        type_check(
+            &contract_ok_caller_id,
+            &mut ok_caller,
+            db,
+            false,
+            &epoch,
+            &version,
+        )
+    })
+    .unwrap();
 }

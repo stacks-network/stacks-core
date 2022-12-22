@@ -29,6 +29,8 @@ use crate::vm::types::{
 use crate::vm::variables::NativeVariables;
 use std::collections::HashMap;
 
+use crate::vm::ClarityVersion;
+
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
@@ -44,7 +46,9 @@ mod tests;
 ///  any database operations, traits, or iterating operations (e.g., list
 ///  operations)
 ///
-pub struct ArithmeticOnlyChecker();
+pub struct ArithmeticOnlyChecker<'a> {
+    clarity_version: &'a ClarityVersion,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Error {
@@ -67,14 +71,16 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl ArithmeticOnlyChecker {
+impl<'a> ArithmeticOnlyChecker<'a> {
     pub fn check_contract_cost_eligible(contract_analysis: &mut ContractAnalysis) {
         let is_eligible = ArithmeticOnlyChecker::run(contract_analysis).is_ok();
         contract_analysis.is_cost_contract_eligible = is_eligible;
     }
 
     pub fn run(contract_analysis: &ContractAnalysis) -> Result<(), Error> {
-        let checker = ArithmeticOnlyChecker();
+        let checker = ArithmeticOnlyChecker {
+            clarity_version: &contract_analysis.clarity_version,
+        };
         for exp in contract_analysis.expressions.iter() {
             checker.check_top_levels(&exp)?;
         }
@@ -140,10 +146,14 @@ impl ArithmeticOnlyChecker {
 
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
         use crate::vm::variables::NativeVariables::*;
-        if let Some(native_var) = NativeVariables::lookup_by_name(var_name) {
+        if let Some(native_var) =
+            NativeVariables::lookup_by_name_at_version(var_name, &self.clarity_version)
+        {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest => Err(Error::VariableForbidden(native_var)),
+                | Regtest | TxSponsor | Mainnet | ChainId => {
+                    Err(Error::VariableForbidden(native_var))
+                }
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
             }
         } else {
@@ -156,7 +166,7 @@ impl ArithmeticOnlyChecker {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<Result<(), Error>> {
-        NativeFunctions::lookup_by_name(function)
+        NativeFunctions::lookup_by_name_at_version(function, self.clarity_version)
             .map(|function| self.check_native_function(function, args))
     }
 
@@ -167,15 +177,25 @@ impl ArithmeticOnlyChecker {
     ) -> Result<(), Error> {
         use crate::vm::functions::NativeFunctions::*;
         match function {
-            FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
-            | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
-            | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
-            | GetTokenSupply | BurnToken | BurnAsset | WithdrawToken | WithdrawAsset
-            | StxWithdraw => {
+            FetchVar | GetBlockInfo | GetBurnBlockInfo | GetTokenBalance | GetAssetOwner
+            | FetchEntry | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
+            | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
+            | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
+            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
+            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
+            | Fold | Slice | ReplaceAt => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
+            IsStandard | PrincipalDestruct | PrincipalConstruct => {
+                return Err(Error::FunctionNotPermitted(function));
+            }
+            IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
@@ -183,10 +203,14 @@ impl ArithmeticOnlyChecker {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
-            | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
+            | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => self.check_all(args),
+            | Len | Begin | TupleMerge | BitwiseOr | BitwiseAnd | BitwiseXor2 | BitwiseNot
+            | BitwiseLShift | BitwiseRShift => {
+                // Check all arguments.
+                self.check_all(args)
+            }
             // we need to treat all the remaining functions specially, because these
             //   do not eval all of their arguments (rather, one or more of their arguments
             //   is a name)

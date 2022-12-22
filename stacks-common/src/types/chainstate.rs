@@ -4,10 +4,12 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
+use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
+use crate::util::uint::Uint256;
 use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
@@ -22,7 +24,11 @@ use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use rand::Rng;
+use rand::SeedableRng;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+
+use crate::util::hash::DoubleSha256;
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -73,16 +79,137 @@ impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
+/// Identifier used to identify Proof-of-Transfer forks
+///  (or Rewards Cycle forks). These identifiers are opaque
+///  outside of the PoX DB, however, they are sufficient
+///  to uniquely identify a "sortition" when paired with
+///  a burn header hash
+// TODO: Vec<bool> is an aggressively unoptimized implementation,
+//       replace with a real bitvec
+#[derive(Clone, Debug, PartialEq)]
+pub struct PoxId(Vec<bool>);
+
 impl SortitionId {
-    pub fn new(bhh: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId(bhh.0.clone())
+    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
+        SortitionId::new(from, &PoxId::stubbed())
     }
 
-    /// A sortition identifier of all zeros. This is used as the
-    /// the initial sortition identifier in the sortition db. The parent
-    /// of the initial sortition is the sentinel.
-    pub fn zero() -> SortitionId {
-        SortitionId([0; 32])
+    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
+        if pox == &PoxId::stubbed() {
+            SortitionId(bhh.0.clone())
+        } else {
+            let mut hasher = Sha512_256::new();
+            hasher.update(bhh);
+            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
+            let h = Sha512Trunc256Sum::from_hasher(hasher);
+            SortitionId(h.0)
+        }
+    }
+}
+
+impl PoxId {
+    pub fn new(contents: Vec<bool>) -> Self {
+        PoxId(contents)
+    }
+
+    pub fn initial() -> PoxId {
+        PoxId(vec![true])
+    }
+
+    pub fn from_bools(bools: Vec<bool>) -> PoxId {
+        PoxId(bools)
+    }
+
+    pub fn extend_with_present_block(&mut self) {
+        self.0.push(true);
+    }
+    pub fn extend_with_not_present_block(&mut self) {
+        self.0.push(false);
+    }
+
+    pub fn stubbed() -> PoxId {
+        PoxId(vec![])
+    }
+
+    pub fn has_ith_anchor_block(&self, i: usize) -> bool {
+        if i >= self.0.len() {
+            false
+        } else {
+            self.0[i]
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
+        let mut ret = vec![0x00];
+        let mut count = 0;
+        for bit in start..(start + len) {
+            if bit >= self.len() {
+                break;
+            }
+            let i = bit - start;
+            if i > 0 && i % 8 == 0 {
+                ret.push(0x00);
+            }
+
+            let sz = ret.len() - 1;
+            if self.0[bit] {
+                ret[sz] |= 1 << (i % 8);
+            }
+            count += 1;
+        }
+        (ret, count)
+    }
+
+    pub fn num_inventory_reward_cycles(&self) -> usize {
+        self.0.len().saturating_sub(1)
+    }
+
+    pub fn has_prefix(&self, prefix: &PoxId) -> bool {
+        if self.len() < prefix.len() {
+            return false;
+        }
+
+        for i in 0..prefix.len() {
+            if self.0[i] != prefix.0[i] {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn into_inner(self) -> Vec<bool> {
+        self.0
+    }
+}
+
+impl FromStr for PoxId {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut result = vec![];
+        for i in s.chars() {
+            if i == '1' {
+                result.push(true);
+            } else if i == '0' {
+                result.push(false);
+            } else {
+                return Err("Unexpected character in PoX ID serialization");
+            }
+        }
+        Ok(PoxId::new(result))
+    }
+}
+
+impl fmt::Display for PoxId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for val in self.0.iter() {
+            write!(f, "{}", if *val { 1 } else { 0 })?;
+        }
+        Ok(())
     }
 }
 
@@ -233,14 +360,38 @@ impl BurnchainHeaderHash {
     /// Instantiate a burnchain block hash from a Bitcoin block header
     pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
         // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
+        // Bitcoin stores its hashes in big-endian form, but our codebase stores them in
+        // little-endian form (which is also how most libraries work).
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
     }
 
-    /// A burn header hash of all zeros. This is used as the the
-    /// initial burn header identifier in the sortition db. The parent
-    /// of the initial sortition is the sentinel.
+    pub fn to_bitcoin_hash(&self) -> Sha256dHash {
+        let mut bytes = self.0.to_vec();
+        bytes.reverse();
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&bytes[0..32]);
+        Sha256dHash(buf)
+    }
+
     pub fn zero() -> BurnchainHeaderHash {
         BurnchainHeaderHash([0x00; 32])
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn from_test_data(
+        block_height: u64,
+        index_root: &TrieHash,
+        noise: u64,
+    ) -> BurnchainHeaderHash {
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(index_root.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
+
+        BurnchainHeaderHash(hb)
     }
 }
 

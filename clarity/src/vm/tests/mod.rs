@@ -38,32 +38,74 @@ use crate::vm::{
     clarity::{ClarityConnection, TransactionConnection},
     contexts::AssetMap,
     costs::{ExecutionCost, LimitedCostTracker},
-    database::{BurnStateDB, HeadersDB},
 };
+
+pub use crate::vm::database::BurnStateDB;
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
 use super::events::StacksTransactionEvent;
 pub use super::test_util::*;
+use super::ClarityVersion;
 
 mod assets;
 mod contracts;
 mod datamaps;
 mod defines;
-mod events;
+mod principals;
 mod sequences;
 mod simple_apply_eval;
 mod traits;
 
-pub fn with_memory_environment<F>(f: F, top_level: bool)
+pub fn with_memory_environment<F>(f: F, epoch: StacksEpochId, top_level: bool)
 where
     F: FnOnce(&mut OwnedEnvironment) -> (),
 {
     let mut marf_kv = MemoryBackingStore::new();
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), epoch);
     // start an initial transaction.
     if !top_level {
         owned_env.begin();
     }
 
     f(&mut owned_env)
+}
+
+pub fn with_versioned_memory_environment<F>(
+    f: F,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+    top_level: bool,
+) where
+    F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
+{
+    let mut marf_kv = MemoryBackingStore::new();
+
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), epoch);
+    // start an initial transaction.
+    if !top_level {
+        owned_env.begin();
+    }
+
+    f(&mut owned_env, version)
+}
+
+/// Determine whether or not to use the testnet or mainnet chain ID, given whether or not the
+/// caller expects to use mainnet or testnet.
+///
+/// WARNING TO THE READER:  This is *test-only* code.  The existence of this method does *not*
+/// imply that there is a canonical, supported way to convert a `bool` into a chain ID.  The fact
+/// that Stacks has a separate chain ID for its testnet (0x80000000) is an accident.  In general, a
+/// Stacks blockchain instance only needs _one_ chain ID, and can use the mainnet/testnet field in
+/// its transactions to determine whether or not a transaction should be mined in a given chain.
+/// Going forward, you should *never* use a different chain ID for your testnet.
+///
+/// So, do *not* refactor this code to use this conversion in production.
+pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {
+    // seriously -- don't even think about it.
+    if mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    }
 }

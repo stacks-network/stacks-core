@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::functions::tuples;
+use std::convert::{TryFrom, TryInto};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
@@ -25,12 +26,14 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    AssetIdentifier, BlockInfoProperty, BuffData, OptionalData, PrincipalData, TypeSignature, Value,
+    AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
+    SequenceData, TypeSignature, Value,
 };
 use crate::vm::{eval, Environment, LocalContext};
-use std::convert::TryFrom;
 
 use crate::types::StacksEpochId;
+
+use crate::vm::types::TupleData;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -54,18 +57,7 @@ enum BurnAssetErrorCodes {
     DOES_NOT_EXIST = 3,
 }
 enum BurnTokenErrorCodes {
-    NOT_ENOUGH_BALANCE = 1,
-    NON_POSITIVE_AMOUNT = 3,
-}
-
-enum WithdrawAssetErrorCodes {
-    NOT_OWNED_BY = 1,
-    DOES_NOT_EXIST = 3,
-    ASSET_WITHDRAWAL_PROHIBITED = 4,
-}
-enum WithdrawTokenErrorCodes {
-    NOT_ENOUGH_BALANCE = 1,
-    NON_POSITIVE_AMOUNT = 3,
+    NOT_ENOUGH_BALANCE_OR_NON_POSITIVE = 1,
 }
 
 enum StxErrorCodes {
@@ -134,6 +126,7 @@ pub fn stx_transfer_consolidated(
     from: &PrincipalData,
     to: &PrincipalData,
     amount: u128,
+    memo: &BuffData,
 ) -> Result<Value> {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
@@ -153,8 +146,8 @@ pub fn stx_transfer_consolidated(
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
-    env.add_memory(STXBalance::size_of as u64)?;
-    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
     let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
     if !sender_snapshot.can_transfer(amount) {
@@ -164,7 +157,7 @@ pub fn stx_transfer_consolidated(
     sender_snapshot.transfer_to(to, amount)?;
 
     env.global_context.log_stx_transfer(&from, amount)?;
-    env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
+    env.register_stx_transfer_event(from.clone(), to.clone(), amount, memo.clone())?;
     Ok(Value::okay_true())
 }
 
@@ -180,14 +173,85 @@ pub fn special_stx_transfer(
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
     let to_val = eval(&args[2], env, context)?;
+    let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
 
-    if let (Value::Principal(ref from), Value::Principal(ref to), Value::UInt(amount)) =
-        (&from_val, to_val, amount_val)
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
     {
-        stx_transfer_consolidated(env, from, to, amount)
+        stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
+}
+
+pub fn special_stx_transfer_memo(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(4, args)?;
+    runtime_cost(ClarityCostFunction::StxTransferMemo, env, 0)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val = eval(&args[1], env, context)?;
+    let to_val = eval(&args[2], env, context)?;
+    let memo_val = eval(&args[3], env, context)?;
+
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
+    {
+        stx_transfer_consolidated(env, from, to, amount, memo)
+    } else {
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
+
+pub fn special_stx_account(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    runtime_cost(ClarityCostFunction::StxGetAccount, env, 0)?;
+
+    let owner = eval(&args[0], env, context)?;
+    let principal = if let Value::Principal(p) = owner {
+        p
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+    };
+
+    let stx_balance = env
+        .global_context
+        .database
+        .get_stx_balance_snapshot(&principal)
+        .canonical_balance_repr();
+    let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
+
+    TupleData::from_data(vec![
+        (
+            "unlocked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_unlocked()),
+        ),
+        (
+            "locked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_locked()),
+        ),
+        (
+            "unlock-height".try_into().unwrap(),
+            Value::UInt(stx_balance.effective_unlock_height(v1_unlock_ht) as u128),
+        ),
+    ])
+    .map(|t| Value::Tuple(t))
 }
 
 pub fn special_stx_burn(
@@ -212,7 +276,7 @@ pub fn special_stx_burn(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(STXBalance::size_of as u64)?;
+        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
         if !burner_snapshot.can_transfer(amount) {
@@ -228,51 +292,6 @@ pub fn special_stx_burn(
 
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::BadTransferSTXArguments.into())
-    }
-}
-
-pub fn special_stx_withdraw(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    runtime_cost(ClarityCostFunction::StxWithdraw, env, 0)?;
-
-    let amount_val = eval(&args[0], env, context)?;
-    let from_val = eval(&args[1], env, context)?;
-
-    if let (Value::Principal(ref from), Value::UInt(amount)) = (&from_val, amount_val) {
-        if amount == 0 {
-            return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
-        }
-
-        if Some(from) != env.sender.as_ref() {
-            return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
-        }
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(STXBalance::size_of as u64)?;
-
-        let mut withdrawer_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
-        if !withdrawer_snapshot.can_transfer(amount) {
-            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
-        }
-
-        withdrawer_snapshot.debit(amount);
-        withdrawer_snapshot.save();
-
-        env.global_context
-            .database
-            .decrement_ustx_liquid_supply(amount)?;
-
-        env.global_context.log_stx_burn(&from, amount)?;
-        env.register_stx_withdraw_event(from.clone(), amount)?;
 
         Ok(Value::okay_true())
     } else {
@@ -368,7 +387,7 @@ pub fn special_mint_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -431,7 +450,7 @@ pub fn special_mint_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -496,7 +515,7 @@ pub fn special_transfer_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -582,7 +601,7 @@ pub fn special_transfer_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -800,7 +819,7 @@ pub fn special_get_owner_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -842,7 +861,7 @@ pub fn special_get_owner_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -895,7 +914,7 @@ pub fn special_burn_token(
 
     if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
         if amount == 0 {
-            return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
+            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
         let burner_bal = env.global_context.database.get_ft_balance(
@@ -906,7 +925,7 @@ pub fn special_burn_token(
         )?;
 
         if amount > burner_bal {
-            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE);
+            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
         env.global_context.database.checked_decrease_token_supply(
@@ -973,7 +992,7 @@ pub fn special_burn_asset_v200(
         expected_asset_type.size(),
     )?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -1050,7 +1069,7 @@ pub fn special_burn_asset_v205(
     let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
-    if !expected_asset_type.admits(&asset) {
+    if !expected_asset_type.admits(env.epoch(), &asset)? {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
     }
 
@@ -1094,154 +1113,6 @@ pub fn special_burn_asset_v205(
             asset_name: asset_name.clone(),
         };
         env.register_nft_burn_event(sender_principal.clone(), asset, asset_identifier)?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
-    }
-}
-
-pub fn special_withdraw_token(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::FtWithdraw, env, 0)?;
-
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let amount = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
-
-    if let (Value::UInt(amount), Value::Principal(ref withdrawer)) = (amount, from) {
-        if amount == 0 {
-            return clarity_ecode!(WithdrawTokenErrorCodes::NON_POSITIVE_AMOUNT);
-        }
-
-        let withdrawer_bal = env.global_context.database.get_ft_balance(
-            &env.contract_context.contract_identifier,
-            token_name,
-            withdrawer,
-            None,
-        )?;
-
-        if amount > withdrawer_bal {
-            return clarity_ecode!(WithdrawTokenErrorCodes::NOT_ENOUGH_BALANCE);
-        }
-
-        env.global_context.database.checked_decrease_token_supply(
-            &env.contract_context.contract_identifier,
-            token_name,
-            amount,
-        )?;
-
-        let final_withdrawer_bal = withdrawer_bal - amount;
-
-        env.global_context.database.set_ft_balance(
-            &env.contract_context.contract_identifier,
-            token_name,
-            withdrawer,
-            final_withdrawer_bal,
-        )?;
-
-        let asset_identifier = AssetIdentifier {
-            contract_identifier: env.contract_context.contract_identifier.clone(),
-            asset_name: token_name.clone(),
-        };
-        env.register_ft_withdraw_event(withdrawer.clone(), amount, asset_identifier)?;
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(TypeSignature::UIntType.size() as u64)?;
-
-        env.global_context.log_token_transfer(
-            withdrawer,
-            &env.contract_context.contract_identifier,
-            token_name,
-            amount,
-        )?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::BadWithdrawFTArguments.into())
-    }
-}
-
-pub fn special_withdraw_asset(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::NftWithdraw, env, 0)?;
-
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let sender = eval(&args[2], env, context)?;
-
-    let nft_metadata = env
-        .contract_context
-        .meta_nft
-        .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
-    let expected_asset_type = &nft_metadata.key_type;
-
-    let asset_size = asset.serialized_size() as u64;
-    runtime_cost(ClarityCostFunction::NftWithdraw, env, asset_size)?;
-
-    if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
-    }
-
-    if let Value::Principal(ref sender_principal) = sender {
-        let owner = match env.global_context.database.get_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
-                return clarity_ecode!(WithdrawAssetErrorCodes::DOES_NOT_EXIST)
-            }
-            Ok(owner) => Ok(owner),
-            Err(e) => Err(e),
-        }?;
-
-        if &owner != sender_principal {
-            return clarity_ecode!(WithdrawAssetErrorCodes::NOT_OWNED_BY);
-        }
-
-        let id = if let Value::UInt(id) = asset {
-            id
-        } else {
-            return clarity_ecode!(WithdrawAssetErrorCodes::ASSET_WITHDRAWAL_PROHIBITED);
-        };
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(asset_size)?;
-
-        env.global_context.database.burn_nft(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        )?;
-
-        env.global_context.log_asset_transfer(
-            sender_principal,
-            &env.contract_context.contract_identifier,
-            asset_name,
-            asset.clone(),
-        );
-
-        let asset_identifier = AssetIdentifier {
-            contract_identifier: env.contract_context.contract_identifier.clone(),
-            asset_name: asset_name.clone(),
-        };
-        env.register_nft_withdraw_event(sender_principal.clone(), id, asset_identifier)?;
 
         Ok(Value::okay_true())
     } else {

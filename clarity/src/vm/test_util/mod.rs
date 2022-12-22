@@ -1,16 +1,18 @@
+use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::execute as vm_execute;
 use crate::vm::execute_on_network as vm_execute_on_network;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::StandardPrincipalData;
-use crate::vm::types::{PrincipalData, ResponseData, Value};
+use crate::vm::types::{PrincipalData, ResponseData, TupleData, Value};
 use crate::vm::StacksEpoch;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
@@ -19,12 +21,22 @@ use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
+    pub ast_rules: ASTRules,
 }
 pub struct UnitTestHeaderDB {}
 
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
+    ast_rules: ASTRules::Typical,
+};
+pub const TEST_BURN_STATE_DB_205: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch2_05,
+    ast_rules: ASTRules::PrecheckSize,
+};
+pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch21,
+    ast_rules: ASTRules::PrecheckSize,
 };
 
 pub fn execute(s: &str) -> Value {
@@ -141,6 +153,30 @@ impl HeadersDB for UnitTestHeaderDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+        {
+            Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
+        } else {
+            None
+        }
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
+    }
 }
 
 impl BurnStateDB for UnitTestBurnStateDB {
@@ -168,5 +204,47 @@ impl BurnStateDB for UnitTestBurnStateDB {
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        1
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        1
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        1
+    }
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        _consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        None
+    }
+    fn get_ast_rules(&self, _height: u32) -> ASTRules {
+        self.ast_rules
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        Some((
+            vec![TupleData::from_data(vec![
+                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+            ])
+            .unwrap()],
+            123,
+        ))
     }
 }
