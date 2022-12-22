@@ -4410,7 +4410,6 @@ dependencies = [
  "hashbrown 0.13.1",
  "itertools",
  "libp2p",
- "libp2p-tcp",
  "rand_core 0.5.1",
  "secp256k1-math",
  "serde",
