@@ -9,7 +9,7 @@ type Transport =
 
 pub struct Net {
     _local_key: libp2p::identity::Keypair,
-    _transport: Transport,
+    pub swarm: libp2p::Swarm<libp2p::floodsub::Floodsub>,
 }
 
 pub struct Message {
@@ -22,9 +22,16 @@ impl Net {
         let local_peer_id = libp2p::PeerId::from(local_key.public());
         info!("Local peer id: {local_peer_id:?}");
         let transport = libp2p::development_transport(local_key.clone()).await?;
+        let floodsub_topic = libp2p::floodsub::Topic::new("chat");
+        let mut floodsub = libp2p::floodsub::Floodsub::new(local_peer_id);
+        floodsub.subscribe(floodsub_topic);
+        let mut swarm = libp2p::Swarm::with_threadpool_executor(transport, floodsub, local_peer_id);
+        swarm
+            .listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap())
+            .unwrap();
         Ok(Net {
             _local_key: local_key,
-            _transport: transport,
+            swarm: swarm,
         })
     }
 

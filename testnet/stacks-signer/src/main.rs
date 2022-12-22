@@ -1,4 +1,5 @@
 use async_std;
+use libp2p::futures::StreamExt;
 use stacks_signer::config::Config;
 use stacks_signer::signer::Signer;
 use stacks_signer::{logger, net, signer};
@@ -14,19 +15,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let net = net::Net::new().await?;
 
     // start p2p sync
-    let handle = thread::spawn(|| {
-        let signer = signer::Signer::new();
-        mainloop(signer, net);
-    });
+    let signer = signer::Signer::new();
+    mainloop(signer, Box::new(net)).await;
 
-    // let thread finish
-    handle.join().unwrap();
     Ok(())
 }
 
-fn mainloop(mut signer: Signer, net: net::Net) {
+async fn mainloop(mut signer: Signer, mut net: Box<net::Net>) {
     info!("mainloop");
     loop {
+        libp2p::futures::select! {
+                    event = net.swarm.select_next_some() => match event {
+                _ => todo!()
+            }
+        }
         let message = net.next_message().r#type;
         signer.process(message);
     }
