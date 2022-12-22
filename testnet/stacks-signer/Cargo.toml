@@ -14,11 +14,13 @@ path = "src/main.rs"
 sha3 = "0.10.6"
 serde = { version = "1.0", features = ["serde_derive"] }
 toml = "0.5.9"
-frost = { git = "https://github.com/trust-machines/frost" }
+hashbrown = { version = "0.13", features = ["serde"] }
+frost = { git = "https://github.com/trust-machines/frost", branch = "feat/serde_support" }
 rand_core = { version  = "0.5"}
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
-secp256k1-math = { git = "https://github.com/Trust-Machines/rust-secp256k1-math", rev = "3b9fe0c8f95c53f7068d980fac38dc00ecf784cd"  }
+itertools = "^0.10.5"
+secp256k1-math = { git = "https://github.com/Trust-Machines/rust-secp256k1-math", rev = "ad35f79ce18d67fdd3c11697066b28ea38c5fbde"  }
 
 
 [build-dependencies]

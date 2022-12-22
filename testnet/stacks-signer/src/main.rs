@@ -1,8 +1,8 @@
 use stacks_signer::config::Config;
+use stacks_signer::signer::Signer;
 use stacks_signer::{logger, net, signer};
 use std::thread;
 use tracing::info;
-use stacks_signer::signer::Signer;
 
 fn main() {
     logger::setup();

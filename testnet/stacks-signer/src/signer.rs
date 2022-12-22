@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
-use frost::frost;
+pub use frost::frost;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
+use hashbrown::HashMap;
 
 type KeyShare = HashMap<usize, Scalar>;
 
@@ -18,6 +17,7 @@ impl Signer {
     pub fn new() -> Signer {
         Signer { parties: vec![] }
     }
+
     pub fn reset(&mut self, threshold: usize, total: usize) {
         assert!(threshold <= total);
         let mut rng = OsRng::default();
@@ -29,7 +29,7 @@ impl Signer {
         self.parties = parties;
     }
 
-    pub fn process(&mut self, message: MessageTypes) -> bool{
+    pub fn process(&mut self, message: MessageTypes) -> bool {
         match message {
             MessageTypes::Join => {
                 self.reset(1, 2);
@@ -42,4 +42,3 @@ impl Signer {
         self.parties[party_id].get_shares()
     }
 }
-
