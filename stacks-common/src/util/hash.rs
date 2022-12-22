@@ -169,7 +169,7 @@ pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
-enum MerklePathOrder {
+pub enum MerklePathOrder {
     Left = 0x02,
     Right = 0x03,
 }
@@ -399,6 +399,10 @@ impl<H> MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
 {
+    pub fn empty() -> MerkleTree<H> {
+        MerkleTree { nodes: vec![] }
+    }
+
     pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
         if data.len() == 0 {
             return MerkleTree { nodes: vec![] };
@@ -447,7 +451,7 @@ where
     }
 
     /// Get the leaf hash
-    fn get_leaf_hash(leaf_data: &[u8]) -> H {
+    pub fn get_leaf_hash(leaf_data: &[u8]) -> H {
         H::from_tagged_data(MERKLE_PATH_LEAF_TAG, leaf_data)
     }
 
