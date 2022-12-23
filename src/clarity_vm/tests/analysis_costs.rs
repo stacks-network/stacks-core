@@ -227,23 +227,3 @@ fn test_all_mainnet() {
 fn test_all_testnet() {
     test_all(false)
 }
-
-fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
-
-    for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
-        assert!(cost.exceeds(&baseline));
-    }
-}
-
-#[test]
-fn epoch_205_test_all_mainnet() {
-    epoch_205_test_all(true)
-}
-
-#[test]
-fn epoch_205_test_all_testnet() {
-    epoch_205_test_all(false)
-}

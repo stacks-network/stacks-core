@@ -881,28 +881,28 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 }
 
 // test each individual cost function can be correctly invoked as
-//  Clarity code executes in Epoch 2.00
-fn epoch_20_test_all(use_mainnet: bool) {
+//  Clarity code executes in Epoch 2.1
+fn epoch_21_test_all(use_mainnet: bool) {
     let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         // Note: The 2.05 test assumes Clarity1.
         if f.get_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
-            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
+            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21);
             assert!(cost.exceeds(&baseline));
         }
     }
 }
 
 #[test]
-fn epoch_20_test_all_mainnet() {
-    epoch_20_test_all(true)
+fn epoch_21_test_all_mainnet() {
+    epoch_21_test_all(true)
 }
 
 #[test]
-fn epoch_20_test_all_testnet() {
-    epoch_20_test_all(false)
+fn epoch_21_test_all_testnet() {
+    epoch_21_test_all(false)
 }
 
 // test each individual cost function can be correctly invoked as
