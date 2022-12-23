@@ -120,7 +120,7 @@ pub struct TrieFileDisk {
     trie_offsets: TrieIdOffsets,
     decompressed_lru: LruCache<u32, Vec<u8>>,
     current_trie: Option<Cursor<Vec<u8>>>,
-    current_block_id: Option<u32>
+    current_block_id: Option<u32>,
 }
 
 /// Handle to a flat in-memory buffer containing Trie blobs (used for testing)
@@ -150,7 +150,7 @@ impl TrieFile {
             .create(!readonly)
             .open(path)?;
 
-        let lru_cache: LruCache<u32, Vec<u8>> = LruCache::new(NonZeroUsize::new(50).unwrap());
+        let lru_cache: LruCache<u32, Vec<u8>> = LruCache::new(NonZeroUsize::new(255).unwrap());
 
         Ok(TrieFile::Disk(TrieFileDisk {
             fd,
@@ -221,12 +221,21 @@ impl TrieFile {
     ) -> Result<u32, Error> {
         let result = self.append_trie_blob(db, buffer)?;
         test_debug!("Stored trie blob {} to offset {}", bhh, result.offset);
-        trie_sql::write_external_trie_blob(
+        let block_id = trie_sql::write_external_trie_blob(
             db, 
             bhh, 
             result.offset, 
             result.storage_size as u64, 
-            result.compression)
+            result.compression)?;
+        
+        match self {
+            TrieFile::Disk(disk) => {
+                disk.decompressed_lru.put(block_id, buffer.to_vec());
+            },
+            _ => {}
+        }
+        
+        Ok(block_id)
     }
 
     /// Read a trie blob in its entirety from the DB
@@ -516,31 +525,42 @@ impl TrieFileDisk {
     }
 
     pub fn load_trie_blob(&mut self, db: &Connection, block_id: u32) -> Result<(), Error> {
+        // If the specified block_id is the currently loaded block, simply return.
         if let Some(current_block_id) = self.current_block_id {
             if current_block_id == block_id {
                 return Ok(());
             }
         }
 
+        // Check the LRU cache for the specified block.  If found, set the loaded trie
+        // to the cached version instead of reading from disk.
         if let Some(cached_trie) = self.decompressed_lru.get(&block_id) {
             self.current_block_id = Some(block_id);
             self.current_trie = Some(Cursor::new(cached_trie.to_vec()));
+            return Ok(());
         }
 
-        //eprintln!(">> load_trie_blob()");
+        // We must retrieve the trie from disk.  Retrieve the trie offset+length from the index DB,
+        // read the full contents of the trie, decompress it, cache it in the LRU, and set
+        // the currently loaded trie.
+
+        let bench_start = SystemTime::now();
         let extern_trie = self.get_trie_offset(db, block_id)?;
+
         self.seek(SeekFrom::Start(extern_trie.offset))?;
         let mut take_adapter = self.take(extern_trie.length);
         let buf= &mut Vec::<u8>::new();
         take_adapter.read_to_end(buf)?;
-        //eprintln!("take_adapter length: {}", &buf.len());
+
         let decompressed = lz4_decompress_size_prepended(buf.as_slice()).unwrap();
-        
         self.decompressed_lru.put(block_id, decompressed.clone());
-        
+
         self.current_block_id = Some(block_id);
         self.current_trie = Some(Cursor::new(decompressed));
-        //eprintln!("<< load_trie_blob()");
+
+        let bench_elapsed = bench_start.elapsed();
+        eprintln!("Loaded trie blob with block id {} in {:?}", &block_id, bench_elapsed);
+        
         Ok(())
     }
 }
@@ -764,10 +784,16 @@ impl TrieFile {
                 }
             },
             TrieFile::Disk(disk) => {
+                let compression_bench = SystemTime::now();
                 let compression_result = Self::compress_blob(buf)?;
+                let compression_elapsed = compression_bench.elapsed().unwrap();
                 let compressed = &compression_result.compressed_bytes;
 
-                eprintln!("Write trie of {} (uncompressed) and {} (compressed) bytes at {}", buf.len(), compressed.len(), offset);
+                eprintln!("Write trie of {} (uncompressed) and {} (compressed) bytes at {}. Compression time {:?}", 
+                    buf.len(), 
+                    compressed.len(), 
+                    offset, 
+                    compression_elapsed);
 
                 disk.fd.seek(SeekFrom::Start(offset))?;
                 disk.fd.write_all(compressed)?;

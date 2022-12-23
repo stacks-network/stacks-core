@@ -56,7 +56,7 @@ libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
-lz4_flex = "0.9.5"
+lz4_flex = { version = "0.9.5", default-features = false }
 lru = "0.8.1"
 
 [target.'cfg(unix)'.dependencies]
