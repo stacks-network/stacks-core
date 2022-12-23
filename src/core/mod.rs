@@ -156,8 +156,10 @@ pub const POX_TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 pub const POX_TESTNET_CYCLE_LENGTH: u128 = 1050;
 
 // TODO: pick a real value for Stacks 2.1
-pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 = (BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT as u32) + 1;
-pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 = (BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT as u32) + 1;
+pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 =
+    (BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT as u32) + 1;
+pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
+    (BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT as u32) + 1;
 
 /// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
 pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022
