@@ -729,9 +729,6 @@ impl<
 
     /// Find the canonical Stacks tip at a given sortition, whose affirmation map is compatible
     /// with the heaviest affirmation map.
-    ///
-    /// TODO: this is slightly incorrect -- we should be considering affirmation weight before
-    /// stacks block height.
     fn find_highest_stacks_block_with_compatible_affirmation_map(
         heaviest_am: &AffirmationMap,
         sort_tip: &SortitionId,
@@ -744,12 +741,12 @@ impl<
             let mut search_weight = StacksChainState::get_max_affirmation_weight_at_height(
                 chainstate_conn,
                 search_height,
-            )?;
-            while search_weight > 0 {
+            )? as i64;
+            while search_weight >= 0 {
                 let all_headers = StacksChainState::get_all_headers_at_height_and_weight(
                     chainstate_conn,
                     search_height,
-                    search_weight,
+                    search_weight as u64,
                 )?;
                 debug!(
                     "Headers with weight {} height {}: {}",
