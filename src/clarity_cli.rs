@@ -77,8 +77,8 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 use crate::burnchains::Address;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::core::BLOCK_LIMIT_MAINNET_205;
 use crate::core::HELIUM_BLOCK_LIMIT_20;
+use crate::core::{BLOCK_LIMIT_MAINNET_205, SUBNETS_CLARITY_VERSION};
 
 use crate::util_lib::strings::StacksString;
 use serde::Serialize;
@@ -898,7 +898,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
             parse(
                 &contract_identifier,
                 &contract_content,
-                ClarityVersion::Clarity2,
+                SUBNETS_CLARITY_VERSION,
             ),
             "Failed to parse program.",
         );

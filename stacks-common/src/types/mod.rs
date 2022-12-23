@@ -74,6 +74,7 @@ pub enum StacksEpochId {
     Epoch21 = 0x0200a,
 }
 
+/// Stacks epoch that we assume in subnets.
 pub const ORIGINAL_SUBNET_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
 impl StacksEpochId {

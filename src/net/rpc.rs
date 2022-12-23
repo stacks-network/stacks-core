@@ -1547,7 +1547,11 @@ impl ConversationHttp {
                         let trait_definition =
                             trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
-                            .check_trait_compliance(&StacksEpochId::Epoch21, trait_id, trait_definition)
+                            .check_trait_compliance(
+                                &StacksEpochId::Epoch21,
+                                trait_id,
+                                trait_definition,
+                            )
                             .is_ok();
                         Some(GetIsTraitImplementedResponse { is_implemented })
                     }

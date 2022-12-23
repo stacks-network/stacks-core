@@ -90,6 +90,7 @@ use crate::{types, util};
 use clarity::vm::ClarityVersion;
 use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::ORIGINAL_SUBNET_EPOCH;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -6522,8 +6523,8 @@ impl StacksChainState {
                         .check_args_by_allowing_trait_cast(
                             db,
                             function_args,
-                            StacksEpochId::Epoch21,
-                            ClarityVersion::Clarity1, // DO NOT SUBMIT
+                            ORIGINAL_SUBNET_EPOCH,
+                            SUBNETS_CLARITY_VERSION,
                         )
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;

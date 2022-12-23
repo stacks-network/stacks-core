@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::events::TransactionOrigin::Stacks;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::analysis::errors::CheckErrors;
@@ -31,8 +32,7 @@ use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::{ORIGINAL_SUBNET_EPOCH, StacksEpochId};
-use crate::chainstate::stacks::events::TransactionOrigin::Stacks;
+use stacks_common::types::{StacksEpochId, ORIGINAL_SUBNET_EPOCH};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 
@@ -286,8 +286,10 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            ORIGINAL_SUBNET_EPOCH,
+        );
         f(&mut owned_env);
         store.test_commit();
     }
@@ -296,24 +298,30 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            ORIGINAL_SUBNET_EPOCH,
+        );
         a(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            ORIGINAL_SUBNET_EPOCH,
+        );
         b(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            ORIGINAL_SUBNET_EPOCH,
+        );
         z(&mut owned_env);
         store.test_commit();
     }

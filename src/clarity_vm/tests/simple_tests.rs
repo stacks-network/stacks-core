@@ -34,8 +34,10 @@ where
             &StacksBlockId([1 as u8; 32]),
         );
 
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            ORIGINAL_SUBNET_EPOCH,
+        );
         // start an initial transaction.
         if !top_level {
             owned_env.begin();

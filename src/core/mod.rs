@@ -32,6 +32,7 @@ pub mod mempool;
 #[cfg(test)]
 pub mod tests;
 
+use clarity::vm::ClarityVersion;
 use std::cmp::Ord;
 use std::cmp::Ordering;
 use std::cmp::PartialOrd;
@@ -44,6 +45,9 @@ pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 // chain id
 pub const LAYER_1_CHAIN_ID_MAINNET: u32 = 0x00000001;
 pub const LAYER_1_CHAIN_ID_TESTNET: u32 = 0x80000000;
+
+// ClarityVersion in use.
+pub const SUBNETS_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity2;
 
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)

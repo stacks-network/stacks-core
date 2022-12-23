@@ -38,7 +38,9 @@ use blockstack_lib::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
-use blockstack_lib::core::{LAYER_1_CHAIN_ID_MAINNET, LAYER_1_CHAIN_ID_TESTNET};
+use blockstack_lib::core::{
+    LAYER_1_CHAIN_ID_MAINNET, LAYER_1_CHAIN_ID_TESTNET, SUBNETS_CLARITY_VERSION,
+};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::util::{hash::hex_bytes, hash::to_hex, log, retry::LogReader};
@@ -452,7 +454,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity_cli::vm_execute(input, ClarityVersion::Clarity2)?
+                blockstack_lib::clarity_cli::vm_execute(input, SUBNETS_CLARITY_VERSION)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {

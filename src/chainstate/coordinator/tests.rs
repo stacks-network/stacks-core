@@ -755,7 +755,7 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
+                        SUBNETS_CLARITY_VERSION,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -790,7 +790,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
-                    ClarityVersion::Clarity1,
+                    SUBNETS_CLARITY_VERSION,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),

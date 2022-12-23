@@ -112,8 +112,10 @@ impl ClarityTestSim {
                 .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
                 .initialize();
 
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+            let mut owned_env = OwnedEnvironment::new(
+                store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+                ORIGINAL_SUBNET_EPOCH,
+            );
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -144,8 +146,10 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+            let mut owned_env = OwnedEnvironment::new(
+                store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB),
+                ORIGINAL_SUBNET_EPOCH,
+            );
             f(&mut owned_env)
         };
 
@@ -168,8 +172,10 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: parent_height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
+            let mut owned_env = OwnedEnvironment::new(
+                store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB),
+                ORIGINAL_SUBNET_EPOCH,
+            );
             f(&mut owned_env)
         };
 
