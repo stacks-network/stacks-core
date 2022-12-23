@@ -5,6 +5,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::ORIGINAL_SUBNET_EPOCH;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -34,7 +35,7 @@ where
         );
 
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB), ORIGINAL_SUBNET_EPOCH);
         // start an initial transaction.
         if !top_level {
             owned_env.begin();
