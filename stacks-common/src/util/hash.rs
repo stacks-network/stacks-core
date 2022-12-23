@@ -456,7 +456,7 @@ where
     }
 
     /// Get a non-leaf hash
-    fn get_node_hash(left: &H, right: &H) -> H {
+    pub fn get_node_hash(left: &H, right: &H) -> H {
         let mut buf = vec![];
         buf.extend_from_slice(left.bits());
         buf.extend_from_slice(right.bits());
