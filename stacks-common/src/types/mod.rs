@@ -75,7 +75,7 @@ pub enum StacksEpochId {
 }
 
 /// Stacks epoch that we assume in subnets.
-pub const ORIGINAL_SUBNET_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
+pub const SUBNETS_STACKS_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {

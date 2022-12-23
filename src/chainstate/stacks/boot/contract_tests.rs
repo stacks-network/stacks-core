@@ -38,7 +38,7 @@ use clarity::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::ORIGINAL_SUBNET_EPOCH;
+use stacks_common::types::SUBNETS_STACKS_EPOCH;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
@@ -114,7 +114,7 @@ impl ClarityTestSim {
 
             let mut owned_env = OwnedEnvironment::new(
                 store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
-                ORIGINAL_SUBNET_EPOCH,
+                SUBNETS_STACKS_EPOCH,
             );
 
             for user_key in USER_KEYS.iter() {
@@ -148,7 +148,7 @@ impl ClarityTestSim {
             };
             let mut owned_env = OwnedEnvironment::new(
                 store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB),
-                ORIGINAL_SUBNET_EPOCH,
+                SUBNETS_STACKS_EPOCH,
             );
             f(&mut owned_env)
         };
@@ -174,7 +174,7 @@ impl ClarityTestSim {
             };
             let mut owned_env = OwnedEnvironment::new(
                 store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB),
-                ORIGINAL_SUBNET_EPOCH,
+                SUBNETS_STACKS_EPOCH,
             );
             f(&mut owned_env)
         };
