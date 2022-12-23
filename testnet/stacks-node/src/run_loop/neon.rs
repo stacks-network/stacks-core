@@ -46,6 +46,7 @@ use crate::{
 };
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::sleep_ms;
 
 use libc;
 use stacks::util::hash::Hash160;
@@ -757,9 +758,10 @@ impl RunLoop {
 
         if canonical_burnchain_tip.block_height > highest_sn.block_height {
             // still processing sortitions
-            debug!(
+            test_debug!(
                 "Drive burn block processing: still processing sortitions ({} > {})",
-                canonical_burnchain_tip.block_height, highest_sn.block_height
+                canonical_burnchain_tip.block_height,
+                highest_sn.block_height
             );
             return;
         }
@@ -859,7 +861,11 @@ impl RunLoop {
                 &sortdb,
                 &mut last_stacks_pox_reorg_recover_time,
             );
+
+            sleep_ms(1000);
         }
+
+        debug!("Chain-liveness thread exit!");
     }
 
     /// Spawn a thread to drive chain liveness
