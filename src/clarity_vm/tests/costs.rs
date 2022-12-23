@@ -883,7 +883,7 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.1
 fn epoch_21_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21);
 
     for f in NativeFunctions::ALL.iter() {
         // Note: The 2.05 test assumes Clarity1.
