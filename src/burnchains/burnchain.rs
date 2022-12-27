@@ -1451,8 +1451,8 @@ impl Burnchain {
                 end_block = target_block_height;
             } else {
                 debug!(
-                    "Ignoring target block height {} considered as irrelevant",
-                    target_block_height
+                    "Ignoring target block height {} considered as irrelevant (start,end) = ({},{})",
+                    target_block_height, start_block, end_block
                 );
             }
         }
