@@ -954,22 +954,28 @@ impl RunLoop {
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
             burnchain
-                .wait_for_sortitions(Some(sn.block_height + 1))
+                .wait_for_sortitions(sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
                 .block_snapshot
         } else {
             sn
         };
 
-        globals.set_last_sortition(burnchain_tip_snapshot);
+        globals.set_last_sortition(burnchain_tip_snapshot.clone());
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
         let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, attachments_rx);
 
         // Wait for all pending sortitions to process
+        let burnchain_db = burnchain_config
+            .open_burnchain_db(false)
+            .expect("FATAL: failed to open burnchain DB");
+        let burnchain_db_tip = burnchain_db
+            .get_canonical_chain_tip()
+            .expect("FATAL: failed to query burnchain DB");
         let mut burnchain_tip = burnchain
-            .wait_for_sortitions(None)
+            .wait_for_sortitions(burnchain_db_tip.block_height)
             .expect("Unable to get burnchain tip");
 
         // Start the runloop
@@ -1040,13 +1046,13 @@ impl RunLoop {
             // process them.  This loop runs for one reward cycle, so that the next pass of the
             // runloop will cause the PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
-            while burnchain_height <= target_burnchain_block_height {
+            while burnchain_height < target_burnchain_block_height {
                 if !globals.keep_running() {
                     break;
                 }
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(burnchain_height + 1)) {
+                    match burnchain.sync(Some(target_burnchain_block_height)) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Runloop: Burnchain controller stopped: {}", e);
@@ -1056,7 +1062,7 @@ impl RunLoop {
 
                 // *now* we know the burnchain height
                 burnchain_tip = next_burnchain_tip;
-                burnchain_height = cmp::min(burnchain_height + 1, tip_burnchain_height);
+                burnchain_height = tip_burnchain_height;
 
                 let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
                 let next_sortition_height = burnchain_tip.block_snapshot.block_height;
