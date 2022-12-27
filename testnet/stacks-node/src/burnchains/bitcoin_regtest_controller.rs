@@ -470,9 +470,13 @@ impl BitcoinRegtestController {
                     // initialize the dbs...
                     self.sortdb_mut();
 
-                    // wait for the chains coordinator to catch up with us
+                    // wait for the chains coordinator to catch up with us.
+                    // don't wait for heights beyond the burnchain tip.
                     if block_for_sortitions {
-                        self.wait_for_sortitions(Some(x.block_height))?;
+                        self.wait_for_sortitions(cmp::min(
+                            x.block_height,
+                            target_block_height_opt.unwrap_or(x.block_height),
+                        ))?;
                     }
 
                     // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
@@ -1529,50 +1533,43 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// wait until the ChainsCoordinator has processed sortitions up to the
-    ///   canonical chain tip, or has processed up to height_to_wait
+    /// wait until the ChainsCoordinator has processed sortitions up to
+    /// height_to_wait
     pub fn wait_for_sortitions(
         &self,
-        height_to_wait: Option<u64>,
+        height_to_wait: u64,
     ) -> Result<BurnchainTip, BurnchainControllerError> {
+        let mut debug_ctr = 0;
         loop {
-            let canonical_burnchain_tip = self
-                .burnchain_db
-                .as_ref()
-                .expect("BurnchainDB not opened")
-                .get_canonical_chain_tip()
-                .unwrap();
             let canonical_sortition_tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
-            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+
+            if debug_ctr % 100 == 0 {
+                debug!(
+                    "Waiting until canonical sortition height reaches {} (currently {})",
+                    height_to_wait, canonical_sortition_tip.block_height
+                );
+            }
+            debug_ctr += 1;
+
+            if canonical_sortition_tip.block_height >= height_to_wait {
                 let (_, state_transition) = self
                     .sortdb_ref()
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
                     .expect("Sortition DB error.")
                     .expect("BUG: no data for the canonical chain tip");
+
                 return Ok(BurnchainTip {
                     block_snapshot: canonical_sortition_tip,
                     received_at: Instant::now(),
                     state_transition,
                 });
-            } else if let Some(height_to_wait) = height_to_wait {
-                if canonical_sortition_tip.block_height >= height_to_wait {
-                    let (_, state_transition) = self
-                        .sortdb_ref()
-                        .get_sortition_result(&canonical_sortition_tip.sortition_id)
-                        .expect("Sortition DB error.")
-                        .expect("BUG: no data for the canonical chain tip");
-
-                    return Ok(BurnchainTip {
-                        block_snapshot: canonical_sortition_tip,
-                        received_at: Instant::now(),
-                        state_transition,
-                    });
-                }
             }
+
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
+
             // yield some time
             sleep_ms(100);
         }
