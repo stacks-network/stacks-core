@@ -43,6 +43,7 @@ use crate::chainstate::stacks::index::bits::{
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::cache::*;
+use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -71,6 +72,8 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+
+use super::file::BlobCompressionType;
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -1233,6 +1236,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     cache: &'a mut TrieCache<T>,
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
+    pub blob_compression_type: BlobCompressionType,
 
     /// row ID of a trie that represents unconfirmed state (i.e. trie state that will never become
     /// part of the MARF, but nevertheless represents a persistent scratch space).  If this field
@@ -1295,6 +1299,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
 
     db: Connection,
     blobs: Option<TrieFile>,
+    blob_compression_type: BlobCompressionType,
     data: TrieStorageTransientData<T>,
     cache: TrieCache<T>,
     bench: TrieBenchmark,
@@ -1346,6 +1351,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
             unconfirmed_block_id: None,
+            blob_compression_type: self.blob_compression_type,
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
@@ -1367,6 +1373,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
             unconfirmed_block_id: None,
+            blob_compression_type: self.blob_compression_type,
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
@@ -1429,7 +1436,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
 
         let mut blobs = if marf_opts.external_blobs {
-            Some(TrieFile::from_db_path(&db_path, readonly)?)
+            Some(TrieFile::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
         } else {
             None
         };
@@ -1440,10 +1447,12 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 if TrieFile::exists(&db_path)? {
                     eprintln!("Migrating trie blobs to external blobs file at {}.", &db_path);
                     // migrate blobs out of the old DB
-                    blobs.export_trie_blobs::<T>(&db, &db_path)?;
+                    blobs.export_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db, &db_path)?;
 
-                    eprintln!("Compacting external trie blobs file at {}.", &db_path);
-                    blobs.compress_trie_blobs::<T>(&db)?;
+                    if marf_opts.external_blob_compression_type != BlobCompressionType::None {
+                        eprintln!("Compacting external trie blobs file at {}.", &db_path);
+                        blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
+                    }
                 }
             }
         }
@@ -1464,6 +1473,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             db,
             cache,
             blobs,
+            blob_compression_type: marf_opts.external_blob_compression_type,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: marf_opts.hash_calculation_mode,
 
@@ -1540,7 +1550,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true)?)
+            Some(TrieFile::from_db_path(&self.db_path, true, self.blob_compression_type)?)
         } else {
             None
         };
@@ -1552,6 +1562,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             db_path: self.db_path.clone(),
             db: db,
             blobs,
+            blob_compression_type: self.blob_compression_type,
             cache: cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
@@ -1604,7 +1615,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true)?)
+            Some(TrieFile::from_db_path(&self.db_path, true, self.blob_compression_type)?)
         } else {
             None
         };
@@ -1624,6 +1635,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             cache: cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
+            blob_compression_type: self.blob_compression_type,
 
             data: TrieStorageTransientData {
                 uncommitted_writes: None,
@@ -1673,9 +1685,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
         // fails).
         self.clear_cached_ancestor_hashes_bytes();
+
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
         }
+
         if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             trace!("Buffering block flush started.");
             let mut buffer = Cursor::new(Vec::new());
@@ -1687,13 +1701,15 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
             debug!("Flush: {} to {}", &bhh, flush_options);
 
+            let blob_compression_type = self.blob_compression_type;
+
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
                     if self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => blobs.store_trie_blob(&db, &bhh, &buffer),
+                        Some(blobs) => blobs.store_trie_blob(&blob_compression_type, &db, &bhh, &buffer),
                         None => {
                             test_debug!("Stored trie blob {} to db", &bhh);
                             trie_sql::write_trie_blob(&db, &bhh, &buffer)
@@ -1717,8 +1733,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                         // switch over state
                         self.data.retarget_block(real_bhh.clone());
                     }
+
+                    let blob_compression_type = self.blob_compression_type;
+
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => blobs.store_trie_blob(db, real_bhh, &buffer),
+                        Some(blobs) => blobs.store_trie_blob(&blob_compression_type.clone(), db, real_bhh, &buffer),
                         None => {
                             test_debug!("Stored trie blob {} to db", real_bhh);
                             trie_sql::write_trie_blob(db, real_bhh, &buffer)

@@ -49,16 +49,66 @@ fn setup_db(test_name: &str) -> Connection {
 }
 
 #[test]
-fn test_load_store_trie_blob() {
-    let mut db = setup_db("test_load_store_trie_blob");
-    let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob"), false).unwrap();
+fn test_load_store_trie_blob_no_compression() {
+    let mut db = setup_db("test_load_store_trie_blob_no_compression");
+    let compression_type = BlobCompressionType::None;
+    let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob_no_compression"), false, compression_type).unwrap();
     trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
 
     blobs
-        .store_trie_blob::<BlockHeaderHash>(&db, &BlockHeaderHash([0x01; 32]), &[1, 2, 3, 4, 5])
+        .store_trie_blob::<BlockHeaderHash>(
+            &compression_type, 
+            &db, 
+            &BlockHeaderHash([0x01; 32]), 
+            &[1, 2, 3, 4, 5]
+        )
         .unwrap();
     blobs
         .store_trie_blob::<BlockHeaderHash>(
+            &compression_type,
+            &db,
+            &BlockHeaderHash([0x02; 32]),
+            &[10, 20, 30, 40, 50],
+        )
+        .unwrap();
+
+    let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x01; 32])).unwrap();
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 0);
+
+    let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+    assert_eq!(buf, vec![1, 2, 3, 4, 5]);
+
+    let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x02; 32])).unwrap();
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 5);
+
+    let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+    assert_eq!(buf, vec![10, 20, 30, 40, 50]);
+}
+
+#[test]
+fn test_load_store_trie_blob_lz4_compression() {
+    let mut db = setup_db("test_load_store_trie_blob_lz4_compression");
+    let compression_type = BlobCompressionType::LZ4;
+    let mut blobs = TrieFile::from_db_path(
+        &db_path("test_load_store_trie_blob_lz4_compression"), 
+        false, 
+        compression_type
+    ).unwrap();
+
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+
+    blobs
+        .store_trie_blob::<BlockHeaderHash>(
+            &compression_type,
+            &db,
+            &BlockHeaderHash([0x01; 32]),
+            &[1, 2, 3, 4, 5]
+        )
+        .unwrap();
+
+    blobs
+        .store_trie_blob::<BlockHeaderHash>(
+            &compression_type,
             &db,
             &BlockHeaderHash([0x02; 32]),
             &[10, 20, 30, 40, 50],
@@ -79,24 +129,85 @@ fn test_load_store_trie_blob() {
 }
 
 #[test]
-fn test_migrate_existing_trie_blobs() {
-    let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
-    let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
+fn test_load_store_trie_blob_zstd_compression() {
+    let mut db = setup_db("test_load_store_trie_blob_zstd_compression");
+    let compression_type = BlobCompressionType::ZStd(0);
+    let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob_zstd_compression"), false, compression_type).unwrap();
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+
+    blobs
+        .store_trie_blob::<BlockHeaderHash>(
+            &compression_type, 
+            &db, 
+            &BlockHeaderHash([0x01; 32]), 
+            &[1, 2, 3, 4, 5]
+        )
+        .unwrap();
+    blobs
+        .store_trie_blob::<BlockHeaderHash>(
+            &compression_type,
+            &db,
+            &BlockHeaderHash([0x02; 32]),
+            &[10, 20, 30, 40, 50],
+        )
+        .unwrap();
+
+    let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x01; 32])).unwrap();
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 0);
+
+    let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+    assert_eq!(buf, vec![1, 2, 3, 4, 5]);
+
+    let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x02; 32])).unwrap();
+    assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap().offset, 14);
+
+    let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+    assert_eq!(buf, vec![10, 20, 30, 40, 50]);
+}
+
+#[test]
+fn test_migrate_existing_trie_blobs_no_compression() {
+    test_migrate_existing_trie_blobs(BlobCompressionType::None)
+}
+
+#[test]
+fn test_migrate_existing_trie_blobs_lz4_compression() {
+    test_migrate_existing_trie_blobs(BlobCompressionType::LZ4)
+}
+
+#[test]
+fn test_migrate_existing_trie_blobs_zstd_compression() {
+    test_migrate_existing_trie_blobs(BlobCompressionType::ZStd(0))
+}
+
+fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) {
+    let test_file = format!("/tmp/test_migrate_existing_trie_blobs_{}.sqlite", dest_compression_type);
+    let test_blobs_file = format!("/tmp/test_migrate_existing_trie_blobs_{}.sqlite.blobs", dest_compression_type);
+
     if fs::metadata(&test_file).is_ok() {
         fs::remove_file(&test_file).unwrap();
     }
+
     if fs::metadata(&test_blobs_file).is_ok() {
         fs::remove_file(&test_blobs_file).unwrap();
     }
 
-    let (data, last_block_header, root_header_map) = {
-        let marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
+    let (
+        data, 
+        last_block_header, 
+        root_header_map
+    ) = {
+        let marf_opts = MARFOpenOpts::new(
+            TrieHashCalculationMode::Deferred, 
+            "noop", 
+            false, 
+            BlobCompressionType::None);
 
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
         let mut marf = MARF::from_storage(f);
 
         // make data to insert
-        let data = make_test_insert_data(128, 128);
+        let data = make_test_insert_data(256, 256);
         //eprintln!("{:?}",data);
         let mut last_block_header = BlockHeaderHash::sentinel();
         for (i, block_data) in data.iter().enumerate() {
@@ -123,7 +234,11 @@ fn test_migrate_existing_trie_blobs() {
     };
 
     // migrate
-    let mut marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut marf_opts = MARFOpenOpts::new(
+        TrieHashCalculationMode::Deferred, 
+        "noop", 
+        true, 
+        dest_compression_type);
     marf_opts.force_db_migrate = true;
 
     let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
@@ -134,7 +249,7 @@ fn test_migrate_existing_trie_blobs() {
 
     // verify that the new blob structure is well-formed
     let blob_root_header_map = {
-        let mut blobs = TrieFile::from_db_path(&test_file, false).unwrap();
+        let mut blobs = TrieFile::from_db_path(&test_file, false, dest_compression_type).unwrap();
         let blob_root_header_map = blobs
             .read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
             .unwrap();

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::index::file::BlobCompressionType;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
@@ -86,7 +87,12 @@ fn test_marf_with_cache(
         test_file
     };
 
-    let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+    let marf_opts = MARFOpenOpts::new(
+        hash_strategy, 
+        cache_strategy, 
+        true, 
+        BlobCompressionType::None
+    );
     let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
     let mut marf = MARF::from_storage(f);
     let mut last_block_header = BlockHeaderHash::sentinel();

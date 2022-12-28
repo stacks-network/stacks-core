@@ -66,7 +66,7 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
-use super::file::{TrieBlobCompression, BlobCompressionResult};
+use super::file::BlobCompressionType;
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -116,6 +116,7 @@ static SQL_MARF_DATA_TABLE_SCHEMA_3: &str = "
 -- Indicates the compression type used for external blob storage.
 -- 0 = uncompressed
 -- 1 = lz4_flex
+-- 2 = zstd
 ALTER TABLE marf_data ADD COLUMN compression INTEGER DEFAULT 0 NOT NULL;
 
 UPDATE schema_version SET version = 3;
@@ -123,12 +124,13 @@ UPDATE schema_version SET version = 3;
 
 pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
 
-impl From<u64> for TrieBlobCompression {
+impl From<u64> for BlobCompressionType {
     fn from(e: u64) -> Self {
         match e {
-            0u64 => TrieBlobCompression::None,
-            1u64 => TrieBlobCompression::LZ4,
-            _ => panic!("Unsupported blob compression")
+            0u64 => BlobCompressionType::None,
+            1u64 => BlobCompressionType::LZ4,
+            2u64 => BlobCompressionType::ZStd(0),
+            _ => panic!("Unsupported blob compression type")
         }
     }
 }
@@ -305,13 +307,9 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
-    compression: Option<BlobCompressionResult>,
+    compression_type: &BlobCompressionType,
     block_id: Option<u32>,
 ) -> Result<u32, Error> {
-    let compression_algorithm = match compression {
-        Some(c) => c.compression_algorithm,
-        None => TrieBlobCompression::None
-    };
 
     let block_id = if let Some(block_id) = block_id {
         // existing entry (i.e. a migration)
@@ -323,7 +321,7 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
             &0,
             &u64_to_sql(offset)?,
             &u64_to_sql(length)?,
-            &compression_algorithm.as_u8(),
+            &compression_type.as_u8(),
             &block_id,
         ];
         let mut s =
@@ -344,7 +342,7 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
             &0,
             &u64_to_sql(offset)?,
             &u64_to_sql(length)?,
-            &compression_algorithm.as_u8()
+            &compression_type.as_u8()
         ];
         let mut s =
             conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length, compression) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
@@ -370,10 +368,10 @@ pub fn update_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
-    compression: Option<BlobCompressionResult>,
+    compression_type: &BlobCompressionType,
     block_id: u32,
 ) -> Result<u32, Error> {
-    inner_write_external_trie_blob(conn, block_hash, offset, length, compression, Some(block_id))
+    inner_write_external_trie_blob(conn, block_hash, offset, length, compression_type, Some(block_id))
 }
 
 /// Add a new row for an external trie blob -- i.e. we're creating a new trie whose blob will be
@@ -384,9 +382,9 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
-    compression: Option<BlobCompressionResult>
+    compression_type: &BlobCompressionType,
 ) -> Result<u32, Error> {
-    inner_write_external_trie_blob(conn, block_hash, offset, length, compression, None)
+    inner_write_external_trie_blob(conn, block_hash, offset, length, compression_type, None)
 }
 
 /// Write a serialized trie blob for a trie that was mined
@@ -574,7 +572,7 @@ pub struct ExternalTrie {
     pub block_id: u32,
     pub offset: u64,
     pub length: u64,
-    pub compression: TrieBlobCompression
+    pub compression: BlobCompressionType
 }
 
 impl FromRow<ExternalTrie> for ExternalTrie {
@@ -621,13 +619,13 @@ pub fn update_external_trie_blob_after_compression(
     block_id: u32,
     offset: u64,
     limit: u64,
-    compression: TrieBlobCompression
+    compression: &BlobCompressionType
 ) -> Result<(), Error> {
     let query = "UPDATE marf_data SET external_offset = ?1, external_length = ?2, compression = ?3 WHERE block_id = ?4";
     let args: &[&dyn ToSql] = &[
         &u64_to_sql(offset)?, 
         &u64_to_sql(limit)?, 
-        &(compression as u8), 
+        &compression.as_u8(), 
         &block_id];
 
     let updated_count = conn.execute(query, args)?;
