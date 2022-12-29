@@ -618,6 +618,14 @@ impl BlockDownloader {
                                     block_key.data_url,
                                     get_epoch_time_secs() + BLOCK_DOWNLOAD_BAN_URL,
                                 );
+                            } else {
+                                debug!(
+                                    "Event {} ({:?}, {:?} for microblocks built by ({}) failed to connect to always-allowed peer",
+                                    event_id,
+                                    &block_key.neighbor,
+                                    &block_key.data_url,
+                                    &block_key.index_block_hash,
+                                );
                             }
                         }
                     }
@@ -625,7 +633,7 @@ impl BlockDownloader {
                         match convo.try_get_response() {
                             None => {
                                 // still waiting
-                                debug!("Event {} ({:?}, {:?} for microblocks built by {:?}) is still waiting for a response", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                                debug!("Event {} ({:?}, {:?} for microblocks built by {:?}) is still waiting for a response", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                                 pending_microblock_requests.insert(rh_block_key, event_id);
                             }
                             Some(http_response) => match http_response {
