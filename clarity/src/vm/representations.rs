@@ -36,7 +36,9 @@ lazy_static! {
     pub static ref CONTRACT_NAME_REGEX_STRING: String = format!(
         r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
         CONTRACT_MIN_NAME_LENGTH - 1,
-        CONTRACT_MAX_NAME_LENGTH - 1
+        // NOTE: this is deliberate.  Earlier versions of the node will accept contract principals whose names are up to
+        // 128 bytes.  This behavior must be preserved for backwards-compatibility.
+        MAX_STRING_LEN - 1
     );
     pub static ref CONTRACT_PRINCIPAL_REGEX_STRING: String = format!(
         r#"{}(\.){}"#,
