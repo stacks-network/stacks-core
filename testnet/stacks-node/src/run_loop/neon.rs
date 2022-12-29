@@ -845,6 +845,8 @@ impl RunLoop {
         let mut last_burn_pox_reorg_recover_time = 0;
         let mut last_stacks_pox_reorg_recover_time = 0;
 
+        debug!("Chain-liveness thread start!");
+
         while globals.keep_running() {
             Self::drive_pox_reorg_burn_block_processing(
                 &globals,
@@ -966,6 +968,7 @@ impl RunLoop {
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
         let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, attachments_rx);
+        let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config
@@ -1000,7 +1003,6 @@ impl RunLoop {
         );
 
         let mut last_tenure_sortition_height = 0;
-        let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         loop {
             if !globals.keep_running() {
