@@ -1001,6 +1001,60 @@ impl<
         Ok(None)
     }
 
+    /// Find valid sortitions between two given heights, and given the correct affirmation map.
+    /// Returns a height-sorted list of block snapshots whose affirmation maps are cosnistent with
+    /// the correct affirmation map.
+    fn find_valid_sortitions(
+        &self,
+        compare_am: &AffirmationMap,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<(u64, Vec<BlockSnapshot>), Error> {
+        // careful -- we might have already procesed sortitions in this
+        // reward cycle with this PoX ID, but that were never confirmed
+        // by a subsequent prepare phase.
+        let mut last_invalidate_start_block = start_height;
+        let mut valid_sortitions = vec![];
+        for height in start_height..(end_height + 1) {
+            let snapshots_and_ams = self.get_snapshots_and_affirmation_maps_at_height(height)?;
+            let num_sns = snapshots_and_ams.len();
+            debug!("{} snapshots at {}", num_sns, height);
+
+            let mut found = false;
+            for (sn, sn_am) in snapshots_and_ams.into_iter() {
+                debug!(
+                    "Snapshot {} height {} has AM `{}` (is prefix of `{}`?: {})",
+                    &sn.sortition_id,
+                    sn.block_height,
+                    &sn_am,
+                    &compare_am,
+                    &compare_am.has_prefix(&sn_am),
+                );
+                if compare_am.has_prefix(&sn_am) {
+                    // have already processed this sortitoin
+                    debug!("Already processed sortition {} at height {} with AM `{}` on comparative affirmation map {}", &sn.sortition_id, sn.block_height, &sn_am, &compare_am);
+                    found = true;
+                    last_invalidate_start_block = height;
+                    debug!(
+                        "last_invalidate_start_block = {}",
+                        last_invalidate_start_block
+                    );
+                    valid_sortitions.push(sn);
+                    break;
+                }
+            }
+            if !found && num_sns > 0 {
+                // there are snapshots, and they're all diverged
+                debug!(
+                    "No snapshot at height {} has an affirmation map that is a prefix of `{}`",
+                    height, &compare_am
+                );
+                break;
+            }
+        }
+        Ok((last_invalidate_start_block, valid_sortitions))
+    }
+
     /// Find out which sortitions will need to be invalidated as part of a PoX reorg, and which
     /// ones will need to be re-validated.
     ///
@@ -1014,7 +1068,7 @@ impl<
     /// consistent with the heaviest affirmation map).
     fn find_invalid_and_revalidated_sortitions(
         &self,
-        heaviest_am: &AffirmationMap,
+        compare_am: &AffirmationMap,
         changed_reward_cycle: u64,
         current_reward_cycle: u64,
     ) -> Result<Option<(u64, u64, Vec<BlockSnapshot>)>, Error> {
@@ -1034,7 +1088,6 @@ impl<
         let mut valid_sortitions = vec![];
 
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
-
         let mut diverged = false;
         for rc in changed_reward_cycle..current_reward_cycle {
             debug!(
@@ -1062,73 +1115,44 @@ impl<
                     &sort_id,
                 )?;
 
-                test_debug!(
+                debug!(
                     "Compare {} as prefix of {}? {}",
-                    &heaviest_am,
+                    &compare_am,
                     &sort_am,
-                    heaviest_am.has_prefix(&sort_am)
+                    compare_am.has_prefix(&sort_am)
                 );
-                if heaviest_am.has_prefix(&sort_am) {
+                if compare_am.has_prefix(&sort_am) {
                     continue;
                 }
 
-                let mut prior_heaviest_am = heaviest_am.clone();
-                prior_heaviest_am.pop();
+                let mut prior_compare_am = compare_am.clone();
+                prior_compare_am.pop();
 
                 let mut prior_sort_am = sort_am.clone();
                 prior_sort_am.pop();
 
-                test_debug!(
+                debug!(
                     "Compare {} as a prior prefix of {}? {}",
-                    &prior_heaviest_am,
+                    &prior_compare_am,
                     &prior_sort_am,
-                    prior_heaviest_am.has_prefix(&prior_sort_am)
+                    prior_compare_am.has_prefix(&prior_sort_am)
                 );
-                if prior_heaviest_am.has_prefix(&prior_sort_am) {
+                if prior_compare_am.has_prefix(&prior_sort_am) {
                     // this is the first reward cycle where history diverged.
                     found_diverged = true;
-                    test_debug!("{} diverges from {}", &sort_am, &heaviest_am);
+                    debug!("{} diverges from {}", &sort_am, &compare_am);
 
                     // careful -- we might have already procesed sortitions in this
                     // reward cycle with this PoX ID, but that were never confirmed
                     // by a subsequent prepare phase.
-                    let start_height = last_invalidate_start_block;
-                    let end_height = canonical_burnchain_tip.block_height;
-                    for height in start_height..(end_height + 1) {
-                        let snapshots_and_ams =
-                            self.get_snapshots_and_affirmation_maps_at_height(height)?;
-                        let num_sns = snapshots_and_ams.len();
-                        test_debug!("{} snapshots at {}", num_sns, height);
-
-                        let mut found = false;
-                        for (sn, sn_am) in snapshots_and_ams.into_iter() {
-                            test_debug!(
-                                "Snapshot {} height {} has AM `{}` (is prefix of `{}`?: {})",
-                                &sn.sortition_id,
-                                sn.block_height,
-                                &sn_am,
-                                &heaviest_am,
-                                &heaviest_am.has_prefix(&sn_am),
-                            );
-                            if heaviest_am.has_prefix(&sn_am) {
-                                // have already processed this sortitoin
-                                test_debug!("Already processed sortition {} at height {} with AM `{}` on heaviest affirmation map {}", &sn.sortition_id, sn.block_height, &sn_am, &heaviest_am);
-                                found = true;
-                                last_invalidate_start_block = height;
-                                test_debug!(
-                                    "last_invalidate_start_block = {}",
-                                    last_invalidate_start_block
-                                );
-                                valid_sortitions.push(sn);
-                                break;
-                            }
-                        }
-                        if !found && num_sns > 0 {
-                            // there are snapshots, and they're all diverged
-                            debug!("No snapshot at height {} has an affirmation map that is a prefix of `{}`", height, &heaviest_am);
-                            break;
-                        }
-                    }
+                    let (new_last_invalidate_start_block, mut next_valid_sortitions) = self
+                        .find_valid_sortitions(
+                            &compare_am,
+                            last_invalidate_start_block,
+                            canonical_burnchain_tip.block_height,
+                        )?;
+                    last_invalidate_start_block = new_last_invalidate_start_block;
+                    valid_sortitions.append(&mut next_valid_sortitions);
                     break;
                 }
             }
@@ -1295,37 +1319,85 @@ impl<
                 )? {
                     Some(x) => x,
                     None => {
-                        // everything's already valid.
-                        // Just update the canonical stacks block pointer on the highest valid
-                        // sortition.
-                        let mut sort_tx = self.sortition_db.tx_begin()?;
-                        let (canonical_ch, canonical_bhh, canonical_height) =
-                            Self::find_highest_stacks_block_with_compatible_affirmation_map(
-                                &heaviest_am,
-                                &sortition_tip,
+                        // the sortition AM is consistent with the heaviest AM.
+                        // If the sortition AM is not consistent with the canonical AM, then it
+                        // means that we have new anchor blocks to consider
+                        let canonical_affirmation_map =
+                            StacksChainState::find_canonical_affirmation_map(
+                                &self.burnchain,
+                                &self.burnchain_blocks_db,
+                                &self.chain_state_db,
+                            )?;
+                        let sort_am = SortitionDB::find_sortition_tip_affirmation_map(
+                            &self.burnchain_blocks_db,
+                            &self.sortition_db,
+                            &sortition_tip,
+                        )?;
+                        let revalidation_params = if canonical_affirmation_map.len()
+                            == sort_am.len()
+                            && canonical_affirmation_map != sort_am
+                        {
+                            let diverged_rc = canonical_affirmation_map
+                                .find_divergence(&sort_am)
+                                .expect("FATAL: unequal affirmations maps should diverge");
+                            debug!(
+                                "Sortition AM `{}` diverges from canonical AM `{}` at cycle {}",
+                                &sort_am, &canonical_affirmation_map, diverged_rc
+                            );
+                            let (last_invalid_sortition_height, valid_sortitions) = self
+                                .find_valid_sortitions(
+                                    &canonical_affirmation_map,
+                                    self.burnchain.reward_cycle_to_block_height(diverged_rc),
+                                    canonical_burnchain_tip.block_height,
+                                )?;
+                            Some((
+                                last_invalid_sortition_height,
+                                self.burnchain
+                                    .reward_cycle_to_block_height(sort_am.len() as u64),
+                                valid_sortitions,
+                            ))
+                        } else {
+                            None
+                        };
+                        if let Some(x) = revalidation_params {
+                            debug!(
+                                "Sortition AM `{}` is not consistent with canonical AM `{}`",
+                                &sort_am, &canonical_affirmation_map
+                            );
+                            x
+                        } else {
+                            // everything is consistent.
+                            // Just update the canonical stacks block pointer on the highest valid
+                            // sortition.
+                            let mut sort_tx = self.sortition_db.tx_begin()?;
+                            let (canonical_ch, canonical_bhh, canonical_height) =
+                                Self::find_highest_stacks_block_with_compatible_affirmation_map(
+                                    &heaviest_am,
+                                    &sortition_tip,
+                                    &self.burnchain_blocks_db,
+                                    &mut sort_tx,
+                                    &self.chain_state_db.db(),
+                                )?;
+                            let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
                                 &self.burnchain_blocks_db,
                                 &mut sort_tx,
-                                &self.chain_state_db.db(),
+                                &canonical_ch,
+                                &canonical_bhh,
                             )?;
-                        let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
-                            &self.burnchain_blocks_db,
-                            &mut sort_tx,
-                            &canonical_ch,
-                            &canonical_bhh,
-                        )?;
 
-                        debug!("Canonical Stacks tip for highest valid sortition {} ({}) is {}/{} height {} am `{}`", &sortition_tip, sortition_height, &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
+                            debug!("Canonical Stacks tip for highest valid sortition {} ({}) is {}/{} height {} am `{}`", &sortition_tip, sortition_height, &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
 
-                        SortitionDB::revalidate_snapshot_with_block(
-                            &sort_tx,
-                            &sortition_tip,
-                            &canonical_ch,
-                            &canonical_bhh,
-                            canonical_height,
-                            Some(true),
-                        )?;
-                        sort_tx.commit()?;
-                        return Ok(());
+                            SortitionDB::revalidate_snapshot_with_block(
+                                &sort_tx,
+                                &sortition_tip,
+                                &canonical_ch,
+                                &canonical_bhh,
+                                canonical_height,
+                                Some(true),
+                            )?;
+                            sort_tx.commit()?;
+                            return Ok(());
+                        }
                     }
                 };
 
