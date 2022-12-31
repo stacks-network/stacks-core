@@ -846,6 +846,7 @@ impl RunLoop {
         let mut last_stacks_pox_reorg_recover_time = 0;
 
         debug!("Chain-liveness thread start!");
+
         while globals.keep_running() {
             debug!("Chain-liveness checkup");
             Self::drive_pox_reorg_burn_block_processing(
