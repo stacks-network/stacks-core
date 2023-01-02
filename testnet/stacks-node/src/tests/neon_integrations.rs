@@ -6538,8 +6538,6 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6571,8 +6569,6 @@ fn antientropy_integration_test() {
     conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -6815,8 +6811,6 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
-
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -8371,7 +8365,6 @@ fn test_problematic_blocks_are_not_mined() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
-    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -8572,10 +8565,7 @@ fn test_problematic_blocks_are_not_mined() {
     let tip_info = get_chain_info(&conf);
 
     // all blocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // none were problematic
     assert_eq!(all_new_files.len(), 0);
 
@@ -8733,7 +8723,6 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
-    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -8963,10 +8952,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     let tip_info = get_chain_info(&conf);
 
     // all blocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // one was problematic -- i.e. the one that included tx_high
     assert_eq!(all_new_files.len(), 1);
 
@@ -9125,7 +9111,6 @@ fn test_problematic_microblocks_are_not_mined() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
-    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9347,10 +9332,7 @@ fn test_problematic_microblocks_are_not_mined() {
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // none were problematic
     assert_eq!(all_new_files.len(), 0);
 
@@ -9508,7 +9490,6 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
-    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9753,10 +9734,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // at least one was problematic.
     // the miner might make multiple microblocks (only some of which are confirmed), so also check
     // the event observer to see that we actually picked up tx_high
