@@ -288,11 +288,14 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
-const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_burnchain_db_txid";
+const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_block_commit_metadata_burn_block_hash_txid";
 const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_block_height_vtxindex_burn_block_hash ON block_commit_metadata(block_height,vtxindex,burn_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_anchor_block_burn_block_hash_txid ON block_commit_metadata(anchor_block,burn_block_hash,txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_txid ON block_commit_metadata(burn_block_hash,txid);",
 ];
 
 impl<'a> BurnchainDBTransaction<'a> {
