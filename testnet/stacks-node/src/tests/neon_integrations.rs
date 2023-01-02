@@ -4866,20 +4866,20 @@ fn block_limit_hit_integration_test() {
     assert_eq!(res.nonce, 1);
 
     let mined_block_events = test_observer::get_blocks();
-    assert!(mined_block_events.len() >= 2);
+    assert_eq!(mined_block_events.len(), 5);
 
-    let tx_third_block = mined_block_events[2]
+    let tx_third_block = mined_block_events[3]
         .get("transactions")
         .unwrap()
         .as_array()
         .unwrap();
-    assert_eq!(tx_third_block.len(), 4); // genesis block + 3 blocks
+    assert_eq!(tx_third_block.len(), 3);
     let txid_1_exp = tx_third_block[1].get("txid").unwrap().as_str().unwrap();
     let txid_4_exp = tx_third_block[2].get("txid").unwrap().as_str().unwrap();
     assert_eq!(format!("0x{}", txid_1), txid_1_exp);
     assert_eq!(format!("0x{}", txid_4), txid_4_exp);
 
-    let tx_fourth_block = mined_block_events[3]
+    let tx_fourth_block = mined_block_events[4]
         .get("transactions")
         .unwrap()
         .as_array()
