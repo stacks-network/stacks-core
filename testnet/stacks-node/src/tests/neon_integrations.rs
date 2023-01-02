@@ -5483,6 +5483,9 @@ fn pox_integration_test() {
 
     test_observer::spawn();
 
+    // required for testing post-sunset behavior
+    conf.node.always_use_affirmation_maps = false;
+
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
