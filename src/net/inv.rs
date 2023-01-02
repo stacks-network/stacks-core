@@ -1775,6 +1775,26 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
+        // start scaning at the reward cycle just before that.
+
+        let stacks_changed_reward_cycle_opt = {
+            if self.heaviest_affirmation_map.len() <= self.stacks_tip_affirmation_map.len() {
+                self.stacks_tip_affirmation_map
+                    .find_divergence(&self.heaviest_affirmation_map)
+            } else {
+                // if the stacks AM is shorter, then we definitely need to start the inv sync at
+                // the end of the heaviest affirmation map's reward cycle
+                Some(self.stacks_tip_affirmation_map.len() as u64)
+            }
+        };
+        if let Some(diverged_rc) = stacks_changed_reward_cycle_opt {
+            test_debug!("Stacks tip affirmation map `{}` diverges from heaviest affirmation map `{}` at reward cycle {}", &self.stacks_tip_affirmation_map, &self.heaviest_affirmation_map, diverged_rc);
+            return diverged_rc.saturating_sub(1);
+        }
+
+        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
+        // tip.
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 

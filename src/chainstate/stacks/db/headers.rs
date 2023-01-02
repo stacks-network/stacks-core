@@ -31,8 +31,8 @@ use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
-    query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
-    FromRow,
+    query_count, query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
+    FromColumn, FromRow,
 };
 use clarity::vm::costs::ExecutionCost;
 
@@ -359,5 +359,24 @@ impl StacksChainState {
             ret.push(parent_index_block_hash);
         }
         Ok(ret)
+    }
+
+    /// Get all headers at a given Stacks height
+    pub fn get_all_headers_at_height(
+        conn: &Connection,
+        height: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let qry =
+            "SELECT * FROM block_headers WHERE block_height = ?1 ORDER BY burn_header_height DESC";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        query_rows(conn, qry, args).map_err(|e| e.into())
+    }
+
+    /// Get the highest known header height
+    pub fn get_max_header_height(conn: &Connection) -> Result<u64, Error> {
+        let qry = "SELECT block_height FROM block_headers ORDER BY block_height DESC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
+            .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
+            .map_err(|e| e.into())
     }
 }
