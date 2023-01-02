@@ -1921,7 +1921,28 @@ impl<
 
         // first, see if the canonical affirmation map has changed.  If so, this will wind back the
         // canonical sortition tip.
-        self.handle_affirmation_reorg()?;
+        //
+        // only do this if affirmation maps are supported in this epoch.
+        let before_canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
+            Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
+                .expect(&format!(
+                    "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                    sn_tip
+                )),
+            None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
+        };
+        let cur_epoch = SortitionDB::get_stacks_epoch(
+            self.sortition_db.conn(),
+            before_canonical_snapshot.block_height,
+        )?
+        .expect(&format!(
+            "BUG: no epoch defined at height {}",
+            before_canonical_snapshot.block_height
+        ));
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
+            self.handle_affirmation_reorg()?;
+        }
 
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
