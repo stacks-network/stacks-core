@@ -473,10 +473,13 @@ impl BitcoinRegtestController {
                     // wait for the chains coordinator to catch up with us.
                     // don't wait for heights beyond the burnchain tip.
                     if block_for_sortitions {
-                        self.wait_for_sortitions(cmp::min(
-                            x.block_height,
-                            target_block_height_opt.unwrap_or(x.block_height),
-                        ))?;
+                        self.wait_for_sortitions(
+                            coordinator_comms.clone(),
+                            cmp::min(
+                                x.block_height,
+                                target_block_height_opt.unwrap_or(x.block_height),
+                            ),
+                        )?;
                     }
 
                     // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
@@ -1537,6 +1540,7 @@ impl BitcoinRegtestController {
     /// height_to_wait
     pub fn wait_for_sortitions(
         &self,
+        coord_comms: CoordinatorChannels,
         height_to_wait: u64,
     ) -> Result<BurnchainTip, BurnchainControllerError> {
         let mut debug_ctr = 0;
@@ -1570,8 +1574,11 @@ impl BitcoinRegtestController {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
 
+            // help the chains coordinator along
+            coord_comms.announce_new_burn_block();
+
             // yield some time
-            sleep_ms(100);
+            sleep_ms(1000);
         }
     }
 

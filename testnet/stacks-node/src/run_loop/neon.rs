@@ -957,7 +957,7 @@ impl RunLoop {
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
             burnchain
-                .wait_for_sortitions(sn.block_height + 1)
+                .wait_for_sortitions(globals.coord().clone(), sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
                 .block_snapshot
         } else {
@@ -979,7 +979,7 @@ impl RunLoop {
             .get_canonical_chain_tip()
             .expect("FATAL: failed to query burnchain DB");
         let mut burnchain_tip = burnchain
-            .wait_for_sortitions(burnchain_db_tip.block_height)
+            .wait_for_sortitions(globals.coord().clone(), burnchain_db_tip.block_height)
             .expect("Unable to get burnchain tip");
 
         // Start the runloop
