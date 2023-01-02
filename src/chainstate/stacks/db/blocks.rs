@@ -10404,7 +10404,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory_for_reward_cycle() {
-        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 21313, 21314);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
 
         let privk = StacksPrivateKey::new();
         let addr = StacksAddress::from_public_keys(
@@ -10696,7 +10696,7 @@ pub mod test {
 
     #[test]
     fn test_get_parent_block_header() {
-        let peer_config = TestPeerConfig::new(stdext::function_name!(), 21313, 21314);
+        let peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
