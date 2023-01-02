@@ -6538,6 +6538,8 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
+    conf_bootstrap_node.node.always_use_affirmation_maps = false;
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6569,6 +6571,8 @@ fn antientropy_integration_test() {
     conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
+
+    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -6811,6 +6815,8 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
+
+    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -8365,6 +8371,7 @@ fn test_problematic_blocks_are_not_mined() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
+    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -8726,6 +8733,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
+    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9117,6 +9125,7 @@ fn test_problematic_microblocks_are_not_mined() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
+    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9499,6 +9508,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
+    conf.node.always_use_affirmation_maps = false;
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
