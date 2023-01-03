@@ -1,12 +1,12 @@
 use crate::signer;
-use async_std::io::Error;
-use libp2p;
 use serde::Serialize;
+use std::error::Error;
 use tracing::info;
+use warp::Filter;
 
 pub struct Net {
-    _local_key: libp2p::identity::Keypair,
-    pub swarm: libp2p::Swarm<libp2p::floodsub::Floodsub>,
+    _highwater_msg_idx: usize,
+    pub socket: usize,
 }
 
 pub struct Message {
@@ -14,21 +14,13 @@ pub struct Message {
 }
 
 impl Net {
-    pub async fn new() -> Result<Net, Error> {
-        let local_key = libp2p::identity::Keypair::generate_ed25519();
-        let local_peer_id = libp2p::PeerId::from(local_key.public());
-        info!("Local peer id: {local_peer_id:?}");
-        let transport = libp2p::development_transport(local_key.clone()).await?;
-        let floodsub_topic = libp2p::floodsub::Topic::new("chat");
-        let mut floodsub = libp2p::floodsub::Floodsub::new(local_peer_id);
-        floodsub.subscribe(floodsub_topic);
-        let mut swarm = libp2p::Swarm::with_threadpool_executor(transport, floodsub, local_peer_id);
-        swarm
-            .listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap())
-            .unwrap();
+    pub async fn new() -> Result<Net, Box<dyn Error>> {
+        // GET /hello/warp => 200 OK with body "Hello, warp!"
+        let hello = warp::path!("hello" / String).map(|name| format!("Hello, {}!", name));
+        warp::serve(hello).run(([127, 0, 0, 1], 3030));
         Ok(Net {
-            _local_key: local_key,
-            swarm: swarm,
+            _highwater_msg_idx: 0,
+            socket: 0,
         })
     }
 
