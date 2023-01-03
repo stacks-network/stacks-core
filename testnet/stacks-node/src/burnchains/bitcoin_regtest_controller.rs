@@ -475,10 +475,7 @@ impl BitcoinRegtestController {
                     if block_for_sortitions {
                         self.wait_for_sortitions(
                             coordinator_comms.clone(),
-                            cmp::min(
-                                x.block_height,
-                                target_block_height_opt.unwrap_or(x.block_height),
-                            ),
+                            target_block_height_opt.unwrap_or(x.block_height),
                         )?;
                     }
 
@@ -1548,7 +1545,7 @@ impl BitcoinRegtestController {
             let canonical_sortition_tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
 
-            if debug_ctr % 100 == 0 {
+            if debug_ctr % 10 == 0 {
                 debug!(
                     "Waiting until canonical sortition height reaches {} (currently {})",
                     height_to_wait, canonical_sortition_tip.block_height
