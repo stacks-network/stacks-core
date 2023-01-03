@@ -2406,6 +2406,149 @@ pub mod test {
         }
     }
 
+    // Verify that a contract call transaction which passes a long contract
+    // name (> 40 chars and < 128) is processed successfully.
+    #[test]
+    fn process_contract_call_long_contract_name_transaction() {
+        let contract = "
+        (define-data-var savedContract principal tx-sender)
+        (define-public (save (contract principal)) (ok (var-set savedContract contract)))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-contract-cc-tx");
+
+        // contract instantiation
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let mut tx_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"hello-world".to_string(),
+                &contract.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        // contract-call
+        let privk_2 = StacksPrivateKey::from_hex(
+            "d2c340ebcc0794b6fabdd8ac8b1c983e363b05dc8adcdf7e30db205a3fa54c1601",
+        )
+        .unwrap();
+        let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
+        let addr_2 = auth.origin().address_testnet();
+
+        let contractPrincipalValue =
+            Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(addr.clone()),
+                ContractName::from("aip10-arkadiko-update-tvl-liquidation-ratio"),
+            )));
+        let mut tx_contract_call = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth_2.clone(),
+            TransactionPayload::new_contract_call(
+                addr.clone(),
+                "hello-world",
+                "save",
+                vec![contractPrincipalValue.clone()],
+            )
+            .unwrap(),
+        );
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.set_tx_fee(0);
+
+        let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+        signer_2.sign_origin(&privk_2).unwrap();
+
+        let signed_tx_2 = signer_2.get_tx().unwrap();
+
+        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+            // process both
+            let mut conn = chainstate.block_begin(
+                burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account.nonce, 0);
+
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, 0);
+
+            let contract_id = QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(addr.clone()),
+                ContractName::from("hello-world"),
+            );
+            let contract_before_res =
+                StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+            assert!(contract_before_res.is_none());
+
+            let var_before_res =
+                StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
+            assert!(var_before_res.is_none());
+
+            let (fee, _) = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_tx,
+                false,
+                ASTRules::PrecheckSize,
+            )
+            .unwrap();
+
+            let var_before_set_res =
+                StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
+            assert_eq!(
+                var_before_set_res,
+                Some(Value::Principal(PrincipalData::from(addr.clone())))
+            );
+
+            let (fee_2, _) = StacksChainState::process_transaction(
+                &mut conn,
+                &signed_tx_2,
+                false,
+                ASTRules::PrecheckSize,
+            )
+            .unwrap();
+
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account.nonce, 1);
+
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, 1);
+
+            let contract_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+            let var_res =
+                StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
+
+            conn.commit_block();
+
+            assert_eq!(fee, 0);
+            assert_eq!(fee_2, 0);
+            assert!(contract_res.is_some());
+            assert!(var_res.is_some());
+            assert_eq!(var_res, Some(contractPrincipalValue.clone()));
+        }
+    }
+
     #[test]
     fn process_smart_contract_contract_call_runtime_error() {
         let contract = "
