@@ -1522,26 +1522,63 @@ impl TypeSignature {
 
     // This function checks recursively if NoType is anywhere in the type signature.
     #[cfg(feature = "fuzzing")]
-    pub fn contains_invalid_notype(ty: &TypeSignature) -> bool {
+    pub fn contains_invalid_type_lhs(ty: &TypeSignature) -> bool {
         match ty {
             NoType => true,
             OptionalType(inner_type) => {
                 match inner_type.as_ref() {
                     NoType => true, // NoType is a valid inner type for OptionalType
-                    inner_type => Self::contains_invalid_notype(inner_type),
+                    inner_type => Self::contains_invalid_type_lhs(inner_type),
                 }
             }
             ResponseType(inner_types) => {
-                Self::contains_invalid_notype(&inner_types.0)
-                    // && Self::contains_invalid_notype(&inner_types.1)
-                    || Self::contains_invalid_notype(&inner_types.1)
+                Self::contains_invalid_type_lhs(&inner_types.0)
+                    || Self::contains_invalid_type_lhs(&inner_types.1)
             }
             SequenceType(SequenceSubtype::ListType(list_type)) => {
-                Self::contains_invalid_notype(&list_type.entry_type)
+                Self::contains_invalid_type_lhs(&list_type.entry_type)
             }
             TupleType(tuple_type) => {
                 for (_, field_type) in tuple_type.get_type_map() {
-                    if Self::contains_invalid_notype(field_type) {
+                    if Self::contains_invalid_type_lhs(field_type) {
+                        return true;
+                    }
+                }
+                false
+            }
+            CallableType(CallableSubtype::Principal(_))
+            | ListUnionType(_) => true,
+            IntType
+            | UIntType
+            | BoolType
+            | CallableType(_)
+            | PrincipalType
+            | SequenceType(_)
+            | TypeSignature::TraitReferenceType(_) => false,
+        }
+    }
+
+    // This function checks recursively if NoType is anywhere in the type signature.
+    #[cfg(feature = "fuzzing")]
+    pub fn contains_invalid_type_rhs(ty: &TypeSignature) -> bool {
+        match ty {
+            NoType => true,
+            OptionalType(inner_type) => {
+                match inner_type.as_ref() {
+                    NoType => true, // NoType is a valid inner type for OptionalType
+                    inner_type => Self::contains_invalid_type_rhs(inner_type),
+                }
+            }
+            ResponseType(inner_types) => {
+                Self::contains_invalid_type_rhs(&inner_types.0)
+                    || Self::contains_invalid_type_rhs(&inner_types.1)
+            }
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                Self::contains_invalid_type_rhs(&list_type.entry_type)
+            }
+            TupleType(tuple_type) => {
+                for (_, field_type) in tuple_type.get_type_map() {
+                    if Self::contains_invalid_type_rhs(field_type) {
                         return true;
                     }
                 }
