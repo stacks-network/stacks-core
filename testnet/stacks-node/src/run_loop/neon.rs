@@ -1022,7 +1022,7 @@ impl RunLoop {
                 break;
             }
 
-            let remote_chain_height = burnchain.get_headers_height();
+            let remote_chain_height = burnchain.get_headers_height() - 1;
 
             // wait for the p2p state-machine to do at least one pass
             debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
@@ -1049,7 +1049,15 @@ impl RunLoop {
             // process them.  This loop runs for one reward cycle, so that the next pass of the
             // runloop will cause the PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
-            while burnchain_height < target_burnchain_block_height {
+            debug!(
+                "Runloop: Download burnchain blocks up to reward cycle #{} (height {})",
+                burnchain_config
+                    .block_height_to_reward_cycle(target_burnchain_block_height)
+                    .expect("FATAL: target burnchain block height does not have a reward cycle"),
+                target_burnchain_block_height,
+            );
+
+            loop {
                 if !globals.keep_running() {
                     break;
                 }
@@ -1072,8 +1080,8 @@ impl RunLoop {
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(
-                        "Runloop: Downloaded burnchain blocks up to height {}; target height is {}; next_sortition_height = {}, sortition_db_height = {}",
-                        burnchain_height, target_burnchain_block_height, next_sortition_height, sortition_db_height
+                        "Runloop: Downloaded burnchain blocks up to height {}; target height is {}; remote_chain_height = {} next_sortition_height = {}, sortition_db_height = {}",
+                        burnchain_height, target_burnchain_block_height, remote_chain_height, next_sortition_height, sortition_db_height
                     );
                 }
 
@@ -1128,7 +1136,7 @@ impl RunLoop {
 
                     num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Runloop: Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
+                        "Runloop: Synchronized sortitions up to block height {} from {} (chain tip height is {}); {} sortitions",
                         next_sortition_height, sortition_db_height, burnchain_height, num_sortitions_in_last_cycle;
                     );
 
@@ -1141,19 +1149,28 @@ impl RunLoop {
                     globals.coord().announce_new_stacks_block();
                 }
 
-                if burnchain_height == target_burnchain_block_height
-                    || burnchain_height == tip_burnchain_height
+                if burnchain_height >= target_burnchain_block_height
+                    || burnchain_height >= remote_chain_height
                 {
                     break;
                 }
             }
 
-            target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
-                burnchain_config
-                    .block_height_to_reward_cycle(burnchain_height)
-                    .expect("BUG: block height is not in a reward cycle")
-                    + 1,
+            // advance one reward cycle at a time.
+            // If we're still downloading, then this is simply target_burnchain_block_height + reward_cycle_len.
+            // Otherwise, this is burnchain_tip + reward_cycle_len
+            let next_target_burnchain_block_height = cmp::min(
+                burnchain_config.reward_cycle_to_block_height(
+                    burnchain_config
+                        .block_height_to_reward_cycle(target_burnchain_block_height)
+                        .expect("FATAL: burnchain height before system start")
+                        + 1,
+                ),
+                remote_chain_height,
             );
+
+            debug!("Runloop: Advance target burnchain block height from {} to {} (sortition height {})", target_burnchain_block_height, next_target_burnchain_block_height, sortition_db_height);
+            target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
