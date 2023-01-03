@@ -1576,6 +1576,7 @@ impl BitcoinRegtestController {
 
             // help the chains coordinator along
             coord_comms.announce_new_burn_block();
+            coord_comms.announce_new_stacks_block();
 
             // yield some time
             sleep_ms(1000);
