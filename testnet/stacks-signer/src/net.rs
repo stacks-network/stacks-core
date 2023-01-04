@@ -1,12 +1,12 @@
 use crate::signer;
 use serde::Serialize;
 use std::error::Error;
+use std::iter::Map;
 use tracing::info;
-use warp::Filter;
+use warp::{Filter, Future, Server};
 
 pub struct Net {
     _highwater_msg_idx: usize,
-    pub socket: usize,
 }
 
 pub struct Message {
@@ -14,14 +14,20 @@ pub struct Message {
 }
 
 impl Net {
-    pub async fn new() -> Result<Net, Box<dyn Error>> {
-        // GET /hello/warp => 200 OK with body "Hello, warp!"
-        let hello = warp::path!("hello" / String).map(|name| format!("Hello, {}!", name));
-        warp::serve(hello).run(([127, 0, 0, 1], 3030));
-        Ok(Net {
+    pub fn new() -> Net {
+        Net {
             _highwater_msg_idx: 0,
-            socket: 0,
-        })
+        }
+    }
+
+    pub async fn listen(&self) {
+        let routes = warp::path("p2p")
+            .and(warp::path::param::<String>())
+            .map(|name| {
+                info!("{}", name);
+                format!("OK")
+            });
+        warp::serve(routes).run(([127, 0, 0, 1], 3030)).await
     }
 
     pub fn next_message(&self) -> Message {
