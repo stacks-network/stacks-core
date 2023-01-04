@@ -3218,6 +3218,10 @@ impl RelayerThread {
                         == 0
                     {
                         // first time we've mined a block in this burnchain block
+                        debug!(
+                            "Bump block processed for burnchain block {}",
+                            &last_mined_block.my_block_height
+                        );
                         self.globals.counters.bump_blocks_processed();
                     }
 
@@ -4322,6 +4326,8 @@ impl StacksNode {
             SortitionDB::get_block_commits_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching block commits");
 
+        let num_block_commits = block_commits.len();
+
         update_active_miners_count_gauge(block_commits.len() as i64);
 
         for op in block_commits.into_iter() {
@@ -4345,11 +4351,15 @@ impl StacksNode {
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
 
-        if !ibd {
-            // only bother with this if we're sync'ed
-            self.globals
-                .try_activate_leader_key_registration(block_height, key_registers);
-        }
+        let num_key_registers = key_registers.len();
+
+        self.globals
+            .try_activate_leader_key_registration(block_height, key_registers);
+
+        debug!(
+            "Processed burnchain state at height {}: {} leader keys, {} block-commits (ibd = {})",
+            block_height, num_key_registers, num_block_commits, ibd
+        );
 
         self.globals.set_last_sortition(block_snapshot);
         last_sortitioned_block.map(|x| x.0)
