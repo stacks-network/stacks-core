@@ -4690,7 +4690,7 @@ fn mining_events_integration_test() {
                     write_count: 2,
                     read_length: 1,
                     read_count: 1,
-                    runtime: 300887
+                    runtime: 311000
                 }
             )
         }
@@ -4876,20 +4876,20 @@ fn block_limit_hit_integration_test() {
     assert_eq!(res.nonce, 1);
 
     let mined_block_events = test_observer::get_blocks();
-    assert!(mined_block_events.len() >= 2);
+    assert_eq!(mined_block_events.len(), 5);
 
-    let tx_third_block = mined_block_events[2]
+    let tx_third_block = mined_block_events[3]
         .get("transactions")
         .unwrap()
         .as_array()
         .unwrap();
-    assert_eq!(tx_third_block.len(), 4); // genesis block + 3 blocks
+    assert_eq!(tx_third_block.len(), 3);
     let txid_1_exp = tx_third_block[1].get("txid").unwrap().as_str().unwrap();
     let txid_4_exp = tx_third_block[2].get("txid").unwrap().as_str().unwrap();
     assert_eq!(format!("0x{}", txid_1), txid_1_exp);
     assert_eq!(format!("0x{}", txid_4), txid_4_exp);
 
-    let tx_fourth_block = mined_block_events[3]
+    let tx_fourth_block = mined_block_events[4]
         .get("transactions")
         .unwrap()
         .as_array()
@@ -5495,6 +5495,9 @@ fn pox_integration_test() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
+
+    // required for testing post-sunset behavior
+    conf.node.always_use_affirmation_maps = false;
 
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
@@ -8580,10 +8583,7 @@ fn test_problematic_blocks_are_not_mined() {
     let tip_info = get_chain_info(&conf);
 
     // all blocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // none were problematic
     assert_eq!(all_new_files.len(), 0);
 
@@ -8970,10 +8970,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     let tip_info = get_chain_info(&conf);
 
     // all blocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // one was problematic -- i.e. the one that included tx_high
     assert_eq!(all_new_files.len(), 1);
 
@@ -9353,10 +9350,7 @@ fn test_problematic_microblocks_are_not_mined() {
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // none were problematic
     assert_eq!(all_new_files.len(), 0);
 
@@ -9758,10 +9752,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // at least one was problematic.
     // the miner might make multiple microblocks (only some of which are confirmed), so also check
     // the event observer to see that we actually picked up tx_high

@@ -2541,9 +2541,11 @@ impl StacksChainState {
         .map_err(|e| e.into())
     }
 
-    /// Get the affirmation map represented by the Stacks chain tip
-    pub fn find_stacks_tip_affirmation_map(
-        burnchain_db: &BurnchainDB,
+    /// Get the affirmation map represented by the Stacks chain tip.
+    /// This is the private interface, to avoid having a public function take two db connections of the
+    /// same type.
+    fn inner_find_stacks_tip_affirmation_map(
+        burnchain_conn: &DBConn,
         sort_db_conn: &DBConn,
         tip_ch: &ConsensusHash,
         tip_bhh: &BlockHeaderHash,
@@ -2551,11 +2553,10 @@ impl StacksChainState {
         if let Some(leader_block_commit) =
             SortitionDB::get_block_commit_for_stacks_block(sort_db_conn, tip_ch, tip_bhh)?
         {
-            if let Some(am_id) = BurnchainDB::get_block_commit_affirmation_id(
-                burnchain_db.conn(),
-                &leader_block_commit,
-            )? {
-                if let Some(am) = BurnchainDB::get_affirmation_map(burnchain_db.conn(), am_id)? {
+            if let Some(am_id) =
+                BurnchainDB::get_block_commit_affirmation_id(burnchain_conn, &leader_block_commit)?
+            {
+                if let Some(am) = BurnchainDB::get_affirmation_map(burnchain_conn, am_id)? {
                     debug!(
                         "Stacks tip {}/{} (txid {}) has affirmation map '{}'",
                         tip_ch, tip_bhh, &leader_block_commit.txid, &am
@@ -2580,20 +2581,26 @@ impl StacksChainState {
         Ok(AffirmationMap::empty())
     }
 
-    /// Is a block compatible with the heaviest affirmation map?
-    pub fn is_block_compatible_with_affirmation_map(
-        heaviest_am: &AffirmationMap,
+    /// Get the affirmation map represented by the Stacks chain tip
+    pub fn find_stacks_tip_affirmation_map(
         burnchain_db: &BurnchainDB,
         sort_db_conn: &DBConn,
-        block_ch: &ConsensusHash,
-        block_bhh: &BlockHeaderHash,
-    ) -> Result<bool, Error> {
-        let stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
-            burnchain_db,
+        tip_ch: &ConsensusHash,
+        tip_bhh: &BlockHeaderHash,
+    ) -> Result<AffirmationMap, Error> {
+        Self::inner_find_stacks_tip_affirmation_map(
+            burnchain_db.conn(),
             sort_db_conn,
-            &block_ch,
-            &block_bhh,
-        )?;
+            tip_ch,
+            tip_bhh,
+        )
+    }
+
+    /// Is a block compatible with the heaviest affirmation map?
+    pub fn is_block_compatible_with_affirmation_map(
+        stacks_tip_affirmation_map: &AffirmationMap,
+        heaviest_am: &AffirmationMap,
+    ) -> Result<bool, Error> {
         // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
         // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
         // and `heaviest_am` against each other depending on their lengths.
@@ -5887,6 +5894,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
+        affirmation_weight: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -6271,6 +6279,7 @@ impl StacksChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            affirmation_weight,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -6436,6 +6445,7 @@ impl StacksChainState {
     /// consumption by future miners).
     pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
         &mut self,
+        burnchain_dbconn: &DBConn,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
@@ -6595,6 +6605,24 @@ impl StacksChainState {
             &next_staging_block.anchored_block_hash,
         )?;
 
+        test_debug!(
+            "About to load affirmation map for {}/{}",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash
+        );
+        let block_am = StacksChainState::inner_find_stacks_tip_affirmation_map(
+            burnchain_dbconn,
+            sort_tx.tx(),
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )?;
+        test_debug!(
+            "Affirmation map for {}/{} is `{}`",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+            &block_am
+        );
+
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
@@ -6615,6 +6643,7 @@ impl StacksChainState {
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
             &user_supports,
+            block_am.weight(),
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
@@ -6763,12 +6792,13 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn process_blocks_at_tip(
         &mut self,
+        burnchain_db_conn: &DBConn,
         sort_db: &mut SortitionDB,
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-        self.process_blocks(tx, max_blocks, null_event_dispatcher)
+        self.process_blocks(burnchain_db_conn, tx, max_blocks, null_event_dispatcher)
     }
 
     /// Process some staging blocks, up to max_blocks.
@@ -6778,6 +6808,7 @@ impl StacksChainState {
     /// epoch receipt if the block was invalid.
     pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
+        burnchain_db_conn: &DBConn,
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
         dispatcher_opt: Option<&'a T>,
@@ -6810,7 +6841,7 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
+            match self.process_next_staging_block(burnchain_db_conn, &mut sort_tx, dispatcher_opt) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -7186,7 +7217,7 @@ impl StacksChainState {
 
                 let contract_identifier =
                     QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
-
+                let epoch = clarity_connection.get_epoch().clone();
                 clarity_connection.with_analysis_db_readonly(|db| {
                     let function_type = db
                         .get_public_function_type(&contract_identifier, &function_name)
@@ -7196,7 +7227,12 @@ impl StacksChainState {
                         .get_clarity_version(&contract_identifier)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?;
                     function_type
-                        .check_args_by_allowing_trait_cast(db, clarity_version, &function_args)
+                        .check_args_by_allowing_trait_cast(
+                            db,
+                            &function_args,
+                            epoch,
+                            clarity_version,
+                        )
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }

@@ -70,12 +70,12 @@ pub mod indexer;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 impl_byte_array_message_codec!(Txid, 32);
+impl_byte_array_serde!(Txid);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
@@ -351,7 +351,7 @@ impl PoxConstants {
 
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn static_active_pox_contract(v1_unlock_height: u64, burn_height: u64) -> &'static str {
-        if burn_height >= v1_unlock_height {
+        if burn_height > v1_unlock_height {
             POX_2_NAME
         } else {
             POX_1_NAME

@@ -278,7 +278,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ),
             Equals => NativeFunction205(
                 "native_eq",
-                NativeHandle::MoreArg(&native_eq),
+                NativeHandle::MoreArgEnv(&native_eq),
                 ClarityCostFunction::Eq,
                 &cost_input_sized_vararg,
             ),
@@ -566,7 +566,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>) -> Result<Value> {
+fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -578,7 +578,8 @@ fn native_eq(args: Vec<Value>) -> Result<Value> {
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            arg_type = TypeSignature::least_supertype(&TypeSignature::type_of(x), &arg_type)?;
+            arg_type =
+                TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false));
             }

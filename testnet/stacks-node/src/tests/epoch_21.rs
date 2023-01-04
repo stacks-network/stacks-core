@@ -1977,6 +1977,75 @@ fn transition_empty_blocks() {
     channel.stop_chains_coordinator();
 }
 
+/// Check to see if there are stragglers between a set of nodes syncing
+fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
+    loop {
+        let mut straggler = false;
+        let mut stacker_am = None;
+        let mut heaviest_am = None;
+        let mut sortition_am = None;
+        let mut stacks_tip_ch = None;
+        let mut stacks_tip_bhh = None;
+
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+
+            if tip_info.stacks_tip_height < max_stacks_tip {
+                straggler = true;
+            }
+
+            let affirmations = tip_info.affirmations.unwrap();
+
+            if let Some(stacker_am) = stacker_am.as_ref() {
+                if affirmations.stacks_tip != *stacker_am {
+                    straggler = true;
+                }
+            } else {
+                stacker_am = Some(affirmations.stacks_tip);
+            }
+            if let Some(heaviest_am) = heaviest_am.as_ref() {
+                if affirmations.heaviest != *heaviest_am {
+                    straggler = true;
+                }
+            } else {
+                heaviest_am = Some(affirmations.heaviest);
+            }
+            if let Some(stacks_tip_ch) = stacks_tip_ch.as_ref() {
+                if *stacks_tip_ch != tip_info.stacks_tip_consensus_hash {
+                    straggler = true;
+                }
+            } else {
+                stacks_tip_ch = Some(tip_info.stacks_tip_consensus_hash);
+            }
+            if let Some(stacks_tip_bhh) = stacks_tip_bhh.as_ref() {
+                if *stacks_tip_bhh != tip_info.stacks_tip {
+                    straggler = true;
+                }
+            } else {
+                stacks_tip_bhh = Some(tip_info.stacks_tip);
+            }
+
+            // sortition affirmation map can differ by the last affirmation
+            if let Some(sortition_am) = sortition_am.as_ref() {
+                let mut tip_sort_am = affirmations.sortition_tip.clone();
+                tip_sort_am.pop();
+                if tip_sort_am != *sortition_am {
+                    straggler = true;
+                }
+            } else {
+                let mut tip_sort_am = affirmations.sortition_tip.clone();
+                tip_sort_am.pop();
+                sortition_am = Some(tip_sort_am);
+            }
+        }
+        if !straggler {
+            break;
+        }
+        sleep_ms(block_time_ms);
+    }
+}
+
 /// PoX reorg with three flaps.
 /// Miner 0 mines and hides the anchor block for cycles 22.
 /// Miner 1 mines and hides the anchor block for cycles 23 and 24, causing a PoX reorg in miner 0.
@@ -2089,7 +2158,7 @@ fn test_pox_reorgs_three_flaps() {
         conf.node.data_url = format!("http://127.0.0.1:{}", rpc_port);
         conf.node.p2p_bind = format!("127.0.0.1:{}", p2p_port);
 
-        conf.connection_options.inv_reward_cycles = 10;
+        // conf.connection_options.inv_reward_cycles = 10;
 
         confs.push(conf);
     }
@@ -2506,54 +2575,7 @@ fn test_pox_reorgs_three_flaps() {
         "Wait for all blocks to propagate; max tip is {}",
         max_stacks_tip
     );
-    loop {
-        let mut straggler = false;
-        let mut stacker_am = None;
-        let mut heaviest_am = None;
-        let mut sortition_am = None;
-
-        for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
-
-            if tip_info.stacks_tip_height < max_stacks_tip {
-                straggler = true;
-            }
-
-            let affirmations = tip_info.affirmations.unwrap();
-
-            if let Some(stacker_am) = stacker_am.as_ref() {
-                if affirmations.stacks_tip != *stacker_am {
-                    straggler = true;
-                }
-            } else {
-                stacker_am = Some(affirmations.stacks_tip);
-            }
-            if let Some(heaviest_am) = heaviest_am.as_ref() {
-                if affirmations.heaviest != *heaviest_am {
-                    straggler = true;
-                }
-            } else {
-                heaviest_am = Some(affirmations.heaviest);
-            }
-            // sortition affirmation map can differ by the last affirmation
-            if let Some(sortition_am) = sortition_am.as_ref() {
-                let mut tip_sort_am = affirmations.sortition_tip.clone();
-                tip_sort_am.pop();
-                if tip_sort_am != *sortition_am {
-                    straggler = true;
-                }
-            } else {
-                let mut tip_sort_am = affirmations.sortition_tip.clone();
-                tip_sort_am.pop();
-                sortition_am = Some(tip_sort_am);
-            }
-        }
-        if !straggler {
-            break;
-        }
-        sleep_ms(block_time_ms);
-    }
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
     // nodes now agree on affirmation maps
     for (i, c) in confs.iter().enumerate() {
@@ -2784,7 +2806,7 @@ fn test_pox_reorg_one_flap() {
         loop {
             let tip_info_opt = get_chain_info_opt(&confs[i]);
             if let Some(tip_info) = tip_info_opt {
-                eprintln!("\n\nMiner 2: {:?}\n\n", &tip_info);
+                eprintln!("\n\nMiner {}: {:?}\n\n", i, &tip_info);
                 if tip_info.stacks_tip_height > 0 {
                     break;
                 }
@@ -2954,7 +2976,6 @@ fn test_pox_reorg_one_flap() {
         // miner 1's history overtakes miner 0's.
         // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
         // 23 and affirmed cycle 22's anchor block's absence.
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnppa").unwrap());
         max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
     }
     info!("####################### end of cycle ##############################");
@@ -2977,21 +2998,7 @@ fn test_pox_reorg_one_flap() {
         "Wait for all blocks to propagate; stacks tip height is {}",
         max_stacks_tip
     );
-    loop {
-        let mut straggler = false;
-        for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
-
-            if tip_info.stacks_tip_height < max_stacks_tip {
-                straggler = true;
-            }
-        }
-        if !straggler {
-            break;
-        }
-        sleep_ms(block_time_ms);
-    }
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
     // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
@@ -3000,6 +3007,9 @@ fn test_pox_reorg_one_flap() {
     }
 }
 
+/// PoX reorg tests where two miners take turn mining hidden anchor blocks.
+/// Both miners mine in the reward phase, and in doing so, confirm their hidden anchor blocks.
+/// The heaviest affirmation map grows as n+pppa+
 #[test]
 #[ignore]
 fn test_pox_reorg_flap_duel() {
@@ -3099,6 +3109,8 @@ fn test_pox_reorg_flap_duel() {
 
         // nodes will selectively hide blocks from one another
         conf.node.fault_injection_hide_blocks = true;
+
+        // conf.connection_options.inv_reward_cycles = 10;
 
         let rpc_port = 41083 + 10 * i;
         let p2p_port = 41083 + 10 * i + 1;
@@ -3331,7 +3343,9 @@ fn test_pox_reorg_flap_duel() {
     }
     info!("####################### end of cycle ##############################");
 
-    // prevent Stacks at these heights from propagating
+    // prevent Stacks at these heights from propagating.
+    // This means that both nodes affirm the absence of each others' anchor blocks, and the
+    // heaviest affirmation map will always look like n+pppa+
     env::set_var(
         "STACKS_HIDE_BLOCKS_AT_HEIGHT",
         "[226,227,228,229,230,236,237,238,239,240,246,247,248,249,250,256,257,258,259,260,266,267,268,269,270,276,277,278,279,280,286,287,288,289,290]"
@@ -3341,7 +3355,7 @@ fn test_pox_reorg_flap_duel() {
 
     // miners 0 and 1 take turns mining anchor blocks.
     // this should cause them both to flip/flop their sortition histories multiple times
-    for c in 0..3 {
+    for _c in 0..3 {
         // miner 0 mines a prepare phase and confirms a hidden anchor block.
         // miner 1 is disabled for these prepare phases
         for i in 0..10 {
@@ -3420,30 +3434,431 @@ fn test_pox_reorg_flap_duel() {
         "Wait for all blocks to propagate; stacks tip height is {}",
         max_stacks_tip
     );
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
+
+    // nodes now agree on stacks affirmation map
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Final tip for miner {}: {:?}", i, &tip_info);
+    }
+}
+
+/// PoX reorg tests where two miners take turn mining hidden reward cycles.
+/// Miners take turn mining entire reward cycles, and deny each other to build on them.
+#[test]
+#[ignore]
+fn test_pox_reorg_flap_reward_cycles() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_miners = 2;
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 3;
+    let v1_unlock_height = 152;
+
+    let (mut conf_template, _) = neon_integration_test_conf();
+    let block_time_ms = 10_000;
+    conf_template.node.mine_microblocks = true;
+    conf_template.miner.microblock_attempt_time_ms = 2_000;
+    conf_template.node.wait_time_for_microblocks = 0;
+    conf_template.node.microblock_frequency = 0;
+    conf_template.miner.first_attempt_time_ms = 2_000;
+    conf_template.miner.subsequent_attempt_time_ms = 5_000;
+    conf_template.burnchain.max_rbf = 1000000;
+    conf_template.node.wait_time_for_blocks = 1_000;
+    conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
+
+    conf_template.node.require_affirmed_anchor_blocks = false;
+
+    // make epoch 2.1 start in the middle of boot-up
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = 101;
+    epochs[2].start_height = 101;
+    epochs[2].end_height = 151;
+    epochs[3].start_height = 151;
+    conf_template.burnchain.epochs = Some(epochs);
+
+    let privks: Vec<_> = (0..5)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+
+    let stack_privks: Vec<_> = (0..5)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+
+    let balances: Vec<_> = privks
+        .iter()
+        .map(|privk| {
+            let addr = to_addr(privk);
+            InitialBalance {
+                address: addr.into(),
+                amount: 30_000_000,
+            }
+        })
+        .collect();
+
+    let stack_balances: Vec<_> = stack_privks
+        .iter()
+        .map(|privk| {
+            let addr = to_addr(privk);
+            InitialBalance {
+                address: addr.into(),
+                amount: 2_000_000_000_000_000,
+            }
+        })
+        .collect();
+
+    let mut confs = vec![];
+    let mut burnchain_configs = vec![];
+    let mut blocks_processed = vec![];
+    let mut channels = vec![];
+    let mut miner_status = vec![];
+
+    for i in 0..num_miners {
+        let seed = StacksPrivateKey::new().to_bytes();
+        let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
+
+        conf.initial_balances.clear();
+        conf.initial_balances.append(&mut balances.clone());
+        conf.initial_balances.append(&mut stack_balances.clone());
+
+        conf.node.mine_microblocks = conf_template.node.mine_microblocks;
+        conf.miner.microblock_attempt_time_ms = conf_template.miner.microblock_attempt_time_ms;
+        conf.node.wait_time_for_microblocks = conf_template.node.wait_time_for_microblocks;
+        conf.node.microblock_frequency = conf_template.node.microblock_frequency;
+        conf.miner.first_attempt_time_ms = conf_template.miner.first_attempt_time_ms;
+        conf.miner.subsequent_attempt_time_ms = conf_template.miner.subsequent_attempt_time_ms;
+        conf.node.wait_time_for_blocks = conf_template.node.wait_time_for_blocks;
+        conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
+        conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
+        conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation.clone();
+        conf.node.require_affirmed_anchor_blocks =
+            conf_template.node.require_affirmed_anchor_blocks;
+
+        // multiple nodes so they must download from each other
+        conf.miner.wait_for_block_download = true;
+
+        // nodes will selectively hide blocks from one another
+        conf.node.fault_injection_hide_blocks = true;
+
+        let rpc_port = 41123 + 10 * i;
+        let p2p_port = 41123 + 10 * i + 1;
+        conf.node.rpc_bind = format!("127.0.0.1:{}", rpc_port);
+        conf.node.data_url = format!("http://127.0.0.1:{}", rpc_port);
+        conf.node.p2p_bind = format!("127.0.0.1:{}", p2p_port);
+
+        confs.push(conf);
+    }
+
+    let node_privkey_1 =
+        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    for i in 1..num_miners {
+        let chain_id = confs[0].burnchain.chain_id;
+        let peer_version = confs[0].burnchain.peer_version;
+        let p2p_bind = confs[0].node.p2p_bind.clone();
+
+        confs[i].node.set_bootstrap_nodes(
+            format!(
+                "{}@{}",
+                &StacksPublicKey::from_private(&node_privkey_1).to_hex(),
+                p2p_bind
+            ),
+            chain_id,
+            peer_version,
+        );
+    }
+
+    // use short reward cycles
+    for i in 0..num_miners {
+        let mut burnchain_config = Burnchain::regtest(&confs[i].get_burn_db_path());
+        let pox_constants = PoxConstants::new(
+            reward_cycle_len,
+            prepare_phase_len,
+            4 * prepare_phase_len / 5,
+            5,
+            15,
+            (1600 * reward_cycle_len - 1).into(),
+            (1700 * reward_cycle_len).into(),
+            v1_unlock_height,
+        );
+        burnchain_config.pox_constants = pox_constants.clone();
+
+        burnchain_configs.push(burnchain_config);
+    }
+
+    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        confs[0].clone(),
+        None,
+        Some(burnchain_configs[0].clone()),
+        None,
+    );
+
+    btc_regtest_controller.bootstrap_chain(1);
+
+    // make sure all miners have BTC
+    for i in 1..num_miners {
+        let old_mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        btc_regtest_controller
+            .set_mining_pubkey(confs[i].burnchain.local_mining_public_key.clone().unwrap());
+        btc_regtest_controller.bootstrap_chain(1);
+        btc_regtest_controller.set_mining_pubkey(old_mining_pubkey);
+    }
+
+    btc_regtest_controller.bootstrap_chain((199 - num_miners) as u64);
+
+    eprintln!("Chain bootstrapped...");
+
+    for (i, burnchain_config) in burnchain_configs.into_iter().enumerate() {
+        let mut run_loop = neon::RunLoop::new(confs[i].clone());
+        let blocks_processed_arc = run_loop.get_blocks_processed_arc();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+        let this_miner_status = run_loop.get_miner_status();
+
+        blocks_processed.push(blocks_processed_arc);
+        channels.push(channel);
+        miner_status.push(this_miner_status);
+
+        thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+    }
+
+    let http_origin = format!("http://{}", &confs[0].node.rpc_bind);
+
+    // give the run loops some time to start up!
+    for i in 0..num_miners {
+        wait_for_runloop(&blocks_processed[i as usize]);
+    }
+
+    // activate miners
+    eprintln!("\n\nBoot miner 0\n\n");
     loop {
-        let mut straggler = false;
-        let mut stacker_am = None;
+        let tip_info_opt = get_chain_info_opt(&confs[0]);
+        if let Some(tip_info) = tip_info_opt {
+            eprintln!("\n\nMiner 0: {:?}\n\n", &tip_info);
+            if tip_info.stacks_tip_height > 0 {
+                break;
+            }
+        } else {
+            eprintln!("\n\nWaiting for miner 0...\n\n");
+        }
+        next_block_and_iterate(
+            &mut btc_regtest_controller,
+            &blocks_processed[0],
+            block_time_ms,
+        );
+    }
+
+    for i in 1..num_miners {
+        eprintln!("\n\nBoot miner {}\n\n", i);
+        loop {
+            let tip_info_opt = get_chain_info_opt(&confs[i]);
+            if let Some(tip_info) = tip_info_opt {
+                eprintln!("\n\nMiner 2: {:?}\n\n", &tip_info);
+                if tip_info.stacks_tip_height > 0 {
+                    break;
+                }
+            } else {
+                eprintln!("\n\nWaiting for miner {}...\n\n", i);
+            }
+            next_block_and_iterate(
+                &mut btc_regtest_controller,
+                &blocks_processed[i as usize],
+                5_000,
+            );
+        }
+    }
+
+    eprintln!("\n\nBegin transactions\n\n");
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let sort_height = channels[0].get_sortitions_processed();
+
+    // make everyone stack
+    let stacking_txs: Vec<_> = stack_privks
+        .iter()
+        .enumerate()
+        .map(|(_i, pk)| {
+            make_contract_call(
+                pk,
+                0,
+                1360,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "pox-2",
+                "stack-stx",
+                &[
+                    Value::UInt(2_000_000_000_000_000 - 30_000_000),
+                    execute(
+                        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                        ClarityVersion::Clarity1,
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    Value::UInt((sort_height + 1) as u128),
+                    Value::UInt(12),
+                ],
+            )
+        })
+        .collect();
+
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
+    // building blocks
+    let all_txs: Vec<_> = privks
+        .iter()
+        .enumerate()
+        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .collect();
+
+    // everyone locks up
+    let mut cnt = 0;
+    for tx in stacking_txs {
+        eprintln!("\n\nSubmit stacking tx {}\n\n", &cnt);
+        submit_tx(&http_origin, &tx);
+        cnt += 1;
+    }
+
+    // run a reward cycle
+    let mut at_220 = false;
+    while !at_220 {
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(block_time_ms);
+
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+            if tip_info.burn_block_height == 220 {
+                at_220 = true;
+            }
+        }
+    }
+
+    // blast out the rest
+    let mut cnt = 0;
+    for tx_chain in all_txs {
+        for tx in tx_chain {
+            eprintln!("\n\nSubmit tx {}\n\n", &cnt);
+            submit_tx(&http_origin, &tx);
+            cnt += 1;
+        }
+    }
+
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+        assert!(tip_info.burn_block_height <= 220);
+    }
+
+    eprintln!("\n\nBegin mining\n\n");
+
+    info!("####################### end of cycle ##############################");
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+    }
+    info!("####################### end of cycle ##############################");
+
+    // prevent Stacks at these heights from propagating.
+    // This means that both nodes affirm the absence of each others' anchor blocks.
+    env::set_var(
+        "STACKS_HIDE_BLOCKS_AT_HEIGHT",
+        "[220,221,222,223,224,225,226,227,228,229,230,231,232,232,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301]"
+    );
+
+    let mut max_stacks_tip = 0;
+
+    // miners 0 and 1 take turns mining anchor blocks.
+    // this should cause them both to flip/flop their sortition histories multiple times
+    for _c in 0..2 {
+        // miner 0 mines two reward cycles and confirms a hidden anchor block.
+        // miner 1 is disabled for this reward cycle
+        signal_mining_blocked(miner_status[1].clone());
+        for i in 0..20 {
+            eprintln!("\n\nBuild block {}\n\n", i);
+            btc_regtest_controller.build_next_block(1);
+            sleep_ms(block_time_ms);
+
+            for (i, c) in confs.iter().enumerate() {
+                let tip_info = get_chain_info(&c);
+                info!("Tip for miner {}: {:?}", i, &tip_info);
+                max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
+            }
+        }
+        signal_mining_ready(miner_status[1].clone());
+
+        info!("####################### end of cycle ##############################");
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+        }
+        info!("####################### end of cycle ##############################");
+
+        // miner 1 mines two reward cycles and confirms a hidden anchor block.
+        // miner 0 is disabled for this reward cycle
+        signal_mining_blocked(miner_status[0].clone());
+        for i in 0..20 {
+            eprintln!("\n\nBuild block {}\n\n", i);
+            btc_regtest_controller.build_next_block(1);
+            sleep_ms(block_time_ms);
+
+            for (i, c) in confs.iter().enumerate() {
+                let tip_info = get_chain_info(&c);
+                info!("Tip for miner {}: {:?}", i, &tip_info);
+            }
+        }
+        signal_mining_ready(miner_status[0].clone());
+
+        info!("####################### end of cycle ##############################");
         for (i, c) in confs.iter().enumerate() {
             let tip_info = get_chain_info(&c);
             info!("Tip for miner {}: {:?}", i, &tip_info);
 
-            if tip_info.stacks_tip_height < max_stacks_tip {
-                straggler = true;
-            }
-            if let Some(stacker_am) = stacker_am.as_ref() {
-                if tip_info.affirmations.unwrap().stacks_tip != *stacker_am {
-                    straggler = true;
-                }
-            } else {
-                stacker_am = Some(tip_info.affirmations.unwrap().stacks_tip);
-            }
+            // miner 1's history overtakes miner 0's.
+            // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
+            // 23 and affirmed cycle 22's anchor block's absence.
+            max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
         }
-        if !straggler {
-            break;
-        }
-
-        sleep_ms(block_time_ms);
+        info!("####################### end of cycle ##############################");
     }
+
+    // advance to start of next reward cycle
+    eprintln!("\n\nBuild final block\n\n");
+    btc_regtest_controller.build_next_block(1);
+    sleep_ms(block_time_ms);
+
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+    }
+
+    // resume block propagation
+    env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
+
+    // wait for all blocks to propagate
+    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation map, because the
+    // act of flapping back and forth so much will have caused these nodes to forget about some of
+    // their anchor blocks.  This is an artifact of the test.
+    eprintln!(
+        "Wait for all blocks to propagate; stacks tip height is {}",
+        max_stacks_tip
+    );
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
     // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
@@ -3839,21 +4254,7 @@ fn test_pox_missing_five_anchor_blocks() {
         "Wait for all blocks to propagate; stacks tip height is {}",
         max_stacks_tip
     );
-    loop {
-        let mut straggler = false;
-        for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
-
-            if tip_info.stacks_tip_height < max_stacks_tip {
-                straggler = true;
-            }
-        }
-        if !straggler {
-            break;
-        }
-        sleep_ms(block_time_ms);
-    }
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
     // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {

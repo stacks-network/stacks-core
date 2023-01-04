@@ -207,6 +207,7 @@ pub trait TransactionConnection: ClarityConnection {
                 db,
                 false,
                 cost_track,
+                epoch_id,
                 clarity_version,
             );
 

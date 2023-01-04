@@ -641,6 +641,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         cost TEXT NOT NULL,
         block_size TEXT NOT NULL,       -- converted to/from u64
+        affirmation_weight INTEGER NOT NULL,
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
@@ -833,6 +834,8 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1599,6 +1602,7 @@ impl StacksChainState {
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::zero(),
+                0,
             )?;
             tx.commit()?;
         }
@@ -2388,6 +2392,7 @@ impl StacksChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2441,6 +2446,7 @@ impl StacksChainState {
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
+            affirmation_weight,
         )?;
         StacksChainState::insert_miner_payment_schedule(
             headers_tx.deref_mut(),

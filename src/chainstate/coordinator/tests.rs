@@ -4535,7 +4535,10 @@ fn test_epoch_verify_active_pox_contract() {
         let amount_locked_pox_1 = amount_locked_pox_1_res
             .expect("Should be able to query pox.clar for total locked ustx");
 
+        let active_pox_contract = b.pox_constants.active_pox_contract(burn_block_height);
+
         if burn_block_height <= pox_v1_unlock_ht.into() {
+            assert_eq!(active_pox_contract, POX_1_NAME);
             if curr_reward_cycle == 1 {
                 // This is a result of the first stack stx sent.
                 assert_eq!(amount_locked_pox_1, stacked_amt);
@@ -4551,6 +4554,7 @@ fn test_epoch_verify_active_pox_contract() {
             // After the v1_unlock_height, the total stacked amount does not change, since
             // the third `stack-stx` operation does not alter this amount.
             assert_eq!(amount_locked_pox_1, stacked_amt * 2);
+            assert_eq!(active_pox_contract, POX_2_NAME);
         }
 
         // Query the pox-2.clar contract to ensure the total stacked amount is as expected

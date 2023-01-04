@@ -111,6 +111,8 @@ pub enum TypeSignature {
     // we reach the place where the coercion needs to happen, we can perform
     // the check -- see `concretize` method.
     ListUnionType(HashSet<CallableSubtype>),
+    // This is used only below epoch 2.1. It has been replaced by CallableType.
+    TraitReferenceType(TraitIdentifier),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +156,7 @@ pub enum CallableSubtype {
 
 use self::TypeSignature::{
     BoolType, CallableType, IntType, ListUnionType, NoType, OptionalType, PrincipalType,
-    ResponseType, SequenceType, TupleType, UIntType,
+    ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
 lazy_static! {
@@ -447,12 +449,109 @@ impl TypeSignature {
         &TypeSignature::NoType == self
     }
 
-    pub fn admits(&self, x: &Value) -> Result<bool> {
+    pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool> {
         let x_type = TypeSignature::type_of(x);
-        self.admits_type(&x_type)
+        self.admits_type(epoch, &x_type)
     }
 
-    pub fn admits_type(&self, other: &TypeSignature) -> Result<bool> {
+    pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
+        match epoch {
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
+            StacksEpochId::Epoch21 => self.admits_type_v2_1(other),
+            StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
+        }
+    }
+
+    pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool> {
+        match self {
+            SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
+                if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
+                    if other_list_type.max_len == 0 {
+                        // if other is an empty list, a list type should always admit.
+                        Ok(true)
+                    } else if my_list_type.max_len >= other_list_type.max_len {
+                        my_list_type
+                            .entry_type
+                            .admits_type_v2_0(&*other_list_type.entry_type)
+                    } else {
+                        Ok(false)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
+                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
+                    Ok(my_len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) =
+                    other
+                {
+                    Ok(len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) =
+                    other
+                {
+                    Ok(len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            OptionalType(ref my_inner_type) => {
+                if let OptionalType(other_inner_type) = other {
+                    // Option types will always admit a "NoType" OptionalType -- which
+                    //   can only be a None
+                    if other_inner_type.is_no_type() {
+                        Ok(true)
+                    } else {
+                        my_inner_type.admits_type_v2_0(other_inner_type)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            ResponseType(ref my_inner_type) => {
+                if let ResponseType(other_inner_type) = other {
+                    // ResponseTypes admit according to the following rule:
+                    //   if other.ErrType is NoType, and other.OkType admits => admit
+                    //   if other.OkType is NoType, and other.ErrType admits => admit
+                    //   if both OkType and ErrType admit => admit
+                    //   otherwise fail.
+                    if other_inner_type.0.is_no_type() {
+                        my_inner_type.1.admits_type_v2_0(&other_inner_type.1)
+                    } else if other_inner_type.1.is_no_type() {
+                        my_inner_type.0.admits_type_v2_0(&other_inner_type.0)
+                    } else {
+                        Ok(my_inner_type.1.admits_type_v2_0(&other_inner_type.1)?
+                            && my_inner_type.0.admits_type_v2_0(&other_inner_type.0)?)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            TupleType(ref tuple_sig) => {
+                if let TupleType(ref other_tuple_sig) = other {
+                    tuple_sig.admits(&StacksEpochId::Epoch2_05, other_tuple_sig)
+                } else {
+                    Ok(false)
+                }
+            }
+            NoType => Err(CheckErrors::CouldNotDetermineType),
+            CallableType(_) => unreachable!("CallableType should not be used in epoch v2.0"),
+            ListUnionType(_) => unreachable!("ListUnionType should not be used in epoch v2.0"),
+            _ => Ok(other == self),
+        }
+    }
+
+    fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool> {
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
@@ -469,7 +568,7 @@ impl TypeSignature {
                     } else if my_list_type.max_len >= other_list_type.max_len {
                         my_list_type
                             .entry_type
-                            .admits_type(&*other_list_type.entry_type)
+                            .admits_type_v2_1(&*other_list_type.entry_type)
                     } else {
                         Ok(false)
                     }
@@ -509,7 +608,7 @@ impl TypeSignature {
                     if other_inner_type.is_no_type() {
                         Ok(true)
                     } else {
-                        my_inner_type.admits_type(other_inner_type)
+                        my_inner_type.admits_type_v2_1(other_inner_type)
                     }
                 } else {
                     Ok(false)
@@ -523,12 +622,12 @@ impl TypeSignature {
                     //   if both OkType and ErrType admit => admit
                     //   otherwise fail.
                     if other_inner_type.0.is_no_type() {
-                        my_inner_type.1.admits_type(&other_inner_type.1)
+                        my_inner_type.1.admits_type_v2_1(&other_inner_type.1)
                     } else if other_inner_type.1.is_no_type() {
-                        my_inner_type.0.admits_type(&other_inner_type.0)
+                        my_inner_type.0.admits_type_v2_1(&other_inner_type.0)
                     } else {
-                        Ok(my_inner_type.1.admits_type(&other_inner_type.1)?
-                            && my_inner_type.0.admits_type(&other_inner_type.0)?)
+                        Ok(my_inner_type.1.admits_type_v2_1(&other_inner_type.1)?
+                            && my_inner_type.0.admits_type_v2_1(&other_inner_type.0)?)
                     }
                 } else {
                     Ok(false)
@@ -536,12 +635,15 @@ impl TypeSignature {
             }
             TupleType(ref tuple_sig) => {
                 if let TupleType(ref other_tuple_sig) = &other {
-                    tuple_sig.admits(other_tuple_sig)
+                    tuple_sig.admits(&StacksEpochId::Epoch21, other_tuple_sig)
                 } else {
                     Ok(false)
                 }
             }
             NoType => Err(CheckErrors::CouldNotDetermineType),
+            TraitReferenceType(_) => {
+                unreachable!("TraitReferenceType should not be used in epoch v2.1")
+            }
             _ => Ok(&other == self),
         }
     }
@@ -645,14 +747,14 @@ impl TupleTypeSignature {
         &self.type_map
     }
 
-    pub fn admits(&self, other: &TupleTypeSignature) -> Result<bool> {
+    pub fn admits(&self, epoch: &StacksEpochId, other: &TupleTypeSignature) -> Result<bool> {
         if self.type_map.len() != other.type_map.len() {
             return Ok(false);
         }
 
         for (name, my_type_sig) in self.type_map.iter() {
             if let Some(other_type_sig) = other.type_map.get(name) {
-                if !my_type_sig.admits_type(other_type_sig)? {
+                if !my_type_sig.admits_type(epoch, other_type_sig)? {
                     return Ok(false);
                 }
             } else {
@@ -664,11 +766,12 @@ impl TupleTypeSignature {
     }
 
     pub fn parse_name_type_pair_list<A: CostTracker>(
+        epoch: StacksEpochId,
         type_def: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
-            let mapped_key_types = parse_name_type_pairs(name_type_pairs, accounting)?;
+            let mapped_key_types = parse_name_type_pairs(epoch, name_type_pairs, accounting)?;
             TupleTypeSignature::try_from(mapped_key_types)
         } else {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
@@ -701,13 +804,17 @@ impl FunctionSignature {
         Ok(function_type_size)
     }
 
-    pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> Result<bool> {
+    pub fn check_args_trait_compliance(
+        &self,
+        epoch: &StacksEpochId,
+        args: Vec<TypeSignature>,
+    ) -> Result<bool> {
         if args.len() != self.args.len() {
             return Ok(false);
         }
         let args_iter = self.args.iter().zip(args.iter());
         for (expected_arg, arg) in args_iter {
-            if !arg.admits_type(&expected_arg)? {
+            if !arg.admits_type(epoch, &expected_arg)? {
                 return Ok(false);
             }
         }
@@ -779,13 +886,17 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    pub fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn factor_out_no_type(
+        epoch: &StacksEpochId,
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
             Ok(a.clone())
         } else {
-            Self::least_supertype(a, b)
+            Self::least_supertype(epoch, a, b)
         }
     }
 
@@ -810,7 +921,19 @@ impl TypeSignature {
     ///  For ints, uints, principals, bools:
     ///      least_supertype(A, B) := if A != B, error, else A
     ///
-    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn least_supertype(
+        epoch: &StacksEpochId,
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature> {
+        match epoch {
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
+            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(a, b),
+            StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
+        }
+    }
+
+    pub fn least_supertype_v2_0(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -821,11 +944,11 @@ impl TypeSignature {
                     let entry_b = types_b
                         .get(name)
                         .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
-                    let entry_out = Self::least_supertype(entry_a, entry_b)?;
+                    let entry_out = Self::least_supertype_v2_0(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
-                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
+                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -842,19 +965,122 @@ impl TypeSignature {
                 } else if *len_b == 0 {
                     *(entry_a.clone())
                 } else {
-                    Self::least_supertype(entry_a, entry_b)?
+                    Self::least_supertype_v2_0(entry_a, entry_b)?
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
+                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
-                let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
-                let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
+                let ok_type =
+                    Self::factor_out_no_type(&StacksEpochId::Epoch2_05, &resp_a.0, &resp_b.0)?;
+                let err_type =
+                    Self::factor_out_no_type(&StacksEpochId::Epoch2_05, &resp_a.1, &resp_b.1)?;
                 Ok(Self::new_response(ok_type, err_type)?)
             }
             (OptionalType(some_a), OptionalType(some_b)) => {
-                let some_type = Self::factor_out_no_type(some_a, some_b)?;
+                let some_type =
+                    Self::factor_out_no_type(&StacksEpochId::Epoch2_05, some_a, some_b)?;
+                Ok(Self::new_option(some_type)?)
+            }
+            (
+                SequenceType(SequenceSubtype::BufferType(buff_a)),
+                SequenceType(SequenceSubtype::BufferType(buff_b)),
+            ) => {
+                let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
+                    buff_a
+                } else {
+                    buff_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::BufferType(buff_len)))
+            }
+            (
+                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_a))),
+                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_b))),
+            ) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::ASCII(str_len),
+                )))
+            }
+            (
+                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_a))),
+                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_b))),
+            ) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::UTF8(str_len),
+                )))
+            }
+            (NoType, x) | (x, NoType) => Ok(x.clone()),
+            (x, y) => {
+                if x == y {
+                    Ok(x.clone())
+                } else {
+                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                }
+            }
+        }
+    }
+
+    pub fn least_supertype_v2_1(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+        match (a, b) {
+            (
+                TupleType(TupleTypeSignature { type_map: types_a }),
+                TupleType(TupleTypeSignature { type_map: types_b }),
+            ) => {
+                let mut type_map_out = BTreeMap::new();
+                for (name, entry_a) in types_a.iter() {
+                    let entry_b = types_b
+                        .get(name)
+                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
+                    type_map_out.insert(name.clone(), entry_out);
+                }
+                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
+                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+            }
+            (
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: len_a,
+                    entry_type: entry_a,
+                })),
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: len_b,
+                    entry_type: entry_b,
+                })),
+            ) => {
+                let entry_type = if *len_a == 0 {
+                    *(entry_b.clone())
+                } else if *len_b == 0 {
+                    *(entry_a.clone())
+                } else {
+                    Self::least_supertype_v2_1(entry_a, entry_b)?
+                };
+                let max_len = cmp::max(len_a, len_b);
+                Ok(Self::list_of(entry_type, *max_len)
+                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+            }
+            (ResponseType(resp_a), ResponseType(resp_b)) => {
+                let ok_type =
+                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.0, &resp_b.0)?;
+                let err_type =
+                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.1, &resp_b.1)?;
+                Ok(Self::new_response(ok_type, err_type)?)
+            }
+            (OptionalType(some_a), OptionalType(some_b)) => {
+                let some_type = Self::factor_out_no_type(&StacksEpochId::Epoch21, some_a, some_b)?;
                 Ok(Self::new_option(some_type)?)
             }
             (
@@ -1000,7 +1226,7 @@ impl TypeSignature {
         if let Some((first, rest)) = children.split_first() {
             let mut current_entry_type = first.clone();
             for next_entry in rest.iter() {
-                current_entry_type = Self::least_supertype(&current_entry_type, next_entry)?;
+                current_entry_type = Self::least_supertype_v2_1(&current_entry_type, next_entry)?;
             }
             let len = u32::try_from(children.len()).map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(current_entry_type, len)
@@ -1025,6 +1251,7 @@ impl TypeSignature {
     // Parses list type signatures ->
     // (list maximum-length atomic-type)
     fn parse_list_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
@@ -1034,7 +1261,7 @@ impl TypeSignature {
 
         if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {
             let atomic_type_arg = &type_args[type_args.len() - 1];
-            let entry_type = TypeSignature::parse_type_repr(atomic_type_arg, accounting)?;
+            let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len = u32::try_from(*max_len).map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
@@ -1045,10 +1272,11 @@ impl TypeSignature {
     // Parses type signatures of the following form:
     // (tuple (key-name-0 value-type-0) (key-name-1 value-type-1))
     fn parse_tuple_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
-        let mapped_key_types = parse_name_type_pairs(type_args, accounting)?;
+        let mapped_key_types = parse_name_type_pairs(epoch, type_args, accounting)?;
         let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
         Ok(TypeSignature::from(tuple_type_signature))
     }
@@ -1098,30 +1326,33 @@ impl TypeSignature {
     }
 
     fn parse_optional_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
-        let inner_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
+        let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
         Ok(TypeSignature::new_option(inner_type)?)
     }
 
     pub fn parse_response_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
-        let ok_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
-        let err_type = TypeSignature::parse_type_repr(&type_args[1], accounting)?;
+        let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
+        let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
         Ok(TypeSignature::new_response(ok_type, err_type)?)
     }
 
     pub fn parse_type_repr<A: CostTracker>(
+        epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
     ) -> Result<TypeSignature> {
@@ -1138,17 +1369,33 @@ impl TypeSignature {
                     .ok_or(CheckErrors::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
-                        "list" => TypeSignature::parse_list_type_repr(rest, accounting),
+                        "list" => TypeSignature::parse_list_type_repr(epoch, rest, accounting),
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "string-utf8" => TypeSignature::parse_string_utf8_type_repr(rest),
                         "string-ascii" => TypeSignature::parse_string_ascii_type_repr(rest),
-                        "tuple" => TypeSignature::parse_tuple_type_repr(rest, accounting),
-                        "optional" => TypeSignature::parse_optional_type_repr(rest, accounting),
-                        "response" => TypeSignature::parse_response_type_repr(rest, accounting),
+                        "tuple" => TypeSignature::parse_tuple_type_repr(epoch, rest, accounting),
+                        "optional" => {
+                            TypeSignature::parse_optional_type_repr(epoch, rest, accounting)
+                        }
+                        "response" => {
+                            TypeSignature::parse_response_type_repr(epoch, rest, accounting)
+                        }
                         _ => Err(CheckErrors::InvalidTypeDescription),
                     }
                 } else {
                     Err(CheckErrors::InvalidTypeDescription)
+                }
+            }
+            SymbolicExpressionType::TraitReference(_, ref trait_definition)
+                if epoch < StacksEpochId::Epoch21 =>
+            {
+                match trait_definition {
+                    TraitDefinition::Defined(trait_id) => {
+                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+                    }
+                    TraitDefinition::Imported(trait_id) => {
+                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+                    }
                 }
             }
             SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
@@ -1168,6 +1415,7 @@ impl TypeSignature {
     pub fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
+        epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
@@ -1194,12 +1442,12 @@ impl TypeSignature {
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
-                let arg_t = TypeSignature::parse_type_repr(&arg_type, accounting)?;
+                let arg_t = TypeSignature::parse_type_repr(epoch, &arg_type, accounting)?;
                 fn_args.push(arg_t);
             }
 
             // Extract function's type return - must be a response
-            let fn_return = match TypeSignature::parse_type_repr(&args[2], accounting) {
+            let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
                 Ok(response) => match response {
                     TypeSignature::ResponseType(_) => Ok(response),
                     _ => Err(CheckErrors::DefineTraitBadSignature),
@@ -1234,7 +1482,7 @@ impl TypeSignature {
             epoch,
         )
         .unwrap()[0];
-        TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
+        TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap()
     }
 }
 
@@ -1252,6 +1500,7 @@ impl TypeSignature {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             CallableType(_)
+            | TraitReferenceType(_)
             | ListUnionType(_)
             | NoType
             | IntType
@@ -1303,7 +1552,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
         }
     }
 
@@ -1332,7 +1581,7 @@ impl TypeSignature {
                     .checked_add(s.inner_type_size()?)?
                     .checked_add(1)
             }
-            CallableType(_) | ListUnionType(_) => Some(1),
+            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
         }
     }
 }
@@ -1426,6 +1675,7 @@ use crate::vm::costs::CostTracker;
 use crate::vm::ClarityVersion;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
+    epoch: StacksEpochId,
     name_type_pairs: &[SymbolicExpression],
     accounting: &mut A,
 ) -> Result<Vec<(ClarityName, TypeSignature)>> {
@@ -1459,7 +1709,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
                 .match_atom()
                 .ok_or(CheckErrors::BadSyntaxExpectedListOfPairs)?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(type_symbol, accounting)?;
+            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)?;
             Ok((name, type_info))
         })
         .collect();
@@ -1521,7 +1771,9 @@ impl fmt::Display for TypeSignature {
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 write!(f, "(string-utf8 {})", len)
             }
-            CallableType(CallableSubtype::Trait(trait_id)) => write!(f, "<{}>", trait_id),
+            CallableType(CallableSubtype::Trait(trait_id)) | TraitReferenceType(trait_id) => {
+                write!(f, "<{}>", trait_id)
+            }
             CallableType(CallableSubtype::Principal(contract_id)) => {
                 write!(f, "(principal {})", contract_id)
             }
@@ -1578,7 +1830,7 @@ mod test {
             epoch,
         )
         .unwrap()[0];
-        TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
+        TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap_err()
     }
 
     #[apply(test_clarity_versions_signatures)]
@@ -1787,11 +2039,11 @@ mod test {
 
         for (pair, expected) in notype_pairs {
             assert_eq!(
-                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
                 expected
             );
             assert_eq!(
-                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
                 expected
             );
         }
@@ -1896,11 +2148,11 @@ mod test {
 
         for (pair, expected) in simple_pairs {
             assert_eq!(
-                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
                 expected
             );
             assert_eq!(
-                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
                 expected
             );
         }
@@ -1963,11 +2215,11 @@ mod test {
 
         for (pair, expected) in matched_pairs {
             assert_eq!(
-                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
                 expected
             );
             assert_eq!(
-                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
                 expected
             );
         }
@@ -2046,11 +2298,11 @@ mod test {
 
         for (pair, expected) in compound_pairs {
             assert_eq!(
-                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
                 expected
             );
             assert_eq!(
-                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
                 expected
             );
         }
@@ -2154,11 +2406,11 @@ mod test {
 
         for pair in bad_pairs {
             matches!(
-                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap_err(),
+                TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap_err(),
                 CheckErrors::TypeError(..)
             );
             matches!(
-                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap_err(),
+                TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap_err(),
                 CheckErrors::TypeError(..)
             );
         }

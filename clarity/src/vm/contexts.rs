@@ -543,14 +543,14 @@ impl EventBatch {
 
 impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, '_> {
+    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, '_> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
                 CHAIN_ID_TESTNET,
                 database,
                 LimitedCostTracker::new_free(),
-                StacksEpochId::Epoch2_05,
+                epoch,
             ),
             call_stack: CallStack::new(),
         }

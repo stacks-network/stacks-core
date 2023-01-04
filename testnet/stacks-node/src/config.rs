@@ -1733,7 +1733,7 @@ impl NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: false,
+            always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
         }

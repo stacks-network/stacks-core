@@ -423,7 +423,7 @@ where
 {
     let mut marf_kv = MemoryBackingStore::new();
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), StacksEpochId::latest());
     // start an initial transaction.
     if !top_level {
         owned_env.begin();

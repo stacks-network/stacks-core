@@ -45,6 +45,7 @@ use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
 use super::events::StacksTransactionEvent;
 pub use super::test_util::*;
+use super::ClarityVersion;
 
 mod assets;
 mod contracts;
@@ -55,19 +56,38 @@ mod sequences;
 mod simple_apply_eval;
 mod traits;
 
-pub fn with_memory_environment<F>(f: F, top_level: bool)
+pub fn with_memory_environment<F>(f: F, epoch: StacksEpochId, top_level: bool)
 where
     F: FnOnce(&mut OwnedEnvironment) -> (),
 {
     let mut marf_kv = MemoryBackingStore::new();
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), epoch);
     // start an initial transaction.
     if !top_level {
         owned_env.begin();
     }
 
     f(&mut owned_env)
+}
+
+pub fn with_versioned_memory_environment<F>(
+    f: F,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+    top_level: bool,
+) where
+    F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
+{
+    let mut marf_kv = MemoryBackingStore::new();
+
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), epoch);
+    // start an initial transaction.
+    if !top_level {
+        owned_env.begin();
+    }
+
+    f(&mut owned_env, version)
 }
 
 /// Determine whether or not to use the testnet or mainnet chain ID, given whether or not the

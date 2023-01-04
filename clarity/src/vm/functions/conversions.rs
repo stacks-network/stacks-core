@@ -237,7 +237,7 @@ pub fn from_consensus_buff(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let type_arg = TypeSignature::parse_type_repr(&args[0], env)?;
+    let type_arg = TypeSignature::parse_type_repr(*env.epoch(), &args[0], env)?;
     let value = eval(&args[1], env, context)?;
 
     // get the buffer bytes from the supplied value. if not passed a buffer,
@@ -264,7 +264,7 @@ pub fn from_consensus_buff(
         Ok(value) => value,
         Err(_) => return Ok(Value::none()),
     };
-    if !type_arg.admits(&result)? {
+    if !type_arg.admits(env.epoch(), &result)? {
         return Ok(Value::none());
     }
 

@@ -649,14 +649,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(txid, intended_sortition_id)
     );"#,
-    r#"
-    CREATE TABLE canonical_accepted_stacks_blocks(
-        tip_consensus_hash TEXT NOT NULL,
-        consensus_hash TEXT NOT NULL,
-        stacks_block_hash TEXT NOT NULL,
-        block_height INTEGER NOT NULL,
-        PRIMARY KEY(consensus_hash, stacks_block_hash)
-    );"#,
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
@@ -724,7 +716,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
-    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash ON snapshots(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_parent_burn_header_hash ON snapshots(parent_burn_header_hash,burn_header_hash);",
@@ -852,6 +843,10 @@ impl db_keys {
 
     pub fn pox_last_selected_anchor_txid() -> &'static str {
         "sortition_db::last_selected_anchor_block_txid"
+    }
+
+    pub fn pox_affirmation_map() -> &'static str {
+        "sortition_db::affirmation_map"
     }
 
     pub fn pox_reward_cycle_unlocks(cycle: u64) -> String {
@@ -1555,6 +1550,35 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(anchor_block_txid)
     }
 
+    pub fn get_sortition_affirmation_map(&mut self) -> Result<AffirmationMap, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let affirmation_map = match self.get_indexed(&chain_tip, &db_keys::pox_affirmation_map())? {
+            Some(am_str) => {
+                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
+            }
+            None => AffirmationMap::empty(),
+        };
+        Ok(affirmation_map)
+    }
+
+    pub fn get_last_selected_anchor_block_hash(
+        &mut self,
+    ) -> Result<Option<BlockHeaderHash>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
+            self.get_indexed(&chain_tip, &db_keys::pox_last_selected_anchor())?,
+        );
+        Ok(anchor_block_hash)
+    }
+
+    pub fn get_last_selected_anchor_block_txid(&mut self) -> Result<Option<Txid>, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(
+            self.get_indexed(&chain_tip, &db_keys::pox_last_selected_anchor_txid())?,
+        );
+        Ok(anchor_block_txid)
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
@@ -1592,14 +1616,6 @@ impl<'a> SortitionHandleTx<'a> {
 
         let num_rows = self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
         assert!(num_rows > 0);
-
-        SortitionDB::insert_accepted_stacks_block_pointer(
-            self,
-            &burn_tip.consensus_hash,
-            consensus_hash,
-            stacks_block_hash,
-            stacks_block_height,
-        )?;
 
         // update arrival data across all Stacks forks
         let (best_ch, best_bhh, best_height) = self.find_new_block_arrivals(burn_tip)?;
@@ -1656,6 +1672,17 @@ impl<'a> SortitionHandleConn<'a> {
             self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor_txid())?,
         );
         Ok(anchor_block_txid)
+    }
+
+    pub fn get_sortition_affirmation_map(&self) -> Result<AffirmationMap, db_error> {
+        let chain_tip = self.context.chain_tip.clone();
+        let affirmation_map = match self.get_indexed(&chain_tip, &db_keys::pox_affirmation_map())? {
+            Some(am_str) => {
+                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
+            }
+            None => AffirmationMap::empty(),
+        };
+        Ok(affirmation_map)
     }
 
     pub fn get_last_selected_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
@@ -3239,17 +3266,18 @@ impl SortitionDB {
         canonical_stacks_ch: &ConsensusHash,
         canonical_stacks_bhh: &BlockHeaderHash,
         canonical_stacks_height: u64,
-        clear_block_accepted: bool,
+        stacks_block_accepted: Option<bool>,
     ) -> Result<(), BurnchainError> {
-        if clear_block_accepted {
+        if let Some(stacks_block_accepted) = stacks_block_accepted {
             let args: &[&dyn ToSql] = &[
                 sortition_id,
                 &u64_to_sql(canonical_stacks_height)?,
                 canonical_stacks_bhh,
                 canonical_stacks_ch,
+                &stacks_block_accepted,
             ];
             tx.execute(
-                "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4, stacks_block_accepted = 0 WHERE sortition_id = ?1",
+                "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4, stacks_block_accepted = ?5 WHERE sortition_id = ?1",
                 args
             )?;
         } else {
@@ -3743,77 +3771,20 @@ impl SortitionDB {
 
     /// Find the affirmation map represented by a given sortition ID.
     pub fn find_sortition_tip_affirmation_map(
-        burnchain_db: &BurnchainDB,
+        _burnchain_db: &BurnchainDB,
         sortition_db: &SortitionDB,
         tip_id: &SortitionId,
     ) -> Result<AffirmationMap, db_error> {
-        let tip = SortitionDB::get_block_snapshot(sortition_db.conn(), tip_id)?
-            .ok_or(db_error::NotFoundError)?;
-        let cur_reward_cycle = sortition_db
-            .pox_constants
-            .block_height_to_reward_cycle(sortition_db.first_block_height, tip.block_height)
-            .expect("FATAL: tip precedes system start height");
-
         let ih = sortition_db.index_handle(tip_id);
-        let last_anchor_txid_opt = ih.get_last_selected_anchor_block_txid()?;
-        let am = if let Some(last_anchor_txid) = last_anchor_txid_opt {
-            let commit = BurnchainDB::get_block_commit(burnchain_db.conn(), &last_anchor_txid)?
-                .expect(&format!(
-                    "FATAL: no block-commit for last anchor txid {}",
-                    &last_anchor_txid
-                ));
+        let am = ih.get_sortition_affirmation_map()?;
 
-            let commit_metadata = BurnchainDB::get_commit_metadata(
-                burnchain_db.conn(),
-                &commit.burn_header_hash,
-                &last_anchor_txid,
-            )?
-            .expect(&format!(
-                "FATAL: no block-commit metadata for block-commit txid {}",
-                &last_anchor_txid
-            ));
-
-            let mut am = BurnchainDB::get_affirmation_map(
-                burnchain_db.conn(),
-                commit_metadata.affirmation_id,
-            )?
-            .expect(&format!(
-                "FATAL: no affirmation map for stored block-commit {} (am ID {})",
-                &last_anchor_txid, commit_metadata.affirmation_id
-            ));
-
-            if am.len() == 0 {
-                for _ in 0..cur_reward_cycle {
-                    am.push(AffirmationMapEntry::Nothing);
-                }
-            }
-
-            let commit_sn = ih
-                .get_block_snapshot_by_height(commit.block_height as u64)?
-                .ok_or_else(|| db_error::NotFoundError)?;
-
-            if commit_sn.stacks_block_accepted {
-                debug!(
-                    "Last-selected anchor block {}/{} is processed",
-                    &commit_sn.consensus_hash, &commit.block_header_hash
-                );
-                am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
-            } else {
-                debug!(
-                    "Last-selected anchor block {}/{} is not processed",
-                    &commit_sn.consensus_hash, &commit.block_header_hash
-                );
-                am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
-            }
-            am
+        // remove the first entry -- it's always `n` based on the way we construct it, while the
+        // heaviest affirmation map just has nothing.
+        if am.len() > 0 {
+            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
         } else {
-            let mut am = AffirmationMap::empty();
-            for _ in 0..cur_reward_cycle {
-                am.push(AffirmationMapEntry::Nothing);
-            }
-            am
-        };
-        Ok(am)
+            Ok(AffirmationMap::empty())
+        }
     }
 
     /// Get the list of Stack-STX operations processed in a given burnchain block.
@@ -3943,52 +3914,18 @@ impl SortitionDB {
         Ok((consensus_hash, stacks_block_hash))
     }
 
-    /// Get an accepted stacks block header in a fork whose chain tip has not yet committed
-    /// to it.
-    fn get_accepted_stacks_block_pointer(
-        conn: &Connection,
-        tip_consensus_hash: &ConsensusHash,
-        stacks_block_hash: &BlockHeaderHash,
-    ) -> Result<Option<AcceptedStacksBlockHeader>, db_error> {
-        let args: &[&dyn ToSql] = &[tip_consensus_hash, stacks_block_hash];
-        query_row_panic(conn, "SELECT * FROM canonical_accepted_stacks_blocks WHERE tip_consensus_hash = ?1 AND stacks_block_hash = ?2", args,
-                        || format!("BUG: the same Stacks block {} shows up twice or more in the same burn chain fork (whose tip is {})", stacks_block_hash, tip_consensus_hash))
-    }
-
-    /// Add an accepted Stacks block to the canonical accepted stacks header table, to indicate
-    /// that it will be committed to by the next burn block added to the canonical chain tip.  Used
-    /// to identify Stacks blocks that get accepted in the mean time, so we can ensure that the
-    /// canonical burn chain tip always points to the canonical stacks chain tip.
-    fn insert_accepted_stacks_block_pointer(
-        tx: &Transaction,
-        tip_consensus_hash: &ConsensusHash,
-        consensus_hash: &ConsensusHash,
-        stacks_block_hash: &BlockHeaderHash,
-        stacks_block_height: u64,
-    ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[
-            tip_consensus_hash,
-            consensus_hash,
-            stacks_block_hash,
-            &u64_to_sql(stacks_block_height)?,
-        ];
-        tx.execute("INSERT OR REPLACE INTO canonical_accepted_stacks_blocks (tip_consensus_hash, consensus_hash, stacks_block_hash, block_height) VALUES (?1, ?2, ?3, ?4)", args)
-            .map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
     /// Get the maximum arrival index for any known snapshot.
     fn get_max_arrival_index(conn: &Connection) -> Result<u64, db_error> {
         match conn
             .query_row(
-                "SELECT IFNULL(MAX(arrival_index), 0) FROM snapshots",
+                "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
                 NO_PARAMS,
                 |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
         {
-            Some(arrival_index) => Ok(arrival_index),
-            None => Ok(0),
+            Some(arrival_index) => Ok(if arrival_index == 0 { 1 } else { arrival_index }),
+            None => Ok(1),
         }
     }
 
@@ -5145,10 +5082,15 @@ impl<'a> SortitionHandleTx<'a> {
                 } else {
                     pox_id.extend_with_not_present_block();
                 }
+
+                let mut cur_affirmation_map = self.get_sortition_affirmation_map()?;
+                let mut selected_anchor_block = false;
+
                 // if we have selected an anchor block (known or unknown), write that info
-                if let Some((ref anchor_block, ref anchor_block_txid)) =
-                    reward_info.selected_anchor_block()
+                if let Some((anchor_block, anchor_block_txid)) = reward_info.selected_anchor_block()
                 {
+                    selected_anchor_block = true;
+
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
 
@@ -5158,11 +5100,15 @@ impl<'a> SortitionHandleTx<'a> {
                     keys.push(db_keys::pox_last_anchor_txid().to_string());
                     values.push(anchor_block_txid.to_hex());
 
+                    keys.push(db_keys::pox_affirmation_map().to_string());
+                    values.push(cur_affirmation_map.encode());
+
                     keys.push(db_keys::pox_last_selected_anchor().to_string());
                     values.push(anchor_block.to_hex());
 
                     keys.push(db_keys::pox_last_selected_anchor_txid().to_string());
                     values.push(anchor_block_txid.to_hex());
+
                     debug!(
                         "Known anchor block {} txid {} at reward cycle starting at burn height {}",
                         anchor_block, anchor_block_txid, snapshot.block_height
@@ -5173,6 +5119,8 @@ impl<'a> SortitionHandleTx<'a> {
 
                     keys.push(db_keys::pox_last_anchor_txid().to_string());
                     values.push("".to_string());
+
+                    cur_affirmation_map.push(AffirmationMapEntry::Nothing);
 
                     debug!(
                         "No anchor block at reward cycle starting at burn height {}",
@@ -5231,10 +5179,16 @@ impl<'a> SortitionHandleTx<'a> {
                         keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
                         values.push(reward_set.start_cycle_state.serialize());
                     }
+
+                    cur_affirmation_map.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
                     // no anchor block; we're burning
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(0));
+
+                    if selected_anchor_block {
+                        cur_affirmation_map.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
+                    }
 
                     pox_payout_addrs = vec![];
                 }
@@ -5242,6 +5196,9 @@ impl<'a> SortitionHandleTx<'a> {
                 // in all cases, write the new PoX bit vector
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());
+
+                keys.push(db_keys::pox_affirmation_map().to_string());
+                values.push(cur_affirmation_map.encode());
 
                 pox_payout_addrs
             } else {
@@ -5439,7 +5396,7 @@ impl<'a> SortitionHandleTx<'a> {
                 &parent_tip.sortition_id,
                 &db_keys::stacks_block_max_arrival_index(),
             )?
-            .unwrap_or("0".into())
+            .unwrap_or("1".into())
             .parse::<u64>()
             .expect("BUG: max arrival index is not a u64");
 
@@ -5489,6 +5446,11 @@ impl<'a> SortitionHandleTx<'a> {
         let mut best_tip_consensus_hash = parent_tip.canonical_stacks_tip_consensus_hash.clone();
         let mut best_tip_height = parent_tip.canonical_stacks_tip_height;
         let mut ret = vec![];
+
+        debug!(
+            "Current best tip is {}/{} (height {})",
+            &best_tip_consensus_hash, &best_tip_block_bhh, best_tip_height
+        );
 
         for (consensus_hash, block_bhh, height) in new_block_arrivals.iter() {
             ret.push((block_bhh.clone(), *height));

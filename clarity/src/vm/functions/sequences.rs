@@ -196,7 +196,8 @@ pub fn special_append(
                 assert_eq!(size, 0);
                 return Value::list_from(vec![element]);
             }
-            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type)
+            if let Ok(next_entry_type) =
+                TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
             {
                 let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
@@ -231,7 +232,9 @@ pub fn special_concat_v200(
     )?;
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => seq.append(other_seq),
+        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
+            seq.append(env.epoch(), other_seq)
+        }
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
 
@@ -256,7 +259,7 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.append(other_seq)
+            seq.append(env.epoch(), other_seq)
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
@@ -415,7 +418,9 @@ pub fn special_replace_at(
     let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
 
-    if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element)? {
+    if expected_elem_type != TypeSignature::NoType
+        && !expected_elem_type.admits(env.epoch(), &new_element)?
+    {
         return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
     }
 
@@ -434,7 +439,7 @@ pub fn special_replace_at(
         if index >= seq_len {
             return Ok(Value::none());
         }
-        data.replace_at(index, new_element)
+        data.replace_at(env.epoch(), index, new_element)
     } else {
         return Err(CheckErrors::ExpectedSequence(seq_type).into());
     }

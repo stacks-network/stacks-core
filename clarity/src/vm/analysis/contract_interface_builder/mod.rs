@@ -186,7 +186,9 @@ impl ContractInterfaceAtomType {
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
             CallableType(CallableSubtype::Principal(_)) => ContractInterfaceAtomType::principal,
-            CallableType(CallableSubtype::Trait(_)) => ContractInterfaceAtomType::trait_reference,
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
+                ContractInterfaceAtomType::trait_reference
+            }
             ListUnionType(_) => ContractInterfaceAtomType::principal,
             TupleType(sig) => ContractInterfaceAtomType::from_tuple_type(sig),
             SequenceType(StringType(ASCII(len))) => {

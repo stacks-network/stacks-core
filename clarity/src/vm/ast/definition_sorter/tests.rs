@@ -19,7 +19,7 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
-use crate::vm::analysis::type_checker::tests::mem_type_check as run_analysis_helper;
+use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
 use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::errors::ParseResult;

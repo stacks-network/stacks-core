@@ -1088,7 +1088,10 @@ impl<'a> ClarityDatabase<'a> {
         value: Value,
         variable_descriptor: &DataVariableMetadata,
     ) -> Result<ValueResult> {
-        if !variable_descriptor.value_type.admits(&value)? {
+        if !variable_descriptor
+            .value_type
+            .admits(&self.get_clarity_epoch_version(), &value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(variable_descriptor.value_type.clone(), value).into(),
             );
@@ -1237,7 +1240,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<Value> {
-        if !map_descriptor.key_type.admits(key_value)? {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -1264,7 +1270,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(key_value)? {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -1375,12 +1384,18 @@ impl<'a> ClarityDatabase<'a> {
         return_if_exists: bool,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(&key_value)? {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), &key_value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.key_type.clone(), key_value).into(),
             );
         }
-        if !map_descriptor.value_type.admits(&value)? {
+        if !map_descriptor
+            .value_type
+            .admits(&self.get_clarity_epoch_version(), &value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.value_type.clone(), value).into(),
             );
@@ -1421,7 +1436,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(key_value)? {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -1641,7 +1659,7 @@ impl<'a> ClarityDatabase<'a> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<PrincipalData> {
-        if !key_type.admits(asset)? {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
@@ -1683,7 +1701,7 @@ impl<'a> ClarityDatabase<'a> {
         principal: &PrincipalData,
         key_type: &TypeSignature,
     ) -> Result<()> {
-        if !key_type.admits(asset)? {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
@@ -1707,7 +1725,7 @@ impl<'a> ClarityDatabase<'a> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<()> {
-        if !key_type.admits(asset)? {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
