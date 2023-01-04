@@ -1106,7 +1106,6 @@ impl RunLoop {
                         // stop mining so we can advance the sortition DB and so our
                         // ProcessTenure() directive (sent by relayer_sortition_notify() below)
                         // will be unblocked.
-                        debug!("Runloop: disable miner to process sortitions");
 
                         let block = {
                             let ic = burnchain.sortdb_ref().index_conn();
@@ -1137,6 +1136,7 @@ impl RunLoop {
                         }
                     }
 
+                    debug!("Runloop: enable miner after processing sortitions");
                     signal_mining_ready(globals.get_miner_status());
 
                     num_sortitions_in_last_cycle = sort_count;

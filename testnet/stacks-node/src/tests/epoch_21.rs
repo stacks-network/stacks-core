@@ -2804,7 +2804,7 @@ fn test_pox_reorg_one_flap() {
         loop {
             let tip_info_opt = get_chain_info_opt(&confs[i]);
             if let Some(tip_info) = tip_info_opt {
-                eprintln!("\n\nMiner 2: {:?}\n\n", &tip_info);
+                eprintln!("\n\nMiner {}: {:?}\n\n", i, &tip_info);
                 if tip_info.stacks_tip_height > 0 {
                     break;
                 }
