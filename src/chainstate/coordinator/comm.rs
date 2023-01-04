@@ -108,9 +108,11 @@ impl SignalBools {
         }
         if self.new_burn_block {
             bits |= CoordinatorEvents::NEW_BURN_BLOCK as u8;
+            self.new_burn_block = false;
         }
         if self.new_stacks_block {
             bits |= CoordinatorEvents::NEW_STACKS_BLOCK as u8;
+            self.new_stacks_block = false;
         }
         if bits == 0 {
             bits = CoordinatorEvents::TIMEOUT as u8;
@@ -169,24 +171,42 @@ impl CoordinatorChannels {
 
     pub fn wait_for_sortitions_processed(&self, current: u64, timeout_millis: u64) -> bool {
         let start = Instant::now();
+        let mut ctr = 0;
         while self.get_sortitions_processed() <= current {
             if start.elapsed() > Duration::from_millis(timeout_millis) {
                 return false;
             }
             thread::sleep(Duration::from_millis(100));
             std::hint::spin_loop();
+            if ctr % 10 == 0 {
+                debug!(
+                    "Wait for sortitions processed (processed = {}, current = {}))",
+                    self.get_sortitions_processed(),
+                    current
+                );
+            }
+            ctr += 1;
         }
         return true;
     }
 
     pub fn wait_for_stacks_blocks_processed(&self, current: u64, timeout_millis: u64) -> bool {
         let start = Instant::now();
+        let mut ctr = 0;
         while self.get_stacks_blocks_processed() <= current {
             if start.elapsed() > Duration::from_millis(timeout_millis) {
                 return false;
             }
             thread::sleep(Duration::from_millis(100));
             std::hint::spin_loop();
+            if ctr % 10 == 0 {
+                debug!(
+                    "Wait for stacks blocks processed (processed = {}, current = {}))",
+                    self.get_sortitions_processed(),
+                    current
+                );
+            }
+            ctr += 1;
         }
         return true;
     }
