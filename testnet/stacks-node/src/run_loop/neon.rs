@@ -808,6 +808,7 @@ impl RunLoop {
         {
             debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, {} <? {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height, highest_sn.block_height);
             globals.coord().announce_new_burn_block();
+            globals.coord().announce_new_stacks_block();
         } else if sortition_tip_affirmation_map.len() >= heaviest_affirmation_map.len()
             && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
         {
@@ -818,6 +819,7 @@ impl RunLoop {
                     // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
                     debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {}, heaviest: {}, canonical: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, &canonical_affirmation_map);
                     globals.coord().announce_new_burn_block();
+                    globals.coord().announce_new_stacks_block();
                 }
             }
         } else {

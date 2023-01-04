@@ -360,50 +360,48 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
 
         loop {
             // timeout so that we handle Ctrl-C a little gracefully
-            match comms.wait_on() {
-                CoordinatorEvents::NEW_STACKS_BLOCK => {
-                    signal_mining_blocked(miner_status.clone());
-                    debug!("Received new stacks block notice");
-                    match inst.handle_new_stacks_block() {
-                        Ok(missing_block_opt) => {
-                            if missing_block_opt.is_some() {
-                                debug!(
-                                    "Missing affirmed anchor block: {:?}",
-                                    &missing_block_opt.as_ref().expect("unreachable")
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Error processing new stacks block: {:?}", e);
+            let bits = comms.wait_on();
+            if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
+                signal_mining_blocked(miner_status.clone());
+                debug!("Received new stacks block notice");
+                match inst.handle_new_stacks_block() {
+                    Ok(missing_block_opt) => {
+                        if missing_block_opt.is_some() {
+                            debug!(
+                                "Missing affirmed anchor block: {:?}",
+                                &missing_block_opt.as_ref().expect("unreachable")
+                            );
                         }
                     }
+                    Err(e) => {
+                        warn!("Error processing new stacks block: {:?}", e);
+                    }
+                }
 
-                    signal_mining_ready(miner_status.clone());
-                }
-                CoordinatorEvents::NEW_BURN_BLOCK => {
-                    signal_mining_blocked(miner_status.clone());
-                    debug!("Received new burn block notice");
-                    match inst.handle_new_burnchain_block() {
-                        Ok(missing_block_opt) => {
-                            if missing_block_opt.is_some() {
-                                debug!(
-                                    "Missing canonical anchor block {}",
-                                    &missing_block_opt.clone().unwrap()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Error processing new burn block: {:?}", e);
+                signal_mining_ready(miner_status.clone());
+            }
+            if (bits & (CoordinatorEvents::NEW_BURN_BLOCK as u8)) != 0 {
+                signal_mining_blocked(miner_status.clone());
+                debug!("Received new burn block notice");
+                match inst.handle_new_burnchain_block() {
+                    Ok(missing_block_opt) => {
+                        if missing_block_opt.is_some() {
+                            debug!(
+                                "Missing canonical anchor block {}",
+                                &missing_block_opt.clone().unwrap()
+                            );
                         }
                     }
-                    signal_mining_ready(miner_status.clone());
+                    Err(e) => {
+                        warn!("Error processing new burn block: {:?}", e);
+                    }
                 }
-                CoordinatorEvents::STOP => {
-                    signal_mining_blocked(miner_status.clone());
-                    debug!("Received stop notice");
-                    return;
-                }
-                CoordinatorEvents::TIMEOUT => {}
+                signal_mining_ready(miner_status.clone());
+            }
+            if (bits & (CoordinatorEvents::STOP as u8)) != 0 {
+                signal_mining_blocked(miner_status.clone());
+                debug!("Received stop notice");
+                return;
             }
         }
     }
