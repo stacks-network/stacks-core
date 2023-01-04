@@ -20,6 +20,7 @@
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo},
@@ -157,24 +158,12 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let mut next_pox = parent_pox;
-        if let Some(ref next_pox_info) = next_pox_info {
-            if next_pox_info.is_reward_info_known() {
-                debug!(
-                    "Begin reward-cycle sortition with present anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_present_block();
-            } else {
-                info!(
-                    "Begin reward-cycle sortition with absent anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_not_present_block();
-            }
-        };
-
-        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
+        let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
+        let next_sortition_id = SortitionDB::make_next_sortition_id(
+            parent_pox.clone(),
+            &this_block_hash,
+            next_pox_info.as_ref(),
+        );
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(

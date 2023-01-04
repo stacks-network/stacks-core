@@ -1775,6 +1775,14 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
+        // start scaning at the reward cycle just before that.
+        let am_rescan_rc = self
+            .stacks_tip_affirmation_map
+            .find_inv_search(&self.heaviest_affirmation_map);
+
+        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
+        // tip.
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
@@ -1796,13 +1804,16 @@ impl PeerNetwork {
             highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
         );
 
+        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+
         test_debug!(
-            "begin blocks inv scan at {} = min({},{})",
-            start_reward_cycle,
+            "begin blocks inv scan at {} = min({},{},{})",
+            rescan_rc,
             stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+            am_rescan_rc
         );
-        start_reward_cycle
+        rescan_rc
     }
 
     /// Start requesting the next batch of PoX inventories

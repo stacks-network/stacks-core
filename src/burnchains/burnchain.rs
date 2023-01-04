@@ -687,25 +687,45 @@ impl Burnchain {
         Ok((sortitiondb, burnchaindb))
     }
 
+    /// Open just the burnchain database
+    pub fn open_burnchain_db(&self, readwrite: bool) -> Result<BurnchainDB, burnchain_error> {
+        let burnchain_db_path = self.get_burnchaindb_path();
+        if let Err(e) = fs::metadata(&burnchain_db_path) {
+            warn!(
+                "Failed to stat burnchain DB path '{}': {:?}",
+                &burnchain_db_path, &e
+            );
+            return Err(burnchain_error::DBError(db_error::NoDBError));
+        }
+        test_debug!(
+            "Open burnchain DB at {} (rw? {})",
+            &burnchain_db_path,
+            readwrite
+        );
+        let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
+        Ok(burnchain_db)
+    }
+
+    /// Open just the sortition database
+    pub fn open_sortition_db(&self, readwrite: bool) -> Result<SortitionDB, burnchain_error> {
+        let sort_db_path = self.get_db_path();
+        if let Err(e) = fs::metadata(&sort_db_path) {
+            warn!(
+                "Failed to stat sortition DB path '{}': {:?}",
+                &sort_db_path, &e
+            );
+            return Err(burnchain_error::DBError(db_error::NoDBError));
+        }
+        test_debug!("Open sortition DB at {} (rw? {})", &sort_db_path, readwrite);
+        let sortition_db = SortitionDB::open(&sort_db_path, readwrite, self.pox_constants.clone())?;
+        Ok(sortition_db)
+    }
+
     /// Open the burn databases.  They must already exist.
     pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
-        let db_path = self.get_db_path();
-        let burnchain_db_path = self.get_burnchaindb_path();
-
-        let db_pathbuf = PathBuf::from(db_path.clone());
-        if !db_pathbuf.exists() {
-            return Err(burnchain_error::DBError(db_error::NoDBError));
-        }
-
-        let db_pathbuf = PathBuf::from(burnchain_db_path.clone());
-        if !db_pathbuf.exists() {
-            return Err(burnchain_error::DBError(db_error::NoDBError));
-        }
-
-        let sortition_db = SortitionDB::open(&db_path, readwrite, self.pox_constants.clone())?;
-        let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
-
-        Ok((sortition_db, burnchain_db))
+        let burn_db = self.open_burnchain_db(readwrite)?;
+        let sort_db = self.open_sortition_db(readwrite)?;
+        Ok((sort_db, burn_db))
     }
 
     /// Try to parse a burnchain transaction into a Blockstack operation
@@ -1431,8 +1451,8 @@ impl Burnchain {
                 end_block = target_block_height;
             } else {
                 debug!(
-                    "Ignoring target block height {} considered as irrelevant",
-                    target_block_height
+                    "Ignoring target block height {} considered as irrelevant (start,end) = ({},{})",
+                    target_block_height, start_block, end_block
                 );
             }
         }

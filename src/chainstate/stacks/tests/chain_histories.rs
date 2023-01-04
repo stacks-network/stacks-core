@@ -32,6 +32,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
+use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
@@ -68,6 +69,12 @@ use crate::core::*;
 use stacks_common::util::hash::MerkleTree;
 
 use clarity::vm::clarity::ClarityConnection;
+
+fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
+    let burnchain_db =
+        BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+    burnchain_db
+}
 
 /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
 /// all from the same miner.
@@ -202,7 +209,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                1,
+            )
             .unwrap();
 
         let expect_success = check_oracle(&stacks_block, &microblocks);
@@ -384,7 +395,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                1,
+            )
             .unwrap();
 
         // processed _this_ block
@@ -589,7 +604,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed exactly one block, but got back two tip-infos
@@ -921,7 +940,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed _one_ block
@@ -1184,11 +1207,19 @@ where
         );
         let mut tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
         let mut tip_info_list_2 = node_2
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         tip_info_list.append(&mut tip_info_list_2);
@@ -1277,11 +1308,19 @@ where
         );
         let _ = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
         let _ = node_2
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
     }
 
@@ -1511,7 +1550,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed _one_ block
@@ -1760,7 +1803,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -2058,7 +2105,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed _one_ block
@@ -2307,7 +2358,11 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
+            .process_blocks_at_tip(
+                connect_burnchain_db(&burn_node.burnchain).conn(),
+                &mut burn_node.sortdb,
+                2,
+            )
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -2625,6 +2680,8 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                                 let tip_info_list = node
                                     .chainstate
                                     .process_blocks_at_tip(
+                                        connect_burnchain_db(&miner_trace.burn_node.burnchain)
+                                            .conn(),
                                         &mut miner_trace.burn_node.sortdb,
                                         expected_num_blocks,
                                     )
@@ -2643,6 +2700,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                             let tip_info_list = node
                                 .chainstate
                                 .process_blocks_at_tip(
+                                    connect_burnchain_db(&miner_trace.burn_node.burnchain).conn(),
                                     &mut miner_trace.burn_node.sortdb,
                                     expected_num_blocks,
                                 )

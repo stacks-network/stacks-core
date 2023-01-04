@@ -260,6 +260,10 @@ use crate::types::chainstate::{
 };
 use crate::util_lib::boot::boot_code_id;
 
+use serde::de::Error as de_Error;
+use serde::ser::Error as ser_Error;
+use serde::{Deserialize, Serialize};
+
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),
 /// or no block in reward cycle _i_, a sortition's miner
@@ -317,6 +321,23 @@ impl fmt::Display for AffirmationMap {
 impl fmt::Debug for AffirmationMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl Serialize for AffirmationMap {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let am_str = self.encode();
+        s.serialize_str(am_str.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AffirmationMap {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<AffirmationMap, D::Error> {
+        let am_str = String::deserialize(d)?;
+        let am = AffirmationMap::decode(&am_str).ok_or(de_Error::custom(
+            "Failed to decode affirmation map".to_string(),
+        ))?;
+        Ok(am)
     }
 }
 
@@ -408,26 +429,58 @@ impl AffirmationMap {
         None
     }
 
-    /// What is the PoX ID if this affirmation map?
-    /// This is a surjective mapping: `n` and `p` are 1, and `a` is 0
-    pub fn as_pox_id(&self) -> PoxId {
-        let mut pox_id = PoxId::initial();
-
-        // affirmation maps are statements out prepare phases, not about the reward cycle's anchor
-        // block status.  So, account for the first reward cycle, which has no anchor block.
-        pox_id.extend_with_present_block();
-
-        for affirmation in self.affirmations.iter() {
-            match affirmation {
-                AffirmationMapEntry::PoxAnchorBlockAbsent => {
-                    pox_id.extend_with_not_present_block();
-                }
-                _ => {
-                    pox_id.extend_with_present_block();
-                }
+    /// At what reward cycle should a node start searching for block inventories, given the heaviest
+    /// affirmation map?.  This is the lowest reward cycle in which both self and heaviest affirm
+    /// "absent" that comes _after_ the highest reward cycle in which both self and heaviest affirm
+    /// "present".
+    ///
+    /// For `paa` and `pap`, it's 1
+    /// For `paap` and `paap`, it's 3
+    /// For `papa` and `apap`, it's 0
+    /// For `paapapap` and `paappapa`, it's 4
+    /// For `aaaaa` and `aaaaa`, it's 0.
+    /// For `ppppp` and `ppppp`, it's 4.
+    pub fn find_inv_search(&self, heaviest: &AffirmationMap) -> u64 {
+        let mut highest_p = None;
+        for i in 0..cmp::min(self.len(), heaviest.len()) {
+            if self.affirmations[i] == heaviest.affirmations[i]
+                && self.affirmations[i] == AffirmationMapEntry::PoxAnchorBlockPresent
+            {
+                highest_p = Some(i);
             }
         }
-        pox_id
+        if let Some(highest_p) = highest_p {
+            for i in highest_p..cmp::min(self.len(), heaviest.len()) {
+                if self.affirmations[i] == heaviest.affirmations[i]
+                    && self.affirmations[i] == AffirmationMapEntry::PoxAnchorBlockAbsent
+                {
+                    return i as u64;
+                }
+                if self.affirmations[i] != heaviest.affirmations[i] {
+                    return i as u64;
+                }
+            }
+            return highest_p as u64;
+        } else {
+            // no agreement on any anchor block
+            return 0;
+        }
+    }
+
+    /// Is `other` a prefix of `self`?
+    /// Returns true if so; false if not
+    pub fn has_prefix(&self, prefix: &AffirmationMap) -> bool {
+        if self.len() < prefix.len() {
+            return false;
+        }
+
+        for i in 0..prefix.len() {
+            if self.affirmations[i] != prefix.affirmations[i] {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// What is the weight of this affirmation map?

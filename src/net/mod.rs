@@ -43,6 +43,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::Error as coordinator_error;
@@ -242,6 +244,8 @@ pub enum Error {
     Transient(String),
     /// Expected end-of-stream, but had more data
     ExpectedEndOfStream,
+    /// burnchain error
+    BurnchainError(burnchain_error),
 }
 
 impl From<codec_error> for Error {
@@ -342,6 +346,7 @@ impl fmt::Display for Error {
             Error::NotFoundError => write!(f, "Requested data not found"),
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
+            Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -402,6 +407,7 @@ impl error::Error for Error {
             Error::NotFoundError => None,
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
+            Error::BurnchainError(ref e) => Some(e),
         }
     }
 }
@@ -441,6 +447,12 @@ impl From<db_error> for Error {
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Error {
         Error::DBError(db_error::SqliteError(e))
+    }
+}
+
+impl From<burnchain_error> for Error {
+    fn from(e: burnchain_error) -> Self {
+        Error::BurnchainError(e)
     }
 }
 
@@ -1028,6 +1040,22 @@ impl PeerHost {
     }
 }
 
+/// Affirmation map data reported
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCAffirmationData {
+    pub heaviest: AffirmationMap,
+    pub stacks_tip: AffirmationMap,
+    pub sortition_tip: AffirmationMap,
+    pub tentative_best: AffirmationMap,
+}
+
+/// Information about the last PoX anchor block
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCLastPoxAnchorData {
+    pub anchor_block_hash: BlockHeaderHash,
+    pub anchor_block_txid: Txid,
+}
+
 /// The data we return on GET /v2/info
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPeerInfoData {
@@ -1052,6 +1080,12 @@ pub struct RPCPeerInfoData {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key_hash: Option<Hash160>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affirmations: Option<RPCAffirmationData>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

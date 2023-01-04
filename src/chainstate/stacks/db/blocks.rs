@@ -33,6 +33,8 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::db::BurnchainDB;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
@@ -2293,8 +2295,12 @@ impl StacksChainState {
                             }
 
                             let mut status = true;
-                            if Relayer::fault_injection_is_block_hidden(&hdr) {
-                                status = false;
+                            if self.fault_injection.hide_blocks {
+                                if let Some(header_info) = StacksChainState::get_stacks_block_header_info_by_index_block_hash(self.db(), &index_block_hash)? {
+                                    if Relayer::fault_injection_is_block_hidden(&hdr, header_info.burn_header_height.into()) {
+                                        status = false;
+                                    }
+                                }
                             }
 
                             block_bits.push(status);
@@ -2489,6 +2495,127 @@ impl StacksChainState {
         match StacksChainState::get_staging_block_status(blocks_conn, consensus_hash, block_hash)? {
             Some(processed) => Ok(!processed),
             None => Ok(false),
+        }
+    }
+
+    /// Get all consensus hashes for a given block hash
+    pub fn get_known_consensus_hashes_for_block(
+        conn: &Connection,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<Vec<ConsensusHash>, Error> {
+        let qry = "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[block_hash];
+        query_rows(conn, qry, args).map_err(|e| e.into())
+    }
+
+    /// Determine if we have the block data for a given block-commit.
+    /// Used to see if we have the block data for an unaffirmed PoX anchor block
+    /// (hence the test_debug! macros referring to PoX anchor blocks)
+    fn has_stacks_block_for(chainstate_conn: &DBConn, block_commit: LeaderBlockCommitOp) -> bool {
+        StacksChainState::get_known_consensus_hashes_for_block(
+            chainstate_conn,
+            &block_commit.block_header_hash,
+        )
+        .expect("FATAL: failed to query staging blocks DB")
+        .len()
+            > 0
+    }
+
+    /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
+    /// have the block data for it or not.
+    pub fn find_canonical_affirmation_map(
+        burnchain: &Burnchain,
+        burnchain_db: &BurnchainDB,
+        chainstate: &StacksChainState,
+    ) -> Result<AffirmationMap, Error> {
+        BurnchainDB::get_canonical_affirmation_map(
+            burnchain_db.conn(),
+            burnchain,
+            |anchor_block_commit, _anchor_block_metadata| {
+                // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
+                // download, then assume that it's absent.  Otherwise, if we are in the initial block
+                // download but we don't have it yet, assume that it's present.
+                StacksChainState::has_stacks_block_for(chainstate.db(), anchor_block_commit)
+            },
+        )
+        .map_err(|e| e.into())
+    }
+
+    /// Get the affirmation map represented by the Stacks chain tip.
+    /// This is the private interface, to avoid having a public function take two db connections of the
+    /// same type.
+    fn inner_find_stacks_tip_affirmation_map(
+        burnchain_conn: &DBConn,
+        sort_db_conn: &DBConn,
+        tip_ch: &ConsensusHash,
+        tip_bhh: &BlockHeaderHash,
+    ) -> Result<AffirmationMap, Error> {
+        if let Some(leader_block_commit) =
+            SortitionDB::get_block_commit_for_stacks_block(sort_db_conn, tip_ch, tip_bhh)?
+        {
+            if let Some(am_id) =
+                BurnchainDB::get_block_commit_affirmation_id(burnchain_conn, &leader_block_commit)?
+            {
+                if let Some(am) = BurnchainDB::get_affirmation_map(burnchain_conn, am_id)? {
+                    debug!(
+                        "Stacks tip {}/{} (txid {}) has affirmation map '{}'",
+                        tip_ch, tip_bhh, &leader_block_commit.txid, &am
+                    );
+                    return Ok(am);
+                } else {
+                    debug!(
+                        "Stacks tip {}/{} (txid {}) affirmation map ID {} has no corresponding map",
+                        tip_ch, tip_bhh, &leader_block_commit.txid, am_id
+                    );
+                }
+            } else {
+                debug!(
+                    "No affirmation map for stacks tip {}/{} (txid {})",
+                    tip_ch, tip_bhh, &leader_block_commit.txid
+                );
+            }
+        } else {
+            debug!("No block-commit for stacks tip {}/{}", tip_ch, tip_bhh);
+        }
+
+        Ok(AffirmationMap::empty())
+    }
+
+    /// Get the affirmation map represented by the Stacks chain tip
+    pub fn find_stacks_tip_affirmation_map(
+        burnchain_db: &BurnchainDB,
+        sort_db_conn: &DBConn,
+        tip_ch: &ConsensusHash,
+        tip_bhh: &BlockHeaderHash,
+    ) -> Result<AffirmationMap, Error> {
+        Self::inner_find_stacks_tip_affirmation_map(
+            burnchain_db.conn(),
+            sort_db_conn,
+            tip_ch,
+            tip_bhh,
+        )
+    }
+
+    /// Is a block compatible with the heaviest affirmation map?
+    pub fn is_block_compatible_with_affirmation_map(
+        stacks_tip_affirmation_map: &AffirmationMap,
+        heaviest_am: &AffirmationMap,
+    ) -> Result<bool, Error> {
+        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
+        // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
+        // and `heaviest_am` against each other depending on their lengths.
+        if (stacks_tip_affirmation_map.len() > heaviest_am.len()
+            && stacks_tip_affirmation_map
+                .find_divergence(&heaviest_am)
+                .is_some())
+            || (stacks_tip_affirmation_map.len() <= heaviest_am.len()
+                && heaviest_am
+                    .find_divergence(&stacks_tip_affirmation_map)
+                    .is_some())
+        {
+            return Ok(false);
+        } else {
+            return Ok(true);
         }
     }
 
@@ -4119,6 +4246,12 @@ impl StacksChainState {
 
         block_tx.commit()?;
 
+        debug!(
+            "Stored {}/{} to staging",
+            &consensus_hash,
+            &block.block_hash()
+        );
+
         // ready to go
         Ok(true)
     }
@@ -5379,11 +5512,13 @@ impl StacksChainState {
                 burn_tip_height,
                 burn_dbconn.get_pox_reward_cycle_length().into(),
             ) {
+                debug!("check_and_handle_reward_start: before reward cycle");
                 return Ok(vec![]);
             }
             let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
             });
+            debug!("check_and_handle_reward_start: handled = {}", handled);
 
             if !handled {
                 let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
@@ -5391,9 +5526,11 @@ impl StacksChainState {
                     chain_tip.burn_header_height.into(),
                     pox_reward_cycle,
                 )?;
+                debug!("check_and_handle_reward_start: got pox reward cycle info");
                 let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
                     Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
                 })?;
+                debug!("check_and_handle_reward_start: handled pox cycle start");
                 return Ok(events);
             }
         }
@@ -5559,7 +5696,7 @@ impl StacksChainState {
 
         if let Some(miner_id) = miner_id_opt {
             debug!(
-                "Miner {}: Finished applying {} parent microblocks in {}ms\n",
+                "Miner {}: Finished applying {} parent microblocks in {}ms",
                 miner_id,
                 parent_microblocks.len(),
                 t2.saturating_sub(t1)
@@ -5579,17 +5716,29 @@ impl StacksChainState {
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
+        debug!(
+            "Setup block: Processed epoch transition at {}/{}",
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash()
+        );
+
         let evaluated_epoch = clarity_tx.get_epoch();
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
-            Self::check_and_handle_reward_start(
+            let unlock_events = Self::check_and_handle_reward_start(
                 burn_tip_height.into(),
                 burn_dbconn,
                 sortition_dbconn,
                 &mut clarity_tx,
                 chain_tip,
                 &parent_sortition_id,
-            )?
+            )?;
+            debug!(
+                "Setup block: Processed unlock events at {}/{}",
+                &chain_tip.consensus_hash,
+                &chain_tip.anchored_header.block_hash()
+            );
+            unlock_events
         } else {
             vec![]
         };
@@ -5602,10 +5751,20 @@ impl StacksChainState {
             stacking_burn_ops.clone(),
             active_pox_contract,
         ));
+        debug!(
+            "Setup block: Processed burnchain stacking ops for {}/{}",
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash()
+        );
         tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
+        debug!(
+            "Setup block: Processed burnchain transfer ops for {}/{}",
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash()
+        );
         // DelegateStx ops are allowed from epoch 2.1 onward.
         // The query for the delegate ops only returns anything in and after Epoch 2.1,
         // but we do a second check here just to be safe.
@@ -5615,8 +5774,18 @@ impl StacksChainState {
                 delegate_burn_ops.clone(),
                 active_pox_contract,
             ));
+            debug!(
+                "Setup block: Processed burnchain delegate ops for {}/{}",
+                &chain_tip.consensus_hash,
+                &chain_tip.anchored_header.block_hash()
+            );
         }
 
+        debug!(
+            "Setup block: ready to go for {}/{}",
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash()
+        );
         Ok(SetupBlockResult {
             clarity_tx,
             tx_receipts,
@@ -5725,6 +5894,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
+        affirmation_weight: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -6109,6 +6279,7 @@ impl StacksChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            affirmation_weight,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -6274,6 +6445,7 @@ impl StacksChainState {
     /// consumption by future miners).
     pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
         &mut self,
+        burnchain_dbconn: &DBConn,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
@@ -6433,6 +6605,24 @@ impl StacksChainState {
             &next_staging_block.anchored_block_hash,
         )?;
 
+        test_debug!(
+            "About to load affirmation map for {}/{}",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash
+        );
+        let block_am = StacksChainState::inner_find_stacks_tip_affirmation_map(
+            burnchain_dbconn,
+            sort_tx.tx(),
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )?;
+        test_debug!(
+            "Affirmation map for {}/{} is `{}`",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+            &block_am
+        );
+
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
@@ -6453,6 +6643,7 @@ impl StacksChainState {
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
             &user_supports,
+            block_am.weight(),
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
@@ -6601,12 +6792,13 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn process_blocks_at_tip(
         &mut self,
+        burnchain_db_conn: &DBConn,
         sort_db: &mut SortitionDB,
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-        self.process_blocks(tx, max_blocks, null_event_dispatcher)
+        self.process_blocks(burnchain_db_conn, tx, max_blocks, null_event_dispatcher)
     }
 
     /// Process some staging blocks, up to max_blocks.
@@ -6616,12 +6808,30 @@ impl StacksChainState {
     /// epoch receipt if the block was invalid.
     pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
+        burnchain_db_conn: &DBConn,
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
-        debug!("Process up to {} blocks", max_blocks);
+        // first, clear out orphans
+        let blocks_path = self.blocks_path.clone();
+        let mut block_tx = self.db_tx_begin()?;
+        let mut num_orphans = 0;
+        loop {
+            // delete up to max_blocks blocks
+            let deleted =
+                StacksChainState::process_next_orphaned_staging_block(&mut block_tx, &blocks_path)?;
+            if !deleted {
+                break;
+            }
+            num_orphans += 1;
+        }
+        block_tx.commit()?;
 
+        debug!("Processed {} orphans", num_orphans);
+
+        // now proceed to process new blocks
+        debug!("Process up to {} new blocks", max_blocks);
         let mut ret = vec![];
 
         if max_blocks == 0 {
@@ -6631,7 +6841,7 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
+            match self.process_next_staging_block(burnchain_db_conn, &mut sort_tx, dispatcher_opt) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -6670,19 +6880,6 @@ impl StacksChainState {
         }
 
         sort_tx.commit()?;
-
-        let blocks_path = self.blocks_path.clone();
-        let mut block_tx = self.db_tx_begin()?;
-        for _ in 0..max_blocks {
-            // delete up to max_blocks blocks
-            let deleted =
-                StacksChainState::process_next_orphaned_staging_block(&mut block_tx, &blocks_path)?;
-            if !deleted {
-                break;
-            }
-        }
-        block_tx.commit()?;
-
         Ok(ret)
     }
 

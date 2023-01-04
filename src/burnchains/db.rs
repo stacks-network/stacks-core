@@ -288,11 +288,14 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
-const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_burnchain_db_txid";
+const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_block_commit_metadata_burn_block_hash_txid";
 const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_block_height_vtxindex_burn_block_hash ON block_commit_metadata(block_height,vtxindex,burn_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_anchor_block_burn_block_hash_txid ON block_commit_metadata(anchor_block,burn_block_hash,txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_txid ON block_commit_metadata(burn_block_hash,txid);",
 ];
 
 impl<'a> BurnchainDBTransaction<'a> {
@@ -564,28 +567,52 @@ impl<'a> BurnchainDBTransaction<'a> {
                     parent.block_height, parent.vtxindex, &parent.txid, &parent.burn_header_hash
                 ));
 
-        let (am, affirmed_reward_cycle) = if let Some(anchor_block) = anchor_block {
+        let (am, affirmed_reward_cycle) = if anchor_block.is_some() && descends_from_anchor_block {
+            // this block-commit assumes the affirmation map of the anchor block as a prefix of its
+            // own affirmation map.
+            let anchor_block = anchor_block.unwrap();
             let anchor_am_id =
-                BurnchainDB::get_block_commit_affirmation_id(&self.sql_tx, &anchor_block)?
+                BurnchainDB::get_block_commit_affirmation_id(&self.sql_tx, anchor_block)?
                     .expect("BUG: anchor block has no affirmation map");
 
             let mut am = BurnchainDB::get_affirmation_map(&self.sql_tx, anchor_am_id)?
                 .ok_or(BurnchainError::DBError(DBError::NotFoundError))?;
 
-            if descends_from_anchor_block {
-                test_debug!("Prepare-phase commit {},{},{} descends from anchor block {},{},{} for reward cycle {}",
-                            &block_commit.block_header_hash, block_commit.block_height, block_commit.vtxindex, &anchor_block.block_header_hash, anchor_block.block_height, anchor_block.vtxindex, reward_cycle);
+            test_debug!("Prepare-phase commit {},{},{} descends from anchor block {},{},{} for reward cycle {}",
+                        &block_commit.block_header_hash, block_commit.block_height, block_commit.vtxindex, &anchor_block.block_header_hash, anchor_block.block_height, anchor_block.vtxindex, reward_cycle);
 
-                am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
-                (am, Some(reward_cycle))
-            } else {
-                test_debug!("Prepare-phase commit {},{},{} does NOT descend from anchor block {},{},{} for reward cycle {}",
-                            &block_commit.block_header_hash, block_commit.block_height, block_commit.vtxindex, &anchor_block.block_header_hash, anchor_block.block_height, anchor_block.vtxindex, reward_cycle);
-
-                am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
-                (am, parent_metadata.anchor_block_descendant)
+            let num_affirmed = am.len() as u64;
+            for rc in (num_affirmed + 1)..reward_cycle {
+                // it's possible that this anchor block is more than one reward cycle back; if so,
+                // then back-fill all of the affirmations made between then and now.
+                if BurnchainDB::has_anchor_block(&self.sql_tx, rc)? {
+                    test_debug!(
+                        "Commit {},{},{} skips reward cycle {} with anchor block",
+                        &block_commit.block_header_hash,
+                        block_commit.block_height,
+                        block_commit.vtxindex,
+                        rc
+                    );
+                    am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
+                } else {
+                    // affirmation weight increases even if there's no decision made, because
+                    // the lack of a decision is still an affirmation of all prior decisions
+                    test_debug!(
+                        "Commit {},{},{} skips reward cycle {} without anchor block",
+                        &block_commit.block_header_hash,
+                        block_commit.block_height,
+                        block_commit.vtxindex,
+                        rc
+                    );
+                    am.push(AffirmationMapEntry::Nothing);
+                }
             }
+
+            am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
+            (am, Some(reward_cycle))
         } else {
+            // this block-commit assumes the affirmation map of its parent as a prefix of its own
+            // affirmation map.
             let (parent_reward_cycle, _) =
                 get_parent_child_reward_cycles(&parent, block_commit, burnchain)
                     .ok_or(BurnchainError::DBError(DBError::NotFoundError))?;
@@ -1073,6 +1100,16 @@ impl BurnchainDB {
         Ok(res.is_some())
     }
 
+    pub fn get_burnchain_header(
+        conn: &DBConn,
+        height: u64,
+    ) -> Result<Option<BurnchainBlockHeader>, BurnchainError> {
+        let qry = "SELECT * FROM burnchain_db_block_headers WHERE block_height = ?1";
+        let args = &[&u64_to_sql(height)?];
+        let res: Option<BurnchainBlockHeader> = query_row(conn, qry, args)?;
+        Ok(res)
+    }
+
     pub fn get_burnchain_block(
         conn: &DBConn,
         block: &BurnchainHeaderHash,
@@ -1399,7 +1436,8 @@ impl BurnchainDB {
                         conn, "SELECT block_commit_metadata.* \
                                FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
                                WHERE block_commit_metadata.anchor_block IS NOT NULL \
-                               ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC",
+                               ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC \
+                               LIMIT 1",
                         NO_PARAMS
         )? {
             Some(metadata) => {
@@ -1537,13 +1575,13 @@ impl BurnchainDB {
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
                     debug!(
-                        "Assume present anchor block {} txid {} at reward cycle {}",
+                        "Assume present unaffirmed anchor block {} txid {} at reward cycle {}",
                         &bhh, &txid, rc
                     );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
                     debug!(
-                        "Assume absent anchor block {} txid {} at reward cycle {}",
+                        "Assume absent unaffirmed anchor block {} txid {} at reward cycle {}",
                         &bhh, &txid, rc
                     );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);

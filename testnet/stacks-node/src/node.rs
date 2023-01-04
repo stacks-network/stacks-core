@@ -37,6 +37,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::UrlString;
 use stacks::{
+    burnchains::db::BurnchainDB,
     burnchains::PoxConstants,
     chainstate::burn::operations::{
         leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -705,22 +706,25 @@ impl Node {
             Some(ref key) => key,
         };
 
-        let block_to_build_upon = match &self.last_sortitioned_block {
-            None => unreachable!(),
-            Some(block) => block.clone(),
-        };
+        let burnchain = self.config.get_burnchain();
+        let sortdb = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while opening sortition db");
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
+            .expect("FATAL: failed to query canonical burn chain tip");
 
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = self.keychain.generate_proof(
             registered_key.target_block_height,
-            block_to_build_upon.block_snapshot.sortition_hash.as_bytes(),
+            tip.sortition_hash.as_bytes(),
         );
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = self
-            .keychain
-            .get_microblock_key(block_to_build_upon.block_snapshot.block_height);
+        let microblock_secret_key = self.keychain.get_microblock_key(tip.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
@@ -754,6 +758,11 @@ impl Node {
         let coinbase_tx = self.generate_coinbase_tx(self.config.is_mainnet());
 
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
+
+        let block_to_build_upon = match &self.last_sortitioned_block {
+            None => unreachable!(),
+            Some(block) => block.clone(),
+        };
 
         // Construct the upcoming tenure
         let tenure = Tenure::new(
@@ -879,13 +888,22 @@ impl Node {
             parent_consensus_hash
         };
 
+        let burnchain = self.config.get_burnchain();
+        let burnchain_db =
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
+                .expect("FATAL: failed to connect to burnchain DB");
+
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state
-                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
+                self.chain_state.process_blocks(
+                    burnchain_db.conn(),
+                    tx,
+                    1,
+                    Some(&self.event_dispatcher),
+                )
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),

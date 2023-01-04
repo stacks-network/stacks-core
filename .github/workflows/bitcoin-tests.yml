@@ -88,6 +88,11 @@ jobs:
           - tests::epoch_21::transition_adds_mining_from_segwit
           - tests::epoch_21::transition_removes_pox_sunset
           - tests::epoch_21::transition_empty_blocks
+          - tests::epoch_21::test_pox_reorgs_three_flaps
+          - tests::epoch_21::test_pox_reorg_one_flap
+          - tests::epoch_21::test_pox_reorg_flap_duel
+          - tests::epoch_21::test_pox_reorg_flap_reward_cycles
+          - tests::epoch_21::test_pox_missing_five_anchor_blocks
           - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
