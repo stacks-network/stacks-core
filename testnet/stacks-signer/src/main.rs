@@ -10,7 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net = net::Net::new().await?;
+    let net = net::Net::new();
 
     // start p2p sync
     let signer = signer::Signer::new();
@@ -21,8 +21,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn mainloop(_signer: Signer, net: net::Net) {
     info!("mainloop");
-    tokio::select! {
-    _ = signal::ctrl_c() => {info!("stop!")},
-    }
-    info!("after signal");
+    net.listen().await;
 }
