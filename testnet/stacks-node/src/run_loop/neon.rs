@@ -991,11 +991,14 @@ impl RunLoop {
         let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
-        let mut target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
-            burnchain_config
-                .block_height_to_reward_cycle(burnchain_height)
-                .expect("BUG: block height is not in a reward cycle")
-                + 1,
+        let mut target_burnchain_block_height = cmp::min(
+            burnchain_config.reward_cycle_to_block_height(
+                burnchain_config
+                    .block_height_to_reward_cycle(burnchain_height)
+                    .expect("BUG: block height is not in a reward cycle")
+                    + 1,
+            ),
+            burnchain.get_headers_height() - 1,
         );
 
         debug!(
