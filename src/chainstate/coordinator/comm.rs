@@ -202,7 +202,7 @@ impl CoordinatorChannels {
             if ctr % 10 == 0 {
                 debug!(
                     "Wait for stacks blocks processed (processed = {}, current = {}))",
-                    self.get_sortitions_processed(),
+                    self.get_stacks_blocks_processed(),
                     current
                 );
             }
