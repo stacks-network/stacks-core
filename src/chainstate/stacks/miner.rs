@@ -101,7 +101,12 @@ impl MinerStatus {
     }
 
     pub fn is_blocked(&self) -> bool {
-        self.blockers.len() > 0
+        if self.blockers.len() > 0 {
+            debug!("Miner: blocked by {:?}", &self.blockers);
+            true
+        } else {
+            false
+        }
     }
 }
 

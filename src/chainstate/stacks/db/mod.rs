@@ -109,6 +109,19 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 
+/// Fault injection struct for various kinds of faults we'd like to introduce into the system
+pub struct StacksChainStateFaults {
+    // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
+    // Stacks block heights to never propagate or announce.
+    pub hide_blocks: bool,
+}
+
+impl StacksChainStateFaults {
+    pub fn new() -> Self {
+        Self { hide_blocks: false }
+    }
+}
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -119,6 +132,7 @@ pub struct StacksChainState {
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
     pub unconfirmed_state: Option<UnconfirmedState>,
+    pub fault_injection: StacksChainStateFaults,
     marf_opts: Option<MARFOpenOpts>,
 }
 
@@ -627,6 +641,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         cost TEXT NOT NULL,
         block_size TEXT NOT NULL,       -- converted to/from u64
+        affirmation_weight INTEGER NOT NULL,
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
@@ -819,6 +834,8 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1585,6 +1602,7 @@ impl StacksChainState {
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::zero(),
+                0,
             )?;
             tx.commit()?;
         }
@@ -1717,6 +1735,7 @@ impl StacksChainState {
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
+            fault_injection: StacksChainStateFaults::new(),
             marf_opts: marf_opts,
         };
 
@@ -2373,6 +2392,7 @@ impl StacksChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2426,6 +2446,7 @@ impl StacksChainState {
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
+            affirmation_weight,
         )?;
         StacksChainState::insert_miner_payment_schedule(
             headers_tx.deref_mut(),

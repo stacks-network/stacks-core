@@ -687,7 +687,7 @@ check if the associated microblocks can be downloaded
                 .expect("Failed to compute PoX cycle");
 
             match result {
-                Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                Ok((_, _, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
                 Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
             };
         }
@@ -1004,23 +1004,6 @@ simulating a miner.
         return;
     }
 
-    if argv[1] == "process-block" {
-        let path = &argv[2];
-        let sort_path = &argv[3];
-        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path, None).unwrap();
-        let pox_constants = PoxConstants::mainnet_default();
-        let mut sortition_db = SortitionDB::open(sort_path, true, pox_constants.clone()).unwrap();
-        let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
-            .unwrap()
-            .sortition_id;
-        let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-        chainstate
-            .process_next_staging_block(&mut tx, null_event_dispatcher)
-            .unwrap();
-        return;
-    }
-
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
@@ -1308,7 +1291,12 @@ simulating a miner.
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
                 let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
                 let receipts = new_chainstate
-                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
+                    .process_blocks(
+                        old_burnchaindb.conn(),
+                        sortition_tx,
+                        1,
+                        null_event_dispatcher,
+                    )
                     .unwrap();
                 if receipts.len() == 0 {
                     break;
