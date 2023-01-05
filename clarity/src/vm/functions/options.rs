@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
@@ -22,7 +21,9 @@ use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
-use crate::vm::types::{OptionalData, ResponseData, TypeSignature, Value};
+use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
+use crate::vm::Value::CallableContract;
+use crate::vm::{self, ClarityVersion};
 use crate::vm::{ClarityName, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
@@ -114,7 +115,7 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(&bind_name)
+    if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
         || env.contract_context.lookup_function(&bind_name).is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
@@ -124,6 +125,17 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use();
     env.add_memory(memory_use)?;
 
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        if let CallableContract(trait_data) = &bind_value {
+            inner_context.callable_contracts.insert(
+                bind_name.clone(),
+                CallableData {
+                    contract_identifier: trait_data.contract_identifier.clone(),
+                    trait_identifier: trait_data.trait_identifier.clone(),
+                },
+            );
+        }
+    }
     inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, env, &inner_context);
 

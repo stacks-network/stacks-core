@@ -41,6 +41,7 @@ use stacks_common::util::vrf::VRFPublicKey;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
     pub burns: u128,
+    pub median_burn: u128,
     pub range_start: Uint256,
     pub range_end: Uint256,
     pub candidate: LeaderBlockCommitOp,
@@ -164,7 +165,6 @@ impl BurnSamplePoint {
         assert!(window_size > 0);
         BurnSamplePoint::sanity_check_window(&block_commits, &missed_commits);
         assert_eq!(burn_blocks.len(), block_commits.len());
-        let global_burnchain_signer = monitoring::get_burnchain_signer();
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
@@ -248,7 +248,7 @@ impl BurnSamplePoint {
         let mut burn_sample = commits_with_priors
             .into_iter()
             .map(|mut linked_commits| {
-                let mut all_burns: Vec<_> = linked_commits
+                let all_burns: Vec<_> = linked_commits
                     .iter()
                     .map(|commit| {
                         if let Some(commit) = commit {
@@ -262,13 +262,14 @@ impl BurnSamplePoint {
                     .collect();
                 let most_recent_burn = all_burns[0];
 
-                all_burns.sort();
+                let mut sorted_burns = all_burns.clone();
+                sorted_burns.sort();
                 let median_burn = if window_size % 2 == 0 {
-                    (all_burns[(window_size / 2) as usize]
-                        + all_burns[(window_size / 2 - 1) as usize])
+                    (sorted_burns[(window_size / 2) as usize]
+                        + sorted_burns[(window_size / 2 - 1) as usize])
                         / 2
                 } else {
-                    all_burns[(window_size / 2) as usize]
+                    sorted_burns[(window_size / 2) as usize]
                 };
 
                 let burns = cmp::min(median_burn, most_recent_burn);
@@ -287,15 +288,9 @@ impl BurnSamplePoint {
                        "median_burn" => %median_burn,
                        "all_burns" => %format!("{:?}", all_burns));
 
-                // prometheus: log miner commitment
-                if let Some(signer) = &global_burnchain_signer {
-                    if candidate.apparent_sender == *signer {
-                        monitoring::update_computed_miner_commitment(burns);
-                        monitoring::update_miner_current_median_commitment(median_burn);
-                    }
-                }
                 BurnSamplePoint {
                     burns,
+                    median_burn,
                     range_start: Uint256::zero(), // To be filled in
                     range_end: Uint256::zero(),   // To be filled in
                     candidate,
@@ -306,13 +301,25 @@ impl BurnSamplePoint {
 
         // calculate burn ranges
         BurnSamplePoint::make_sortition_ranges(&mut burn_sample);
+        burn_sample
+    }
 
-        // prometheus: calculate miner relative score
-        if let Some(signer) = global_burnchain_signer {
+    /// Update prometheus metrics from burn samples.
+    /// This is a no-op if you don't use prometheus.
+    pub fn prometheus_update_miner_commitments(burn_sample: &[BurnSamplePoint]) {
+        let global_burnchain_signer = monitoring::get_burnchain_signer();
+        if let Some(signer) = &global_burnchain_signer {
+            for burn in burn_sample.iter() {
+                if burn.candidate.apparent_sender == *signer {
+                    monitoring::update_computed_miner_commitment(burn.burns);
+                    monitoring::update_miner_current_median_commitment(burn.median_burn);
+                }
+            }
+
             let mut range_total = Uint256::zero();
             let mut signer_seen = false;
             for burn in burn_sample.iter() {
-                if burn.candidate.apparent_sender == signer {
+                if burn.candidate.apparent_sender == *signer {
                     signer_seen = true;
                     range_total = range_total + (burn.range_end - burn.range_start);
                 }
@@ -321,7 +328,6 @@ impl BurnSamplePoint {
                 monitoring::update_computed_relative_miner_score(range_total);
             }
         }
-        burn_sample
     }
 
     #[cfg(test)]
@@ -845,13 +851,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -877,13 +876,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a91432b6c66189da32bd0a9f00ee4927f569957d71aa88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -909,13 +901,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a91432b6c66189da32bd0a9f00ee4927f569957d71aa88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c")
@@ -1142,14 +1127,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             commit_outs: vec![],
 
@@ -1187,14 +1172,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             commit_outs: vec![],
 
@@ -1232,14 +1217,14 @@ mod tests {
 
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             commit_outs: vec![],
 
@@ -1287,6 +1272,7 @@ mod tests {
                 user_burns: vec![],
                 res: vec![BurnSamplePoint {
                     burns: block_commit_1.burn_fee.into(),
+                    median_burn: block_commit_1.burn_fee.into(),
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
                     candidate: block_commit_1.clone(),
@@ -1300,6 +1286,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1312,6 +1300,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1331,6 +1321,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1343,6 +1335,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1362,6 +1356,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1374,6 +1370,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1397,6 +1395,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1409,6 +1409,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1433,6 +1435,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1445,6 +1449,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1471,6 +1477,8 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1483,6 +1491,8 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
+                            .into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1517,6 +1527,7 @@ mod tests {
                 res: vec![
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
+                        median_burn: block_commit_2.burn_fee.into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0x3ed94d3cb0a84709,
@@ -1529,6 +1540,7 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
+                        median_burn: block_commit_2.burn_fee.into(),
                         range_start: Uint256([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
@@ -1546,6 +1558,7 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
+                        median_burn: block_commit_3.burn_fee.into(),
                         range_start: Uint256([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,

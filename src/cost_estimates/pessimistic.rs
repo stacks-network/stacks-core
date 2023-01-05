@@ -229,15 +229,16 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch10 => "",
                     StacksEpochId::Epoch20 => "",
                     StacksEpochId::Epoch2_05 => ":2.05",
+                    StacksEpochId::Epoch21 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",
                     epoch_marker, cc.address, cc.contract_name, cc.function_name
                 )
             }
-            TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),
+            TransactionPayload::SmartContract(..) => "contract-publish".to_string(),
             TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
-            TransactionPayload::Coinbase(_) => "coinbase".to_string(),
+            TransactionPayload::Coinbase(..) => "coinbase".to_string(),
         };
 
         format!("{}:{}", &tx_descriptor, field)

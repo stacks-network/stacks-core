@@ -20,6 +20,7 @@
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo},
@@ -59,8 +60,14 @@ impl<'a> SortitionHandleTx<'a> {
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
-                        "REJECTED({}) leader block commit {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                        "REJECTED({}) leader block commit {} at {},{} (parent {},{}): {:?}",
+                        op.block_height,
+                        &op.txid,
+                        op.block_height,
+                        op.vtxindex,
+                        op.parent_block_ptr,
+                        op.parent_vtxindex,
+                        &e
                     );
                     BurnchainError::OpError(e)
                 })
@@ -92,6 +99,13 @@ impl<'a> SortitionHandleTx<'a> {
                 // no check() required for PreStx
                 Ok(())
             }
+            BlockstackOperationType::DelegateStx(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) delegate stx op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
         }
     }
 
@@ -116,7 +130,7 @@ impl<'a> SortitionHandleTx<'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -144,24 +158,12 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let mut next_pox = parent_pox;
-        if let Some(ref next_pox_info) = next_pox_info {
-            if next_pox_info.is_reward_info_known() {
-                debug!(
-                    "Begin reward-cycle sortition with present anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_present_block();
-            } else {
-                info!(
-                    "Begin reward-cycle sortition with absent anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_not_present_block();
-            }
-        };
-
-        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
+        let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
+        let next_sortition_id = SortitionDB::make_next_sortition_id(
+            parent_pox.clone(),
+            &this_block_hash,
+            next_pox_info.as_ref(),
+        );
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(
@@ -393,13 +395,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -423,18 +418,11 @@ mod tests {
             key_block_ptr: 101,
             key_vtxindex: 400,
             memo: vec![0x80],
+            apparent_sender: BurnchainSigner("hello-world".to_string()),
 
             commit_outs: vec![],
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
-                )
-                .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")

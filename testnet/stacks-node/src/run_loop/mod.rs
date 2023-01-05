@@ -11,6 +11,16 @@ use stacks::util::vrf::VRFPublicKey;
 
 use stacks::vm::database::BurnStateDB;
 
+use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
+use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::EventDispatcher;
+use clarity::vm::costs::ExecutionCost;
+use stacks::burnchains::PoxConstants;
+use stacks::burnchains::Txid;
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::StacksBlock;
+use stacks_common::types::chainstate::StacksBlockId;
+
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
         eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
@@ -116,8 +126,8 @@ impl RunLoopCallbacks {
                 _ => println!("-> Tx {:?}", tx.auth),
             }
             match &tx.payload {
-                TransactionPayload::Coinbase(_) => println!("   Coinbase"),
-                TransactionPayload::SmartContract(contract) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
+                TransactionPayload::Coinbase(..) => println!("   Coinbase"),
+                TransactionPayload::SmartContract(contract, ..) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
                 TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent.to_string()),
                 _ => println!("   {:?}", tx.payload)
             }
@@ -151,4 +161,35 @@ pub struct RegisteredKey {
     pub op_vtxindex: u32,
     /// the public key itself
     pub vrf_public_key: VRFPublicKey,
+}
+
+pub fn announce_boot_receipts(
+    event_dispatcher: &mut EventDispatcher,
+    chainstate: &StacksChainState,
+    pox_constants: &PoxConstants,
+    boot_receipts: &Vec<StacksTransactionReceipt>,
+) {
+    let block_header_0 = StacksChainState::get_genesis_header_info(chainstate.db())
+        .expect("FATAL: genesis block header not stored");
+    let block_0 = StacksBlock {
+        header: block_header_0.anchored_header.clone(),
+        txs: vec![],
+    };
+
+    debug!("Push {} boot receipts", &boot_receipts.len());
+    event_dispatcher.announce_block(
+        &block_0,
+        &block_header_0,
+        boot_receipts,
+        &StacksBlockId::sentinel(),
+        Txid([0x00; 32]),
+        &vec![],
+        None,
+        block_header_0.burn_header_hash.clone(),
+        block_header_0.burn_header_height,
+        block_header_0.burn_header_timestamp,
+        &ExecutionCost::zero(),
+        &ExecutionCost::zero(),
+        pox_constants,
+    );
 }

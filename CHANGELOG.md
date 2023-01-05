@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased - Stacks 2.1]
+
+This release will contain consensus-breaking changes.
+
+### Added
+
+- Clarity function `stx-transfer?` now takes a 4th optional argument, which is a memo.
+- Added a new parser which will be used to parse Clarity code beginning with 2.1,
+  resolving several bugs in the old parser and improving performance.
+- Documentation will indicate explicitly which Clarity version introduced each
+  keyword or function. 
+- Clarity2 improvements to traits (see #3251 for details):
+  * Trait values can be passed to compatible sub-trait types
+  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
+  * Traits can be assigned to a let-variable
+- Fixes to unexpected behavior in traits
+  * A trait with duplicate function names is now an error (#3214)
+  * Aliased trait names do not interfere with local trait definitions (#3215)
+
+## Upcoming
+
+### Added
+- Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable `STACKS_LOG_FORMAT_TIME` to set the time format
+  stacks-node uses for logging.
+  Example: `STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node`
+
 ## [2.05.0.6.0]
 
 ### Changed
@@ -33,6 +60,7 @@ tip, and resume mining (#3406).
 
 ### Changed
 
+- The new minimum Rust version is 1.61
 - The act of walking the mempool will now cache address nonces in RAM and to a
   temporary mempool table used for the purpose, instead of unconditionally
 querying them from the chainstate MARF.  This builds upon improvements to mempool

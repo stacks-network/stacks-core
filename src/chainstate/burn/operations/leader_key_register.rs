@@ -53,11 +53,10 @@ pub struct ParsedData {
 
 impl LeaderKeyRegisterOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress, public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
+    pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
             memo: vec![],
-            address: sender.clone(),
 
             // will be filled in
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -70,28 +69,12 @@ impl LeaderKeyRegisterOp {
 
     #[cfg(test)]
     pub fn new_from_secrets(
-        privks: &Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         prover_key: &VRFPrivateKey,
     ) -> Option<LeaderKeyRegisterOp> {
-        let pubks = privks
-            .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
-            .collect();
-        let addr = match StacksAddress::from_public_keys(
-            hash_mode.to_version_testnet(),
-            hash_mode,
-            num_sigs as usize,
-            &pubks,
-        ) {
-            Some(a) => a,
-            None => {
-                return None;
-            }
-        };
         let prover_pubk = VRFPublicKey::from_private(prover_key);
-        Some(LeaderKeyRegisterOp::new(&addr, &prover_pubk))
+        Some(LeaderKeyRegisterOp::new(&prover_pubk))
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -140,23 +123,23 @@ impl LeaderKeyRegisterOp {
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
-        let outputs = tx.get_recipients();
+        let num_inputs = tx.num_signers();
+        let num_outputs = tx.num_recipients();
 
-        if inputs.len() == 0 {
+        if num_inputs == 0 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs,
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() < 1 {
+        if num_outputs < 1 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs,
+                num_outputs
             );
             return Err(op_error::InvalidInput);
         }
@@ -174,13 +157,10 @@ impl LeaderKeyRegisterOp {
             }
         };
 
-        let address = outputs[0].address.clone();
-
         Ok(LeaderKeyRegisterOp {
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             memo: data.memo,
-            address: address,
 
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
@@ -265,6 +245,7 @@ pub mod tests {
     use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::core::StacksEpochId;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::util::get_epoch_time_secs;
@@ -305,7 +286,6 @@ pub mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
 
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex: vtxindex,
@@ -320,7 +300,6 @@ pub mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
 
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
                     vtxindex: vtxindex,
@@ -386,8 +365,11 @@ pub mod tests {
                     timestamp: get_epoch_time_secs(),
                 },
             };
-            let burnchain_tx =
-                BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            let burnchain_tx = BurnchainTransaction::Bitcoin(
+                parser
+                    .parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05)
+                    .unwrap(),
+            );
             let op = LeaderKeyRegisterOp::from_tx(&header, &burnchain_tx);
 
             match (op, tx_fixture.result) {
@@ -511,13 +493,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -614,6 +589,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
@@ -653,14 +629,6 @@ pub mod tests {
                     )
                     .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(
-                        &BitcoinAddress::from_scriptpubkey(
-                            BitcoinNetworkType::Testnet,
-                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -690,14 +658,6 @@ pub mod tests {
                     )
                     .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(
-                        &BitcoinAddress::from_scriptpubkey(
-                            BitcoinNetworkType::Testnet,
-                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(

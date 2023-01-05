@@ -2,9 +2,12 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    POX_2_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -41,43 +44,47 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
+use crate::core::POX_TESTNET_CYCLE_LENGTH;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::boot::boot_code_id;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     core::StacksEpoch,
-};
-use crate::{
     core::StacksEpochId,
     types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
     },
 };
 
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::PEER_VERSION_EPOCH_1_0;
 
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::version::ClarityVersion;
+
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
 lazy_static! {
-    static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
+    pub static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH
     );
-    static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
-    static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
+    pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
+    pub static ref POX_2_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("pox-2", false);
+    pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
-    static ref USER_KEYS: Vec<StacksPrivateKey> =
+    pub static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
-    static ref POX_ADDRS: Vec<Value> = (0..50u64)
+    pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
         .map(|ix| execute(&format!(
             "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
-    static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
-    static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
+    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    pub static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
@@ -92,10 +99,27 @@ pub struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
+    pub epoch_bounds: Vec<u64>,
 }
 
-struct TestSimHeadersDB {
+pub struct TestSimHeadersDB {
     height: u64,
+}
+
+pub struct TestSimBurnStateDB {
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
+    epoch_bounds: Vec<u64>,
+    pox_constants: PoxConstants,
+    height: u32,
 }
 
 impl ClarityTestSim {
@@ -107,12 +131,10 @@ impl ClarityTestSim {
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
             );
 
-            store
-                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
-                .initialize();
+            let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            db.initialize();
 
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -127,7 +149,41 @@ impl ClarityTestSim {
             marf,
             height: 0,
             fork: 0,
+            epoch_bounds: vec![0, u64::max_value()],
         }
+    }
+
+    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut ClarityBlockConnection) -> R,
+    {
+        let r = {
+            let mut store = self.marf.begin(
+                &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+            );
+
+            let headers_db = TestSimHeadersDB {
+                height: self.height + 1,
+            };
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap(),
+            };
+
+            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut block_conn =
+                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
+            let r = f(&mut block_conn);
+            block_conn.commit_block();
+
+            r
+        };
+
+        self.height += 1;
+        r
     }
 
     pub fn execute_next_block<F, R>(&mut self, f: F) -> R
@@ -143,8 +199,17 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap(),
+            };
+
+            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+            debug!("Execute block in epoch {}", &cur_epoch);
+
+            let db = store.as_clarity_db(&headers_db, &burn_db);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };
 
@@ -152,6 +217,28 @@ impl ClarityTestSim {
         self.height += 1;
 
         r
+    }
+
+    fn check_and_bump_epoch(
+        store: &mut WritableMarfStore,
+        headers_db: &TestSimHeadersDB,
+        burn_db: &dyn BurnStateDB,
+    ) -> StacksEpochId {
+        let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
+        clarity_db.begin();
+        let parent_epoch = clarity_db.get_clarity_epoch_version();
+        let sortition_epoch = clarity_db
+            .get_stacks_epoch(headers_db.height as u32)
+            .unwrap()
+            .epoch_id;
+
+        if parent_epoch != sortition_epoch {
+            debug!("Set epoch to {}", &sortition_epoch);
+            clarity_db.set_clarity_epoch_version(sortition_epoch);
+        }
+
+        clarity_db.commit();
+        sortition_epoch
     }
 
     pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
@@ -167,8 +254,12 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: parent_height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
+
+            let db = store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
+
             f(&mut owned_env)
         };
 
@@ -180,15 +271,15 @@ impl ClarityTestSim {
     }
 }
 
-fn test_sim_height_to_hash(burn_height: u64, fork: u64) -> [u8; 32] {
+pub fn test_sim_height_to_hash(burn_height: u64, fork: u64) -> [u8; 32] {
     let mut out = [0; 32];
     out[0..8].copy_from_slice(&burn_height.to_le_bytes());
     out[8..16].copy_from_slice(&fork.to_le_bytes());
     out
 }
 
-fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
-    if &in_bytes[8..] != &[0; 24] {
+pub fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
+    if &in_bytes[16..] != &[0; 16] {
         None
     } else {
         let mut bytes = [0; 8];
@@ -197,23 +288,181 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
-fn check_arithmetic_only(contract: &str) {
-    let analysis = mem_type_check(contract).unwrap().1;
+pub fn test_sim_hash_to_fork(in_bytes: &[u8; 32]) -> Option<u64> {
+    if &in_bytes[16..] != &[0; 16] {
+        None
+    } else {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(&in_bytes[8..16]);
+        Some(u64::from_le_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
+    let analysis = mem_type_check(contract, version, StacksEpochId::latest())
+        .unwrap()
+        .1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
 #[test]
 fn cost_contract_is_arithmetic_only() {
     use crate::chainstate::stacks::boot::BOOT_CODE_COSTS;
-    check_arithmetic_only(BOOT_CODE_COSTS);
+    check_arithmetic_only(BOOT_CODE_COSTS, ClarityVersion::Clarity1);
 }
 
 #[test]
 fn cost_2_contract_is_arithmetic_only() {
     use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2;
-    check_arithmetic_only(BOOT_CODE_COSTS_2);
+    check_arithmetic_only(BOOT_CODE_COSTS_2, ClarityVersion::Clarity2);
 }
 
+impl BurnStateDB for TestSimBurnStateDB {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        // generate burnchain header hash for height if the sortition ID is a valid test-sim
+        // sortition ID
+        if height >= self.height {
+            None
+        } else {
+            match (
+                test_sim_hash_to_height(&sortition_id.0),
+                test_sim_hash_to_fork(&sortition_id.0),
+            ) {
+                (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(
+                    height.into(),
+                    fork,
+                ))),
+                _ => None,
+            }
+        }
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        // consensus hashes are constructed as the leading 20 bytes of the stacks block ID from
+        // whence it came.
+        let mut bytes = [0u8; 32];
+        bytes[0..20].copy_from_slice(&consensus_hash.0);
+        Some(SortitionId(bytes))
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        let epoch_begin_index = match self.epoch_bounds.binary_search(&(height as u64)) {
+            Ok(index) => index,
+            Err(index) => {
+                if index == 0 {
+                    return Some(StacksEpoch {
+                        start_height: 0,
+                        end_height: self.epoch_bounds[0],
+                        epoch_id: StacksEpochId::Epoch10,
+                        block_limit: ExecutionCost::max_value(),
+                        network_epoch: PEER_VERSION_EPOCH_1_0,
+                    });
+                } else {
+                    index - 1
+                }
+            }
+        };
+
+        let epoch_id = match epoch_begin_index {
+            0 => StacksEpochId::Epoch20,
+            1 => StacksEpochId::Epoch2_05,
+            2 => StacksEpochId::Epoch21,
+            _ => panic!("Epoch unknown"),
+        };
+
+        Some(StacksEpoch {
+            start_height: self.epoch_bounds[epoch_begin_index],
+            end_height: self
+                .epoch_bounds
+                .get(epoch_begin_index + 1)
+                .cloned()
+                .unwrap_or(u64::max_value()),
+            epoch_id,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        })
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.pox_constants.prepare_length
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.pox_constants.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.pox_constants.pox_rejection_fraction
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        if let Some(_) = self.get_burn_header_hash(height, sortition_id) {
+            let first_block = self.get_burn_start_height();
+            let prepare_len = self.get_pox_prepare_length();
+            let rc_len = self.get_pox_reward_cycle_length();
+            if Burnchain::static_is_in_prepare_phase(
+                first_block.into(),
+                rc_len.into(),
+                prepare_len.into(),
+                height.into(),
+            ) {
+                Some((
+                    vec![PoxAddress::standard_burn_address(false)
+                        .as_clarity_tuple()
+                        .unwrap()],
+                    123,
+                ))
+            } else {
+                Some((
+                    vec![
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
+                    ],
+                    123,
+                ))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn get_ast_rules(&self, _block_height: u32) -> ASTRules {
+        ASTRules::PrecheckSize
+    }
+}
+
+#[cfg(test)]
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,
@@ -222,13 +471,23 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
         } else {
-            self.get_burn_block_height_for_block(id_bhh)?;
+            if self.get_burn_block_height_for_block(id_bhh).is_none() {
+                return None;
+            }
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
         }
     }
 
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
+    }
+
+    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // capture the first 20 bytes of the block ID, which in this case captures the height and
+        // fork ID.
+        let mut bytes_20 = [0u8; 20];
+        bytes_20.copy_from_slice(&bhh.0[0..20]);
+        Some(ConsensusHash(bytes_20))
     }
 
     fn get_stacks_block_header_hash_for_block(
@@ -238,7 +497,9 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
         } else {
-            self.get_burn_block_height_for_block(id_bhh)?;
+            if self.get_burn_block_height_for_block(id_bhh).is_none() {
+                return None;
+            }
             Some(BlockHeaderHash(id_bhh.0.clone()))
         }
     }
@@ -254,6 +515,7 @@ impl HeadersDB for TestSimHeadersDB {
             )
         }
     }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
@@ -271,9 +533,1151 @@ impl HeadersDB for TestSimHeadersDB {
             }
         }
     }
+
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
+    }
+}
+
+#[test]
+fn pox_2_contract_caller_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2];
+    let delegator = StacksPrivateKey::new();
+
+    let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_versioned_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &POX_2_TESTNET_CODE,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
+    });
+
+    let cc = boot_code_id("stack-through", false);
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(cc.clone(),
+                                "(define-public (cc-stack-stx (amount-ustx uint)
+                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+                                                           (start-burn-ht uint)
+                                                           (lock-period uint))
+                                   (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
+                                None,
+                                ASTRules::PrecheckSize)
+            .unwrap();
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "The stack-through contract isn't an allowed caller for POX_ADDR[1] in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::none(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "USER[0] should be able to add stack-through as a contract caller in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for POX_ADDR[0] in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "disallow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "USER[0] should be able to remove stack-through as a contract caller in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After revocation, stack-through shouldn't be an allowed caller for User 0 in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After revocation, stack-through still shouldn't be an allowed caller for User 1 in the PoX2 contract",
+        );
+
+        let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::some(until_height).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "User1 should be able to set an 'until-height' on a contract-caller allowance",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for User1 in the PoX2 contract",
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        // the contract caller allowance should now have expired:
+        //   (err 9) indicates the contract caller check failed
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After the `until-height` is reached, stack-through shouldn't be an allowed caller for User1",
+        );
+    });
+}
+
+#[test]
+fn pox_2_lock_extend_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2];
+    let delegator = StacksPrivateKey::new();
+
+    let reward_cycle_len = 5;
+    let expected_user_1_unlock = 4 * reward_cycle_len + 9 * reward_cycle_len;
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_versioned_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &POX_2_TESTNET_CODE,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
+        env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
+            env.execute_contract(
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                    Value::UInt(1),
+                    Value::UInt(reward_cycle_len),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ]),
+                false,
+            )
+        })
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend before locked",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Should be able to delegate",
+        );
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(3 * reward_cycle_len)
+            )),
+            "delegate-stack-stx should work okay",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 20)".to_string(),
+            "Cannot stack-extend while delegating",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(4 * reward_cycle_len)
+            )),
+            "User1 should be able to stack-stx",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(10),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 2)".to_string(),
+            "Should not be able to stack-extend to over 12 cycles in the future",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(9),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(expected_user_1_unlock),
+            )),
+            "Should be able to stack-extend to exactly 12 cycles in the future",
+        );
+
+        // check that entries exist for each cycle stacked
+        for cycle in 0..20 {
+            eprintln!("Cycle number = {}", cycle);
+            let empty_set = cycle < 1 || cycle >= 13;
+            let expected = if empty_set {
+                "(u0 u0)"
+            } else {
+                "(u1000000 u1)"
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = if cycle > 3 {
+                    &POX_ADDRS[2]
+                } else {
+                    &POX_ADDRS[1]
+                };
+                let expected_stacker = Value::from(&USER_KEYS[1]);
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: (some '{}) }}",
+                        expected_pox_addr,
+                        1_000_000,
+                        &expected_stacker,
+                    ))
+                );
+            }
+        }
+    });
+
+    // now, advance the chain until User1 is unlocked, and try to stack-extend
+    for _i in 0..expected_user_1_unlock {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![Value::UInt(3), POX_ADDRS[0].clone(),])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend after lock expired",
+        );
+    });
+}
+
+#[test]
+fn pox_2_delegate_extend_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2];
+    let delegator = StacksPrivateKey::new();
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block_as_conn(|conn| {
+        test_deploy_smart_contract(
+            conn,
+            &POX_2_CONTRACT_TESTNET,
+            &POX_2_TESTNET_CODE,
+            ClarityVersion::Clarity2,
+        )
+        .unwrap();
+
+        // set burnchain params based on old testnet settings (< 2.0.11.0)
+        conn.as_transaction(|tx| {
+            tx.run_contract_call(
+                &boot_code_addr(false).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &[
+                    Value::UInt(0),
+                    Value::UInt(30),
+                    Value::UInt(150),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ],
+                |_, _| false,
+            )
+        })
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User0 and delegate",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User1 and delegate",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to delegate-stack-extend before locking",
+        );
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(450)
+            )),
+            "Delegate should successfully stack through delegation from User0",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    Value::UInt(1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(1),
+                Value::UInt(450)
+            )),
+            "Delegate should successfully stack through delegation from User1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 2",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(3)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 4)".to_string(),
+            "Delegate does not have enough aggregate locked up for cycle 3",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(11)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 2)",
+            "Delegate should not be able to extend over 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 11 disallowed)",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                // unlock-burn-height should be 10 reward cycles greater than prior unlock height
+                Value::UInt(450 + 10 * 150),
+            )),
+            "Delegate should be able to extend 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 10 allowed).",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(3)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 11)".to_string(),
+            "Delegate still does not have enough aggregate locked up for cycle 3",
+        );
+
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 9)".to_string(),
+            "Delegate cannot stack-extend for User0 after revocation",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(1),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `amount-ustx` = 1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 22)".to_string(),
+            "Delegate cannot stack-extend for User0 because it would require more than User0's allowed amount (1)",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(10_000_000),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::some(POX_ADDRS[2].clone()).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `pox-addr` = POX_ADDR[2]",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(), "(err 23)".to_string(),
+            "Delegate cannot stack-extend for User0 at POX_ADDR[1] because User0 specified to use POX_ADDR[2]",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(10_000_000),
+                    (&delegator).into(),
+                    Value::some(Value::UInt(450 + 10 * 150 - 1)).unwrap(),
+                    Value::some(POX_ADDRS[1].clone()).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `until-ht` one less than necessary for an extend-by-10",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(), "(err 21)".to_string(),
+            "Delegate cannot stack-extend for User0 for 10 cycles",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(9)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                // unlock-burn-height should be 9 reward cycles greater than prior unlock height
+                Value::UInt(450 + 9 * 150),
+            )),
+            "Delegate successfully stack extends for User0 for 9 cycles",
+        );
+
+        for cycle in 3..12 {
+            assert_eq!(
+                env.execute_transaction(
+                    (&delegator).into(),
+                    None,
+                    POX_2_CONTRACT_TESTNET.clone(),
+                    "stack-aggregation-commit",
+                    &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(cycle)])
+                )
+                    .unwrap()
+                    .0
+                    .to_string(),
+                "(ok true)".to_string(),
+                "For cycles in [3, 12), delegate has enough to successfully aggregate commit",
+            );
+
+            // call a second time to make sure that the partial map reset.
+            assert_eq!(
+                env.execute_transaction(
+                    (&delegator).into(),
+                    None,
+                    POX_2_CONTRACT_TESTNET.clone(),
+                    "stack-aggregation-commit",
+                    &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(cycle)])
+                )
+                    .unwrap()
+                    .0
+                    .to_string(),
+                "(err 4)".to_string(),
+                "Delegate cannot aggregate commit a second time",
+            );
+
+        }
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(12)])
+            )
+                .unwrap()
+                .0
+                .to_string(),
+            "(err 11)".to_string(),
+            "At cycle 12, delegate cannot aggregate commit because only one stacker was extended by 10"
+        );
+
+        // check reward cycles [0, 20) for coherence
+        // for cycles [1, 11] ==> delegate successfully committed the minimum threshold and should appear in the reward set
+        // for all other cycles, reward set should be empty
+        for cycle in 0..20 {
+            eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
+            let empty_set = cycle < 1 || cycle >= 12;
+            let expected = if empty_set {
+                "(u0 u0)".into()
+            } else {
+                format!("(u{} u1)", MIN_THRESHOLD.deref())
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = &POX_ADDRS[1];
+
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: none }}",
+                        expected_pox_addr,
+                        MIN_THRESHOLD.deref(),
+                    ))
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn simple_epoch21_test() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 3];
+    let delegator = StacksPrivateKey::new();
+
+    let clarity_2_0_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
+    let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-0-bad".into(),
+    );
+    let clarity_2_0_content = "
+(define-private (stx-account (a principal)) 1)
+(define-public (call-through)
+  (ok (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+";
+
+    let clarity_2_1_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-1".into());
+    let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-1-bad".into(),
+    );
+    let clarity_2_1_content = "
+(define-public (call-through)
+  (let ((balance-1 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+        (balance-2 (unwrap-panic (contract-call? .contract-2-0 call-through)))
+        (balance-3 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+       (print balance-1)
+       (print balance-2)
+       (print balance-3)
+       (ok 1)))
+(call-through)
+";
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_0_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect("2.0 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_0_bad_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect_err("2.0 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Analysis(e) => {
+                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+            }
+            e => panic!("Should have caused an analysis error: {:#?}", e),
+        };
+    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_1_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect("2.1 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_1_bad_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect_err("2.1 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Interpreter(e) => {
+                assert_eq!(
+                    e,
+                    Error::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
+                );
+            }
+            e => panic!("Should have caused an Interpreter error: {:#?}", e),
+        };
+    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+}
+
+fn test_deploy_smart_contract(
+    block: &mut ClarityBlockConnection,
+    contract_id: &QualifiedContractIdentifier,
+    content: &str,
+    version: ClarityVersion,
+) -> std::result::Result<(), ClarityError> {
+    block.as_transaction(|tx| {
+        let (ast, analysis) =
+            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
+        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(&contract_id, &analysis)?;
+        return Ok(());
+    })
 }
 
 #[test]
@@ -282,9 +1686,11 @@ fn recency_tests() {
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(
+        env.initialize_versioned_contract(
             POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap()
@@ -294,6 +1700,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-stx",
                 &symbols_from_values(vec![
@@ -313,6 +1720,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -330,6 +1738,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -355,9 +1764,11 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(
+        env.initialize_versioned_contract(
             POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap()
@@ -366,6 +1777,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -384,6 +1796,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -401,6 +1814,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[1]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -417,6 +1831,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[2]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -434,6 +1849,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[3]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -451,6 +1867,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -472,6 +1889,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -492,6 +1910,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -512,6 +1931,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -546,6 +1966,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -560,6 +1981,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -580,6 +2002,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -600,6 +2023,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -620,6 +2044,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -674,6 +2099,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -706,6 +2132,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -724,6 +2151,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -758,6 +2186,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
@@ -772,6 +2201,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -835,6 +2265,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -859,6 +2290,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "revoke-delegate-stx",
                 &[]
@@ -872,6 +2304,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "revoke-delegate-stx",
                 &[]
@@ -885,6 +2318,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -908,9 +2342,11 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(
+        env.initialize_versioned_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap();
@@ -919,6 +2355,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -949,6 +2386,7 @@ fn test_vote_withdrawal() {
         // Vote on the proposal
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
@@ -960,6 +2398,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -974,6 +2413,7 @@ fn test_vote_withdrawal() {
         // Vote again on the proposal
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
@@ -985,6 +2425,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1000,6 +2441,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-principal-votes",
                 &symbols_from_values(vec![
@@ -1018,6 +2460,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "withdraw-votes",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
@@ -1033,6 +2476,7 @@ fn test_vote_withdrawal() {
         // Withdraw votes
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "withdraw-votes",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
@@ -1043,6 +2487,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1064,6 +2509,7 @@ fn test_vote_withdrawal() {
         // Withdraw STX after proposal expires
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "withdraw-votes",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
@@ -1094,6 +2540,7 @@ fn test_vote_fail() {
         env.initialize_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap();
@@ -1102,6 +2549,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -1133,6 +2581,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1149,6 +2598,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
@@ -1165,6 +2615,7 @@ fn test_vote_fail() {
         for user in USER_KEYS.iter() {
             env.execute_transaction(
                 user.into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
@@ -1177,6 +2628,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1193,6 +2645,7 @@ fn test_vote_fail() {
     sim.execute_next_block(|env| {
         env.execute_transaction(
             (&MINER_KEY.clone()).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "veto",
             &symbols_from_values(vec![Value::UInt(0)]),
@@ -1202,6 +2655,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-vetos",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1220,6 +2674,7 @@ fn test_vote_fail() {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "veto",
                 &symbols_from_values(vec![Value::UInt(0)]),
@@ -1230,6 +2685,7 @@ fn test_vote_fail() {
             assert_eq!(
                 env.execute_transaction(
                     (&MINER_KEY.clone()).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "veto",
                     &symbols_from_values(vec![Value::UInt(0)])
@@ -1253,6 +2709,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1277,6 +2734,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1299,6 +2757,7 @@ fn test_vote_confirm() {
         env.initialize_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap();
@@ -1307,6 +2766,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -1338,6 +2798,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1354,6 +2815,7 @@ fn test_vote_confirm() {
         for user in USER_KEYS.iter() {
             env.execute_transaction(
                 user.into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
@@ -1366,6 +2828,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1393,6 +2856,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1416,6 +2880,7 @@ fn test_vote_too_many_confirms() {
         env.initialize_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
+            None,
             ASTRules::PrecheckSize,
         )
         .unwrap();
@@ -1425,6 +2890,7 @@ fn test_vote_too_many_confirms() {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "submit-proposal",
                     &symbols_from_values(vec![
@@ -1459,6 +2925,7 @@ fn test_vote_too_many_confirms() {
                 assert_eq!(
                     env.execute_transaction(
                         user.into(),
+                        None,
                         COST_VOTING_CONTRACT_TESTNET.clone(),
                         "vote-proposal",
                         &symbols_from_values(vec![
@@ -1476,6 +2943,7 @@ fn test_vote_too_many_confirms() {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-votes",
                     &symbols_from_values(vec![Value::UInt(i as u128)])
@@ -1489,6 +2957,7 @@ fn test_vote_too_many_confirms() {
             for user in USER_KEYS.iter() {
                 env.execute_transaction(
                     user.into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "withdraw-votes",
                     &symbols_from_values(vec![
@@ -1517,6 +2986,7 @@ fn test_vote_too_many_confirms() {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-miners",
                     &symbols_from_values(vec![Value::UInt(i as u128)])
@@ -1531,6 +3001,7 @@ fn test_vote_too_many_confirms() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(MAX_CONFIRMATIONS_PER_BLOCK)])

@@ -25,6 +25,8 @@ use crate::vm::representations::{
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
+use crate::vm::ClarityVersion;
+
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
@@ -35,7 +37,7 @@ pub struct SugarExpander {
 }
 
 impl BuildASTPass for SugarExpander {
-    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
         pass.run(contract_ast)?;
         Ok(())
@@ -114,6 +116,8 @@ impl SugarExpander {
                         return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into());
                     }
                 }
+                PreSymbolicExpressionType::Comment(_)
+                | PreSymbolicExpressionType::Placeholder(_) => continue,
             };
             // expr.id will be set by the subsequent expression identifier pass.
             expr.span = pre_expr.span.clone();

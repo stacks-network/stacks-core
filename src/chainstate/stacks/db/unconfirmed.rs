@@ -86,6 +86,7 @@ pub struct UnconfirmedState {
     have_state: bool,
 
     mainnet: bool,
+    chain_id: u32,
     clarity_state_index_root: String,
     marf_opts: Option<MARFOpenOpts>,
 
@@ -104,7 +105,7 @@ impl UnconfirmedState {
             chainstate.marf_opts.clone(),
         )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -126,6 +127,7 @@ impl UnconfirmedState {
             have_state: false,
 
             mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
             clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
             marf_opts: chainstate.marf_opts.clone(),
 
@@ -143,7 +145,7 @@ impl UnconfirmedState {
             self.marf_opts.clone(),
         )?;
 
-        let clarity_instance = ClarityInstance::new(self.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(self.mainnet, self.chain_id, marf);
 
         Ok(UnconfirmedState {
             confirmed_chain_tip: self.confirmed_chain_tip.clone(),
@@ -162,6 +164,7 @@ impl UnconfirmedState {
             have_state: self.have_state,
 
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             clarity_state_index_root: self.clarity_state_index_root.clone(),
             marf_opts: self.marf_opts.clone(),
 
@@ -181,7 +184,7 @@ impl UnconfirmedState {
             chainstate.marf_opts.clone(),
         )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -203,6 +206,7 @@ impl UnconfirmedState {
             have_state: false,
 
             mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
             clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
             marf_opts: chainstate.marf_opts.clone(),
 
@@ -650,8 +654,8 @@ mod test {
     use crate::chainstate::stacks::index::marf::*;
     use crate::chainstate::stacks::index::node::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::miner::test::make_coinbase;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::make_coinbase;
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::chainstate::stacks::*;
     use crate::core::mempool::*;
@@ -866,7 +870,7 @@ mod test {
             peer.sortdb = Some(sortdb);
 
             // move 1 stx per round
-            assert_eq!(recv_balance.amount_unlocked, (tenure_id + 1) as u128);
+            assert_eq!(recv_balance.amount_unlocked(), (tenure_id + 1) as u128);
             let (canonical_burn, canonical_block) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
@@ -881,8 +885,8 @@ mod test {
                 .unwrap();
             peer.sortdb = Some(sortdb);
 
-            assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
-            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+            assert_eq!(confirmed_recv_balance.amount_unlocked(), tenure_id as u128);
+            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
         }
     }
 
@@ -1092,7 +1096,7 @@ mod test {
 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(
-                    recv_balance.amount_unlocked,
+                    recv_balance.amount_unlocked(),
                     (100 * tenure_id + 10 * (i + 1)) as u128
                 );
                 let (canonical_burn, canonical_block) =
@@ -1110,10 +1114,10 @@ mod test {
                 peer.sortdb = Some(sortdb);
 
                 assert_eq!(
-                    confirmed_recv_balance.amount_unlocked,
+                    confirmed_recv_balance.amount_unlocked(),
                     100 * tenure_id as u128
                 );
-                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
             }
         }
     }
@@ -1388,6 +1392,6 @@ mod test {
         peer.sortdb = Some(sortdb);
 
         // all valid txs were processed
-        assert_eq!(db_recv_balance.amount_unlocked, recv_balance);
+        assert_eq!(db_recv_balance.amount_unlocked(), recv_balance);
     }
 }

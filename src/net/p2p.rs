@@ -39,6 +39,7 @@ use rand::thread_rng;
 
 use url;
 
+use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -240,6 +241,14 @@ pub struct PeerNetwork {
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
 
+    // information about the state of the network's anchor blocks
+    pub heaviest_affirmation_map: AffirmationMap,
+    pub stacks_tip_affirmation_map: AffirmationMap,
+    pub sortition_tip_affirmation_map: AffirmationMap,
+    pub tentative_best_affirmation_map: AffirmationMap,
+    pub last_anchor_block_hash: BlockHeaderHash,
+    pub last_anchor_block_txid: Txid,
+
     // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
@@ -391,6 +400,12 @@ impl PeerNetwork {
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
+            heaviest_affirmation_map: AffirmationMap::empty(),
+            stacks_tip_affirmation_map: AffirmationMap::empty(),
+            sortition_tip_affirmation_map: AffirmationMap::empty(),
+            tentative_best_affirmation_map: AffirmationMap::empty(),
+            last_anchor_block_hash: BlockHeaderHash([0x00; 32]),
+            last_anchor_block_txid: Txid([0x00; 32]),
             burnchain_tip: BlockSnapshot::initial(
                 first_block_height,
                 &first_burn_header_hash,
@@ -2865,7 +2880,7 @@ impl PeerNetwork {
         );
 
         // go from latest to earliest reward cycle
-        for reward_cycle in (reward_cycle_finish..reward_cycle_start).rev() {
+        for reward_cycle in (reward_cycle_finish..reward_cycle_start + 1).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
@@ -4965,7 +4980,49 @@ impl PeerNetwork {
 
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
+
+            // update heaviest affirmation map view
+            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+            self.heaviest_affirmation_map = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+                burnchain_db.conn(),
+                &self.burnchain,
+            )?;
+            self.tentative_best_affirmation_map = StacksChainState::find_canonical_affirmation_map(
+                &self.burnchain,
+                &burnchain_db,
+                chainstate,
+            )?;
+            self.sortition_tip_affirmation_map = SortitionDB::find_sortition_tip_affirmation_map(
+                &burnchain_db,
+                sortdb,
+                &sn.sortition_id,
+            )?;
+
+            // update last anchor data
+            let ih = sortdb.index_handle(&sn.sortition_id);
+            self.last_anchor_block_hash = ih
+                .get_last_selected_anchor_block_hash()?
+                .unwrap_or(BlockHeaderHash([0x00; 32]));
+            self.last_anchor_block_txid = ih
+                .get_last_selected_anchor_block_txid()?
+                .unwrap_or(Txid([0x00; 32]));
         }
+
+        if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
+            || sn.canonical_stacks_tip_consensus_hash
+                != self.burnchain_tip.canonical_stacks_tip_consensus_hash
+        {
+            // update stacks tip affirmation map view
+            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+            self.stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
+                &burnchain_db,
+                sortdb.conn(),
+                &sn.canonical_stacks_tip_consensus_hash,
+                &sn.canonical_stacks_tip_hash,
+            )?;
+        }
+
+        // can't fail after this point
 
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
             // try processing previously-buffered messages (best-effort)
@@ -4976,7 +5033,6 @@ impl PeerNetwork {
 
         // update cached stacks chain view for /v2/info
         self.burnchain_tip = sn;
-
         Ok(ret)
     }
 
@@ -5287,9 +5343,14 @@ impl PeerNetwork {
             .expect("FATAL: failed to read local peer from the peer DB");
 
         // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self
-            .refresh_burnchain_view(sortdb, chainstate, ibd)
-            .expect("FATAL: failed to refresh burnchain view");
+        let unsolicited_buffered_messages =
+            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
+                Ok(msgs) => msgs,
+                Err(e) => {
+                    warn!("Failed to refresh burnchain view: {:?}", &e);
+                    HashMap::new()
+                }
+            };
 
         let mut network_result = NetworkResult::new(
             self.num_state_machine_passes,

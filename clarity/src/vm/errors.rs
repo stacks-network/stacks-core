@@ -16,7 +16,9 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 pub use crate::vm::analysis::errors::CheckErrors;
-pub use crate::vm::analysis::errors::{check_argument_count, check_arguments_at_least};
+pub use crate::vm::analysis::errors::{
+    check_argument_count, check_arguments_at_least, check_arguments_at_most,
+};
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
@@ -87,6 +89,7 @@ pub enum RuntimeErrorType {
     TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
+    NoCallerInContext,
     NoSenderInContext,
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
@@ -95,6 +98,8 @@ pub enum RuntimeErrorType {
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    DefunctPoxContract,
+    PoxAlreadyLocked,
 }
 
 #[derive(Debug, PartialEq)]

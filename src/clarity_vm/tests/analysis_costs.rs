@@ -16,18 +16,23 @@
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::clarity_vm::clarity::ClarityInstance;
+use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::execute as vm_execute;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::tests::{
+    execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB,
+};
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
@@ -36,13 +41,20 @@ use stacks_common::util::hash::hex_bytes;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
+use clarity::vm::ClarityVersion;
 
-pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+pub fn test_tracked_costs(
+    prog: &str,
+    use_mainnet: bool,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf);
 
     let p1 = vm_execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
         .unwrap()
@@ -68,6 +80,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
         (define-constant tuple-foo (tuple (a 1)))
         (define-constant list-foo (list true))
         (define-constant list-bar (list 1))
+        (define-constant str-foo \"foobar\")
         (use-trait trait-1 .contract-trait.trait-1)
         (define-public (execute (contract <trait-1>)) (ok {}))",
         prog
@@ -79,12 +92,16 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
+    let burn_state_db = UnitTestBurnStateDB {
+        epoch_id: epoch,
+        ast_rules: ASTRules::PrecheckSize,
+    };
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            &burn_state_db,
         )
         .commit_block();
 
@@ -93,11 +110,14 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            &burn_state_db,
         );
 
-        if epoch == StacksEpochId::Epoch2_05 {
+        if epoch > StacksEpochId::Epoch20 {
             conn.initialize_epoch_2_05().unwrap();
+        }
+        if epoch > StacksEpochId::Epoch2_05 {
+            conn.initialize_epoch_2_1().unwrap();
         }
 
         conn.commit_block();
@@ -108,7 +128,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
             &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            &burn_state_db,
         );
 
         assert_eq!(
@@ -118,11 +138,21 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, contract_trait, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    version,
+                    contract_trait,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&trait_contract_id, &ct_ast, contract_trait, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &trait_contract_id,
+                version,
+                &ct_ast,
+                contract_trait,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
                 .unwrap();
@@ -136,15 +166,26 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
             &StacksBlockId([2 as u8; 32]),
             &StacksBlockId([3 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            &burn_state_db,
         );
+
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, contract_other, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &other_contract_id,
+                    version,
+                    contract_other,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&other_contract_id, &ct_ast, contract_other, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &other_contract_id,
+                version,
+                &ct_ast,
+                contract_other,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
                 .unwrap();
@@ -158,16 +199,26 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
             &StacksBlockId([3 as u8; 32]),
             &StacksBlockId([4 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            &burn_state_db,
         );
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, &contract_self, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &self_contract_id,
+                    version,
+                    &contract_self,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
-            conn.initialize_smart_contract(&self_contract_id, &ct_ast, &contract_self, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &self_contract_id,
+                version,
+                &ct_ast,
+                &contract_self,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
         });
@@ -176,42 +227,60 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
     }
 }
 
-fn test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
+fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21, version);
 
     for f in NativeFunctions::ALL.iter() {
+        if version < f.get_version() {
+            continue;
+        }
+
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21, version);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
-fn test_all_mainnet() {
-    test_all(true)
+fn epoch_21_test_all_mainnet() {
+    epoch_21_test_all(true, ClarityVersion::Clarity1);
+    epoch_21_test_all(true, ClarityVersion::Clarity2);
 }
 
 #[test]
-fn test_all_testnet() {
-    test_all(false)
+fn epoch_21_test_all_testnet() {
+    epoch_21_test_all(false, ClarityVersion::Clarity1);
+    epoch_21_test_all(false, ClarityVersion::Clarity2);
 }
 
 fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch2_05,
+        ClarityVersion::Clarity1,
+    );
 
     for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
-        assert!(cost.exceeds(&baseline));
+        if f.get_version() == ClarityVersion::Clarity1 {
+            let test = get_simple_test(f);
+            let cost = test_tracked_costs(
+                test,
+                use_mainnet,
+                StacksEpochId::Epoch2_05,
+                ClarityVersion::Clarity1,
+            );
+            assert!(cost.exceeds(&baseline));
+        }
     }
 }
 
 #[test]
 fn epoch_205_test_all_mainnet() {
-    epoch_205_test_all(true)
+    epoch_205_test_all(true);
 }
 
 #[test]
 fn epoch_205_test_all_testnet() {
-    epoch_205_test_all(false)
+    epoch_205_test_all(false);
 }

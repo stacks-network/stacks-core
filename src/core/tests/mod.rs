@@ -167,6 +167,7 @@ pub fn make_block(
         &new_index_hash,
         &new_tip_info,
         &ExecutionCost::zero(),
+        block_height,
     )
     .unwrap();
 

@@ -20,9 +20,12 @@ use std::fmt;
 use std::thread;
 
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, POX_2_NAME,
 };
 use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -43,14 +46,15 @@ use crate::core::StacksEpoch;
 use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
-use crate::util::secp256k1::MessageSignature;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::strings::StacksString;
 use crate::{
     burnchains::Burnchain,
+    burnchains::PoxConstants,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
 use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
@@ -68,15 +72,19 @@ use clarity::vm::database::{
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
+    TypeSignature, Value,
 };
+use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::util_lib::db::Error as DatabaseError;
 pub use clarity::vm::clarity::ClarityConnection;
 pub use clarity::vm::clarity::Error;
 use clarity::vm::clarity::TransactionConnection;
+
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::util::secp256k1::MessageSignature;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -103,6 +111,7 @@ use clarity::vm::clarity::TransactionConnection;
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
+    chain_id: u32,
 }
 
 ///
@@ -130,6 +139,7 @@ pub struct ClarityBlockConnection<'a, 'b> {
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
+    chain_id: u32,
     epoch: StacksEpochId,
 }
 
@@ -145,6 +155,7 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
     mainnet: bool,
+    chain_id: u32,
     epoch: StacksEpochId,
 }
 
@@ -183,6 +194,24 @@ macro_rules! using {
 }
 
 impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
+    #[cfg(test)]
+    pub fn new_test_conn(
+        datastore: WritableMarfStore<'a>,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+        epoch: StacksEpochId,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track: Some(LimitedCostTracker::new_free()),
+            mainnet: false,
+            chain_id: CHAIN_ID_TESTNET,
+            epoch: epoch,
+        }
+    }
+
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
@@ -218,8 +247,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore, mainnet }
+    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV) -> ClarityInstance {
+        ClarityInstance {
+            datastore,
+            mainnet,
+            chain_id,
+        }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -274,6 +307,7 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
+                    self.chain_id,
                     epoch.block_limit.clone(),
                     &mut clarity_db,
                     epoch.epoch_id,
@@ -288,6 +322,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch: epoch.epoch_id,
         }
     }
@@ -311,6 +346,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch,
         }
     }
@@ -336,14 +372,16 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch,
         };
 
         let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
+            let (ast, _analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS,
                     ASTRules::PrecheckSize,
                 )
@@ -351,8 +389,10 @@ impl ClarityInstance {
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     BOOT_CODE_COSTS,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -362,6 +402,7 @@ impl ClarityInstance {
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
                     ASTRules::PrecheckSize,
                 )
@@ -369,8 +410,10 @@ impl ClarityInstance {
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -381,9 +424,10 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
+            let (ast, _analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
                     ASTRules::PrecheckSize,
                 )
@@ -391,8 +435,103 @@ impl ClarityInstance {
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn
+    }
+
+    /// begin with a 2.1 genesis block with the default cost contract
+    ///  used in testing + benchmarking
+    pub fn begin_test_genesis_block_2_1<'a, 'b>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let writable = self.datastore.begin(current, next);
+
+        let epoch = StacksEpochId::Epoch21;
+
+        let cost_track = Some(LimitedCostTracker::new_free());
+
+        let mut conn = ClarityBlockConnection {
+            datastore: writable,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch,
+        };
+
+        let use_mainnet = self.mainnet;
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    BOOT_CODE_COSTS_2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    BOOT_CODE_COSTS_3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    BOOT_CODE_COSTS_3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &*POX_2_TESTNET_CODE,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    &*POX_2_TESTNET_CODE,
+                    None,
                     |_, _| false,
                 )
                 .unwrap();
@@ -421,6 +560,7 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
+                    self.chain_id,
                     epoch.block_limit.clone(),
                     &mut clarity_db,
                     epoch.epoch_id,
@@ -435,6 +575,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch: epoch.epoch_id,
         }
     }
@@ -501,7 +642,7 @@ impl ClarityInstance {
             result
         };
 
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch_id);
+        let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
         env.eval_read_only_with_rules(contract, program, ast_rules)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -677,13 +818,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             };
 
             let boot_code_address = boot_code_addr(mainnet);
-
             let boot_code_auth = boot_code_tx_auth(boot_code_address);
-
             let boot_code_nonce = self.with_clarity_db_readonly(|db| {
                 db.get_account_nonce(&boot_code_address.clone().into())
             });
-
             let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
 
             // instantiate costs 2 contract...
@@ -693,12 +831,15 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 &*BOOT_CODE_COSTS_2_TESTNET
             };
 
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(COSTS_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(cost_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
 
             let costs_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
@@ -712,7 +853,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     })
                     .unwrap();
 
+                // NOTE: we don't set tx_conn.epoch to Epoch2_05 here, even though we probably
+                // should, because doing so risks a chain split.  Same for self.epoch.
+                // C'est la vie.
+
                 // initialize with a synthetic transaction
+                debug!("Instantiate .costs-2 contract");
                 let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_2_contract_tx,
@@ -733,7 +879,206 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
+            // NOTE: we don't set self.epoch to Epoch2_05 here, even though we probably
+            // should, because doing so risks a chain split.
+
+            debug!("Epoch 2.05 initialized");
             (old_cost_tracker, Ok(initialization_receipt))
+        })
+    }
+
+    pub fn initialize_epoch_2_1(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            // This is important because pox-2 is instantiated before costs-3.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mainnet = self.mainnet;
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+
+            let v1_unlock_height = self.burn_state_db.get_v1_unlock_height();
+            let pox_2_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                v1_unlock_height as u64,
+                first_block_height as u64,
+                pox_reward_cycle_length as u64,
+            )
+            .expect("PANIC: PoX-2 first reward cycle begins *before* first burn block height");
+
+            // get the boot code account information
+            //  for processing the pox contract initialization
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = TransactionAuth::Standard(
+                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                    signer: boot_code_address.bytes.clone(),
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                    nonce: 0,
+                    tx_fee: 0,
+                    signature: MessageSignature::empty(),
+                }),
+            );
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
+
+            /////////////////// .pox-2 ////////////////////////
+            let pox_2_code = if mainnet {
+                &*POX_2_MAINNET_CODE
+            } else {
+                &*POX_2_TESTNET_CODE
+            };
+
+            let pox_2_contract_id = boot_code_id(POX_2_NAME, mainnet);
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(POX_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(pox_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
+
+            let pox_2_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
+            // features
+            self.epoch = StacksEpochId::Epoch21;
+            let pox_2_initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 2.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch21;
+
+                // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &pox_2_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &pox_2_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process PoX 2 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
+                let params = vec![
+                    Value::UInt(first_block_height as u128),
+                    Value::UInt(pox_prepare_length as u128),
+                    Value::UInt(pox_reward_cycle_length as u128),
+                    Value::UInt(pox_rejection_fraction as u128),
+                    Value::UInt(pox_2_first_cycle as u128),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_2_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-2 contract");
+
+                receipt
+            });
+
+            if pox_2_initialization_receipt.result != Value::okay_true()
+                || pox_2_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
+                    &pox_2_initialization_receipt
+                );
+            }
+
+            /////////////////// .costs-3 ////////////////////////
+            let cost_3_code = &*BOOT_CODE_COSTS_3;
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_3_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_3_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            let costs_3_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 2.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch21;
+
+                // initialize with a synthetic transaction
+                debug!("Instantiate .costs-3 contract");
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_3_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process costs-3 contract initialization");
+
+                receipt
+            });
+
+            if costs_3_initialization_receipt.result != Value::okay_true()
+                || costs_3_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 3 contract initialization: {:#?}",
+                    &costs_3_initialization_receipt
+                );
+            }
+
+            debug!("Epoch 2.1 initialized");
+            (
+                old_cost_tracker,
+                Ok(vec![
+                    pox_2_initialization_receipt,
+                    costs_3_initialization_receipt,
+                ]),
+            )
         })
     }
 
@@ -743,6 +1088,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         let header_db = &self.header_db;
         let burn_state_db = &self.burn_state_db;
         let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
         ClarityTransactionConnection {
@@ -752,10 +1098,37 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             burn_state_db,
             log: Some(log),
             mainnet,
+            chain_id,
             epoch: self.epoch,
         }
     }
 
+    /// Execute `todo` as a transaction in this block. The execution
+    /// will use the "free" cost tracker.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
+    pub fn as_free_transaction<F, R>(&mut self, todo: F) -> R
+    where
+        F: FnOnce(&mut ClarityTransactionConnection) -> R,
+    {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mut tx = self.start_transaction_processing();
+            let r = todo(&mut tx);
+            tx.commit();
+            (old_cost_tracker, r)
+        })
+    }
+
+    /// Execute `todo` as a transaction in this block.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
     pub fn as_transaction<F, R>(&mut self, todo: F) -> R
     where
         F: FnOnce(&mut ClarityTransactionConnection) -> R,
@@ -772,6 +1145,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
     pub fn destruct(self) -> WritableMarfStore<'a> {
         self.datastore
+    }
+
+    #[cfg(test)]
+    pub fn set_epoch(&mut self, epoch_id: StacksEpochId) {
+        self.epoch = epoch_id;
     }
 }
 
@@ -854,8 +1232,13 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
                 db.begin();
-                let mut vm_env =
-                    OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track, self.epoch);
+                let mut vm_env = OwnedEnvironment::new_cost_limited(
+                    self.mainnet,
+                    self.chain_id,
+                    db,
+                    cost_track,
+                    self.epoch,
+                );
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -942,7 +1325,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), |env| {
+                    .execute_in_env(sender.clone(), None, None, |env| {
                         env.run_as_transaction(|env| {
                             StacksChainState::handle_poison_microblock(
                                 env,
@@ -956,6 +1339,10 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             |_, _| false,
         )
         .and_then(|(value, ..)| Ok(value))
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        return self.mainnet;
     }
 
     /// Commit the changes from the edit log.
@@ -1010,7 +1397,6 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
-    use crate::chainstate::stacks::index::storage::TrieFileStorage;
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::types::{StandardPrincipalData, Value};
@@ -1021,12 +1407,15 @@ mod tests {
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
 
+    use stacks_common::types::chainstate::ConsensusHash;
+
     use super::*;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
 
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1053,6 +1442,7 @@ mod tests {
                 .as_transaction(|tx| {
                     tx.analyze_smart_contract(
                         &contract_identifier,
+                        ClarityVersion::Clarity1,
                         &contract,
                         ASTRules::PrecheckSize,
                     )
@@ -1065,6 +1455,7 @@ mod tests {
                 .as_transaction(|tx| {
                     tx.analyze_smart_contract(
                         &contract_identifier,
+                        ClarityVersion::Clarity1,
                         &contract,
                         ASTRules::PrecheckSize,
                     )
@@ -1078,7 +1469,7 @@ mod tests {
     #[test]
     pub fn test_initialize_contract_tx_sender_contract_caller() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         clarity_instance
@@ -1110,11 +1501,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1127,7 +1528,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -1153,11 +1554,21 @@ mod tests {
                 let mut tx = conn.start_transaction_processing();
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                tx.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1171,11 +1582,21 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                tx.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1191,14 +1612,21 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, _ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
                 assert!(format!(
                     "{}",
                     tx.initialize_smart_contract(
                         &contract_identifier,
+                        ClarityVersion::Clarity1,
                         &ct_ast,
                         &contract,
+                        None,
                         |_, _| false
                     )
                     .unwrap_err()
@@ -1213,7 +1641,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1238,11 +1666,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1251,6 +1689,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &StandardPrincipalData::transient().into(),
+                    None,
                     &contract_identifier,
                     "foo",
                     &[Value::Int(1)],
@@ -1272,7 +1711,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -1287,11 +1726,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1326,7 +1775,8 @@ mod tests {
         }
 
         let confirmed_marf = MarfedKV::open(test_name, None, None).unwrap();
-        let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
+        let mut confirmed_clarity_instance =
+            ClarityInstance::new(false, CHAIN_ID_TESTNET, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         let contract = "
@@ -1356,7 +1806,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         // make an unconfirmed block off of the confirmed block
         {
@@ -1368,11 +1818,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1460,7 +1920,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1489,11 +1949,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1502,6 +1972,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1515,6 +1986,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
@@ -1529,6 +2001,7 @@ mod tests {
                 .as_transaction(|tx| {
                     tx.run_contract_call(
                         &sender,
+                        None,
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
@@ -1548,6 +2021,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1562,6 +2036,7 @@ mod tests {
                 "{:?}",
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
@@ -1575,6 +2050,7 @@ mod tests {
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
                     &StandardPrincipalData::transient().into(),
+                    None,
                     &contract_identifier,
                     "get-bar",
                     &[],
@@ -1598,7 +2074,7 @@ mod tests {
         use stacks_common::util::secp256k1::MessageSignature;
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -1615,20 +2091,26 @@ mod tests {
         let mut tx1 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
         let tx2 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
@@ -1717,7 +2199,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1732,6 +2214,13 @@ mod tests {
                 _height: u32,
                 _sortition_id: &SortitionId,
             ) -> Option<BurnchainHeaderHash> {
+                None
+            }
+
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
                 None
             }
 
@@ -1758,6 +2247,31 @@ mod tests {
                 _epoch_id: &StacksEpochId,
             ) -> Option<StacksEpoch> {
                 self.get_stacks_epoch(0)
+            }
+            fn get_v1_unlock_height(&self) -> u32 {
+                u32::max_value()
+            }
+
+            fn get_pox_prepare_length(&self) -> u32 {
+                panic!("BlockLimitBurnStateDB should not return PoX info");
+            }
+
+            fn get_pox_reward_cycle_length(&self) -> u32 {
+                panic!("BlockLimitBurnStateDB should not return PoX info");
+            }
+
+            fn get_pox_rejection_fraction(&self) -> u64 {
+                panic!("BlockLimitBurnStateDB should not return PoX info");
+            }
+            fn get_burn_start_height(&self) -> u32 {
+                0
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                _height: u32,
+                _sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                return None;
             }
             fn get_ast_rules(&self, height: u32) -> ASTRules {
                 ASTRules::Typical
@@ -1793,11 +2307,21 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
@@ -1816,6 +2340,7 @@ mod tests {
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(
                     &sender,
+                    None,
                     &contract_identifier,
                     "do-expand",
                     &[],

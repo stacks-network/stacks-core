@@ -25,6 +25,7 @@ use std::{cmp, fmt};
 use regex::Regex;
 
 use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 use stacks_common::types::chainstate::StacksAddress;
@@ -39,9 +40,11 @@ use crate::vm::representations::{
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_32, BUFF_33,
-    BUFF_64, BUFF_65,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32,
+    BUFF_33, BUFF_64, BUFF_65,
 };
+
+use crate::vm::ClarityVersion;
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
@@ -153,6 +156,12 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallableData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub trait_identifier: Option<TraitIdentifier>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TraitIdentifier {
     pub name: ClarityName,
@@ -231,6 +240,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+    CallableContract(CallableData),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -247,6 +257,15 @@ impl SequenceData {
             SequenceData::List(ref mut data) => data.atom_values(),
             SequenceData::String(CharType::ASCII(ref mut data)) => data.atom_values(),
             SequenceData::String(CharType::UTF8(ref mut data)) => data.atom_values(),
+        }
+    }
+
+    pub fn element_size(&self) -> u32 {
+        match self {
+            SequenceData::Buffer(..) => TypeSignature::min_buffer().size(),
+            SequenceData::List(ref data) => data.type_signature.get_list_item_type().size(),
+            SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii().size(),
+            SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8().size(),
         }
     }
 
@@ -278,6 +297,58 @@ impl SequenceData {
         };
 
         Some(result)
+    }
+
+    pub fn replace_at(self, epoch: &StacksEpochId, index: usize, element: Value) -> Result<Value> {
+        let seq_length = self.len();
+
+        // Check that the length of the provided element is 1. In the case that SequenceData
+        // is a list, we check that the provided element is the right type below.
+        if !self.is_list() {
+            if let Value::Sequence(data) = &element {
+                let elem_length = data.len();
+                if elem_length != 1 {
+                    return Err(RuntimeErrorType::BadTypeConstruction.into());
+                }
+            } else {
+                return Err(RuntimeErrorType::BadTypeConstruction.into());
+            }
+        }
+        if index >= seq_length {
+            return Err(CheckErrors::ValueOutOfBounds.into());
+        }
+
+        let new_seq_data = match (self, element) {
+            (SequenceData::Buffer(mut data), Value::Sequence(SequenceData::Buffer(elem))) => {
+                data.data[index] = elem.data[0];
+                SequenceData::Buffer(data)
+            }
+            (SequenceData::List(mut data), elem) => {
+                let entry_type = data.type_signature.get_list_item_type();
+                if !entry_type.admits(epoch, &elem)? {
+                    return Err(CheckErrors::ListTypesMustMatch.into());
+                }
+                data.data[index] = elem;
+                SequenceData::List(data)
+            }
+            (
+                SequenceData::String(CharType::ASCII(mut data)),
+                Value::Sequence(SequenceData::String(CharType::ASCII(elem))),
+            ) => {
+                data.data[index] = elem.data[0];
+                SequenceData::String(CharType::ASCII(data))
+            }
+            (
+                SequenceData::String(CharType::UTF8(mut data)),
+                Value::Sequence(SequenceData::String(CharType::UTF8(mut elem))),
+            ) => {
+                data.data[index] = elem.data.swap_remove(0);
+                SequenceData::String(CharType::UTF8(data))
+            }
+            _ => return Err(CheckErrors::ListTypesMustMatch.into()),
+        };
+
+        Ok(Value::some(Value::Sequence(new_seq_data))?)
     }
 
     pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
@@ -392,12 +463,12 @@ impl SequenceData {
         Ok(())
     }
 
-    pub fn append(&mut self, other_seq: &mut SequenceData) -> Result<()> {
+    pub fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut SequenceData) -> Result<()> {
         match (self, other_seq) {
             (
                 SequenceData::List(ref mut inner_data),
                 SequenceData::List(ref mut other_inner_data),
-            ) => inner_data.append(other_inner_data),
+            ) => inner_data.append(epoch, other_inner_data),
             (
                 SequenceData::Buffer(ref mut inner_data),
                 SequenceData::Buffer(ref mut other_inner_data),
@@ -413,6 +484,57 @@ impl SequenceData {
             _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
         }?;
         Ok(())
+    }
+
+    pub fn slice(self, left_position: usize, right_position: usize) -> Result<Value> {
+        let empty_seq = left_position == right_position;
+
+        let result = match self {
+            SequenceData::Buffer(data) => {
+                let data = if empty_seq {
+                    vec![]
+                } else {
+                    data.data[left_position..right_position].to_vec()
+                };
+                Value::buff_from(data)
+            }
+            SequenceData::List(data) => {
+                let data = if empty_seq {
+                    vec![]
+                } else {
+                    data.data[left_position..right_position].to_vec()
+                };
+                Value::list_from(data)
+            }
+            SequenceData::String(CharType::ASCII(data)) => {
+                let data = if empty_seq {
+                    vec![]
+                } else {
+                    data.data[left_position..right_position].to_vec()
+                };
+                Value::string_ascii_from_bytes(data)
+            }
+            SequenceData::String(CharType::UTF8(data)) => {
+                let data = if empty_seq {
+                    vec![]
+                } else {
+                    data.data[left_position..right_position].to_vec()
+                };
+                Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
+                    UTF8Data { data },
+                ))))
+            }
+        }?;
+
+        Ok(result)
+    }
+
+    pub fn is_list(&self) -> bool {
+        if let SequenceData::List(..) = self {
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -574,13 +696,23 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 }
 
-define_named_enum!(BlockInfoProperty {
-    Time("time"),
-    VrfSeed("vrf-seed"),
+// Properties for "get-block-info".
+define_versioned_named_enum!(BlockInfoProperty(ClarityVersion) {
+    Time("time", ClarityVersion::Clarity1),
+    VrfSeed("vrf-seed", ClarityVersion::Clarity1),
+    HeaderHash("header-hash", ClarityVersion::Clarity1),
+    IdentityHeaderHash("id-header-hash", ClarityVersion::Clarity1),
+    BurnchainHeaderHash("burnchain-header-hash", ClarityVersion::Clarity1),
+    MinerAddress("miner-address", ClarityVersion::Clarity1),
+    MinerSpendWinner("miner-spend-winner", ClarityVersion::Clarity2),
+    MinerSpendTotal("miner-spend-total", ClarityVersion::Clarity2),
+    BlockReward("block-reward", ClarityVersion::Clarity2),
+});
+
+// Properties for "get-burn-block-info".
+define_named_enum!(BurnBlockInfoProperty {
     HeaderHash("header-hash"),
-    IdentityHeaderHash("id-header-hash"),
-    BurnchainHeaderHash("burnchain-header-hash"),
-    MinerAddress("miner-address"),
+    PoxAddrs("pox-addrs"),
 });
 
 impl OptionalData {
@@ -613,9 +745,50 @@ impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
         use self::BlockInfoProperty::*;
         match self {
-            Time => TypeSignature::UIntType,
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
             IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
             MinerAddress => TypeSignature::PrincipalType,
+        }
+    }
+
+    pub fn lookup_by_name_at_version(
+        name: &str,
+        version: &ClarityVersion,
+    ) -> Option<BlockInfoProperty> {
+        BlockInfoProperty::lookup_by_name(name).and_then(|native_function| {
+            if &native_function.get_version() <= version {
+                Some(native_function)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+impl BurnBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::BurnBlockInfoProperty::*;
+        match self {
+            HeaderHash => BUFF_32.clone(),
+            PoxAddrs => TupleTypeSignature::try_from(vec![
+                (
+                    "addrs".into(),
+                    TypeSignature::list_of(
+                        TypeSignature::TupleType(
+                            TupleTypeSignature::try_from(vec![
+                                ("version".into(), BUFF_1.clone()),
+                                ("hashbytes".into(), BUFF_32.clone()),
+                            ])
+                            .expect("FATAL: bad type signature for pox addr"),
+                        ),
+                        2,
+                    )
+                    .expect("FATAL: bad list type signature"),
+                ),
+                ("payout".into(), TypeSignature::UIntType),
+            ])
+            .expect("FATAL: bad type signature for pox addr")
+            .into(),
         }
     }
 }
@@ -709,7 +882,11 @@ impl Value {
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
-    pub fn list_with_type(list_data: Vec<Value>, expected_type: ListTypeData) -> Result<Value> {
+    pub fn list_with_type(
+        epoch: &StacksEpochId,
+        list_data: Vec<Value>,
+        expected_type: ListTypeData,
+    ) -> Result<Value> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         //   so we do not need to perform that check here.
@@ -721,7 +898,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(&item) {
+                if !expected_item_type.admits(epoch, &item)? {
                     return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
@@ -747,6 +924,8 @@ impl Value {
         })))
     }
 
+    /// # Errors
+    /// - CheckErrors::ValueTooLarge if `buff_data` is too large.
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
@@ -934,6 +1113,15 @@ impl Value {
         }
     }
 
+    pub fn expect_callable(self) -> CallableData {
+        if let Value::CallableContract(t) = self {
+            t
+        } else {
+            error!("Value '{:?}' is not a callable contract", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_result(self) -> std::result::Result<Value, Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
@@ -981,9 +1169,17 @@ impl BuffData {
         self.data.len().try_into().unwrap()
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+
     fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
+    }
+
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
     }
 }
 
@@ -992,10 +1188,10 @@ impl ListData {
         self.data.len().try_into().unwrap()
     }
 
-    fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
+    fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
-        let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
+        let entry_type = TypeSignature::factor_out_no_type(epoch, &entry_type_a, &entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
         self.data.append(&mut other_seq.data);
@@ -1077,6 +1273,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            Value::CallableContract(callable_data) => write!(f, "{}", callable_data),
         }
     }
 }
@@ -1159,6 +1356,20 @@ impl fmt::Display for PrincipalData {
     }
 }
 
+impl fmt::Display for CallableData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(trait_identifier) = &self.trait_identifier {
+            write!(
+                f,
+                "({} as <{}>)",
+                self.contract_identifier, trait_identifier,
+            )
+        } else {
+            write!(f, "{}", self.contract_identifier,)
+        }
+    }
+}
+
 impl fmt::Display for TraitIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
@@ -1222,6 +1433,21 @@ impl From<TupleData> for Value {
     }
 }
 
+impl From<ASCIIData> for Value {
+    fn from(ascii: ASCIIData) -> Self {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ascii)))
+    }
+}
+impl From<ContractName> for ASCIIData {
+    fn from(name: ContractName) -> Self {
+        // ContractName is guaranteed to be between 5 and 40 bytes and contains only printable
+        // ASCII already, so this conversion should not fail.
+        ASCIIData {
+            data: name.as_str().as_bytes().to_vec(),
+        }
+    }
+}
+
 impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
@@ -1255,6 +1481,7 @@ impl TupleData {
     }
 
     pub fn from_data_typed(
+        epoch: &StacksEpochId,
         mut data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
     ) -> Result<TupleData> {
@@ -1263,7 +1490,7 @@ impl TupleData {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
-            if !expected_type.admits(&value) {
+            if !expected_type.admits(epoch, &value)? {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
             }
             data_map.insert(name, value);
@@ -1320,6 +1547,7 @@ mod test {
     fn test_constructors() {
         assert_eq!(
             Value::list_with_type(
+                &StacksEpochId::latest(),
                 vec![Value::Int(5), Value::Int(2)],
                 ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
             ),

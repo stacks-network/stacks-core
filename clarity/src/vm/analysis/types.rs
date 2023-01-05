@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{CheckErrors, CheckResult};
@@ -21,7 +23,7 @@ use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-use crate::vm::{ClarityName, SymbolicExpression};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =
@@ -31,6 +33,7 @@ const SERIALIZE_FAIL_MESSAGE: &str =
 
 pub trait AnalysisPass {
     fn run_pass(
+        epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()>;
@@ -51,6 +54,7 @@ pub struct ContractAnalysis {
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     pub is_cost_contract_eligible: bool,
+    pub clarity_version: ClarityVersion,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
@@ -64,6 +68,7 @@ impl ContractAnalysis {
         contract_identifier: QualifiedContractIdentifier,
         expressions: Vec<SymbolicExpression>,
         cost_track: LimitedCostTracker,
+        clarity_version: ClarityVersion,
     ) -> ContractAnalysis {
         ContractAnalysis {
             contract_identifier,
@@ -82,6 +87,7 @@ impl ContractAnalysis {
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
             is_cost_contract_eligible: false,
+            clarity_version,
         }
     }
 
@@ -183,6 +189,7 @@ impl ContractAnalysis {
 
     pub fn check_trait_compliance(
         &self,
+        epoch: &StacksEpochId,
         trait_identifier: &TraitIdentifier,
         trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
@@ -196,7 +203,7 @@ impl ContractAnalysis {
                 (Some(FunctionType::Fixed(func)), None)
                 | (None, Some(FunctionType::Fixed(func))) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
-                    if !expected_sig.check_args_trait_compliance(args_sig) {
+                    if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
@@ -204,7 +211,7 @@ impl ContractAnalysis {
                         .into());
                     }
 
-                    if !expected_sig.returns.admits_type(&func.returns) {
+                    if !expected_sig.returns.admits_type(epoch, &func.returns)? {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),

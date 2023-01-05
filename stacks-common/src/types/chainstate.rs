@@ -4,10 +4,12 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
+use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
+use crate::util::uint::Uint256;
 use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
@@ -22,7 +24,11 @@ use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use rand::Rng;
+use rand::SeedableRng;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+
+use crate::util::hash::DoubleSha256;
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -96,7 +102,9 @@ impl SortitionId {
             hasher.update(bhh);
             write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
-            SortitionId(h.0)
+            let s = SortitionId(h.0);
+            test_debug!("SortitionId({}) = {} + {}", &s, bhh, pox);
+            s
         }
     }
 }
@@ -160,6 +168,24 @@ impl PoxId {
 
     pub fn num_inventory_reward_cycles(&self) -> usize {
         self.0.len().saturating_sub(1)
+    }
+
+    pub fn has_prefix(&self, prefix: &PoxId) -> bool {
+        if self.len() < prefix.len() {
+            return false;
+        }
+
+        for i in 0..prefix.len() {
+            if self.0[i] != prefix.0[i] {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn into_inner(self) -> Vec<bool> {
+        self.0
     }
 }
 
@@ -336,11 +362,38 @@ impl BurnchainHeaderHash {
     /// Instantiate a burnchain block hash from a Bitcoin block header
     pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
         // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
+        // Bitcoin stores its hashes in big-endian form, but our codebase stores them in
+        // little-endian form (which is also how most libraries work).
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
+    }
+
+    pub fn to_bitcoin_hash(&self) -> Sha256dHash {
+        let mut bytes = self.0.to_vec();
+        bytes.reverse();
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&bytes[0..32]);
+        Sha256dHash(buf)
     }
 
     pub fn zero() -> BurnchainHeaderHash {
         BurnchainHeaderHash([0x00; 32])
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn from_test_data(
+        block_height: u64,
+        index_root: &TrieHash,
+        noise: u64,
+    ) -> BurnchainHeaderHash {
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(index_root.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
+
+        BurnchainHeaderHash(hb)
     }
 }
 

@@ -55,6 +55,7 @@ use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::ClarityVersion;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -64,6 +65,7 @@ use crate::monitoring::update_stacks_tip_height;
 use crate::types::chainstate::{PoxId, SortitionId};
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::StacksEpochId;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -551,19 +553,32 @@ impl Relayer {
             &block.block_hash()
         );
 
+        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
+            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+
+        if chainstate.fault_injection.hide_blocks
+            && Self::fault_injection_is_block_hidden(&block.header, block_sn.block_height)
+        {
+            return Ok(false);
+        }
+
         // find the snapshot of the parent of this block
-        let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
-        let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(
-            &db_handle,
-            consensus_hash,
-            &block.block_hash(),
-        )?;
+        let parent_block_snapshot = match sort_ic
+            .find_parent_snapshot_for_stacks_block(consensus_hash, &block.block_hash())?
+        {
+            Some(sn) => sn,
+            None => {
+                // doesn't correspond to a PoX-valid sortition
+                return Ok(false);
+            }
+        };
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its
         // txs problematic).
-        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
-            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
         let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
         debug!(
             "Current AST rules for block {}/{} height {} sortitioned at {} is {:?}",
             consensus_hash,
@@ -572,7 +587,12 @@ impl Relayer {
             &block_sn.block_height,
             &ast_rules
         );
-        if !Relayer::static_check_problematic_relayed_block(chainstate.mainnet, block, ast_rules) {
+        if !Relayer::static_check_problematic_relayed_block(
+            chainstate.mainnet,
+            epoch_id,
+            block,
+            ast_rules,
+        ) {
             warn!(
                 "Block is problematic; will not store or relay";
                 "stacks_block_hash" => %block.block_hash(),
@@ -694,6 +714,16 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
+            if chainstate.fault_injection.hide_blocks {
+                if let Some(sn) =
+                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
+                        .expect("FATAL: failed to query downloaded block snapshot")
+                {
+                    if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
+                        continue;
+                    }
+                }
+            }
             match Relayer::process_new_anchored_block(
                 sort_ic,
                 chainstate,
@@ -737,6 +767,42 @@ impl Relayer {
         new_blocks
     }
 
+    // fault injection -- don't accept this block if we are to deliberatly ignore
+    // it in a test
+    #[cfg(any(test, feature = "testing"))]
+    pub fn fault_injection_is_block_hidden(
+        _header: &StacksBlockHeader,
+        burn_block_height: u64,
+    ) -> bool {
+        if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
+            use serde_json;
+            if let Ok(serde_json::Value::Array(height_list_value)) =
+                serde_json::from_str(&heights_str)
+            {
+                for height_value in height_list_value {
+                    if let Some(fault_height) = height_value.as_u64() {
+                        if fault_height == burn_block_height {
+                            debug!(
+                                "Fault injection: hide anchored block at burn block height {}",
+                                fault_height
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn fault_injection_is_block_hidden(
+        _block: &StacksBlockHeader,
+        _burn_block_height: u64,
+    ) -> bool {
+        false
+    }
+
     /// Preprocess all pushed blocks
     /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
     /// list of peers that served us invalid data.
@@ -773,6 +839,14 @@ impl Relayer {
                                     "Consensus hash {} is not on the valid PoX fork",
                                     &consensus_hash
                                 );
+                                continue;
+                            }
+                            if chainstate.fault_injection.hide_blocks
+                                && Self::fault_injection_is_block_hidden(
+                                    &block.header,
+                                    sn.block_height,
+                                )
+                            {
                                 continue;
                             }
                         }
@@ -875,6 +949,17 @@ impl Relayer {
                     continue;
                 }
             };
+            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
+            {
+                Ok(Some(epoch)) => epoch.epoch_id,
+                Ok(None) => {
+                    panic!("FATAL: no epoch defined");
+                }
+                Err(e) => {
+                    error!("Failed to load epoch: {:?}", &e);
+                    continue;
+                }
+            };
 
             let mut stored = false;
             for mblock in microblock_stream.iter() {
@@ -886,6 +971,7 @@ impl Relayer {
                 );
                 if !Relayer::static_check_problematic_relayed_microblock(
                     chainstate.mainnet,
+                    epoch_id,
                     mblock,
                     ast_rules,
                 ) {
@@ -961,6 +1047,9 @@ impl Relayer {
                     SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
                         .ok_or(net_error::DBError(db_error::NotFoundError))?;
                 let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height)?;
+                let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)?
+                    .expect("FATAL: no epoch defined")
+                    .epoch_id;
 
                 for mblock in mblock_data.microblocks.iter() {
                     debug!(
@@ -971,6 +1060,7 @@ impl Relayer {
                     );
                     if !Relayer::static_check_problematic_relayed_microblock(
                         chainstate.mainnet,
+                        epoch_id,
                         mblock,
                         ast_rules,
                     ) {
@@ -1099,6 +1189,7 @@ impl Relayer {
     /// Return false if the check fails -- i.e. it is problematic
     pub fn static_check_problematic_relayed_tx(
         mainnet: bool,
+        epoch_id: StacksEpochId,
         tx: &StacksTransaction,
         ast_rules: ASTRules,
     ) -> Result<(), Error> {
@@ -1108,7 +1199,10 @@ impl Relayer {
             &ast_rules
         );
         match tx.payload {
-            TransactionPayload::SmartContract(ref smart_contract) => {
+            TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) => {
+                let clarity_version =
+                    clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
+
                 if ast_rules == ASTRules::PrecheckSize {
                     let origin = tx.get_origin();
                     let issuer_principal = {
@@ -1133,9 +1227,8 @@ impl Relayer {
                     let contract_code_str = smart_contract.code_body.to_string();
 
                     // make sure that the AST isn't unreasonably big
-                    debug!("ast_size_check on {}", &contract_id);
-                    let ast_res = ast_check_size(&contract_id, &contract_code_str);
-                    debug!("ast_size_check on {} was {:?}", &contract_id, &ast_res);
+                    let ast_res =
+                        ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
                     match ast_res {
                         Ok(_) => {}
                         Err(parse_error) => match parse_error.err {
@@ -1162,11 +1255,14 @@ impl Relayer {
     /// Returns false if not
     pub fn static_check_problematic_relayed_block(
         mainnet: bool,
+        epoch_id: StacksEpochId,
         block: &StacksBlock,
         ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, tx, ast_rules).is_ok() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
                 info!(
                     "Block {} with tx {} will not be stored or relayed",
                     block.block_hash(),
@@ -1186,11 +1282,14 @@ impl Relayer {
     /// Returns false if not
     pub fn static_check_problematic_relayed_microblock(
         mainnet: bool,
+        epoch_id: StacksEpochId,
         mblock: &StacksMicroblock,
         ast_rules: ASTRules,
     ) -> bool {
         for tx in mblock.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, tx, ast_rules).is_ok() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
                 info!(
                     "Microblock {} with tx {} will not be stored relayed",
                     mblock.block_hash(),
@@ -1369,7 +1468,11 @@ impl Relayer {
 
     /// Filter out problematic transactions from the network result.
     /// Modifies network_result in-place.
-    fn filter_problematic_transactions(network_result: &mut NetworkResult, mainnet: bool) {
+    fn filter_problematic_transactions(
+        network_result: &mut NetworkResult,
+        mainnet: bool,
+        epoch_id: StacksEpochId,
+    ) {
         // filter out transactions that prove problematic
         let mut filtered_pushed_transactions = HashMap::new();
         let mut filtered_uploaded_transactions = vec![];
@@ -1379,6 +1482,7 @@ impl Relayer {
                 if Relayer::do_static_problematic_checks()
                     && !Relayer::static_check_problematic_relayed_tx(
                         mainnet,
+                        epoch_id,
                         &tx,
                         ASTRules::PrecheckSize,
                     )
@@ -1401,6 +1505,7 @@ impl Relayer {
             if Relayer::do_static_problematic_checks()
                 && !Relayer::static_check_problematic_relayed_tx(
                     mainnet,
+                    epoch_id,
                     &tx,
                     ASTRules::PrecheckSize,
                 )
@@ -1442,9 +1547,12 @@ impl Relayer {
                 return Ok(vec![]);
             }
         };
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
 
         let chain_height = chain_tip.height;
-        Relayer::filter_problematic_transactions(network_result, chainstate.mainnet);
+        Relayer::filter_problematic_transactions(network_result, chainstate.mainnet, epoch_id);
 
         if let Err(e) = PeerNetwork::store_transactions(
             mempool,
@@ -2173,9 +2281,9 @@ pub mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
+    use crate::burnchains::tests::TestMiner;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-    use crate::chainstate::stacks::test::*;
     use crate::chainstate::stacks::Error as ChainstateError;
     use crate::chainstate::stacks::*;
     use crate::net::asn::*;
@@ -2191,19 +2299,26 @@ pub mod test {
     use clarity::vm::costs::LimitedCostTracker;
     use clarity::vm::database::ClarityDatabase;
     use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
     use super::*;
     use crate::clarity_vm::clarity::ClarityConnection;
+    use crate::core::*;
+    use clarity::vm::types::QualifiedContractIdentifier;
+    use clarity::vm::ClarityVersion;
     use stacks_common::types::chainstate::BlockHeaderHash;
 
     use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::MAX_CALL_STACK_DEPTH;
 
-    use crate::chainstate::stacks::miner::test::make_coinbase;
-    use crate::chainstate::stacks::miner::test::make_user_stacks_transfer;
     use crate::chainstate::stacks::miner::BlockBuilderSettings;
     use crate::chainstate::stacks::miner::StacksMicroblockBuilder;
+    use crate::chainstate::stacks::test::codec_all_transactions;
+    use crate::chainstate::stacks::tests::make_coinbase;
+    use crate::chainstate::stacks::tests::make_coinbase_with_nonce;
+    use crate::chainstate::stacks::tests::make_smart_contract_with_version;
+    use crate::chainstate::stacks::tests::make_user_stacks_transfer;
     use crate::core::*;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::StacksBlockId;
@@ -2211,7 +2326,6 @@ pub mod test {
     use stacks_common::types::chainstate::TrieHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::MerkleTree;
-    use stacks_common::util::vrf::VRFProof;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {
@@ -3567,6 +3681,7 @@ pub mod test {
                         TransactionPayload::new_smart_contract(
                             &name.to_string(),
                             &contract.to_string(),
+                            None,
                         )
                         .unwrap(),
                     );
@@ -4692,7 +4807,7 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             spending_auth.clone(),
-            TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string())
+            TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string(), None)
                 .unwrap(),
         );
 
@@ -4753,33 +4868,45 @@ pub mod test {
             "test-high",
             &tx_high_body,
         );
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, &tx_edge, ASTRules::Typical)
-                .is_ok()
-        );
         assert!(Relayer::static_check_problematic_relayed_tx(
             false,
+            StacksEpochId::Epoch2_05,
+            &tx_edge,
+            ASTRules::Typical
+        )
+        .is_ok());
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
             &tx_exceeds,
             ASTRules::Typical
         )
         .is_ok());
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, &tx_high, ASTRules::Typical)
-                .is_ok()
-        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
+            &tx_high,
+            ASTRules::Typical
+        )
+        .is_ok());
 
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, &tx_edge, ASTRules::Typical)
-                .is_ok()
-        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
+            &tx_edge,
+            ASTRules::Typical
+        )
+        .is_ok());
         assert!(!Relayer::static_check_problematic_relayed_tx(
             false,
+            StacksEpochId::Epoch2_05,
             &tx_exceeds,
             ASTRules::PrecheckSize
         )
         .is_ok());
         assert!(!Relayer::static_check_problematic_relayed_tx(
             false,
+            StacksEpochId::Epoch2_05,
             &tx_high,
             ASTRules::PrecheckSize
         )
@@ -5197,6 +5324,577 @@ pub mod test {
         )
         .unwrap();
         assert_eq!(txs_relayed.len(), 0);
+    }
+
+    #[test]
+    fn test_block_pay_to_contract_gated_at_v210() {
+        let mut peer_config =
+            TestPeerConfig::new("test_block_pay_to_contract_gated_at_v210", 4246, 4247);
+        let epochs = vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 28, // NOTE: the first 25 burnchain blocks have no sortition
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 28,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+        ];
+        peer_config.epochs = Some(epochs);
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let mut make_tenure =
+            |miner: &mut TestMiner,
+             sortdb: &mut SortitionDB,
+             chainstate: &mut StacksChainState,
+             vrfproof: VRFProof,
+             parent_opt: Option<&StacksBlock>,
+             microblock_parent_opt: Option<&StacksMicroblockHeader>| {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let parent_tip = match stacks_tip_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(staging_block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &staging_block.anchored_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let coinbase_tx = make_coinbase_with_nonce(
+                    miner,
+                    parent_tip.stacks_block_height as usize,
+                    0,
+                    Some(PrincipalData::Contract(
+                        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns")
+                            .unwrap(),
+                    )),
+                );
+
+                let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrfproof,
+                    tip.total_burn,
+                    Hash160(mblock_pubkey_hash_bytes),
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
+
+                (anchored_block.0, vec![])
+            };
+
+        // tenures 26 and 27 should fail, since the block is a pay-to-contract block
+        // Pay-to-contract should only be supported if the block is in epoch 2.1, which
+        // activates at tenure 27.
+        for i in 0..2 {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
+                }
+                Err(chainstate_error::InvalidStacksBlock(_)) => {}
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+
+        // *now* it should succeed, since tenure 28 was in epoch 2.1
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let mut node = peer.stacks_node.take().unwrap();
+        match Relayer::process_new_anchored_block(
+            &sortdb.index_conn(),
+            &mut node.chainstate,
+            &consensus_hash,
+            &stacks_block,
+            123,
+        ) {
+            Ok(x) => {
+                assert!(x, "Failed to process valid pay-to-contract block");
+            }
+            Err(e) => {
+                panic!("Got unexpected error {:?}", &e);
+            }
+        };
+        peer.sortdb = Some(sortdb);
+        peer.stacks_node = Some(node);
+    }
+
+    #[test]
+    fn test_block_versioned_smart_contract_gated_at_v210() {
+        let mut peer_config = TestPeerConfig::new(
+            "test_block_versioned_smart_contract_gated_at_v210",
+            4248,
+            4249,
+        );
+
+        let initial_balances = vec![(
+            PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
+            1000000,
+        )];
+
+        let epochs = vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 28, // NOTE: the first 25 burnchain blocks have no sortition
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 28,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+        ];
+
+        peer_config.epochs = Some(epochs);
+        peer_config.initial_balances = initial_balances;
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let mut make_tenure =
+            |miner: &mut TestMiner,
+             sortdb: &mut SortitionDB,
+             chainstate: &mut StacksChainState,
+             vrfproof: VRFProof,
+             parent_opt: Option<&StacksBlock>,
+             microblock_parent_opt: Option<&StacksMicroblockHeader>| {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let parent_tip = match stacks_tip_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(staging_block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &staging_block.anchored_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let coinbase_tx = make_coinbase_with_nonce(
+                    miner,
+                    parent_tip.stacks_block_height as usize,
+                    0,
+                    None,
+                );
+
+                let versioned_contract = make_smart_contract_with_version(
+                    miner,
+                    1,
+                    tip.block_height.try_into().unwrap(),
+                    0,
+                    Some(ClarityVersion::Clarity1),
+                    Some(1000),
+                );
+
+                let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrfproof,
+                    tip.total_burn,
+                    Hash160(mblock_pubkey_hash_bytes),
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx, versioned_contract],
+                )
+                .unwrap();
+
+                eprintln!("{:?}", &anchored_block.0);
+                (anchored_block.0, vec![])
+            };
+
+        // tenures 26 and 27 should fail, since the block contains a versioned smart contract.
+        // Versioned smart contracts should only be supported if the block is in epoch 2.1, which
+        // activates at tenure 27.
+        for i in 0..2 {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    eprintln!("{:?}", &stacks_block);
+                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
+                }
+                Err(chainstate_error::InvalidStacksBlock(_)) => {}
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+
+        // *now* it should succeed, since tenure 28 was in epoch 2.1
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let mut node = peer.stacks_node.take().unwrap();
+        match Relayer::process_new_anchored_block(
+            &sortdb.index_conn(),
+            &mut node.chainstate,
+            &consensus_hash,
+            &stacks_block,
+            123,
+        ) {
+            Ok(x) => {
+                assert!(x, "Failed to process valid versioned smart contract block");
+            }
+            Err(e) => {
+                panic!("Got unexpected error {:?}", &e);
+            }
+        };
+        peer.sortdb = Some(sortdb);
+        peer.stacks_node = Some(node);
+    }
+
+    #[test]
+    fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
+        let mut peer_config = TestPeerConfig::new(
+            "test_block_versioned_smart_contract_mempool_rejection_until_v210",
+            4250,
+            4251,
+        );
+
+        let initial_balances = vec![(
+            PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
+            1000000,
+        )];
+
+        let epochs = vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 28, // NOTE: the first 25 burnchain blocks have no sortition
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 28,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+        ];
+
+        peer_config.epochs = Some(epochs);
+        peer_config.initial_balances = initial_balances;
+
+        let mut peer = TestPeer::new(peer_config);
+        let versioned_contract_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
+        let nonce: RefCell<u64> = RefCell::new(0);
+
+        let mut make_tenure =
+            |miner: &mut TestMiner,
+             sortdb: &mut SortitionDB,
+             chainstate: &mut StacksChainState,
+             vrfproof: VRFProof,
+             parent_opt: Option<&StacksBlock>,
+             microblock_parent_opt: Option<&StacksMicroblockHeader>| {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let parent_tip = match stacks_tip_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(staging_block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &staging_block.anchored_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let next_nonce = *nonce.borrow();
+                let coinbase_tx = make_coinbase_with_nonce(
+                    miner,
+                    parent_tip.stacks_block_height as usize,
+                    next_nonce,
+                    None,
+                );
+
+                let versioned_contract = make_smart_contract_with_version(
+                    miner,
+                    next_nonce + 1,
+                    tip.block_height.try_into().unwrap(),
+                    0,
+                    Some(ClarityVersion::Clarity1),
+                    Some(1000),
+                );
+
+                *versioned_contract_opt.borrow_mut() = Some(versioned_contract);
+                *nonce.borrow_mut() = next_nonce + 1;
+
+                let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrfproof,
+                    tip.total_burn,
+                    Hash160(mblock_pubkey_hash_bytes),
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
+
+                eprintln!("{:?}", &anchored_block.0);
+                (anchored_block.0, vec![])
+            };
+
+        for i in 0..2 {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+
+            // the empty block should be accepted
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    assert!(x, "Did not accept valid block");
+                }
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
+
+            // process it
+            peer.coord.handle_new_stacks_block().unwrap();
+
+            // the mempool would reject a versioned contract transaction, since we're not yet at
+            // tenure 28
+            let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
+            let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+            match node.chainstate.will_admit_mempool_tx(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+                &versioned_contract,
+                versioned_contract_len as u64,
+            ) {
+                Err(MemPoolRejection::Other(msg)) => {
+                    assert!(msg.find("not supported in this epoch").is_some());
+                }
+                Err(e) => {
+                    panic!("will_admit_mempool_tx {:?}", &e);
+                }
+                Ok(_) => {
+                    panic!("will_admit_mempool_tx succeeded");
+                }
+            };
+
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+
+        // *now* it should succeed, since tenure 28 was in epoch 2.1
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let mut node = peer.stacks_node.take().unwrap();
+        match Relayer::process_new_anchored_block(
+            &sortdb.index_conn(),
+            &mut node.chainstate,
+            &consensus_hash,
+            &stacks_block,
+            123,
+        ) {
+            Ok(x) => {
+                assert!(x, "Failed to process valid versioned smart contract block");
+            }
+            Err(e) => {
+                panic!("Got unexpected error {:?}", &e);
+            }
+        };
+
+        // process it
+        peer.coord.handle_new_stacks_block().unwrap();
+
+        // the mempool would accept a versioned contract transaction, since we're not yet at
+        // tenure 28
+        let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
+        let versioned_contract_len = versioned_contract.serialize_to_vec().len();
+        match node.chainstate.will_admit_mempool_tx(
+            &consensus_hash,
+            &stacks_block.block_hash(),
+            &versioned_contract,
+            versioned_contract_len as u64,
+        ) {
+            Err(e) => {
+                panic!("will_admit_mempool_tx {:?}", &e);
+            }
+            Ok(_) => {}
+        };
+
+        peer.sortdb = Some(sortdb);
+        peer.stacks_node = Some(node);
     }
 
     // TODO: process bans

@@ -1775,6 +1775,14 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
+        // start scaning at the reward cycle just before that.
+        let am_rescan_rc = self
+            .stacks_tip_affirmation_map
+            .find_inv_search(&self.heaviest_affirmation_map);
+
+        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
+        // tip.
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
@@ -1796,13 +1804,16 @@ impl PeerNetwork {
             highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
         );
 
+        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+
         test_debug!(
-            "begin blocks inv scan at {} = min({},{})",
-            start_reward_cycle,
+            "begin blocks inv scan at {} = min({},{},{})",
+            rescan_rc,
             stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+            am_rescan_rc
         );
-        start_reward_cycle
+        rescan_rc
     }
 
     /// Start requesting the next batch of PoX inventories
@@ -2654,6 +2665,13 @@ mod test {
 
     use super::*;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+    use crate::burnchains::db::BurnchainHeaderReader;
+    use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::chainstate::coordinator::tests::get_burnchain;
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+
     #[test]
     fn peerblocksinv_has_ith_block() {
         let peer_inv =
@@ -3091,7 +3109,16 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::max_value(),
+            u64::max_value(),
+            u32::max_value(),
+        );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -3109,7 +3136,16 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::max_value(),
+            u64::max_value(),
+            u32::max_value(),
+        );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {
@@ -3159,13 +3195,70 @@ mod test {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 31981, 41981);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 31982, 41982);
 
+        let peer_1_test_path = TestPeer::make_test_path(&peer_1_config);
+        let peer_2_test_path = TestPeer::make_test_path(&peer_2_config);
+
+        let mut peer_1 = TestPeer::new(peer_1_config.clone());
+        let mut peer_2 = TestPeer::new(peer_2_config.clone());
+
+        for (test_path, burnchain) in [
+            (peer_1_test_path, &mut peer_1.config.burnchain),
+            (peer_2_test_path, &mut peer_2.config.burnchain),
+        ]
+        .iter_mut()
+        {
+            let working_dir = get_burnchain(&test_path, None).working_dir;
+
+            // pre-populate headers
+            let mut indexer = BitcoinIndexer::new_unit_test(&working_dir);
+            let now = BURNCHAIN_TEST_BLOCK_TIME;
+
+            for header_height in 1..6 {
+                let parent_hdr = indexer
+                    .read_burnchain_header(header_height - 1)
+                    .unwrap()
+                    .unwrap();
+
+                let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
+                    &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
+                        .bitcoin_hash(),
+                );
+
+                let block_header = BurnchainBlockHeader {
+                    block_height: header_height,
+                    block_hash: block_header_hash.clone(),
+                    parent_block_hash: parent_hdr.block_hash.clone(),
+                    num_txs: 0,
+                    timestamp: now,
+                };
+
+                test_debug!(
+                    "Pre-populate block header for {}-{} ({})",
+                    &block_header.block_hash,
+                    &block_header.parent_block_hash,
+                    block_header.block_height
+                );
+                indexer.raw_store_header(block_header.clone()).unwrap();
+            }
+
+            let hdr = indexer
+                .read_burnchain_header(burnchain.first_block_height)
+                .unwrap()
+                .unwrap();
+            burnchain.first_block_hash = hdr.block_hash;
+        }
+
         peer_1_config.burnchain.first_block_height = 5;
         peer_2_config.burnchain.first_block_height = 5;
+        peer_1.config.burnchain.first_block_height = 5;
+        peer_2.config.burnchain.first_block_height = 5;
+
+        assert_eq!(
+            peer_1_config.burnchain.first_block_hash,
+            peer_2_config.burnchain.first_block_hash
+        );
 
         let burnchain = peer_1_config.burnchain.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
 
         let num_blocks = 5;
         let first_stacks_block_height = {

@@ -2,6 +2,7 @@
   "contract_id": "SP000000000000000000002Q6VF78.pox",
   "pox_activation_threshold_ustx": 52329761604388,
   "first_burnchain_block_height": 666050,
+  "current_burnchain_block_height": 812345,
   "prepare_phase_block_length": 100,
   "reward_phase_block_length": 2000,
   "reward_slots": 4000,
@@ -29,5 +30,17 @@
   "reward_cycle_id": 2,
   "reward_cycle_length": 2100,
   "rejection_votes_left_required": 261648808021925,
-  "next_reward_cycle_in": 507
+  "next_reward_cycle_in": 507,
+  "contract_versions": [
+    {
+      "contract_id": "SP000000000000000000002Q6VF78.pox",
+      "activation_burnchain_block_height": 666050,
+      "first_reward_cycle_id": 0
+    },
+    {
+      "contract_id": "SP000000000000000000002Q6VF78.pox-2",
+      "activation_burnchain_block_height": 712345,
+      "first_reward_cycle_id": 123
+    }
+ ]
 }

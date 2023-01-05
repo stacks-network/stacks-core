@@ -19,7 +19,7 @@ Stacks is a layer-1 blockchain that connects to Bitcoin for security and enables
 
 ### 1. Download and install Rust
 
-_For building on Windows, follow the rustup installer instructions at https://rustup.rs/_
+_For building on Windows, follow the rustup installer instructions at https://rustup.rs/._
 
 ```bash
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -61,6 +61,8 @@ You can observe the state machine in action locally by running:
 ```bash
 $ cargo stacks-node start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
 ```
+
+_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
 
 Additional testnet documentation is available [here](./docs/testnet.md) and [here](https://docs.stacks.co/docs/nodes-and-miners/miner-testnet)
 
