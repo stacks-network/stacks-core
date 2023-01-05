@@ -1558,20 +1558,20 @@ impl TypeSignature {
         }
     }
 
-    // This function checks recursively if NoType is anywhere in the type signature.
+    // Is the right hand side (rhs) an invalid type? Unlike the lhs, NoType is permitted.
     #[cfg(feature = "fuzzing")]
     pub fn contains_invalid_type_rhs(ty: &TypeSignature) -> bool {
         match ty {
             NoType => true,
             OptionalType(inner_type) => {
                 match inner_type.as_ref() {
-                    NoType => true, // NoType is a valid inner type for OptionalType
+                    NoType => false, // NoType is a valid inner type for OptionalType
                     inner_type => Self::contains_invalid_type_rhs(inner_type),
                 }
             }
             ResponseType(inner_types) => {
                 Self::contains_invalid_type_rhs(&inner_types.0)
-                    || Self::contains_invalid_type_rhs(&inner_types.1)
+                    && Self::contains_invalid_type_rhs(&inner_types.1)
             }
             SequenceType(SequenceSubtype::ListType(list_type)) => {
                 Self::contains_invalid_type_rhs(&list_type.entry_type)
