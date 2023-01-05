@@ -20,14 +20,14 @@ impl Net {
         }
     }
 
-    pub async fn listen(&self) {
+    pub fn listen(&self) -> impl Future<Output = ()>{
         let routes = warp::path("p2p")
             .and(warp::path::param::<String>())
             .map(|name| {
                 info!("{}", name);
                 format!("OK")
             });
-        warp::serve(routes).run(([127, 0, 0, 1], 3030)).await
+        warp::serve(routes).run(([127, 0, 0, 1], 3030))
     }
 
     pub fn next_message(&self) -> Message {
