@@ -1,7 +1,9 @@
 use stacks_signer::config::Config;
-use stacks_signer::net::{Message};
-use stacks_signer::signer::{MessageTypes};
+use stacks_signer::net::Message;
+use stacks_signer::signer::MessageTypes;
 use stacks_signer::{logger, net, signer};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
 use tracing::info;
 
@@ -13,21 +15,23 @@ fn main() {
     let net = net::Net::new(&config);
 
     // start p2p sync
-    let tx = net.tx.clone();
+    let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
     spawn(move || loop {
-        let message = Message { r#type: MessageTypes::Join {}};
-            // net.next_message();
+        let message = Message {
+            r#type: MessageTypes::Join {},
+        };
+        let _m = net.next_message();
         tx.send(message).unwrap();
     });
 
-    mainloop(&config, net);
+    mainloop(&config, rx);
 }
 
-fn mainloop(_config: &Config, net: net::Net) {
+fn mainloop(_config: &Config, rx: Receiver<Message>) {
     info!("mainloop");
     let _signer = signer::Signer::new();
 
-    for message in net.rx.iter() {
+    for message in rx.iter() {
         info!("received message {:?}", message);
     }
 }
