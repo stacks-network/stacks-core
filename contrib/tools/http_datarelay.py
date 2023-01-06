@@ -6,7 +6,7 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 from collections import defaultdict
 
 HOST = socket.gethostname()
-PORT = 8080
+PORT = 9776
 highwaters = defaultdict(lambda: -1)
 queue = []
 
