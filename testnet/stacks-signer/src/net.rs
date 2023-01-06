@@ -1,16 +1,12 @@
-use std::fmt::{Debug, Formatter};
 use crate::config::Config;
 use crate::signer;
 use serde::Serialize;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use ureq::{Response};
+use std::fmt::{Debug, Formatter};
+use ureq::Response;
 
 pub struct Net {
     _highwater_msg_idx: usize,
     stacks_node_url: String,
-    pub tx: Sender<Message>,
-    pub rx: Receiver<Message>,
 }
 
 #[derive(Debug)]
@@ -24,15 +20,11 @@ impl Debug for signer::MessageTypes {
     }
 }
 
-
 impl Net {
     pub fn new(config: &Config) -> Net {
-        let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
         Net {
             _highwater_msg_idx: 0,
             stacks_node_url: config.stacks_node_url.to_owned(),
-            tx,
-            rx,
         }
     }
 
@@ -50,8 +42,8 @@ impl Net {
                     r#type: signer::MessageTypes::Join,
                 }
             }
-            Err(_) => {
-                panic!()
+            Err(e) => {
+                panic!("{}", e)
             }
         }
     }

@@ -1,7 +1,7 @@
+use frost::v1::Party;
 use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
-use frost::v1::Party;
 
 type KeyShare = HashMap<usize, Scalar>;
 
