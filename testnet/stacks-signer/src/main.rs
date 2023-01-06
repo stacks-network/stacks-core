@@ -13,13 +13,11 @@ fn main() {
     let net = net::Net::new(&config);
 
     // start p2p sync
-    spawn(|| loop {
-        let message = net.next_message();
-        match message.r#type{
-            MessageTypes::Join => {
-                // TODO: process Join msg
-            }
-        }
+    let tx = net.tx.clone();
+    spawn(move || loop {
+        let message = Message { r#type: MessageTypes::Join {}};
+            // net.next_message();
+        tx.send(message).unwrap();
     });
 
     mainloop(&config, net);
@@ -29,5 +27,7 @@ fn mainloop(config: &Config, net: net::Net) {
     info!("mainloop");
     let signer = signer::Signer::new();
 
-    net.listen();
+    for message in net.rx.iter() {
+        info!("received message {:?}", message);
+    }
 }
