@@ -3,7 +3,9 @@ use std::fs;
 use toml;
 
 #[derive(Clone, Deserialize, Default, Debug)]
-pub struct Config {}
+pub struct Config {
+    pub stacks_node_url: String,
+}
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Config, String> {

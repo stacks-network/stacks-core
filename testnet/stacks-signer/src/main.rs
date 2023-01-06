@@ -1,25 +1,33 @@
 use stacks_signer::config::Config;
-use stacks_signer::signer::Signer;
+use stacks_signer::net::{Message, Net};
+use stacks_signer::signer::{MessageTypes, Signer};
 use stacks_signer::{logger, net, signer};
-use tokio::signal;
+use std::thread::spawn;
 use tracing::info;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     logger::setup();
-    let _config = Config::from_file("conf/stacker.toml").unwrap();
+    let config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net = net::Net::new();
+    let net = net::Net::new(&config);
 
     // start p2p sync
-    let signer = signer::Signer::new();
-    mainloop(signer, net).await;
+    spawn(|| loop {
+        let message = net.next_message();
+        match message.r#type{
+            MessageTypes::Join => {
+                // TODO: process Join msg
+            }
+        }
+    });
 
-    Ok(())
+    mainloop(&config, net);
 }
 
-async fn mainloop(_signer: Signer, net: net::Net) {
+fn mainloop(config: &Config, net: net::Net) {
     info!("mainloop");
-    net.listen().await;
+    let signer = signer::Signer::new();
+
+    net.listen();
 }

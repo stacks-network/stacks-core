@@ -1,12 +1,11 @@
+use crate::config::Config;
 use crate::signer;
 use serde::Serialize;
-use std::error::Error;
-use std::iter::Map;
-use tracing::info;
-use warp::{Filter, Future, Server};
+use ureq::{request, Error, Response};
 
 pub struct Net {
     _highwater_msg_idx: usize,
+    stacks_node_url: String,
 }
 
 pub struct Message {
@@ -14,25 +13,28 @@ pub struct Message {
 }
 
 impl Net {
-    pub fn new() -> Net {
+    pub fn new(config: &Config) -> Net {
         Net {
             _highwater_msg_idx: 0,
+            stacks_node_url: config.stacks_node_url.to_owned(),
         }
     }
 
-    pub fn listen(&self) -> impl Future<Output = ()>{
-        let routes = warp::path("p2p")
-            .and(warp::path::param::<String>())
-            .map(|name| {
-                info!("{}", name);
-                format!("OK")
-            });
-        warp::serve(routes).run(([127, 0, 0, 1], 3030))
+    pub fn listen(&self) {}
+
+    pub fn poll(&self) -> Result<Response, ureq::Error> {
+        ureq::get(&self.stacks_node_url).call()
     }
 
     pub fn next_message(&self) -> Message {
-        Message {
-            r#type: signer::MessageTypes::Join,
+        match self.poll() {
+            Ok(_msg) => {
+                // TODO: deserialize msg
+                Message {
+                    r#type: signer::MessageTypes::Join,
+                }
+            }
+            Err(_) => { panic!()}
         }
     }
 
