@@ -1,12 +1,12 @@
-pub use frost::frost;
 use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
+use frost::v1::Party;
 
 type KeyShare = HashMap<usize, Scalar>;
 
 pub struct Signer {
-    parties: Vec<frost::Party>,
+    parties: Vec<Party>,
 }
 
 pub enum MessageTypes {
@@ -23,8 +23,8 @@ impl Signer {
         let mut rng = OsRng::default();
 
         // Initial set-up
-        let parties: Vec<frost::Party> = (0..total)
-            .map(|i| frost::Party::new(i, total, threshold, &mut rng))
+        let parties = (0..total)
+            .map(|i| Party::new(i, total, threshold, &mut rng))
             .collect();
         self.parties = parties;
     }
