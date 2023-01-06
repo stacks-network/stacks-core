@@ -7,8 +7,8 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|types: (TypeSignature, TypeSignature)| {
     println!("types: {}, {}", types.0, types.1);
-    if TypeSignature::contains_invalid_notype(&types.0)
-        || TypeSignature::contains_invalid_notype(&types.1)
+    if TypeSignature::contains_invalid_type_lhs(&types.0)
+        || TypeSignature::contains_invalid_type_rhs(&types.1)
     {
         return;
     }
