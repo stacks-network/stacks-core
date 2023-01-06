@@ -418,7 +418,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
     match data[..] {
         [] => return Default::default(),
         [first] => return first,
-        _ => ()
+        _ => (),
     }
     // Recursion
     let next = {
