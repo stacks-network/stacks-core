@@ -10,12 +10,16 @@ edition = "2021"
 name = "stacks-signer"
 path = "src/main.rs"
 
+[lib]
+path = "src/lib.rs"    # The source file of the target.
+crate-type = ["lib"]   # The crate types to generate.
+
 [dependencies]
 sha3 = "0.10.6"
 serde = { version = "1.0", features = ["serde_derive"] }
 toml = "0.5.9"
 hashbrown = { version = "0.13", features = ["serde"] }
-frost = { git = "https://github.com/trust-machines/frost", branch = "feat/serde_support" }
+frost = { git = "https://github.com/trust-machines/frost", branch = "multiple-parties-per-signer" }
 rand_core = { version  = "0.5"}
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"

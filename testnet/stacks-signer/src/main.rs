@@ -1,6 +1,6 @@
 use stacks_signer::config::Config;
-use stacks_signer::net::{Message, Net};
-use stacks_signer::signer::{MessageTypes, Signer};
+use stacks_signer::net::{Message};
+use stacks_signer::signer::{MessageTypes};
 use stacks_signer::{logger, net, signer};
 use std::thread::spawn;
 use tracing::info;
@@ -23,9 +23,9 @@ fn main() {
     mainloop(&config, net);
 }
 
-fn mainloop(config: &Config, net: net::Net) {
+fn mainloop(_config: &Config, net: net::Net) {
     info!("mainloop");
-    let signer = signer::Signer::new();
+    let _signer = signer::Signer::new();
 
     for message in net.rx.iter() {
         info!("received message {:?}", message);

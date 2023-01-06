@@ -4,7 +4,7 @@ use crate::signer;
 use serde::Serialize;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
-use ureq::{request, Error, Response};
+use ureq::{Response};
 
 pub struct Net {
     _highwater_msg_idx: usize,
