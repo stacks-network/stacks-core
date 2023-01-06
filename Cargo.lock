@@ -334,15 +334,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,9 +1067,8 @@ dependencies = [
 [[package]]
 name = "frost"
 version = "0.1.0"
-source = "git+https://github.com/trust-machines/frost?branch=feat/serde_support#d0e5a19029ab98cc5f449e7b27ab8eeec971a79e"
+source = "git+https://github.com/trust-machines/frost?branch=multiple-parties-per-signer#7032a25a9d08a32bf038fba9c5dd68ee39433c99"
 dependencies = [
- "bincode",
  "hashbrown 0.13.1",
  "hex",
  "num-traits",
@@ -2108,10 +2098,10 @@ dependencies = [
 [[package]]
 name = "polynomial"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4a3d64b1fee2683727dafccbf279a1425a0b5d1306b3b9caa80ecc2b9d32e2f"
+source = "git+https://github.com/Trust-Machines/polynomial-rs?rev=3e2fafa6e85dec5b84006374ffe1cc83473182e5#3e2fafa6e85dec5b84006374ffe1cc83473182e5"
 dependencies = [
  "num-traits",
+ "serde",
 ]
 
 [[package]]
