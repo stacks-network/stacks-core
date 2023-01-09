@@ -5395,8 +5395,7 @@ pub mod test {
 
     #[test]
     fn test_block_pay_to_contract_gated_at_v210() {
-        let mut peer_config =
-            TestPeerConfig::new("test_block_pay_to_contract_gated_at_v210", 4246, 4247);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4246, 4247);
         let epochs = vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -5557,11 +5556,7 @@ pub mod test {
 
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_block_versioned_smart_contract_gated_at_v210",
-            4248,
-            4249,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
 
         let initial_balances = vec![(
             PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
@@ -5738,11 +5733,7 @@ pub mod test {
 
     #[test]
     fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_block_versioned_smart_contract_mempool_rejection_until_v210",
-            4250,
-            4251,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4250, 4251);
 
         let initial_balances = vec![(
             PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
