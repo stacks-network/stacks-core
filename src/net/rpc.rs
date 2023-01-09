@@ -5255,8 +5255,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getcontractsrc(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
                     false,
@@ -5303,8 +5302,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getcontractsrc(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
                     false,
@@ -5357,8 +5355,7 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 convo_client.new_getcontractsrc(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::SpecificTip(unconfirmed_tip),
                     false,
@@ -5404,8 +5401,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getcontractsrc(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
                     false,
@@ -5447,7 +5443,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getaccount(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     TipRequest::UseLatestAnchoredTip,
@@ -5495,7 +5491,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getaccount(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     TipRequest::UseLatestAnchoredTip,
@@ -5544,7 +5540,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getaccount(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     TipRequest::UseLatestAnchoredTip,
@@ -5596,7 +5592,7 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 convo_client.new_getaccount(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     TipRequest::SpecificTip(unconfirmed_tip),
@@ -5641,8 +5637,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getdatavar(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
@@ -5695,8 +5690,7 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 convo_client.new_getdatavar(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
                     TipRequest::SpecificTip(unconfirmed_tip),
@@ -5742,8 +5736,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getdatavar(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar-nonexistant".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
@@ -5789,12 +5782,11 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 let principal =
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal();
                 convo_client.new_getmapentry(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "unit-map".try_into().unwrap(),
                     Value::Tuple(
@@ -5858,12 +5850,11 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 let principal =
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal();
                 convo_client.new_getmapentry(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "unit-map".try_into().unwrap(),
                     Value::Tuple(
@@ -5917,12 +5908,11 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 let principal =
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal();
                 convo_client.new_getmapentry(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world".try_into().unwrap(),
                     "unit-map".try_into().unwrap(),
                     Value::Tuple(
@@ -5979,8 +5969,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getcontractabi(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
                 )
@@ -6031,8 +6020,7 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 convo_client.new_getcontractabi(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::SpecificTip(unconfirmed_tip),
                 )
@@ -6070,8 +6058,7 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_getcontractabi(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     TipRequest::UseLatestAnchoredTip,
                 )
@@ -6112,10 +6099,9 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_callreadonlyfunction(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     None,
@@ -6166,10 +6152,9 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_callreadonlyfunction(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     None,
@@ -6227,10 +6212,9 @@ mod test {
                     .unconfirmed_chain_tip
                     .clone();
                 convo_client.new_callreadonlyfunction(
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap(),
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                    StacksAddress::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
                     None,

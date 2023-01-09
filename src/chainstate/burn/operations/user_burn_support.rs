@@ -53,7 +53,7 @@ struct ParsedData {
 }
 
 impl UserBurnSupportOp {
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -146,7 +146,7 @@ impl UserBurnSupportOp {
 
         let burn_fee = output_0.amount;
 
-        let data = match UserBurnSupportOp::parse_data(&tx.data()) {
+        let data = match UserBurnSupportOp::parse_data(tx.data()) {
             None => {
                 test_debug!("Invalid tx data");
                 return Err(op_error::ParseError);
@@ -356,7 +356,7 @@ mod tests {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402204c51707ac34b6dcbfc518ba40c5fc4ef737bf69cc21a9f8a8e6f621f511f78e002200caca0f102d5df509c045c4fe229d957aa7ef833dc8103dc2fe4db15a22bab9e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: Some(UserBurnSupportOp {
-                    address: StacksAddress::from_legacy_bitcoin_address(&BitcoinAddress::from_string(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap().expect_legacy()),
+                    address: StacksAddress::from_legacy_bitcoin_address(&BitcoinAddress::from_str(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap().expect_legacy()),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("22a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7a33333333333333333333333333333333333333").unwrap()).unwrap(),

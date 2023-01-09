@@ -51,6 +51,8 @@ impl FunctionType {
                 self.check_args_2_05(accounting, args)
             }
             StacksEpochId::Epoch21 => self.check_args_2_1(accounting, args, clarity_version),
+            // No change in argument checking in Epoch 3
+            StacksEpochId::Epoch30 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => unreachable!("Epoch10 is not supported"),
         }
     }
@@ -67,6 +69,10 @@ impl FunctionType {
                 self.check_args_by_allowing_trait_cast_2_05(db, func_args)
             }
             StacksEpochId::Epoch21 => {
+                self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
+            }
+            StacksEpochId::Epoch30 => {
+                // No change in trait casting behavior in Epoch 3
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => unreachable!("Epoch10 is not supported"),

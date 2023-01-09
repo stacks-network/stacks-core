@@ -492,7 +492,7 @@ mod tests {
             let k2 = KeychainOld::default(seed.to_vec());
 
             let recv_addr =
-                StacksAddress::from_string("SP1Z4P459B2M5XC2PMM2CSCNZ6824DN5GZG2XYWFH").unwrap();
+                StacksAddress::from_str("SP1Z4P459B2M5XC2PMM2CSCNZ6824DN5GZG2XYWFH").unwrap();
 
             let mut tx_stx_transfer_1 = StacksTransaction::new(
                 TransactionVersion::Testnet,

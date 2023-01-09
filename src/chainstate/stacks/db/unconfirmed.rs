@@ -775,7 +775,7 @@ mod test {
             let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
-                StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+                StacksAddress::from_str("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
             // build 1-block microblock stream
             let microblocks = {
@@ -999,7 +999,7 @@ mod test {
             let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
-                StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+                StacksAddress::from_str("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
             // build microblock stream iteratively, and test balances at each additional microblock
             let sortdb = peer.sortdb.take().unwrap();
@@ -1159,7 +1159,7 @@ mod test {
         let mut last_block: Option<StacksBlock> = None;
         let mut next_nonce = 0;
         let recv_addr =
-            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+            StacksAddress::from_str("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
         let mut recv_balance = 0;
 
         for tenure_id in 0..num_blocks {

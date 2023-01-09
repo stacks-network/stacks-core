@@ -194,7 +194,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
     let mut last_block = None;
@@ -332,7 +332,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
     let mut last_block = None;
@@ -467,7 +467,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
     let mut last_block = None;
@@ -672,7 +672,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut last_block = None;
     for tenure_id in 0..num_blocks {
@@ -910,7 +910,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut last_block: Option<StacksBlock> = None;
     let mut last_block_ch: Option<ConsensusHash> = None;
@@ -1377,7 +1377,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
     let mut last_block = None;
@@ -2473,7 +2473,7 @@ fn test_build_microblock_stream_forks() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut last_block = None;
     for tenure_id in 0..num_blocks {
@@ -2775,7 +2775,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut microblock_tail_1: Option<StacksMicroblockHeader> = None;
     let mut microblock_tail_2: Option<StacksMicroblockHeader> = None;
@@ -3279,7 +3279,7 @@ fn test_contract_call_across_clarity_versions() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
@@ -3828,7 +3828,7 @@ fn test_is_tx_problematic() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut last_block = None;
     for tenure_id in 0..num_blocks {
@@ -4281,7 +4281,7 @@ fn test_fee_order_mismatch_nonce_order() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
     let sender_nonce = 0;
 
     let mut last_block = None;
@@ -4462,7 +4462,7 @@ fn paramaterized_mempool_walk_test(
     }
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);

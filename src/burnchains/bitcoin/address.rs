@@ -620,7 +620,7 @@ impl Address for LegacyBitcoinAddress {
         self.bytes.as_bytes().to_vec()
     }
 
-    fn from_string(s: &str) -> Option<LegacyBitcoinAddress> {
+    fn from_str(s: &str) -> Option<LegacyBitcoinAddress> {
         match LegacyBitcoinAddress::from_b58(s) {
             Ok(a) => Some(a),
             Err(_e) => None,
@@ -637,7 +637,7 @@ impl Address for SegwitBitcoinAddress {
         self.bytes()
     }
 
-    fn from_string(s: &str) -> Option<SegwitBitcoinAddress> {
+    fn from_str(s: &str) -> Option<SegwitBitcoinAddress> {
         SegwitBitcoinAddress::from_bech32(s)
     }
 
@@ -681,11 +681,11 @@ impl Address for BitcoinAddress {
         }
     }
 
-    fn from_string(s: &str) -> Option<BitcoinAddress> {
-        if let Some(addr) = LegacyBitcoinAddress::from_string(s) {
+    fn from_str(s: &str) -> Option<BitcoinAddress> {
+        if let Some(addr) = LegacyBitcoinAddress::from_str(s) {
             Some(addr.into())
         } else {
-            SegwitBitcoinAddress::from_string(s).map(|addr| addr.into())
+            SegwitBitcoinAddress::from_str(s).map(|addr| addr.into())
         }
     }
 
@@ -901,7 +901,7 @@ mod tests {
 
         for fixture in fixtures.iter() {
             test_debug!("Test '{}'", &fixture.addr);
-            let addr_opt = BitcoinAddress::from_string(&fixture.addr);
+            let addr_opt = BitcoinAddress::from_str(&fixture.addr);
             match (addr_opt, fixture.result.as_ref()) {
                 (Some(addr), Some(res)) => assert_eq!(addr, *res),
                 (None, None) => {}

@@ -223,6 +223,7 @@ impl DBConfig {
                 self.version == "2" || self.version == "3" || self.version == "4"
             }
             StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
         }
     }
 }
@@ -1125,7 +1126,7 @@ impl StacksChainState {
         let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
             Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
-            _ => match StacksAddress::from_string(addr) {
+            _ => match StacksAddress::from_str(addr) {
                 Some(addr) => addr,
                 None => panic!("Failed to parsed genesis address {}", addr),
             },

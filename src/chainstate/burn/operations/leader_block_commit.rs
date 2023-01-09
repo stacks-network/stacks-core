@@ -39,7 +39,7 @@ use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::core::{StacksEpoch, StacksEpochId};
-use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER};
+use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::net::Error as net_error;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
@@ -160,7 +160,7 @@ impl LeaderBlockCommitOp {
         self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3            35               67     71     73    77   79     80
@@ -262,7 +262,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         };
 
-        let data = LeaderBlockCommitOp::parse_data(&tx.data()).ok_or_else(|| {
+        let data = LeaderBlockCommitOp::parse_data(tx.data()).ok_or_else(|| {
             warn!("Invalid tx data");
             op_error::ParseError
         })?;
@@ -753,6 +753,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
             StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
+            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
         }
     }
 
@@ -767,7 +768,8 @@ impl LeaderBlockCommitOp {
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
         let intended_sortition = match epoch_id {
-            StacksEpochId::Epoch21 => {
+            // TODO(sbtc): Verify that the 2.1 checks are sufficient here
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch30 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height

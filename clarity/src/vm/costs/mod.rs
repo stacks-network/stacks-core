@@ -700,6 +700,8 @@ impl LimitedCostTracker {
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
             StacksEpochId::Epoch21 => COSTS_3_NAME.to_string(),
+            // No costs are changed in Epoch 3.0
+            StacksEpochId::Epoch30 => COSTS_3_NAME.to_string(),
         }
     }
 }

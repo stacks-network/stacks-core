@@ -1254,7 +1254,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let common_data = PoxPrintFields {
         op_name: "handle-unlock".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+            StacksAddress::from_str("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -1564,7 +1564,7 @@ fn delegate_stack_increase() {
         (
             "delegator",
             Value::Principal(
-                StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                StacksAddress::from_str("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
                     .unwrap()
                     .to_account_principal(),
             ),
@@ -1573,7 +1573,7 @@ fn delegate_stack_increase() {
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-increase".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+            StacksAddress::from_str("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -1823,7 +1823,7 @@ fn stack_increase() {
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+            StacksAddress::from_str("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -2396,7 +2396,7 @@ fn test_pox_extend_transition_pox_2() {
     let common_data = PoxPrintFields {
         op_name: "stack-stx".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+            StacksAddress::from_str("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -2416,7 +2416,7 @@ fn test_pox_extend_transition_pox_2() {
     let common_data = PoxPrintFields {
         op_name: "stack-extend".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+            StacksAddress::from_str("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -3080,7 +3080,7 @@ fn test_delegate_extend_transition_pox_2() {
         (
             "delegator",
             Value::Principal(
-                StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+                StacksAddress::from_str("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
                     .unwrap()
                     .to_account_principal(),
             ),
@@ -3089,7 +3089,7 @@ fn test_delegate_extend_transition_pox_2() {
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-stx".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+            StacksAddress::from_str("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -3108,7 +3108,7 @@ fn test_delegate_extend_transition_pox_2() {
         (
             "delegator",
             Value::Principal(
-                StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+                StacksAddress::from_str("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
                     .unwrap()
                     .to_account_principal(),
             ),
@@ -3117,7 +3117,7 @@ fn test_delegate_extend_transition_pox_2() {
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-extend".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+            StacksAddress::from_str("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
                 .unwrap()
                 .to_account_principal(),
         ),
@@ -3137,7 +3137,7 @@ fn test_delegate_extend_transition_pox_2() {
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit".to_string(),
         stacker: Value::Principal(
-            StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+            StacksAddress::from_str("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
                 .unwrap()
                 .to_account_principal(),
         ),

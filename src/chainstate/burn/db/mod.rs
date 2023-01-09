@@ -69,7 +69,7 @@ impl FromColumn<VRFPublicKey> for VRFPublicKey {
 impl FromColumn<StacksAddress> for StacksAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
         let address_str: String = row.get_unwrap(column_name);
-        match Self::from_string(&address_str) {
+        match Self::from_str(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }
@@ -89,7 +89,7 @@ impl FromColumn<PoxAddress> for PoxAddress {
 impl FromColumn<BitcoinAddress> for BitcoinAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
         let address_str: String = row.get_unwrap(column_name);
-        match Self::from_string(&address_str) {
+        match Self::from_str(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }

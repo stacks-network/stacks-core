@@ -1025,25 +1025,25 @@ simulating a miner.
         // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
         let initial_balances = vec![
             (
-                StacksAddress::from_string("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")
+                StacksAddress::from_str("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")
                     .unwrap()
                     .to_account_principal(),
                 10000000000000000,
             ),
             (
-                StacksAddress::from_string("ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF")
+                StacksAddress::from_str("ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF")
                     .unwrap()
                     .to_account_principal(),
                 10000000000000000,
             ),
             (
-                StacksAddress::from_string("ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H")
+                StacksAddress::from_str("ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H")
                     .unwrap()
                     .to_account_principal(),
                 10000000000000000,
             ),
             (
-                StacksAddress::from_string("ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B")
+                StacksAddress::from_str("ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B")
                     .unwrap()
                     .to_account_principal(),
                 10000000000000000,

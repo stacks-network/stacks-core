@@ -4874,21 +4874,41 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch30 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
-                    StacksEpochId::Epoch2_05 => {
+                    StacksEpochId::Epoch2_05 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch21 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch30 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch21 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch21,
-                            "Should only transition from Epoch2_05 to Epoch21"
+                            StacksEpochId::Epoch30,
+                            "Should only transition to Epoch30 from Epoch21"
                         );
                         receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch21 => {
-                        panic!("No defined transition from Epoch21 forward")
+                    StacksEpochId::Epoch30 => {
+                        panic!("No defined transition from Epoch30 forward")
                     }
                 }
             }
@@ -5480,6 +5500,10 @@ impl StacksChainState {
                     burn_tip_height,
                     cur_epoch.start_height,
                 )
+            }
+
+            StacksEpochId::Epoch30 => {
+                todo!() // TODO(sbtc): Extend the logic of this function to return sbtc bitcoin-ops
             }
         }
     }
@@ -11305,7 +11329,7 @@ pub mod test {
         let initial_balance = 1000000000;
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
         let recv_addr =
-            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+            StacksAddress::from_str("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
         let mut peer = TestPeer::new(peer_config.clone());
 

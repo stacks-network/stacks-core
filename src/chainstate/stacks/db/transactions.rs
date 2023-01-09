@@ -7802,7 +7802,7 @@ pub mod test {
                 vec![
                     Value::UInt(1000000000),
                     Value::Principal(PrincipalData::from(
-                        StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01")
+                        StacksAddress::from_str("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01")
                             .unwrap(),
                     )),
                 ],
@@ -8395,6 +8395,7 @@ pub mod test {
                     StacksEpochId::Epoch20 => self.get_stacks_epoch(0),
                     StacksEpochId::Epoch2_05 => self.get_stacks_epoch(1),
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
+                    StacksEpochId::Epoch30 => self.get_stacks_epoch(3),
                 }
             }
             fn get_pox_payout_addrs(

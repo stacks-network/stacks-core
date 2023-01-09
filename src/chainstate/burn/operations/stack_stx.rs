@@ -172,7 +172,7 @@ impl StackStxOp {
         }
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3                             19        20
@@ -275,7 +275,7 @@ impl StackStxOp {
             return Err(op_error::InvalidInput);
         };
 
-        let data = StackStxOp::parse_data(&tx.data()).ok_or_else(|| {
+        let data = StackStxOp::parse_data(tx.data()).ok_or_else(|| {
             warn!("Invalid tx data");
             op_error::ParseError
         })?;

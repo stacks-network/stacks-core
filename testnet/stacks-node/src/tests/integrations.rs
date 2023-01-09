@@ -318,7 +318,7 @@ fn integration_test_get_info() {
                     &spender_sk,
                     (round - 1).into(),
                     10,
-                    &StacksAddress::from_string(ADDR_4).unwrap().into(),
+                    &StacksAddress::from_str(ADDR_4).unwrap().into(),
                     100,
                 );
                 tenure
@@ -796,7 +796,7 @@ fn integration_test_get_info() {
 
                 // tx_xfer is 180 bytes long
                 let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
-                                                   &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
+                                                   &StacksAddress::from_str(ADDR_4).unwrap().into(), 123);
 
                 let res: String = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
@@ -828,7 +828,7 @@ fn integration_test_get_info() {
 
                 // tx_xfer_invalid is 180 bytes long
                 let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200,     // bad nonce
-                                                           &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
+                                                           &StacksAddress::from_str(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
@@ -2127,7 +2127,7 @@ fn mempool_errors() {
             let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let spender_addr = to_addr(&spender_sk);
 
-            let send_to = StacksAddress::from_string(ADDR_4).unwrap().into();
+            let send_to = StacksAddress::from_str(ADDR_4).unwrap().into();
 
             if round == 1 {
                 // let's submit an invalid transaction!

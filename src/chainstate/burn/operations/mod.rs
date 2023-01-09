@@ -53,6 +53,7 @@ pub mod delegate_stx;
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
+pub mod peg_in;
 pub mod stack_stx;
 pub mod transfer_stx;
 pub mod user_burn_support;
@@ -97,68 +98,72 @@ pub enum Error {
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
+
+    // sBTC errors
+    PegInAmountMustBePositive,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::ParseError => write!(f, "Failed to parse transaction into Blockstack operation"),
-            Error::InvalidInput => write!(f, "Invalid input"),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
+            Self::ParseError => write!(f, "Failed to parse transaction into Blockstack operation"),
+            Self::InvalidInput => write!(f, "Invalid input"),
+            Self::DBError(ref e) => fmt::Display::fmt(e, f),
 
-            Error::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
-            Error::BlockCommitAlreadyExists => {
+            Self::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
+            Self::BlockCommitAlreadyExists => {
                 write!(f, "Block commit commits to an already-seen block")
             }
-            Error::BlockCommitNoLeaderKey => write!(f, "Block commit has no matching register key"),
-            Error::BlockCommitNoParent => write!(f, "Block commit parent does not exist"),
-            Error::BlockCommitBadInput => write!(
+            Self::BlockCommitNoLeaderKey => write!(f, "Block commit has no matching register key"),
+            Self::BlockCommitNoParent => write!(f, "Block commit parent does not exist"),
+            Self::BlockCommitBadInput => write!(
                 f,
                 "Block commit tx input does not match register key tx output"
             ),
-            Error::BlockCommitAnchorCheck => {
+            Self::BlockCommitAnchorCheck => {
                 write!(f, "Failure checking PoX anchor block for commit")
             }
-            Error::BlockCommitBadOutputs => {
+            Self::BlockCommitBadOutputs => {
                 write!(f, "Block commit included a bad commitment output")
             }
-            Error::BlockCommitBadModulus => {
+            Self::BlockCommitBadModulus => {
                 write!(f, "Block commit included a bad burn block height modulus")
             }
-            Error::BlockCommitBadEpoch => {
+            Self::BlockCommitBadEpoch => {
                 write!(f, "Block commit has an invalid epoch")
             }
-            Error::BlockCommitMissDistanceTooBig => {
+            Self::BlockCommitMissDistanceTooBig => {
                 write!(
                     f,
                     "Block commit missed its target sortition height by too much"
                 )
             }
-            Error::MissedBlockCommit(_) => write!(
+            Self::MissedBlockCommit(_) => write!(
                 f,
                 "Block commit included in a burn block that was not intended"
             ),
-            Error::LeaderKeyAlreadyRegistered => {
+            Self::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
             }
-            Error::UserBurnSupportBadConsensusHash => {
+            Self::UserBurnSupportBadConsensusHash => {
                 write!(f, "User burn support has an invalid consensus hash")
             }
-            Error::UserBurnSupportNoLeaderKey => write!(
+            Self::UserBurnSupportNoLeaderKey => write!(
                 f,
                 "User burn support does not match a registered leader key"
             ),
-            Error::UserBurnSupportNotSupported => {
+            Self::UserBurnSupportNotSupported => {
                 write!(f, "User burn operations are not supported")
             }
-            Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
-            Error::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
-            Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
-            Error::StackStxInvalidCycles => write!(
+            Self::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
+            Self::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
+            Self::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
+            Self::StackStxInvalidCycles => write!(
                 f,
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
-            Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
+            Self::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
+            Self::PegInAmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
     }
 }
@@ -308,6 +313,19 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegInOp {
+    pub address: StacksAddress,
+    pub peg_wallet_address: PoxAddress,
+    pub amount: u64, // BTC amount to peg in, in satoshis
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
@@ -317,6 +335,7 @@ pub enum BlockstackOperationType {
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
     DelegateStx(DelegateStxOp),
+    PegIn(PegInOp),
 }
 
 impl BlockstackOperationType {
@@ -329,6 +348,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
             BlockstackOperationType::DelegateStx(_) => Opcodes::DelegateStx,
+            BlockstackOperationType::PegIn(_) => Opcodes::PegIn,
         }
     }
 
@@ -345,6 +365,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
             BlockstackOperationType::DelegateStx(ref data) => &data.txid,
+            BlockstackOperationType::PegIn(ref data) => &data.txid,
         }
     }
 
@@ -357,6 +378,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
             BlockstackOperationType::DelegateStx(ref data) => data.vtxindex,
+            BlockstackOperationType::PegIn(ref data) => data.vtxindex,
         }
     }
 
@@ -369,6 +391,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
             BlockstackOperationType::DelegateStx(ref data) => data.block_height,
+            BlockstackOperationType::PegIn(ref data) => data.block_height,
         }
     }
 
@@ -381,6 +404,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PegIn(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -396,6 +420,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::DelegateStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PegIn(ref mut data) => data.block_height = height,
         };
     }
 
@@ -413,6 +438,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DelegateStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PegIn(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }
@@ -427,6 +453,7 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PegIn(ref op) => write!(f, "{:?}", op),
         }
     }
 }

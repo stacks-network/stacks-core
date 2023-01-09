@@ -3435,7 +3435,7 @@ fn test_delegate_stx_btc_ops() {
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
         let reward_addr = PoxAddress::Standard(
-            StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+            StacksAddress::from_str("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
             Some(AddressHashMode::SerializeP2PKH),
         );
         if ix == 0 {

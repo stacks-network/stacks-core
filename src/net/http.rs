@@ -1828,7 +1828,7 @@ impl HttpRequestType {
             )));
         }
 
-        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+        let contract_addr = StacksAddress::from_str(&captures["address"]).ok_or_else(|| {
             net_error::DeserializeError("Failed to parse contract address".into())
         })?;
         let contract_name = ContractName::try_from(captures["contract"].to_string())
@@ -1870,7 +1870,7 @@ impl HttpRequestType {
             ));
         }
 
-        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+        let contract_addr = StacksAddress::from_str(&captures["address"]).ok_or_else(|| {
             net_error::DeserializeError("Failed to parse contract address".into())
         })?;
         let contract_name = ContractName::try_from(captures["contract"].to_string())
@@ -1919,7 +1919,7 @@ impl HttpRequestType {
             ));
         }
 
-        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+        let contract_addr = StacksAddress::from_str(&captures["address"]).ok_or_else(|| {
             net_error::DeserializeError("Failed to parse contract address".into())
         })?;
         let contract_name = ContractName::try_from(captures["contract"].to_string())
@@ -1974,7 +1974,7 @@ impl HttpRequestType {
             ));
         }
 
-        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+        let contract_addr = StacksAddress::from_str(&captures["address"]).ok_or_else(|| {
             net_error::DeserializeError("Failed to parse contract address".into())
         })?;
         let contract_name = ContractName::try_from(captures["contract"].to_string())
@@ -2030,14 +2030,14 @@ impl HttpRequestType {
             ));
         }
 
-        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+        let contract_addr = StacksAddress::from_str(&captures["address"]).ok_or_else(|| {
             net_error::DeserializeError("Failed to parse contract address".into())
         })?;
         let contract_name = ContractName::try_from(captures["contract"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
         let trait_name = ClarityName::try_from(captures["traitName"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse trait name".into()))?;
-        let trait_contract_addr = StacksAddress::from_string(&captures["traitContractAddr"])
+        let trait_contract_addr = StacksAddress::from_str(&captures["traitContractAddr"])
             .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?
             .into();
         let trait_contract_name = ContractName::try_from(captures["traitContractName"].to_string())

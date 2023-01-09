@@ -151,7 +151,7 @@ fn test_bad_microblock_fees_pre_v210() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
@@ -472,7 +472,7 @@ fn test_bad_microblock_fees_fix_transition() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
@@ -827,7 +827,7 @@ fn test_get_block_info_v210() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
@@ -1197,7 +1197,7 @@ fn test_get_block_info_v210_no_microblocks() {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
@@ -1516,7 +1516,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     let contract_src = r#"(begin (print "hello world"))"#;
     let contract_name = "hello-world";

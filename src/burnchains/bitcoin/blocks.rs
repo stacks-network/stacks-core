@@ -981,11 +981,11 @@ mod tests {
                     outputs: vec![
                         BitcoinTxOutput {
                             units: 5500,
-                            address: BitcoinAddress::from_string("bc1qsgynkc4rdxfg9kfxnqd76an9aquye2j4kdnk7c").unwrap(),
+                            address: BitcoinAddress::from_str("bc1qsgynkc4rdxfg9kfxnqd76an9aquye2j4kdnk7c").unwrap(),
                         },
                         BitcoinTxOutput {
                             units: 4999444000,
-                            address: BitcoinAddress::from_string("1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ").unwrap(),
+                            address: BitcoinAddress::from_str("1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ").unwrap(),
                         },
                     ],
                 }),

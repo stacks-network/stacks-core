@@ -31,7 +31,7 @@ impl DelegateStxOp {
         )
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -150,7 +150,7 @@ impl DelegateStxOp {
             return Err(op_error::InvalidInput);
         };
 
-        let data = DelegateStxOp::parse_data(&tx.data()).ok_or_else(|| {
+        let data = DelegateStxOp::parse_data(tx.data()).ok_or_else(|| {
             warn!("Invalid tx data");
             op_error::ParseError
         })?;

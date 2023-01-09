@@ -258,7 +258,7 @@ fn advance_to_2_1(
             // pox-2 should be initialized now
             let _ = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2".to_string(),
                 true,
             )
@@ -269,7 +269,7 @@ fn advance_to_2_1(
             // pox-2 should NOT be initialized
             let e = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2".to_string(),
                 true,
             )
@@ -769,7 +769,7 @@ fn transition_fixes_bitcoin_rigidity() {
             // pox-2 should be initialized now
             let _ = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2".to_string(),
                 true,
             )
@@ -778,7 +778,7 @@ fn transition_fixes_bitcoin_rigidity() {
             // costs-3 should be initialized now
             let _ = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "costs-3".to_string(),
                 true,
             )
@@ -789,7 +789,7 @@ fn transition_fixes_bitcoin_rigidity() {
             // pox-2 should NOT be initialized
             let e = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2".to_string(),
                 true,
             )
@@ -799,7 +799,7 @@ fn transition_fixes_bitcoin_rigidity() {
             // costs-3 should NOT be initialized
             let e = get_contract_src(
                 &http_origin,
-                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "costs-3".to_string(),
                 true,
             )
@@ -1122,7 +1122,7 @@ fn transition_adds_get_pox_addr_recipients() {
             &spender_sk,
             0,
             300,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "pox-2",
             "stack-stx",
             &[
@@ -1162,7 +1162,7 @@ fn transition_adds_get_pox_addr_recipients() {
             &spender_sk,
             0,
             300,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "pox-2",
             "stack-stx",
             &[
@@ -1582,7 +1582,7 @@ fn transition_removes_pox_sunset() {
         &spender_sk,
         0,
         260,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
@@ -1644,7 +1644,7 @@ fn transition_removes_pox_sunset() {
         &spender_sk,
         1,
         260 * 2,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
         &[
@@ -4416,7 +4416,7 @@ fn test_v1_unlock_height() {
         &spender_sk,
         0,
         3000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
         &[

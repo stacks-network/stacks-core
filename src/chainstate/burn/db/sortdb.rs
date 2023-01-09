@@ -42,11 +42,11 @@ use crate::burnchains::{
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
-use crate::chainstate::burn::operations::DelegateStxOp;
+
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp,
+    PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
@@ -2801,6 +2801,10 @@ impl SortitionDB {
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
             StacksEpochId::Epoch21 => version == "3" || version == "4",
+            StacksEpochId::Epoch30 => version == "5", // TODO(sbtc): Introduce DB version 5
+                                                      //              In epoch 3 we need to keep
+                                                      //              track for sBTC ops, which
+                                                      //              is not supported in versions <= 4
         }
     }
 
@@ -4647,6 +4651,13 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_delegate_stx(op)
             }
+            BlockstackOperationType::PegIn(ref op) => {
+                info!(
+                    "ACCEPTED({}) sBTC peg in opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_peg_in_sbtc(op)
+            }
         }
     }
 
@@ -4712,6 +4723,11 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
+    }
+
+    /// Insert a peg-in op
+    fn insert_peg_in_sbtc(&mut self, op: &PegInOp) -> Result<(), db_error> {
+        todo!(); //TODO(sbtc): Implement
     }
 
     /// Insert a transfer-stx op

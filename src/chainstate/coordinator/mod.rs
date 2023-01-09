@@ -2742,7 +2742,7 @@ impl<
                     // Was this block sufficiently confirmed by the prepare phase that it was a PoX
                     // anchor block?  And if we're in epoch 2.1, does it match the heaviest-confirmed
                     // block-commit in the burnchain DB, and is it affirmed by the majority of the
-                    // network?
+                    // network? TODO(sbtc): What are the additional checks we need in 3.0 here?
                     if let Some(pox_anchor) = self
                         .sortition_db
                         .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)?
@@ -2793,6 +2793,9 @@ impl<
                                 {
                                     return Ok(Some(pox_anchor));
                                 }
+                            }
+                            StacksEpochId::Epoch30 => {
+                                todo!() //TODO(sbtc): What are the additional checks we need in 3.0 here?
                             }
                         }
                     }

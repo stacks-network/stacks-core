@@ -77,7 +77,7 @@ impl LeaderKeyRegisterOp {
         Some(LeaderKeyRegisterOp::new(&prover_pubk))
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -149,7 +149,7 @@ impl LeaderKeyRegisterOp {
             return Err(op_error::InvalidInput);
         }
 
-        let data = match LeaderKeyRegisterOp::parse_data(&tx.data()) {
+        let data = match LeaderKeyRegisterOp::parse_data(tx.data()) {
             Some(data) => data,
             None => {
                 test_debug!("Invalid tx data");

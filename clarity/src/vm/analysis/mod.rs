@@ -137,6 +137,8 @@ pub fn run_analysis(
                 TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch21 => TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db),
+            // No type checking behavior is changed in Epoch 3.0 so we may reuse the 2.1 type checker
+            StacksEpochId::Epoch30 => TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db),
             StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
         }?;
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db)?;

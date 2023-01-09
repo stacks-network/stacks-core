@@ -54,7 +54,7 @@ pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deseria
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
     fn to_bytes(&self) -> Vec<u8>;
-    fn from_string(from: &str) -> Option<Self>
+    fn from_str(from: &str) -> Option<Self>
     where
         Self: Sized;
     fn is_burn(&self) -> bool;
@@ -72,6 +72,7 @@ pub enum StacksEpochId {
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
     Epoch21 = 0x0200a,
+    Epoch30 = 0x03000,
 }
 
 impl StacksEpochId {
@@ -87,6 +88,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch20 => write!(f, "2.0"),
             StacksEpochId::Epoch2_05 => write!(f, "2.05"),
             StacksEpochId::Epoch21 => write!(f, "2.1"),
+            StacksEpochId::Epoch30 => write!(f, "3.0"),
         }
     }
 }
@@ -100,6 +102,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
             x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
             x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
+            x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
             _ => Err("Invalid epoch"),
         }
     }
@@ -202,7 +205,7 @@ impl Address for StacksAddress {
         self.bytes.as_bytes().to_vec()
     }
 
-    fn from_string(s: &str) -> Option<StacksAddress> {
+    fn from_str(s: &str) -> Option<StacksAddress> {
         let (version, bytes) = match c32_address_decode(s) {
             Ok((v, b)) => (v, b),
             Err(_) => {
@@ -217,7 +220,7 @@ impl Address for StacksAddress {
         let mut hash_bytes = [0u8; 20];
         hash_bytes.copy_from_slice(&bytes[..]);
         Some(StacksAddress {
-            version: version,
+            version,
             bytes: Hash160(hash_bytes),
         })
     }

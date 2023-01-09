@@ -1430,7 +1430,7 @@ fn lockup_integration() {
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
     let recipient_addr_str = "SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A";
-    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2113,7 +2113,7 @@ fn microblock_fork_poison_integration_test() {
 
     info!("Test microblock");
 
-    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let recipient = StacksAddress::from_str(ADDR_4).unwrap();
     let unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
     let unconfirmed_tx =
@@ -2341,7 +2341,7 @@ fn microblock_integration_test() {
     assert_eq!(account.nonce, 0);
 
     // okay, let's push a transaction that is marked microblock only!
-    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let recipient = StacksAddress::from_str(ADDR_4).unwrap();
     let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
     submit_tx(&http_origin, &tx);
 
@@ -2371,7 +2371,7 @@ fn microblock_integration_test() {
     assert_eq!(account.nonce, 1);
 
     // push another two transactions that are marked microblock only
-    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let recipient = StacksAddress::from_str(ADDR_4).unwrap();
     let unconfirmed_tx_bytes =
         make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
     let unconfirmed_tx =
@@ -2777,7 +2777,7 @@ fn filter_low_fee_tx_integration_test() {
         .iter()
         .enumerate()
         .map(|(ix, spender_sk)| {
-            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+            let recipient = StacksAddress::from_str(ADDR_4).unwrap();
 
             if ix < 5 {
                 // low-fee
@@ -2874,7 +2874,7 @@ fn filter_long_runtime_tx_integration_test() {
         .iter()
         .enumerate()
         .map(|(ix, spender_sk)| {
-            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+            let recipient = StacksAddress::from_str(ADDR_4).unwrap();
             make_stacks_transfer(&spender_sk, 0, 1000 + (ix as u64), &recipient.into(), 1000)
         })
         .collect();
@@ -4153,7 +4153,7 @@ fn block_replay_integration_test() {
     assert_eq!(account.balance, 100300);
     assert_eq!(account.nonce, 0);
 
-    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let recipient = StacksAddress::from_str(ADDR_4).unwrap();
     let tx = make_stacks_transfer(&spender_sk, 0, 1000, &recipient.into(), 1000);
     submit_tx(&http_origin, &tx);
 
@@ -4373,7 +4373,7 @@ fn cost_voting_integration() {
         &spender_sk,
         5,
         1000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "cost-voting",
         "confirm-miners",
         &[Value::UInt(0)],
@@ -4423,7 +4423,7 @@ fn cost_voting_integration() {
         &spender_sk,
         6,
         1000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "cost-voting",
         "confirm-miners",
         &[Value::UInt(0)],
@@ -5620,7 +5620,7 @@ fn pox_integration_test() {
         &spender_sk,
         0,
         260,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
@@ -5733,7 +5733,7 @@ fn pox_integration_test() {
         &spender_2_sk,
         0,
         260,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
@@ -5756,7 +5756,7 @@ fn pox_integration_test() {
         &spender_3_sk,
         0,
         260,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
@@ -6093,7 +6093,7 @@ fn atlas_integration_test() {
             &user_1,
             0,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "namespace-preorder",
             &[
@@ -6152,7 +6152,7 @@ fn atlas_integration_test() {
             &user_1,
             1,
             1000,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "namespace-reveal",
             &[
@@ -6214,7 +6214,7 @@ fn atlas_integration_test() {
             &user_1,
             2,
             500,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "name-import",
             &[
@@ -6409,7 +6409,7 @@ fn atlas_integration_test() {
             &user_1,
             2 + i,
             500,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "name-import",
             &[
@@ -6870,7 +6870,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         0,
         1000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-preorder",
         &[
@@ -6929,7 +6929,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         1,
         1000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-reveal",
         &[
@@ -7017,7 +7017,7 @@ fn atlas_stress_integration_test() {
                 &user_1,
                 2 + (batch_size * i + j) as u64,
                 1000,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-import",
                 &[
@@ -7086,7 +7086,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         2 + (batch_size as u64) * (batches as u64),
         1000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-ready",
         &[Value::buff_from(namespace.as_bytes().to_vec()).unwrap()],
@@ -7146,7 +7146,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 0,
                 1000,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-preorder",
                 &[
@@ -7205,7 +7205,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 1,
                 1000,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-register",
                 &[
@@ -7268,7 +7268,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 2,
                 1000,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-update",
                 &[
@@ -7330,7 +7330,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 3,
                 1000,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &StacksAddress::from_str("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-renewal",
                 &[
@@ -7793,7 +7793,7 @@ fn use_latest_tip_integration_test() {
         .unwrap();
 
     // Make microblock with two transactions.
-    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let recipient = StacksAddress::from_str(ADDR_4).unwrap();
     let transfer_tx =
         make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
 

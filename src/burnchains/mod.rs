@@ -195,40 +195,38 @@ pub enum BurnchainTransaction {
 
 impl BurnchainTransaction {
     pub fn txid(&self) -> Txid {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.txid.clone(),
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.txid.clone(),
         }
     }
 
     pub fn vtxindex(&self) -> u32 {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.vtxindex,
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.vtxindex,
         }
     }
 
     pub fn opcode(&self) -> u8 {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.opcode,
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.opcode,
         }
     }
 
-    pub fn data(&self) -> Vec<u8> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.data.clone(),
+    pub fn data(&self) -> &[u8] {
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => &btc.data,
         }
     }
 
     pub fn num_signers(&self) -> usize {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.inputs.len(),
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.inputs.len(),
         }
     }
 
     pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
         match self {
-            BurnchainTransaction::Bitcoin(ref btc) => {
-                btc.inputs.get(input).map(|txin| txin.tx_ref())
-            }
+            BurnchainTransaction::Bitcoin(btc) => btc.inputs.get(input).map(|txin| txin.tx_ref()),
         }
     }
 
@@ -236,8 +234,8 @@ impl BurnchainTransaction {
     /// A `None` value at slot `i` means "there is a recipient at slot `i`, but we don't know how
     /// to decode it`.
     pub fn get_recipients(&self) -> Vec<Option<BurnchainRecipient>> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc
                 .outputs
                 .iter()
                 .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
@@ -246,14 +244,14 @@ impl BurnchainTransaction {
     }
 
     pub fn num_recipients(&self) -> usize {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.outputs.len(),
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.outputs.len(),
         }
     }
 
     pub fn get_burn_amount(&self) -> u64 {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
+        match self {
+            BurnchainTransaction::Bitcoin(btc) => btc.data_amt,
         }
     }
 }

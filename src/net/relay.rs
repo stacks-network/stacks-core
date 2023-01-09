@@ -4972,7 +4972,7 @@ pub mod test {
         };
 
         let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+        let recipient = StacksAddress::from_str(recipient_addr_str).unwrap();
 
         let high_repeat_factor = 128 * 1024;
         let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);

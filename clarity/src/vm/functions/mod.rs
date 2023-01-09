@@ -54,8 +54,10 @@ macro_rules! switch_on_global_epoch {
                 }
                 StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
                 StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.1.
+                // No native functions are changed in Epoch 2.1 and 3.0, hence
+                // we may reuse the 2.05 version of all native functions.
                 StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
             }
         }
     };

@@ -75,6 +75,7 @@ pub enum Opcodes {
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
+    PegIn = '<' as u8,
 }
 
 // a burnchain block snapshot

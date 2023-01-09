@@ -91,7 +91,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_column(self.0, id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
+            let addr = StacksAddress::from_str(&s).expect("FATAL: malformed address");
             addr
         })
     }
@@ -165,7 +165,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_column(self.deref().deref(), id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
+            let addr = StacksAddress::from_str(&s).expect("FATAL: malformed address");
             addr
         })
     }
@@ -242,7 +242,7 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_column(self.sqlite_conn(), id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
+            let addr = StacksAddress::from_str(&s).expect("FATAL: malformed address");
             addr
         })
     }

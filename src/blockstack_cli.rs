@@ -284,7 +284,7 @@ fn make_contract_call(
     function_args: Vec<Value>,
 ) -> Result<TransactionContractCall, CliError> {
     let address =
-        StacksAddress::from_string(&contract_address).ok_or("Failed to parse contract address")?;
+        StacksAddress::from_str(&contract_address).ok_or("Failed to parse contract address")?;
     let contract_name = ContractName::try_from(contract_name)?;
     let function_name = ClarityName::try_from(function_name)?;
 

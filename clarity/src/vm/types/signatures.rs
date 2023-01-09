@@ -457,7 +457,7 @@ impl TypeSignature {
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
-            StacksEpochId::Epoch21 => self.admits_type_v2_1(other),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch30 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
     }
@@ -928,7 +928,7 @@ impl TypeSignature {
     ) -> Result<TypeSignature> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(a, b),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch30 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
     }
