@@ -8,7 +8,6 @@ use crate::chainstate::burn::operations::Error as OpError;
 use crate::chainstate::burn::operations::PegInOp;
 
 impl PegInOp {
-    // TODO(sbtc): Write tests
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
@@ -91,6 +90,8 @@ impl From<ParseError> for OpError {
 #[cfg(test)]
 mod tests {
     use clarity::util::hash::Hash160;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     use crate::burnchains::{
         bitcoin::{
@@ -106,9 +107,20 @@ mod tests {
 
     use super::*;
 
+    #[test]
     fn test_parse_peg_in_should_succeed_given_a_conforming_transaction() {
-        let tx = bitcoin_transaction(vec![0; 80], 10, [0; 32]);
+        let mut rng = seeded_rng();
+        let wallet_address = random_bytes(&mut rng);
+        let stx_address_str = "ST000000000000000000002AMW42H";
+        let data = stx_address_str.as_bytes().to_vec();
+
+        let tx = burnchain_transaction(data, 10, wallet_address);
         let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
+
+        let stx_address = StacksAddress::from_str(stx_address_str).unwrap();
+        assert_eq!(op.address, stx_address);
     }
 
     fn burnchain_block_header() -> BurnchainBlockHeader {
@@ -121,6 +133,22 @@ mod tests {
         }
     }
 
+    fn seeded_rng() -> StdRng {
+        SeedableRng::from_seed([0; 32])
+    }
+
+    fn random_bytes<Rng: rand::Rng, const N: usize>(rng: &mut Rng) -> [u8; N] {
+        [rng.gen(); N]
+    }
+
+    fn burnchain_transaction(
+        data: Vec<u8>,
+        amount: u64,
+        peg_in_wallet_address: [u8; 32],
+    ) -> BurnchainTransaction {
+        BurnchainTransaction::Bitcoin(bitcoin_transaction(data, amount, peg_in_wallet_address))
+    }
+
     fn bitcoin_transaction(
         data: Vec<u8>,
         amount: u64,
@@ -129,7 +157,7 @@ mod tests {
         BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
-            opcode: Opcodes::PreStx as u8,
+            opcode: Opcodes::PegIn as u8,
             data,
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
