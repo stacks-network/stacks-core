@@ -12045,8 +12045,7 @@ pub mod test {
     /// there are empty sortitions.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210() {
-        let mut peer_config =
-            TestPeerConfig::new("test_stacking_and_transfer_burn_ops_v210", 21315, 21316);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21315, 21316);
         let num_blocks = 10;
 
         let privk = StacksPrivateKey::from_hex(
@@ -12360,11 +12359,7 @@ pub mod test {
     /// between when they are mined and when the next Stacks block is mined.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210_expiration() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_stacking_and_transfer_burn_ops_v210_expiration",
-            21317,
-            21318,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21317, 21318);
         let num_blocks = 20;
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
