@@ -10,6 +10,9 @@
       <sourceFolder url="file://$MODULE_DIR$/stx-genesis/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/puppet-chain/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-node/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/build-utils/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-signer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-signer/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

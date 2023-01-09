@@ -9,17 +9,15 @@ async fn setup() -> (Signer, Net) {
     (signer, Net::new().await.unwrap())
 }
 
-#[async_std::test]
-async fn receive_message() {
-    let (mut signer, _net) = setup().await;
+fn receive_message() {
+    let (mut signer, _net) = setup();
 
     let join = MessageTypes::Join;
     assert!(signer.process(join));
 }
 
-#[async_std::test]
-async fn broadcast_share() {
-    let (_signer, net) = setup().await;
+fn broadcast_share() {
+    let (_signer, net) = setup();
 
     let share = signer::frost::SignatureShare {
         id: 0,
