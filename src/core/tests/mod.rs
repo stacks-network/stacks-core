@@ -2313,7 +2313,7 @@ fn test_find_next_missing_transactions() {
     assert_eq!(txs.len(), 0);
     assert!(next_page_opt.is_some());
 
-    let mut empty_bloom_conn = setup_bloom_counter("find_next_missing_txs_empty");
+    let mut empty_bloom_conn = setup_bloom_counter(function_name!());
     let mut empty_tx = tx_begin_immediate(&mut empty_bloom_conn).unwrap();
     let hasher = BloomNodeHasher::new(&[0u8; 32]);
     let empty_bloom = BloomCounter::new(
