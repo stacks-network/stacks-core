@@ -1,3 +1,4 @@
+pub use frost;
 use frost::v1::Party;
 use hashbrown::HashMap;
 use rand_core::OsRng;
