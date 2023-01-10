@@ -151,7 +151,7 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::PegIn(_) => {
-                    todo!(); //TODO(sbtc): Implement
+                    accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     // we don't yet know which block commits are going to be accepted until we have

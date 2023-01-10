@@ -61,6 +61,7 @@ impl PegInOp {
     }
 
     pub fn check(&self) -> Result<(), OpError> {
+        // TODO(sbtc): Check peg wallet address
         if self.amount == 0 {
             warn!("Invalid PegInOp: Peg amount must be positive");
             return Err(OpError::PegInAmountMustBePositive);
