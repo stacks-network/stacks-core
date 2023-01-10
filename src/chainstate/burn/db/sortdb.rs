@@ -2843,10 +2843,7 @@ impl SortitionDB {
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
             StacksEpochId::Epoch21 => version == "3" || version == "4",
-            StacksEpochId::Epoch30 => version == "5", // TODO(sbtc): Introduce DB version 5
-                                                      //              In epoch 3 we need to keep
-                                                      //              track for sBTC ops, which
-                                                      //              is not supported in versions <= 4
+            StacksEpochId::Epoch30 => version == "5",
         }
     }
 
@@ -6263,8 +6260,6 @@ pub mod tests {
             BurnchainHeaderHash([0x01; 32]),
             &vec![BlockstackOperationType::PegIn(peg_in.clone())],
         );
-
-        // TODO(sbtc): Cont...
 
         let res_peg_ins = SortitionDB::get_peg_in_ops(db.conn(), &burn_header_hash)
             .expect("Failed to get peg-in ops from sortition DB");
