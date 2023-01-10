@@ -1,5 +1,5 @@
 use stacks_signer::config::Config;
-use stacks_signer::net::Message;
+use stacks_signer::net::{HttpNet, Message, Net};
 use stacks_signer::signer::MessageTypes;
 use stacks_signer::{logger, net, signer};
 use std::sync::mpsc;
@@ -12,7 +12,7 @@ fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net = net::Net::new(&config);
+    let net: HttpNet = net::HttpNet::new(&config);
 
     // start p2p sync
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();

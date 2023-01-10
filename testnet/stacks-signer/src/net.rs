@@ -4,9 +4,15 @@ use serde::Serialize;
 use std::fmt::{Debug, Formatter};
 use ureq::Response;
 
-pub struct Net {
+pub struct HttpNet {
     _highwater_msg_idx: usize,
     stacks_node_url: String,
+}
+pub trait Net {
+    fn listen(&self);
+    fn poll(&self) -> Result<Response, ureq::Error>;
+    fn next_message(&self) -> Message;
+    fn send_message<S: Serialize>(&self, _msg: S);
 }
 
 #[derive(Debug)]
@@ -20,21 +26,22 @@ impl Debug for signer::MessageTypes {
     }
 }
 
-impl Net {
-    pub fn new(config: &Config) -> Net {
-        Net {
+impl HttpNet {
+    pub fn new(config: &Config) -> HttpNet {
+        HttpNet {
             _highwater_msg_idx: 0,
             stacks_node_url: config.stacks_node_url.to_owned(),
         }
     }
+}
+impl Net for HttpNet {
+    fn listen(&self) {}
 
-    pub fn listen(&self) {}
-
-    pub fn poll(&self) -> Result<Response, ureq::Error> {
+    fn poll(&self) -> Result<Response, ureq::Error> {
         ureq::get(&self.stacks_node_url).call()
     }
 
-    pub fn next_message(&self) -> Message {
+    fn next_message(&self) -> Message {
         match self.poll() {
             Ok(_msg) => {
                 // TODO: deserialize msg
@@ -48,5 +55,5 @@ impl Net {
         }
     }
 
-    pub fn send_message<S: Serialize>(&self, _msg: S) {}
+    fn send_message<S: Serialize>(&self, _msg: S) {}
 }

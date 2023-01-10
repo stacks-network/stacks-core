@@ -1,10 +1,10 @@
+use frost::common::SignatureShare;
 use secp256k1_math::scalar::Scalar;
+use stacks_signer::config::Config;
 use stacks_signer::net::Net;
 use stacks_signer::signer::{MessageTypes, Signer};
-use frost::common::SignatureShare;
-use stacks_signer::config::Config;
 
-fn setup() -> (Signer, Net) {
+fn setup() -> (Signer, dyn Net) {
     let mut signer = Signer::new();
     signer.reset(1, 2);
     let config = Config::default();
