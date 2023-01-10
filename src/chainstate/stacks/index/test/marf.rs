@@ -908,7 +908,7 @@ where
 {
     let mut last_root_hashes = None;
     for marf_opts in MARFOpenOpts::all().into_iter() {
-        test_debug!("With {:?}", &marf_opts);
+        eprintln!("Testing with {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
