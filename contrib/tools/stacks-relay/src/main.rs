@@ -18,7 +18,7 @@ impl State {
             }
             Some(v) => {
                 let i = *v;
-                let result = self.queue.get(1);
+                let result = self.queue.get(i);
                 if result != None {
                     *v = i + 1;
                 };
@@ -43,11 +43,16 @@ mod tests {
         state.post("Msg # 0".to_string());
         assert_eq!(Some(&"Msg # 0".to_string()), state.get(1));
         assert_eq!(Some(&"Msg # 0".to_string()), state.get(5));
+        assert_eq!(Some(&"Msg # 0".to_string()), state.get(4));
         assert_eq!(None, state.get(1));
         state.post("Msg # 1".to_string());
         assert_eq!(Some(&"Msg # 1".to_string()), state.get(1));
         assert_eq!(Some(&"Msg # 0".to_string()), state.get(3));
         assert_eq!(Some(&"Msg # 1".to_string()), state.get(5));
+        state.post("Msg # 2".to_string());
+        assert_eq!(Some(&"Msg # 2".to_string()), state.get(1));
+        assert_eq!(Some(&"Msg # 1".to_string()), state.get(4));
+        assert_eq!(Some(&"Msg # 2".to_string()), state.get(4));
     }
 }
 
