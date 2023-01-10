@@ -8,10 +8,10 @@ pub struct State {
 
 impl State {
     pub fn get(&mut self, node_id: u64) -> Option<&String> {
-        let first_unread = self.highwaters.get(&node_id).map_or(0, |v| *v);
+        let first_unread= self.highwaters.get(&node_id).map_or(0, |v| *v + 1);
         let result = self.queue.get(first_unread);
         if result != None {
-            self.highwaters.insert(node_id, first_unread + 1);
+            self.highwaters.insert(node_id, first_unread);
         };
         result
     }
