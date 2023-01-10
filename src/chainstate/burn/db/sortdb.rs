@@ -407,6 +407,29 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
     }
 }
 
+impl FromRow<PegInOp> for PegInOp {
+    fn from_row<'a>(row: &'a Row) -> Result<Self, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let address = StacksAddress::from_column(row, "address")?;
+        let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
+        let amount = u64::from_column(row, "amount")?;
+
+        Ok(Self {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            address,
+            peg_wallet_address,
+            amount,
+        })
+    }
+}
+
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
@@ -3851,6 +3874,20 @@ impl SortitionDB {
         )
     }
 
+    /// Get the list of Peg-In operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
+    pub fn get_peg_in_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<PegInOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM peg_in WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
+    }
+
     /// Get the list of Transfer-STX operations processed in a given burnchain block.
     /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
     /// to reject them.
@@ -6175,6 +6212,49 @@ pub mod tests {
         }
     }
 
+    #[test]
+    fn test_insert_peg_in() {
+        let txid = Txid([0; 32]);
+        let block_height = 123;
+        let vtxindex = 456;
+        let amount = 1337;
+        let address = StacksAddress::new(1, Hash160([1u8; 20]));
+        let peg_wallet_address =
+            PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+        let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+
+        let peg_in = PegInOp {
+            address,
+            peg_wallet_address,
+            amount,
+
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+        };
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+
+        let snapshot = test_append_snapshot(
+            &mut db,
+            BurnchainHeaderHash([0x01; 32]),
+            &vec![BlockstackOperationType::PegIn(peg_in.clone())],
+        );
+
+        // TODO(sbtc): Cont...
+
+        let res_peg_ins = SortitionDB::get_peg_in_ops(db.conn(), &burn_header_hash)
+            .expect("Failed to get peg-in ops from sortition DB");
+
+        assert_eq!(res_peg_ins.len(), 1);
+        assert_eq!(res_peg_ins[0].amount, 1337);
+    }
     #[test]
     fn has_VRF_public_key() {
         let public_key = VRFPublicKey::from_bytes(
@@ -8669,6 +8749,8 @@ pub mod tests {
                 test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
         }
     }
+
+    //TODO(sbtc): Test epoch 3.0
 
     #[test]
     #[should_panic]
