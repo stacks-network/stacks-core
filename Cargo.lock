@@ -3032,6 +3032,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-relay"
+version = "0.1.0"
+
+[[package]]
 name = "stacks-signer"
 version = "0.0.1"
 dependencies = [
