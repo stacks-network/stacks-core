@@ -730,6 +730,7 @@ impl RunLoop {
         sortdb: &SortitionDB,
         chain_state_db: &StacksChainState,
         last_burn_pox_reorg_recover_time: &mut u128,
+        last_announce_time: &mut u128,
     ) {
         let delay = cmp::max(
             1,
@@ -809,6 +810,7 @@ impl RunLoop {
             debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, {} <? {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height, highest_sn.block_height);
             globals.coord().announce_new_burn_block();
             globals.coord().announce_new_stacks_block();
+            *last_announce_time = get_epoch_time_secs().into();
         } else if sortition_tip_affirmation_map.len() >= heaviest_affirmation_map.len()
             && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
         {
@@ -820,6 +822,7 @@ impl RunLoop {
                     debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {}, heaviest: {}, canonical: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, &canonical_affirmation_map);
                     globals.coord().announce_new_burn_block();
                     globals.coord().announce_new_stacks_block();
+                    *last_announce_time = get_epoch_time_secs().into();
                 }
             }
         } else {
@@ -833,6 +836,16 @@ impl RunLoop {
         }
 
         *last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
+
+        // unconditionally bump every 5 minutes, just in case.
+        // this can get the node un-stuck if we're short on sortition processing but are unable to
+        // sync with the remote node because it keeps NACK'ing us, leading to a runloop stall.
+        if *last_announce_time + 300 < get_epoch_time_secs().into() {
+            debug!("Drive burnchain processing: unconditional bump");
+            globals.coord().announce_new_burn_block();
+            globals.coord().announce_new_stacks_block();
+            *last_announce_time = get_epoch_time_secs().into();
+        }
     }
 
     /// In a separate thread, periodically drive coordinator liveness by checking to see if there's
@@ -846,6 +859,7 @@ impl RunLoop {
     ) {
         let mut last_burn_pox_reorg_recover_time = 0;
         let mut last_stacks_pox_reorg_recover_time = 0;
+        let mut last_burn_announce_time = 0;
 
         debug!("Chain-liveness thread start!");
 
@@ -858,6 +872,7 @@ impl RunLoop {
                 &sortdb,
                 &chain_state_db,
                 &mut last_burn_pox_reorg_recover_time,
+                &mut last_burn_announce_time,
             );
             Self::drive_pox_reorg_stacks_block_processing(
                 &globals,
