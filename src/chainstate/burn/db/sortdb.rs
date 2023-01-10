@@ -696,6 +696,21 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
     );"#,
 ];
 
+// TODO(sbtc): Add tables for remaining sBTC ops
+const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
+    CREATE TABLE peg_in (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        address TEXT NOT NULL,
+        peg_wallet_address TEXT NOT NULL,
+        amount TEXT NOT NULL,
+
+        PRIMARY KEY(txid)
+    );"#];
+
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_burn_header_hash_pox_valid";
 
@@ -2611,6 +2626,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
+        SortitionDB::apply_schema_5(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -2873,6 +2889,18 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_5(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_5 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["5"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2910,6 +2938,10 @@ impl SortitionDB {
                     } else if version == "3" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_4(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "4" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_5(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
