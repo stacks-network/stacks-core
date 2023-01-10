@@ -331,18 +331,18 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
             .map_err(|_e| db_error::ParseError)?;
 
         let user_burn = UserBurnSupportOp {
-            address: address,
-            consensus_hash: consensus_hash,
-            public_key: public_key,
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
-            block_header_hash_160: block_header_hash_160,
-            burn_fee: burn_fee,
+            address,
+            consensus_hash,
+            public_key,
+            key_block_ptr,
+            key_vtxindex,
+            block_header_hash_160,
+            burn_fee,
 
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
         };
         Ok(user_burn)
     }
@@ -416,7 +416,10 @@ impl FromRow<PegInOp> for PegInOp {
 
         let address = StacksAddress::from_column(row, "address")?;
         let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
-        let amount = u64::from_column(row, "amount")?;
+        let amount = row
+            .get::<_, String>("amount")?
+            .parse()
+            .expect("CORRUPTION: Bad u64 stored in sortdb");
 
         Ok(Self {
             txid,
@@ -524,7 +527,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "4";
+pub const SORTITION_DB_VERSION: &'static str = "5";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -4796,7 +4799,19 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Insert a peg-in op
     fn insert_peg_in_sbtc(&mut self, op: &PegInOp) -> Result<(), db_error> {
-        todo!(); //TODO(sbtc): Implement
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.address.to_string(),
+            &op.peg_wallet_address.to_string(),
+            &op.amount.to_string(),
+        ];
+
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, address, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+
+        Ok(())
     }
 
     /// Insert a transfer-stx op
