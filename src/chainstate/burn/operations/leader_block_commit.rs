@@ -1872,7 +1872,7 @@ mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_burn_hash,
-            StacksEpoch::all(0, 0, first_block_height),
+            StacksEpoch::all(0, 0, first_block_height, u64::MAX),
         )
         .unwrap();
         let block_ops = vec![

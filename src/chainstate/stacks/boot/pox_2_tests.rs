@@ -561,7 +561,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -1023,7 +1023,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -1298,7 +1298,7 @@ fn delegate_stack_increase() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -1619,7 +1619,7 @@ fn stack_increase() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -1861,7 +1861,7 @@ fn test_lock_period_invariant_extend_transition() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -2024,7 +2024,7 @@ fn test_pox_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -2468,7 +2468,7 @@ fn test_delegate_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -3186,7 +3186,7 @@ fn test_pox_2_getters() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -3464,7 +3464,7 @@ fn test_get_pox_addrs() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-    let epochs = StacksEpoch::all(1, 2, 3);
+    let epochs = StacksEpoch::all(1, 2, 3, u64::MAX);
 
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -3733,7 +3733,7 @@ fn test_stack_with_segwit() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-    let epochs = StacksEpoch::all(1, 2, 3);
+    let epochs = StacksEpoch::all(1, 2, 3, u64::MAX);
 
     let (mut peer, all_keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -4058,7 +4058,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -4237,7 +4237,7 @@ fn stack_aggregation_increase() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 
@@ -4684,7 +4684,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, u64::MAX);
 
     let observer = TestEventObserver::new();
 

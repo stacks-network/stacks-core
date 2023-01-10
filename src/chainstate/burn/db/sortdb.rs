@@ -6239,7 +6239,9 @@ pub mod tests {
         )
         .unwrap();
 
-        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let epochs = StacksEpoch::unit_test(StacksEpochId::Epoch30, block_height);
+        let mut db =
+            SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
 
         let snapshot = test_append_snapshot(
             &mut db,
@@ -9521,7 +9523,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_block_header.block_hash,
-            StacksEpoch::all(0, 0, 0),
+            StacksEpoch::all(0, 0, 0, 0),
         )
         .unwrap();
 
