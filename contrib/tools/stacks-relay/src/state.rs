@@ -8,23 +8,12 @@ pub struct State {
 
 impl State {
     pub fn get(&mut self, node_id: u64) -> Option<&String> {
-        match self.highwaters.get_mut(&node_id) {
-            None => {
-                let result = self.queue.get(0);
-                if result != None {
-                    self.highwaters.insert(node_id, 0);
-                };
-                result
-            }
-            Some(v) => {
-                let i = *v + 1;
-                let result = self.queue.get(i);
-                if result != None {
-                    *v = i;
-                };
-                result
-            }
-        }
+        let first_unread = self.highwaters.get(&node_id).map_or(0, |v| *v);
+        let result = self.queue.get(first_unread);
+        if result != None {
+            self.highwaters.insert(node_id, first_unread + 1);
+        };
+        result
     }
     pub fn post(&mut self, msg: String) {
         self.queue.push(msg);
