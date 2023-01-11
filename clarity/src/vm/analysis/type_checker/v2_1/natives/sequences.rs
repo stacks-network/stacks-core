@@ -19,9 +19,9 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
+use crate::vm::types::Value;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
-use crate::vm::types::{Value, MAX_VALUE_SIZE};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
@@ -32,8 +32,7 @@ use crate::vm::analysis::type_checker::v2_1::{
 };
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
-use crate::vm::ClarityVersion;
+use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 
 fn get_simple_native_or_user_define(
     function_name: &str,

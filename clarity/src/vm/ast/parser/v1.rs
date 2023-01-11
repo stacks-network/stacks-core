@@ -15,15 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+
 use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, MAX_STRING_LEN,
+    ClarityName, ContractName, PreSymbolicExpression, MAX_STRING_LEN,
 };
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
 use regex::{Captures, Regex};
-use stacks_common::address::c32::c32_address_decode;
+
 use stacks_common::util::hash::hex_bytes;
-use std::cmp;
+
 use std::convert::TryInto;
 
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
@@ -1017,8 +1017,6 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use crate::vm::errors::{Error, RuntimeErrorType};
-
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
         let middle_hash = "(let ((x 1) (y#not 2)) x)";

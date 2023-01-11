@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::convert::TryInto;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
 
@@ -24,10 +24,7 @@ use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
-use crate::vm::costs::{
-    cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
-    ExecutionCost, LimitedCostTracker,
-};
+use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
@@ -36,7 +33,7 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
-use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::stx_transfer_consolidated;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
@@ -48,8 +45,6 @@ use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::version::ClarityVersion;
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
 
 use serde::Serialize;
 

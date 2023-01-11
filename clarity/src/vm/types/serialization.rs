@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
@@ -24,10 +22,7 @@ use serde_json::Value as JSONValue;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{
-    CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
-    RuntimeErrorType,
-};
+use crate::vm::errors::{CheckErrors, IncomparableError};
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
@@ -40,7 +35,6 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use crate::codec::{Error as codec_error, StacksMessageCodec};
-use crate::vm::types::byte_len_of_serialization;
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -469,7 +463,6 @@ impl Value {
         expected_type: Option<&TypeSignature>,
         depth: u8,
     ) -> Result<Value, SerializationError> {
-        use super::PrincipalData::*;
         use super::Value::*;
 
         if depth >= 16 {
@@ -949,8 +942,6 @@ mod tests {
     use std::io::Write;
 
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-    use crate::vm::errors::Error;
-    use crate::vm::types::TypeSignature::{BoolType, IntType};
 
     use super::super::*;
     use super::SerializationError;

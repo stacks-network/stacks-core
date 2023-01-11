@@ -17,7 +17,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fmt;
-use std::iter::FromIterator;
 
 use stacks_common::types::StacksEpochId;
 

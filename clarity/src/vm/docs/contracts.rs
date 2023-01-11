@@ -1,15 +1,13 @@
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
+use crate::vm::analysis::ContractAnalysis;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use crate::vm::types::{FunctionType, Value};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::iter::FromIterator;
 
 use crate::types::StacksEpochId;
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};

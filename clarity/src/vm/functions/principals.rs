@@ -1,19 +1,19 @@
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
+use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors, Error,
-    InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
+    InterpreterResult as Result,
 };
-use crate::vm::representations::ClarityName;
+
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    signatures::BUFF_1, signatures::BUFF_20, ASCIIData, BuffData, BufferLength, CharType,
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
+    signatures::BUFF_1, signatures::BUFF_20, ASCIIData, BuffData, CharType, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, StandardPrincipalData,
+    TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, ContractName, Environment, LocalContext};
-use stacks_common::util::hash::hex_bytes;
+
 use std::convert::TryFrom;
 
 use stacks_common::address::{

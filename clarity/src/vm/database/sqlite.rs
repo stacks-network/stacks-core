@@ -14,19 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
-    Savepoint, NO_PARAMS,
-};
-
 use crate::types::chainstate::StacksBlockId;
+use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
+use crate::vm::costs::ExecutionCost;
+use crate::vm::errors::InterpreterResult;
+use crate::vm::types::QualifiedContractIdentifier;
+use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::{Connection, OptionalExtension};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use stacks_common::util::db_common::tx_busy_handler;
 
-use crate::vm::contracts::Contract;
 use crate::vm::errors::{
-    Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+
+use super::clarity_store::{make_contract_hash_key, ContractCommitment};
+use super::{
+    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, SpecialCaseHandler,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";

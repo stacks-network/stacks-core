@@ -22,11 +22,11 @@ pub use crate::vm::analysis::errors::{
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
-use crate::vm::types::{TypeSignature, Value};
+use crate::vm::types::Value;
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
-use std::error::Error as ErrorTrait;
+
 use std::fmt;
 
 #[derive(Debug)]

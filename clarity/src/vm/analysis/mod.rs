@@ -24,12 +24,11 @@ pub mod type_checker;
 pub mod types;
 
 use crate::types::StacksEpochId;
-use crate::vm::database::MemoryBackingStore;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
 
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
+use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;

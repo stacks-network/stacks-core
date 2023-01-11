@@ -16,12 +16,10 @@
 
 use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
-};
+use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
-    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
+    InterpreterResult as Result, ShortReturnType,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::is_reserved;
@@ -36,7 +34,6 @@ use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
 
-use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
 
 use stacks_common::types::StacksEpochId;

@@ -19,14 +19,12 @@ use crate::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironme
 use crate::vm::contracts::Contract;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::execute as vm_execute;
+
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{
     execute, is_committed, is_err_code, symbols_from_values, with_memory_environment,
 };
-use crate::vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
-};
+use crate::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
 use stacks_common::types::StacksEpochId;
