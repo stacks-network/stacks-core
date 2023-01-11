@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "clarity"
-version = "0.0.1"
+version = "2.0.0"
 dependencies = [
  "assert-json-diff",
  "integer-sqrt",

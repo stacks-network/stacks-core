@@ -1,6 +1,6 @@
 [package]
 name = "clarity"
-version = "0.0.1"
+version = "2.0.0"
 authors = [ "Jude Nelson <jude@stacks.org>",
             "Aaron Blankstein <aaron@blockstack.com>",
             "Ludo Galabru <ludovic@blockstack.com>" ]
