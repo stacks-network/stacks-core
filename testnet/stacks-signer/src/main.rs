@@ -12,7 +12,7 @@ fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net: HttpNet = net::HttpNet::new(&config);
+    let net: HttpNet = HttpNet::new(&config);
 
     // start p2p sync
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
