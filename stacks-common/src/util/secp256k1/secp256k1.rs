@@ -14,16 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use secp256k1;
-use secp256k1::constants as LibSecp256k1Constants;
-use secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
-use secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
-use secp256k1::ecdsa::Signature as LibSecp256k1Signature;
-use secp256k1::Error as LibSecp256k1Error;
-use secp256k1::Message as LibSecp256k1Message;
-use secp256k1::PublicKey as LibSecp256k1PublicKey;
-use secp256k1::Secp256k1;
-use secp256k1::SecretKey as LibSecp256k1PrivateKey;
+use super::MessageSignature;
+use ::secp256k1;
+use ::secp256k1::constants as LibSecp256k1Constants;
+use ::secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
+use ::secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
+use ::secp256k1::ecdsa::Signature as LibSecp256k1Signature;
+use ::secp256k1::Error as LibSecp256k1Error;
+pub use ::secp256k1::Error;
+use ::secp256k1::Message as LibSecp256k1Message;
+use ::secp256k1::PublicKey as LibSecp256k1PublicKey;
+use ::secp256k1::Secp256k1;
+use ::secp256k1::SecretKey as LibSecp256k1PrivateKey;
 
 use crate::types::PrivateKey;
 use crate::types::PublicKey;
@@ -61,13 +63,6 @@ pub struct Secp256k1PrivateKey {
     key: LibSecp256k1PrivateKey,
     compress_public: bool,
 }
-
-pub struct MessageSignature(pub [u8; 65]);
-impl_array_newtype!(MessageSignature, u8, 65);
-impl_array_hexstring_fmt!(MessageSignature);
-impl_byte_array_newtype!(MessageSignature, u8, 65);
-impl_byte_array_serde!(MessageSignature);
-pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 65;
 
 impl MessageSignature {
     pub fn empty() -> MessageSignature {
@@ -413,7 +408,6 @@ mod tests {
     use secp256k1::Secp256k1;
 
     use crate::util::get_epoch_time_ms;
-    use crate::util::log;
 
     struct KeyFixture<I, R> {
         input: I,
