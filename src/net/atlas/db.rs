@@ -17,7 +17,7 @@
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 
 use std::collections::HashSet;
 use std::convert::From;
@@ -368,14 +368,14 @@ impl AtlasDB {
     pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachments
                    WHERE was_instantiated = 0";
-        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        let count = query_count(&self.conn, qry, [])? as u32;
         Ok(count)
     }
 
     pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachment_instances
                    WHERE is_available = 0";
-        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        let count = query_count(&self.conn, qry, [])? as u32;
         Ok(count)
     }
 
@@ -435,7 +435,7 @@ impl AtlasDB {
         &mut self,
     ) -> Result<Vec<AttachmentInstance>, db_error> {
         let qry = "SELECT * FROM attachment_instances WHERE is_available = 0".to_string();
-        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, NO_PARAMS)?;
+        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, [])?;
         Ok(rows)
     }
 

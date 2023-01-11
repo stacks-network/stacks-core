@@ -1395,7 +1395,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 mod tests {
     use std::fs;
 
-    use rusqlite::NO_PARAMS;
+    use crate::chainstate::stacks::address::PoxAddress;
 
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
@@ -1761,8 +1761,7 @@ mod tests {
         // sqlite only have entries
         assert_eq!(
             0,
-            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
-                .get(0))
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", [], |row| row.get(0))
                 .unwrap()
         );
     }
@@ -1799,11 +1798,9 @@ mod tests {
 
         let genesis_metadata_entries = marf
             .sql_conn()
-            .query_row::<u32, _, _>(
-                "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| {
+                row.get(0)
+            })
             .unwrap();
 
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
@@ -1908,12 +1905,9 @@ mod tests {
         // sqlite only have any metadata entries from the genesis block
         assert_eq!(
             genesis_metadata_entries,
-            sql.query_row::<u32, _, _>(
-                "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
-                |row| row.get(0)
-            )
-            .unwrap()
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| row
+                .get(0))
+                .unwrap()
         );
     }
 

@@ -19,9 +19,7 @@ use std::fmt;
 use std::collections::{HashMap, HashSet};
 use std::{cmp, fs, io, path::Path};
 
-use rusqlite::{
-    types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
-};
+use rusqlite::{types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde_json;
 
 use crate::burnchains::affirmation::*;
@@ -1075,7 +1073,7 @@ impl BurnchainDB {
         conn: &DBConn,
     ) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
-        let opt = query_row(conn, qry, NO_PARAMS)?;
+        let opt = query_row(conn, qry, [])?;
         Ok(opt.expect("CORRUPTION: Could not query highest burnchain header"))
     }
 
@@ -1086,7 +1084,7 @@ impl BurnchainDB {
     #[cfg(test)]
     pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
-        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
+        let opt = query_row(&self.conn, qry, [])?;
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
@@ -1438,7 +1436,7 @@ impl BurnchainDB {
                                WHERE block_commit_metadata.anchor_block IS NOT NULL \
                                ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC \
                                LIMIT 1",
-                        NO_PARAMS
+                        []
         )? {
             Some(metadata) => {
                 let commit = BurnchainDB::get_block_commit(conn, &metadata.txid)?

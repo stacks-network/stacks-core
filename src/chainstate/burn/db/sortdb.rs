@@ -30,7 +30,7 @@ use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use sha2::{Digest, Sha512_256};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
@@ -2738,7 +2738,7 @@ impl SortitionDB {
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
-        query_rows(self.conn(), qry, NO_PARAMS)
+        query_rows(self.conn(), qry, [])
     }
 
     /// Get all snapshots for a burn block hash, even if they're not on the canonical PoX fork.
@@ -2787,7 +2787,7 @@ impl SortitionDB {
         let index_path = db_mkdirs(path)?;
         let marf = SortitionDB::open_index(&index_path)?;
         let sql = "SELECT MAX(block_height) FROM snapshots";
-        Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
+        Ok(query_rows(&marf.sqlite_conn(), sql, [])?
             .pop()
             .expect("BUG: no snapshots in block_snapshots"))
     }
@@ -2807,11 +2807,7 @@ impl SortitionDB {
     /// Get the database schema version, given a DB connection
     fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
         let version = conn
-            .query_row(
-                "SELECT MAX(version) from db_config",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) from db_config", [], |row| row.get(0))
             .optional()?;
         Ok(version)
     }
@@ -2991,7 +2987,7 @@ impl SortitionDB {
         let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
             conn,
             "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
-            NO_PARAMS,
+            [],
         )?;
 
         assert!(ast_rule_sets.len() > 0);
@@ -3735,8 +3731,7 @@ impl SortitionDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS)
-            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
     /// Get the highest burn chain tip even if it's not PoX-valid.
@@ -3744,14 +3739,14 @@ impl SortitionDB {
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
+        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
+        match conn.query_row(qry, [], |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -3763,7 +3758,7 @@ impl SortitionDB {
     /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
+        match conn.query_row(qry, [], |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -3919,7 +3914,7 @@ impl SortitionDB {
         match conn
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
-                NO_PARAMS,
+                [],
                 |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
@@ -4405,7 +4400,7 @@ impl SortitionDB {
     /// Get all StacksEpochs, in order by ascending start height
     pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
         let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
-        query_rows(conn, sql, NO_PARAMS)
+        query_rows(conn, sql, [])
     }
 
     pub fn get_stacks_epoch_by_epoch_id(
@@ -4547,7 +4542,7 @@ impl<'a> SortitionHandleTx<'a> {
         transition: &BurnchainStateTransition,
     ) {
         let create = "CREATE TABLE IF NOT EXISTS snapshot_burn_distributions (sortition_id TEXT PRIMARY KEY, data TEXT NOT NULL);";
-        self.execute(create, NO_PARAMS).unwrap();
+        self.execute(create, []).unwrap();
         let sql = "INSERT INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
         let args: &[&dyn ToSql] = &[
             new_sortition,
@@ -9227,7 +9222,7 @@ pub mod tests {
             {
                 let db_tx = db.tx_begin().unwrap();
                 db_tx
-                    .execute("DELETE FROM block_commit_parents", NO_PARAMS)
+                    .execute("DELETE FROM block_commit_parents", [])
                     .unwrap();
                 db_tx.commit().unwrap();
             }

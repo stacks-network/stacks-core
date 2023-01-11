@@ -34,7 +34,7 @@ use std::{cmp, error};
 use rusqlite::{
     types::{FromSql, ToSql},
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 
 use crate::chainstate::stacks::index::bits::{
