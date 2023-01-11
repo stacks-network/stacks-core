@@ -35,7 +35,7 @@ use regex::Regex;
 use rusqlite::{
     blob::Blob,
     types::{FromSql, ToSql},
-    Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS,
+    Connection, Error as SqliteError, OptionalExtension, Transaction,
 };
 
 use crate::chainstate::stacks::index::bits::{
@@ -124,7 +124,7 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
 fn get_schema_version(conn: &Connection) -> u64 {
     // if the table doesn't exist, then the version is 1.
     let sql = "SELECT version FROM schema_version";
-    match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
+    match conn.query_row(sql, [], |row| row.get::<_, i64>("version")) {
         Ok(x) => x as u64,
         Err(e) => {
             debug!("Failed to get schema version: {:?}", &e);
@@ -137,7 +137,7 @@ fn get_schema_version(conn: &Connection) -> u64 {
 fn get_migrated_version(conn: &Connection) -> u64 {
     // if the table doesn't exist, then the version is 1.
     let sql = "SELECT version FROM migrated_version";
-    match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
+    match conn.query_row(sql, [], |row| row.get::<_, i64>("version")) {
         Ok(x) => x as u64,
         Err(e) => {
             debug!("Failed to get schema version: {:?}", &e);
@@ -235,7 +235,7 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
     let result = conn
         .query_row(
             "SELECT block_hash FROM marf_data WHERE block_id = ?",
-            &[local_id],
+            [local_id],
             |row| row.get("block_hash"),
         )
         .optional()?;
@@ -441,10 +441,10 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
     let mut s = conn.prepare(
         "SELECT block_hash, data FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash",
     )?;
-    let rows = s.query_and_then(NO_PARAMS, |row| {
+    let rows = s.query_and_then([], |row| {
         let block_hash: T = row.get_unwrap("block_hash");
         let data = row
-            .get_raw("data")
+            .get_ref_unwrap("data")
             .as_blob()
             .expect("DB Corruption: MARF data is non-blob");
         let start = TrieStorageConnection::<T>::root_ptr_disk() as usize;
@@ -553,7 +553,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
-    let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    let max_len = query_row(conn, qry, [])?.unwrap_or(0);
     Ok(max_len)
 }
 
@@ -570,12 +570,12 @@ pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
     let num_migrated = query_count(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset = 0 AND external_length = 0 AND unconfirmed = 0",
-        NO_PARAMS,
+        [],
     )?;
     let num_not_migrated = query_count(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0 AND unconfirmed = 0",
-        NO_PARAMS,
+        [],
     )?;
     Ok(num_migrated > 0 && num_not_migrated > 0)
 }
@@ -679,7 +679,7 @@ pub fn lock_bhh_for_extension<T: MarfTrieId>(
 pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
     let result = conn.query_row(
         "SELECT IFNULL(MAX(block_id), 0) AS count FROM marf_data WHERE unconfirmed = 0",
-        NO_PARAMS,
+        [],
         |row| row.get("count"),
     )?;
     Ok(result)
@@ -713,13 +713,13 @@ pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Resul
 }
 
 pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
-    conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
+    conn.execute("DELETE FROM block_extension_locks", [])?;
     Ok(())
 }
 
 pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
-    tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-    tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
-    tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
+    tx.execute("DELETE FROM block_extension_locks", [])?;
+    tx.execute("DELETE FROM marf_data", [])?;
+    tx.execute("DELETE FROM mined_blocks", [])?;
     Ok(())
 }

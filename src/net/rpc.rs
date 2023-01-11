@@ -29,7 +29,7 @@ use std::{convert::TryFrom, fmt};
 
 use rand::prelude::*;
 use rand::thread_rng;
-use rusqlite::{DatabaseName, NO_PARAMS};
+use rusqlite::DatabaseName;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Burnchain;

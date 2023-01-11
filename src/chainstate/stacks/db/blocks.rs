@@ -31,6 +31,7 @@ use rand::Rng;
 use rand::RngCore;
 use rusqlite::Connection;
 use rusqlite::DatabaseName;
+use rusqlite::Params;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
 use crate::burnchains::affirmation::AffirmationMap;
@@ -1070,7 +1071,7 @@ impl StacksChainState {
         blocks_conn: &DBConn,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
+        let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, [])
             .map_err(Error::DBError)?;
 
         Ok(blocks
@@ -1082,7 +1083,7 @@ impl StacksChainState {
     /// Get all stacks block headers.  Great for testing!
     pub fn get_all_staging_block_headers(blocks_conn: &DBConn) -> Result<Vec<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        query_rows::<StagingBlock, _>(blocks_conn, &sql, NO_PARAMS).map_err(Error::DBError)
+        query_rows::<StagingBlock, _>(blocks_conn, &sql, []).map_err(Error::DBError)
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
@@ -1225,7 +1226,7 @@ impl StacksChainState {
     ) -> Result<Vec<Vec<u8>>, Error>
     where
         P: IntoIterator,
-        P::Item: ToSql,
+        P: Params,
     {
         let mut stmt = conn
             .prepare(sql_query)
@@ -4555,8 +4556,7 @@ impl StacksChainState {
         // go through staging blocks and see if any of them have not been processed yet, but are
         // orphaned
         let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND orphaned = 1 ORDER BY RANDOM() LIMIT 1";
-        let mut rows =
-            query_rows::<StagingBlock, _>(blocks_tx, sql, NO_PARAMS).map_err(Error::DBError)?;
+        let mut rows = query_rows::<StagingBlock, _>(blocks_tx, sql, []).map_err(Error::DBError)?;
         if rows.len() == 0 {
             test_debug!("No orphans to remove");
             return Ok(false);
@@ -4664,7 +4664,7 @@ impl StacksChainState {
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
             let mut rows = stmt
-                .query(NO_PARAMS)
+                .query([])
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
             while let Some(row) = rows.next().map_err(|e| db_error::SqliteError(e))? {

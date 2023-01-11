@@ -379,7 +379,7 @@ impl StacksChainState {
     /// Get the highest known header height
     pub fn get_max_header_height(conn: &Connection) -> Result<u64, Error> {
         let qry = "SELECT block_height FROM block_headers ORDER BY block_height DESC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS)
+        query_row(conn, qry, [])
             .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
             .map_err(|e| e.into())
     }

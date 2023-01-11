@@ -74,7 +74,7 @@ version = "0.24.3"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
-version = "=0.24.2"
+version = "0.28.0"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
