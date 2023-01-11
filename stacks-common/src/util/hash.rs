@@ -20,7 +20,6 @@ use std::fmt;
 use std::fmt::Write;
 use std::mem;
 
-use crate::util::log;
 use crate::util::pair::*;
 use crate::util::secp256k1::Secp256k1PublicKey;
 use crate::util::HexError;
