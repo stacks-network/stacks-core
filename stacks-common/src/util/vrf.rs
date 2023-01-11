@@ -17,7 +17,11 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use crate::util::hash::to_hex;
+use crate::codec::{Error as CodecError, StacksMessageCodec};
+use crate::types::chainstate::VRFSeed;
+use crate::util::hash::Sha512Trunc256Sum;
+use crate::util::hash::{hex_bytes, to_hex};
+
 use std::clone::Clone;
 use std::cmp::Eq;
 use std::cmp::Ord;
@@ -44,8 +48,8 @@ use sha2::Sha512;
 use std::error;
 use std::fmt;
 
-use crate::util::hash::hex_bytes;
 use rand;
+use std::io::{Read, Write};
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
@@ -257,6 +261,7 @@ pub struct VRFProof {
     c: ed25519_Scalar,
     s: ed25519_Scalar,
 }
+impl_byte_array_rusqlite_only!(VRFProof);
 
 impl Debug for VRFProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -583,6 +588,43 @@ impl VRF {
             32 => VRFPublicKey::from_bytes(&pubkey_bytes[..]),
             _ => None,
         }
+    }
+}
+
+impl StacksMessageCodec for VRFProof {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        fd.write_all(&self.to_bytes())
+            .map_err(CodecError::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, CodecError> {
+        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        let res = VRFProof::from_slice(&bytes).ok_or(CodecError::DeserializeError(
+            "Failed to parse VRF proof".to_string(),
+        ))?;
+
+        Ok(res)
+    }
+}
+
+pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
+impl_byte_array_rusqlite_only!(VRFSeed);
+
+impl VRFSeed {
+    /// First-ever VRF seed from the genesis block.  It's all 0's
+    pub fn initial() -> VRFSeed {
+        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
+    }
+
+    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
+        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
+        VRFSeed(h.0)
+    }
+
+    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
+        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
     }
 }
 
