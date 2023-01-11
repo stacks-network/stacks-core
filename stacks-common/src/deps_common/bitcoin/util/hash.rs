@@ -463,7 +463,7 @@ impl MerkleTreeState {
         self.0.push(right);
         self
     }
-    fn collect(mut self) -> Sha256dHash {
+    fn calculate_hash(mut self) -> Sha256dHash {
         match self.0.pop() {
             None => Default::default(),
             Some(last) => {
@@ -477,14 +477,18 @@ impl MerkleTreeState {
     }
 }
 
-trait MerkleRootEx: Iterator<Item = Sha256dHash> + Sized {
+/// A mekrle hash for an iterator of SHA256.
+pub trait MerkleRootEx: Iterator<Item = Sha256dHash> + Sized {
+    /// Calculates a mekrle root hash for the given iterator of SHA256.
     fn merkle_root(self) -> Sha256dHash {
-        self.fold(MerkleTreeState::default(), MerkleTreeState::push).collect()
+        self.fold(MerkleTreeState::default(), MerkleTreeState::push)
+            .calculate_hash()
     }
 }
 
 impl<I: Iterator<Item = Sha256dHash>> MerkleRootEx for I {}
 
+/*
 /// Calculates the merkle root of a list of txids hashes directly
 pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
     // Base case
@@ -508,6 +512,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
     };
     bitcoin_merkle_root(next)
 }
+*/
 
 impl<'a, T: BitcoinHash> MerkleRoot for &'a [T] {
     fn merkle_root(&self) -> Sha256dHash {

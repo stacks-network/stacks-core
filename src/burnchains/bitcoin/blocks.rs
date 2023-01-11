@@ -42,7 +42,8 @@ use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::message as btc_message;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
+use stacks_common::deps_common::bitcoin::util::hash::MerkleRootEx;
+// use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
@@ -259,7 +260,7 @@ impl BitcoinBlockParser {
 
         // block transactions must match header merkle root
         let tx_merkle_root =
-            bitcoin_merkle_root(block.txdata.iter().map(|ref tx| tx.txid()).collect());
+            block.txdata.iter().map(|ref tx| tx.txid()).merkle_root();
 
         if block.header.merkle_root != tx_merkle_root {
             return false;
