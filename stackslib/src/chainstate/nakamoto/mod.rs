@@ -25,7 +25,7 @@ use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -1258,7 +1258,7 @@ impl NakamotoChainState {
                        AND processed = 0
                      ORDER BY height ASC";
         staging_db_conn
-            .query_row_and_then(query, NO_PARAMS, |row| {
+            .query_row_and_then(query, [], |row| {
                 let data: Vec<u8> = row.get("data")?;
                 let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
                 Ok(Some((
@@ -1785,7 +1785,7 @@ impl NakamotoChainState {
                 ).optional()?.is_some()
                 && staging_db_tx.query_row(
                     "SELECT 1 FROM nakamoto_block_headers LIMIT 1",
-                    rusqlite::NO_PARAMS,
+                    [],
                     |_row| Ok(())
                 ).optional()?.is_none()
                );
@@ -1904,10 +1904,10 @@ impl NakamotoChainState {
         coinbase_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         // query for block header info at the tenure-height, then check if in fork
-        let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
-
-        let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
+        let qry =
+            "SELECT * FROM nakamoto_block_headers WHERE tenure_changed = 1 AND tenure_height = ?";
+        let candidate_headers: Vec<StacksHeaderInfo> =
+            query_rows(tx.tx(), qry, &[&u64_to_sql(tenure_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where

@@ -24,7 +24,7 @@ use clarity::vm::types::{
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util;
 use stacks_common::util::hash::{
@@ -510,7 +510,7 @@ impl PeerDB {
         let version = conn
             .query_row(
                 "SELECT MAX(version) from db_config",
-                rusqlite::NO_PARAMS,
+                [],
                 |row| row.get(0),
             )
             .optional()?
@@ -574,13 +574,13 @@ impl PeerDB {
     }
 
     fn reset_denies(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET denied = 0", NO_PARAMS)
+        tx.execute("UPDATE frontier SET denied = 0", [])
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
 
     fn reset_allows(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
+        tx.execute("UPDATE frontier SET allowed = 0", [])
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -800,7 +800,7 @@ impl PeerDB {
     /// Read the local peer record
     pub fn get_local_peer(conn: &DBConn) -> Result<LocalPeer, db_error> {
         let qry = "SELECT * FROM local_peer LIMIT 1".to_string();
-        let rows = query_rows::<LocalPeer, _>(conn, &qry, NO_PARAMS)?;
+        let rows = query_rows::<LocalPeer, _>(conn, &qry, [])?;
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
@@ -1157,7 +1157,7 @@ impl PeerDB {
 
     /// clear all initial peers
     fn clear_initial_peers(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET initial = 0", NO_PARAMS)
+        tx.execute("UPDATE frontier SET initial = 0", [])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1495,7 +1495,7 @@ impl PeerDB {
         let sql_query = format!("SELECT prefix, mask FROM {}", table);
         let mut stmt = conn.prepare(&sql_query)?;
         let rows_res_iter = stmt
-            .query_and_then(NO_PARAMS, |row| {
+            .query_and_then([], |row| {
                 let prefix = PeerAddress::from_column(row, "prefix")?;
                 let mask: u32 = row.get_unwrap("mask");
                 let res: Result<(PeerAddress, u32), db_error> = Ok((prefix, mask));
@@ -1774,13 +1774,13 @@ impl PeerDB {
 
     pub fn get_frontier_size(conn: &DBConn) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier";
-        let count = query_count(conn, &qry, NO_PARAMS)?;
+        let count = query_count(conn, &qry, [])?;
         Ok(count as u64)
     }
 
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC";
-        let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
+        let rows = query_rows::<Neighbor, _>(conn, &qry, [])?;
         Ok(rows)
     }
 
