@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct State {
-    // the value for this map is an index for the last read message.
+    // the value for this map is an index for the last read message for this node.
     highwaters: HashMap<u64, usize>,
     queue: Vec<String>,
 }
