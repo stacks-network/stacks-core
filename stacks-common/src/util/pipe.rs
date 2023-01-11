@@ -26,8 +26,6 @@ use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
 
-use crate::util::log;
-
 /// Inter-thread pipe for streaming messages, built on channels.
 /// Used mainly in conjunction with networking.
 /// * The read endpoint lives inside the connection, and will consume data from another thread to

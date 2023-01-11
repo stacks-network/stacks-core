@@ -19,11 +19,13 @@ extern crate sha2;
 extern crate sha3;
 extern crate time;
 
+#[cfg(feature = "log")]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 extern crate chrono;
 #[cfg(feature = "slog_json")]
 extern crate slog_json;
+#[cfg(feature = "log")]
 extern crate slog_term;
 
 #[macro_use]
