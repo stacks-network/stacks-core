@@ -43,6 +43,9 @@ pub mod coverage;
 
 pub mod events;
 
+#[cfg(feature = "sqlite")]
+pub mod tooling;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
@@ -89,6 +92,7 @@ use self::ast::ASTRules;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+use self::events::StacksTransactionEvent;
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -121,7 +125,7 @@ pub enum EvaluationResult {
 #[derive(Debug, Clone)]
 pub struct ExecutionResult {
     pub result: EvaluationResult,
-    pub events: Vec<serde_json::Value>,
+    pub events: Vec<StacksTransactionEvent>,
     pub cost: Option<CostSynthesis>,
     pub diagnostics: Vec<Diagnostic>,
 }

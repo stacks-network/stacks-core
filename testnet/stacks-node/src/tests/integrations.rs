@@ -21,11 +21,9 @@ use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResp
 use stacks::types::chainstate::{StacksAddress, VRFSeed};
 use stacks::util::hash::Sha256Sum;
 use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::vm::tooling::mem_type_check;
 use stacks::vm::{
-    analysis::{
-        contract_interface_builder::{build_contract_interface, ContractInterface},
-        mem_type_check,
-    },
+    analysis::contract_interface_builder::{build_contract_interface, ContractInterface},
     database::ClaritySerializable,
     types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,

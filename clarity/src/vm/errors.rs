@@ -23,6 +23,7 @@ use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::Value;
+#[cfg(feature = "sqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
@@ -55,6 +56,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
+    #[cfg(feature = "sqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
