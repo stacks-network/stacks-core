@@ -3,42 +3,56 @@ use stacks_signer::config::Config;
 use stacks_signer::net::{HttpNet, Message, Net};
 use stacks_signer::signer::{MessageTypes, SignatureShare, Signer};
 
-fn setup() -> (Signer, Box<dyn Net>) {
+fn setup(queue: Vec<Message>) -> (Signer, Box<dyn Net>) {
     let mut signer = Signer::new();
     signer.reset(1, 2);
-    let config = Config::default();
-    (signer, Box::new(HttpNet::new(&config)))
+    let mut config = Config::default();
+    config.stacks_node_url = "http://localhost:9775".to_owned();
+
+    // prepopulate network receive queue
+    (signer, Box::new(HttpNet::new(&config, queue)))
 }
 
 #[test]
-fn receive_message() {
-    let (mut signer, _net) = setup();
+fn receive_join() {
+    let m1 = Message {
+        msg: MessageTypes::Join,
+    };
+    let queue = vec![m1];
+    let (mut signer, _net) = setup(queue);
 
     let join = MessageTypes::Join;
     assert!(signer.process(join));
 }
 
 #[test]
-fn broadcast_share() {
-    let (_signer, net) = setup();
-
+fn receive_share() {
     let share = frost::common::SignatureShare {
         id: 0,
         z_i: Scalar::new(),
         public_key: Default::default(),
     };
 
-    net.send_message(Message {
-        r#type: MessageTypes::SignatureShare(SignatureShare {
+    let m1 = Message {
+        msg: MessageTypes::SignatureShare(SignatureShare {
             signature_share: share,
         }),
-    });
+    };
+    let queue = vec![m1];
+    let (_signer, mut net) = setup(queue);
 
     let next = net.next_message();
-    match next.r#type {
-        MessageTypes::SignatureShare(share) => {
-            assert_eq!(share.signature_share.id, 0)
+    match next {
+        Some(msg) => match msg.msg {
+            MessageTypes::SignatureShare(share) => {
+                assert_eq!(share.signature_share.id, 0)
+            }
+            _ => {
+                panic!("wrong msg received")
+            }
+        },
+        None => {
+            panic!("net.next_message() failed")
         }
-        _ => {}
     }
 }

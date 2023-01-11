@@ -11,16 +11,16 @@ fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
-    let net: HttpNet = HttpNet::new(&config);
+    let mut net: HttpNet = HttpNet::new(&config, vec![]);
 
     // start p2p sync
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
     spawn(move || loop {
         let message = Message {
-            r#type: MessageTypes::Join {},
+            msg: MessageTypes::Join {},
         };
-        let _m = net.next_message();
         tx.send(message).unwrap();
+        let _m = net.next_message();
     });
 
     mainloop(&config, rx);
