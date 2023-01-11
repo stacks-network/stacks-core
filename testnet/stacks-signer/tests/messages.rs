@@ -1,14 +1,13 @@
-use frost::common::SignatureShare;
 use secp256k1_math::scalar::Scalar;
 use stacks_signer::config::Config;
-use stacks_signer::net::Net;
-use stacks_signer::signer::{MessageTypes, Signer};
+use stacks_signer::net::{HttpNet, Message, Net};
+use stacks_signer::signer::{MessageTypes, SignatureShare, Signer};
 
-fn setup() -> (Signer, dyn Net) {
+fn setup() -> (Signer, Box<dyn Net>) {
     let mut signer = Signer::new();
     signer.reset(1, 2);
     let config = Config::default();
-    (signer, Net::new(&config))
+    (signer, Box::new(HttpNet::new(&config)))
 }
 
 #[test]
@@ -23,11 +22,15 @@ fn receive_message() {
 fn broadcast_share() {
     let (_signer, net) = setup();
 
-    let share = SignatureShare {
+    let share = frost::common::SignatureShare {
         id: 0,
         z_i: Scalar::new(),
         public_key: Default::default(),
     };
 
-    net.send_message(share);
+    net.send_message(Message {
+        r#type: MessageTypes::SignatureShare(SignatureShare {
+            signature_share: share,
+        }),
+    })
 }

@@ -12,7 +12,7 @@ pub trait Net {
     fn listen(&self);
     fn poll(&self) -> Result<Response, ureq::Error>;
     fn next_message(&self) -> Message;
-    fn send_message<S: Serialize>(&self, _msg: S);
+    fn send_message(&self, _msg: Message);
 }
 
 #[derive(Debug)]
@@ -27,13 +27,14 @@ impl Debug for signer::MessageTypes {
 }
 
 impl HttpNet {
-    pub fn new(config: &Config) -> HttpNet {
+    pub fn new(config: &Config) -> Self {
         HttpNet {
             _highwater_msg_idx: 0,
             stacks_node_url: config.stacks_node_url.to_owned(),
         }
     }
 }
+
 impl Net for HttpNet {
     fn listen(&self) {}
 
@@ -55,5 +56,7 @@ impl Net for HttpNet {
         }
     }
 
-    fn send_message<S: Serialize>(&self, _msg: S) {}
+    fn send_message(&self, _msg: Message) {
+        ureq::post(&self.stacks_node_url);
+    }
 }
