@@ -3,22 +3,22 @@ use crate::signer;
 use slog::slog_info;
 use stacks_common::info;
 use std::fmt::{Debug, Formatter};
-use ureq::Response;
 
 pub struct HttpNet {
-    _highwater_msg_idx: usize,
     stacks_node_url: String,
+    msg_queue: Vec<Message>,
 }
+
 pub trait Net {
     fn listen(&self);
-    fn poll(&self) -> Result<Response, ureq::Error>;
-    fn next_message(&self) -> Message;
+    fn poll(&mut self);
+    fn next_message(&mut self) -> Option<Message>;
     fn send_message(&self, _msg: Message);
 }
 
 #[derive(Debug)]
 pub struct Message {
-    pub r#type: signer::MessageTypes,
+    pub msg: signer::MessageTypes,
 }
 
 impl Debug for signer::MessageTypes {
@@ -28,10 +28,10 @@ impl Debug for signer::MessageTypes {
 }
 
 impl HttpNet {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, new_q: Vec<Message>) -> Self {
         HttpNet {
-            _highwater_msg_idx: 0,
             stacks_node_url: config.stacks_node_url.to_owned(),
+            msg_queue: new_q,
         }
     }
 }
@@ -39,22 +39,23 @@ impl HttpNet {
 impl Net for HttpNet {
     fn listen(&self) {}
 
-    fn poll(&self) -> Result<Response, ureq::Error> {
-        ureq::get(&self.stacks_node_url).call()
-    }
-
-    fn next_message(&self) -> Message {
-        match self.poll() {
+    fn poll(&mut self) {
+        match ureq::get(&self.stacks_node_url).call() {
             Ok(_msg) => {
                 // TODO: deserialize msg
-                Message {
-                    r#type: signer::MessageTypes::Join,
-                }
+                let msg = Message {
+                    msg: signer::MessageTypes::Join,
+                };
+                self.msg_queue.push(msg);
             }
             Err(e) => {
                 panic!("E: {} U: {}", e, self.stacks_node_url)
             }
-        }
+        };
+    }
+
+    fn next_message(&mut self) -> Option<Message> {
+        self.msg_queue.pop()
     }
 
     fn send_message(&self, _msg: Message) {
