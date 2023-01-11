@@ -6,18 +6,8 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
-extern crate rand;
-extern crate rusqlite;
-extern crate secp256k1;
-extern crate serde;
 #[macro_use]
 extern crate lazy_static;
-extern crate ripemd;
-extern crate sha2;
-extern crate sha3;
-extern crate time;
 
 #[cfg(feature = "log")]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
