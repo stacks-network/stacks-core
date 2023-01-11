@@ -20,13 +20,13 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::StringSubtype::ASCII;
+use crate::vm::types::SequenceSubtype::BufferType;
+
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

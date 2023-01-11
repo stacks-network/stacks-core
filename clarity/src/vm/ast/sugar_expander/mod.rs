@@ -14,14 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{
-    ClarityName, PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression,
-    SymbolicExpressionType,
-};
+
+use crate::vm::representations::{ClarityName, PreSymbolicExpressionType, SymbolicExpression};
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
@@ -129,12 +125,12 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast::errors::{ParseError, ParseErrors};
+
     use crate::vm::ast::sugar_expander::SugarExpander;
     use crate::vm::ast::types::ContractAST;
     use crate::vm::representations::{ContractName, PreSymbolicExpression, SymbolicExpression};
     use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-    use crate::vm::{ast, Value};
+    use crate::vm::Value;
 
     fn make_pre_atom(
         x: &str,

@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use stacks_common::util::hash;
-
-use super::error::LexerError;
-use crate::vm::{representations::Span, types::UTF8Data};
+use crate::vm::representations::Span;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {

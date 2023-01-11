@@ -15,24 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryInto;
-use std::path::PathBuf;
 
 use rusqlite::Connection;
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::database::{
-    BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
-    InterpreterResult, RuntimeErrorType,
+    CheckErrors, InterpreterResult as Result, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::QualifiedContractIdentifier;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::types::PrincipalData;
 use crate::vm::Value;

@@ -19,8 +19,8 @@ pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
+use std::fmt;
 use std::{char, str};
-use std::{cmp, fmt};
 
 use regex::Regex;
 
@@ -31,11 +31,9 @@ use stacks_common::util::hash;
 use stacks_common::types::chainstate::StacksAddress;
 
 use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use crate::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
-};
+use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
 
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,

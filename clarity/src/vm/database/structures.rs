@@ -17,12 +17,8 @@
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::{
-    Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
-use crate::vm::types::{
-    OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
-};
+use crate::vm::errors::{Error, InterpreterError, RuntimeErrorType};
+use crate::vm::types::{PrincipalData, TypeSignature};
 use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use std::convert::TryInto;
