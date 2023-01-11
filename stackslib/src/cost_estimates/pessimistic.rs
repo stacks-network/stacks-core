@@ -207,7 +207,7 @@ impl PessimisticEstimator {
 
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+            tx.execute(CREATE_TABLE, [])?;
         }
 
         Ok(())

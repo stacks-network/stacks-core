@@ -22,7 +22,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::{Error as sqlite_error, Row, ToSql, NO_PARAMS};
+use rusqlite::{Error as sqlite_error, Row, ToSql};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
@@ -350,7 +350,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         hasher: H,
     ) -> Result<BloomCounter<H>, db_error> {
         let sql = format!("CREATE TABLE IF NOT EXISTS {}(counts BLOB NOT NULL, num_bins INTEGER NOT NULL, num_hashes INTEGER NOT NULL, hasher BLOB NOT NULL);", table_name);
-        tx.execute(&sql, NO_PARAMS).map_err(db_error::SqliteError)?;
+        tx.execute(&sql, []).map_err(db_error::SqliteError)?;
 
         let (num_bins, num_hashes) = bloom_hash_count(error_rate, max_items);
         let counts_vec = vec![0u8; (num_bins * 4) as usize];
@@ -365,7 +365,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 
         let sql = format!("SELECT rowid FROM {}", table_name);
-        let counts_rowid: u64 = query_expect_row(&tx, &sql, NO_PARAMS)?
+        let counts_rowid: u64 = query_expect_row(&tx, &sql, [])?
             .expect("BUG: inserted bloom counter but can't find row ID");
 
         Ok(BloomCounter {
@@ -379,9 +379,9 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
 
     pub fn try_load(conn: &DBConn, table_name: &str) -> Result<Option<BloomCounter<H>>, db_error> {
         let sql = format!("SELECT rowid,* FROM {}", table_name);
-        let result = conn.query_row_and_then(&sql, NO_PARAMS, |row| {
+        let result = conn.query_row_and_then(&sql, [], |row| {
             let mut hasher_blob = row
-                .get_raw("hasher")
+                .get_ref_unwrap("hasher")
                 .as_blob()
                 .expect("Unable to read hasher as blob");
             let hasher =
