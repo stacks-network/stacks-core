@@ -39,7 +39,7 @@ use std::fs;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util;
@@ -207,11 +207,7 @@ impl AtlasDB {
 
     /// Get the database schema version, given a DB connection
     fn get_schema_version(conn: &Connection) -> Result<String, db_error> {
-        let version = conn.query_row(
-            "SELECT MAX(version) from db_config",
-            rusqlite::NO_PARAMS,
-            |row| row.get(0),
-        )?;
+        let version = conn.query_row("SELECT MAX(version) from db_config", [], |row| row.get(0))?;
         Ok(version)
     }
 
@@ -568,14 +564,14 @@ impl AtlasDB {
     pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachments
                    WHERE was_instantiated = 0";
-        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        let count = query_count(&self.conn, qry, [])? as u32;
         Ok(count)
     }
 
     pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachment_instances
                    WHERE is_available = 0";
-        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        let count = query_count(&self.conn, qry, [])? as u32;
         Ok(count)
     }
 

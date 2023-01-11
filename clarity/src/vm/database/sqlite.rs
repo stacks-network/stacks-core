@@ -17,7 +17,7 @@
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
-    Savepoint, NO_PARAMS,
+    Savepoint,
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::db_common::tx_busy_handler;
@@ -164,13 +164,13 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
-        conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
+        conn.query_row("PRAGMA journal_mode = WAL;", [], |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS data_table
                       (key TEXT PRIMARY KEY, value TEXT)",
-            NO_PARAMS,
+            [],
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -178,7 +178,7 @@ impl SqliteConnection {
             "CREATE TABLE IF NOT EXISTS metadata_table
                       (key TEXT NOT NULL, blockhash TEXT, value TEXT,
                        UNIQUE (key, blockhash))",
-            NO_PARAMS,
+            [],
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 

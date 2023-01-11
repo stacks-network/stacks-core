@@ -25,7 +25,7 @@ use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -1258,7 +1258,7 @@ impl NakamotoChainState {
                        AND processed = 0
                      ORDER BY height ASC";
         staging_db_conn
-            .query_row_and_then(query, NO_PARAMS, |row| {
+            .query_row_and_then(query, [], |row| {
                 let data: Vec<u8> = row.get("data")?;
                 let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
                 Ok(Some((
@@ -1785,7 +1785,7 @@ impl NakamotoChainState {
                 ).optional()?.is_some()
                 && staging_db_tx.query_row(
                     "SELECT 1 FROM nakamoto_block_headers LIMIT 1",
-                    rusqlite::NO_PARAMS,
+                    [],
                     |_row| Ok(())
                 ).optional()?.is_none()
                );

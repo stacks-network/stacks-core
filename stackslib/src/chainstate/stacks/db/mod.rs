@@ -36,7 +36,7 @@ use clarity::vm::types::TupleData;
 use clarity::vm::Value;
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
@@ -1031,11 +1031,8 @@ impl StacksChainState {
     }
 
     pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
-        let config = query_row::<DBConfig, _>(
-            conn,
-            &"SELECT * FROM db_config LIMIT 1".to_string(),
-            NO_PARAMS,
-        )?;
+        let config =
+            query_row::<DBConfig, _>(conn, &"SELECT * FROM db_config LIMIT 1".to_string(), [])?;
         Ok(config.expect("BUG: no db_config installed"))
     }
 

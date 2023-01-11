@@ -20,7 +20,7 @@ use std::ops::Deref;
 use std::{cmp, fs};
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
 use stacks_common::deps_common::bitcoin::network::constants::Network;
@@ -259,7 +259,7 @@ impl SpvClient {
 
     fn db_get_version(conn: &DBConn) -> Result<String, btc_error> {
         let version_str = conn
-            .query_row("SELECT MAX(version) FROM db_config", NO_PARAMS, |row| {
+            .query_row("SELECT MAX(version) FROM db_config", [], |row| {
                 let version: String = row.get_unwrap(0);
                 Ok(version)
             })
@@ -385,7 +385,7 @@ impl SpvClient {
             .conn()
             .query_row(
                 "SELECT interval FROM chain_work ORDER BY interval DESC LIMIT 1",
-                NO_PARAMS,
+                [],
                 |row| row.get(0),
             )
             .optional()
@@ -650,7 +650,7 @@ impl SpvClient {
         match query_row::<u64, _>(
             &self.headers_db,
             "SELECT IFNULL(MAX(height),0) FROM headers",
-            NO_PARAMS,
+            [],
         )? {
             Some(max) => Ok(max),
             None => Ok(0),

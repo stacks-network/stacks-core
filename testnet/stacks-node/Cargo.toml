@@ -46,7 +46,7 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
 
 [dependencies.rusqlite]
-version = "=0.24.2"
+version = "=0.28.0"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]
