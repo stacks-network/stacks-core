@@ -419,29 +419,71 @@ fn merge(a: &Sha256dHash, b: &Sha256dHash) -> Sha256dHash {
     encoder.into_inner().into_inner().bitcoin_hash()
 }
 
-fn merkle_tree<I: Iterator<Item = Sha256dHash>>(it: &mut I, i: u8) -> Option<Sha256dHash> {
-    match it.next() {
-        None => None,
-        Some(v) => {
-            match i {
-                0 => Some(v),
-                j => {
-                    let next = j - 1;
-                    match merkle_tree(it, next) {
-                        None => None,
-                        Some(a) => {
-                            let b = match merkle_tree(it, next) {
-                                None => a,
-                                Some(b) => b,
-                            };
-                            Some(merge(&a, &b))
-                        }
-                    }
-                }
-            } 
-        },
+struct MerkleTreeNode {
+    hash: Sha256dHash,
+    level: u8,
+}
+
+impl MerkleTreeNode {
+    fn merge(&self, right: &Self) -> Self {
+        assert_eq!(self.level, right.level);
+        MerkleTreeNode {
+            hash: merge(&self.hash, &right.hash),
+            level: self.level + 1,
+        }
+    }
+    fn backward_merge(mut self, left: &Self) -> Self {
+        while left.level > self.level {
+            self = self.merge(&self);
+        }
+        left.merge(&self)
     }
 }
+
+#[derive(Default)]
+struct MerkleTreeState(Vec<MerkleTreeNode>);
+
+impl MerkleTreeState {
+    fn push(mut self, hash: Sha256dHash) -> Self {
+        let mut right = MerkleTreeNode {
+            hash: hash.clone(),
+            level: 0,
+        };
+        loop {
+            match self.0.last() {
+                Some(left) if left.level == right.level => {
+                    right = left.merge(&right);
+                    self.0.pop();
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+        self.0.push(right);
+        self
+    }
+    fn collect(mut self) -> Sha256dHash {
+        match self.0.pop() {
+            None => Default::default(),
+            Some(last) => {
+                self.0
+                    .iter()
+                    .rev()
+                    .fold(last, MerkleTreeNode::backward_merge)
+                    .hash
+            }
+        }
+    }
+}
+
+trait MerkleRootEx: Iterator<Item = Sha256dHash> + Sized {
+    fn merkle_root(self) -> Sha256dHash {
+        self.fold(MerkleTreeState::default(), MerkleTreeState::push).collect()
+    }
+}
+
+impl<I: Iterator<Item = Sha256dHash>> MerkleRootEx for I {}
 
 /// Calculates the merkle root of a list of txids hashes directly
 pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
@@ -469,7 +511,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
 
 impl<'a, T: BitcoinHash> MerkleRoot for &'a [T] {
     fn merkle_root(&self) -> Sha256dHash {
-        bitcoin_merkle_root(self.iter().map(|obj| obj.bitcoin_hash()).collect())
+        self.iter().map(|obj| obj.bitcoin_hash()).merkle_root()
     }
 }
 
