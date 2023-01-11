@@ -32,5 +32,11 @@ fn broadcast_share() {
         r#type: MessageTypes::SignatureShare(SignatureShare {
             signature_share: share,
         }),
-    })
+    });
+
+    let next = net.next_message();
+    match next.r#type {
+        MessageTypes::SignatureShare(share) => {assert_eq!(share.signature_share.id, 0)}
+        _ => {}
+    }
 }

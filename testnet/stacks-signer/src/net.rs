@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::signer;
-use serde::Serialize;
 use std::fmt::{Debug, Formatter};
+use tracing::info;
 use ureq::Response;
 
 pub struct HttpNet {
@@ -22,7 +22,8 @@ pub struct Message {
 
 impl Debug for signer::MessageTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Message Type: _")
+
+        write!(f, "Message Type: {:?}", self)
     }
 }
 
@@ -51,12 +52,16 @@ impl Net for HttpNet {
                 }
             }
             Err(e) => {
-                panic!("{}", e)
+                panic!("E: {} U: {}", e, self.stacks_node_url)
             }
         }
     }
 
     fn send_message(&self, _msg: Message) {
-        ureq::post(&self.stacks_node_url);
+        let req  = ureq::post(&self.stacks_node_url);
+        match req.call() {
+            Ok(_) => {}
+            Err(_) => {info!("post failed to {}", self.stacks_node_url)}
+        }
     }
 }
