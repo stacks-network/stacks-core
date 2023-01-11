@@ -1,5 +1,4 @@
 pub mod config;
-pub mod logger;
 pub mod net;
 pub mod signer;
 

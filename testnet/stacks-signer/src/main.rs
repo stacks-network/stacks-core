@@ -1,14 +1,13 @@
+use slog::slog_info;
+use stacks_common::info;
 use stacks_signer::config::Config;
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signer::MessageTypes;
-use stacks_signer::{logger, net, signer};
+use stacks_signer::signer::{MessageTypes, Signer};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
-use tracing::info;
 
 fn main() {
-    logger::setup();
     let config = Config::from_file("conf/stacker.toml").unwrap();
     info!("{}", stacks_signer::version());
 
@@ -29,7 +28,7 @@ fn main() {
 
 fn mainloop(_config: &Config, rx: Receiver<Message>) {
     info!("mainloop");
-    let _signer = signer::Signer::new();
+    let _signer = Signer::new();
 
     for message in rx.iter() {
         info!("received message {:?}", message);
