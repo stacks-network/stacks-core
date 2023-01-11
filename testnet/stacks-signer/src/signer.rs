@@ -10,8 +10,13 @@ pub struct Signer {
     parties: Vec<Party>,
 }
 
+pub struct SignatureShare {
+    pub signature_share: frost::common::SignatureShare,
+}
+
 pub enum MessageTypes {
     Join,
+    SignatureShare(SignatureShare),
 }
 
 impl Signer {
@@ -35,6 +40,7 @@ impl Signer {
             MessageTypes::Join => {
                 self.reset(1, 2);
             }
+            MessageTypes::SignatureShare(_share) => {}
         };
         true
     }
