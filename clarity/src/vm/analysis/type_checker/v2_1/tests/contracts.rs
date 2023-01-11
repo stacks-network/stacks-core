@@ -23,10 +23,11 @@ use serde_json;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
+use crate::vm::analysis::{run_analysis, CheckResult};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::Error;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
@@ -40,7 +41,7 @@ use crate::vm::{
 use stacks_common::types::StacksEpochId;
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
+    mem_type_check(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
 #[template]
@@ -226,7 +227,7 @@ fn test_names_tokens_contracts_interface() {
         (define-read-only (ro-f02 (a1 int)) 0)
     ";
 
-    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
+    let contract_analysis = mem_type_check_v1(INTERFACE_TEST_CONTRACT).unwrap().1;
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
@@ -549,14 +550,14 @@ fn test_bad_map_usage() {
     ];
 
     for contract in tests.iter() {
-        let err = mem_type_check(contract).unwrap_err();
+        let err = mem_type_check_v1(contract).unwrap_err();
         assert!(match err.err {
             CheckErrors::TypeError(_, _) => true,
             _ => false,
         });
     }
 
-    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
+    assert!(match mem_type_check_v1(unhandled_option).unwrap_err().err {
         // Bad arg to `+` causes a uniontype error
         CheckErrors::UnionTypeError(_, _) => true,
         _ => false,
@@ -587,7 +588,6 @@ fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: Stack
 
 #[test]
 fn test_expects() {
-    use crate::vm::analysis::type_check;
     let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
@@ -642,10 +642,10 @@ fn test_expects() {
          (define-private (t2) (unwrap! (t1) 0))
     ";
 
-    mem_type_check(okay).unwrap();
+    mem_type_check_v1(okay).unwrap();
 
     for unmatched_return_types in bad_return_types_tests.iter() {
-        let err = mem_type_check(unmatched_return_types).unwrap_err();
+        let err = mem_type_check_v1(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
         assert!(match &err.err {
             &CheckErrors::ReturnTypesMustMatch(_, _) => true,
@@ -653,21 +653,21 @@ fn test_expects() {
         })
     }
 
-    let err = mem_type_check(bad_default_type).unwrap_err();
+    let err = mem_type_check_v1(bad_default_type).unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::DefaultTypesMustMatch(_, _) => true,
         _ => false,
     });
 
-    let err = mem_type_check(notype_response_type).unwrap_err();
+    let err = mem_type_check_v1(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseErrType => true,
         _ => false,
     });
 
-    let err = mem_type_check(notype_response_type_2).unwrap_err();
+    let err = mem_type_check_v1(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseOkType => true,
@@ -686,7 +686,7 @@ fn test_trait_to_trait() {
     (define-public (internal-get-1 (contract <trait-1>))
         (contract-call? contract get-1 u1))";
 
-    mem_type_check(trait_to_trait).unwrap();
+    mem_type_check_v1(trait_to_trait).unwrap();
     mem_type_check_v1(trait_to_trait).unwrap();
 }
 
@@ -704,7 +704,7 @@ fn test_trait_to_compatible_trait() {
     (define-public (internal-echo (contract <trait-2>))
         (ok true))";
 
-    mem_type_check(trait_to_compatible_trait).unwrap();
+    mem_type_check_v1(trait_to_compatible_trait).unwrap();
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
@@ -739,7 +739,7 @@ fn test_bad_principal_to_trait() {
     (define-public (internal-get-1 (contract <trait-1>))
         (contract-call? contract get-1 u1))";
 
-    let err = mem_type_check(bad_principal_to_trait).unwrap_err();
+    let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::TypeError(expected, found),
@@ -795,7 +795,7 @@ fn test_bad_other_trait() {
     (define-public (internal-get-2 (contract <trait-2>))
         (contract-call? contract get-2 u1))";
 
-    let err = mem_type_check(bad_other_trait).unwrap_err();
+    let err = mem_type_check_v1(bad_other_trait).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -847,7 +847,7 @@ fn test_embedded_trait() {
         )
     )";
 
-    mem_type_check(embedded_trait).unwrap();
+    mem_type_check_v1(embedded_trait).unwrap();
     let err = mem_type_check_v1(embedded_trait).unwrap_err();
     assert!(match err {
         CheckError {
@@ -882,7 +882,7 @@ fn test_embedded_trait_compatible() {
         )
     )";
 
-    mem_type_check(embedded_trait_compatible).unwrap();
+    mem_type_check_v1(embedded_trait_compatible).unwrap();
     let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
     assert!(match err {
         CheckError {
@@ -921,7 +921,7 @@ fn test_bad_embedded_trait() {
         )
     )";
 
-    let err = mem_type_check(bad_embedded_trait).unwrap_err();
+    let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -960,7 +960,7 @@ fn test_let_trait() {
         )
     )";
 
-    mem_type_check(let_trait).unwrap();
+    mem_type_check_v1(let_trait).unwrap();
     let err = mem_type_check_v1(let_trait).unwrap_err();
     assert!(match err {
         CheckError {
@@ -991,7 +991,7 @@ fn test_let3_trait() {
         )
     )";
 
-    mem_type_check(let3_trait).unwrap();
+    mem_type_check_v1(let3_trait).unwrap();
     let err = mem_type_check_v1(let3_trait).unwrap_err();
     assert!(match err {
         CheckError {
@@ -1025,7 +1025,7 @@ fn test_let3_compound_trait() {
         )
     )";
 
-    mem_type_check(let3_compound_trait).unwrap();
+    mem_type_check_v1(let3_compound_trait).unwrap();
     mem_type_check_v1(let3_compound_trait).unwrap();
 }
 
@@ -1051,7 +1051,7 @@ fn test_let3_compound_trait_call() {
         )
     )";
 
-    mem_type_check(let3_compound_trait_call).unwrap();
+    mem_type_check_v1(let3_compound_trait_call).unwrap();
     let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
     assert!(match err {
         CheckError {
@@ -1081,7 +1081,7 @@ fn test_trait_args_differ() {
     (define-public (internal-echo (contract <trait-2>))
         (ok true))";
 
-    let err = mem_type_check(trait_args_differ).unwrap_err();
+    let err = mem_type_check_v1(trait_args_differ).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -1131,7 +1131,7 @@ fn test_trait_arg_counts_differ1() {
     (define-public (internal-echo (contract <trait-2>))
         (ok true))";
 
-    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, found),
@@ -1181,7 +1181,7 @@ fn test_trait_arg_counts_differ2() {
     (define-public (internal-echo (contract <trait-2>))
         (ok true))";
 
-    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, found),
@@ -1231,7 +1231,7 @@ fn test_trait_ret_ty_differ() {
     (define-public (internal-echo (contract <trait-2>))
         (contract-call? contract echo u1))";
 
-    let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
+    let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -1288,7 +1288,7 @@ fn test_trait_with_compatible_trait_arg() {
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
-    mem_type_check(trait_with_compatible_trait_arg).unwrap();
+    mem_type_check_v1(trait_with_compatible_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
@@ -1333,7 +1333,7 @@ fn test_trait_with_bad_trait_arg() {
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
-    let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
+    let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -1391,7 +1391,7 @@ fn test_trait_with_superset_trait_arg() {
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
-    let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
+    let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -1449,7 +1449,7 @@ fn test_trait_with_subset_trait_arg() {
     (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
         (contract-call? contract echo callee))";
 
-    mem_type_check(trait_with_subset_trait_arg).unwrap();
+    mem_type_check_v1(trait_with_subset_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
@@ -1481,7 +1481,7 @@ fn test_trait_with_duplicate_method() {
         (foo (bool) (response bool bool))
       ))";
 
-    let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
+    let err = mem_type_check_v1(trait_with_duplicate_method).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::DefineTraitDuplicateMethod(method_name),
@@ -1515,7 +1515,7 @@ fn test_trait_to_subtrait_and_back() {
     (define-private (foo-2 (impl-contract <trait-2>))
         true)";
 
-    let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
+    let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -1564,7 +1564,7 @@ fn test_trait_list_to_map() {
         (contract-call? token echo u5)
     )";
 
-    mem_type_check(trait_list_to_map).unwrap();
+    mem_type_check_v1(trait_list_to_map).unwrap();
     mem_type_check_v1(trait_list_to_map).unwrap();
 }
 
@@ -1582,7 +1582,7 @@ fn test_if_branches_with_incompatible_trait_types() {
             (contract-call? to-invoke method)
         )
     )";
-    let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
+    let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IfArmsMustMatch(type1, type2),
@@ -1642,7 +1642,7 @@ fn test_if_branches_with_compatible_trait_types() {
             )
         )";
 
-    let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
+    let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
             err: CheckErrors::IfArmsMustMatch(type1, type2),

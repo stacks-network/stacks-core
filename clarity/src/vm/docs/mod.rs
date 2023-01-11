@@ -2525,7 +2525,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     }
 }
 
-fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
+pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
     let simple_api = match variable {
         NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
         NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),

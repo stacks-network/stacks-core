@@ -21,7 +21,6 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
     arithmetic_checker::Error::*, ContractAnalysis,
@@ -30,6 +29,7 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
 

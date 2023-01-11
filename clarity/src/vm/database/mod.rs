@@ -25,8 +25,14 @@ pub use self::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
 
+mod key_value_wrapper;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+#[cfg(feature = "sqlite")]
+pub use self::sqlite::SqliteConnection;
+#[cfg(feature = "sqlite")]
+pub use sqlite::MemoryBackingStore;
+
 pub mod clarity_db;
 pub mod clarity_store;
-mod key_value_wrapper;
-mod sqlite;
 mod structures;

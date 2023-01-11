@@ -49,8 +49,8 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) {
         &params,
     ) {
         Ok(_) => {}
-        Err(e) => {
-            error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
+        Err(_e) => {
+            error!("Failed to insert/replace ({},{}): {:?}", key, value, &_e);
             panic!("{}", SQL_FAIL_MESSAGE);
         }
     };
@@ -68,8 +68,8 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
         .optional()
     {
         Ok(x) => x,
-        Err(e) => {
-            error!("Failed to query '{}': {:?}", key, &e);
+        Err(_e) => {
+            error!("Failed to query '{}': {:?}", key, &_e);
             panic!("{}", SQL_FAIL_MESSAGE);
         }
     };
@@ -80,6 +80,72 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
 
 fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
     sqlite_get(conn, key).is_some()
+}
+
+pub fn sqlite_get_contract_hash(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+    let key = make_contract_hash_key(contract);
+    let contract_commitment = store
+        .get(&key)
+        .map(|x| ContractCommitment::deserialize(&x))
+        .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
+    let ContractCommitment {
+        block_height,
+        hash: contract_hash,
+    } = contract_commitment;
+    let bhh = store.get_block_at_height(block_height)
+        .expect("Should always be able to map from height to block hash when looking up contract information.");
+    Ok((bhh, contract_hash))
+}
+
+pub fn sqlite_insert_metadata(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+    value: &str,
+) {
+    let bhh = store.get_open_chain_tip();
+    SqliteConnection::insert_metadata(
+        store.get_side_store(),
+        &bhh,
+        &contract.to_string(),
+        key,
+        value,
+    )
+}
+
+pub fn sqlite_get_metadata(
+    store: &mut dyn ClarityBackingStore,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+) -> Result<Option<String>> {
+    let (bhh, _) = store.get_contract_hash(contract)?;
+    Ok(SqliteConnection::get_metadata(
+        store.get_side_store(),
+        &bhh,
+        &contract.to_string(),
+        key,
+    ))
+}
+
+pub fn sqlite_get_metadata_manual(
+    store: &mut dyn ClarityBackingStore,
+    at_height: u32,
+    contract: &QualifiedContractIdentifier,
+    key: &str,
+) -> Result<Option<String>> {
+    let bhh = store.get_block_at_height(at_height).ok_or_else(|| {
+        warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
+        RuntimeErrorType::BadBlockHeight(at_height.to_string())
+    })?;
+    Ok(SqliteConnection::get_metadata(
+        store.get_side_store(),
+        &bhh,
+        &contract.to_string(),
+        key,
+    ))
 }
 
 impl SqliteConnection {
@@ -101,7 +167,7 @@ impl SqliteConnection {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
 
-        if let Err(e) = conn.execute(
+        if let Err(_e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
             &params,
         ) {
@@ -110,7 +176,7 @@ impl SqliteConnection {
                 &bhh,
                 &key,
                 &value.to_string(),
-                &e
+                &_e
             );
             panic!("{}", SQL_FAIL_MESSAGE);
         }
@@ -118,18 +184,18 @@ impl SqliteConnection {
 
     pub fn commit_metadata_to(conn: &Connection, from: &StacksBlockId, to: &StacksBlockId) {
         let params = [to, from];
-        if let Err(e) = conn.execute(
+        if let Err(_e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params,
         ) {
-            error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+            error!("Failed to update {} to {}: {:?}", &from, &to, &_e);
             panic!("{}", SQL_FAIL_MESSAGE);
         }
     }
 
     pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) {
-        if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
-            error!("Failed to drop metadata from {}: {:?}", &from, &e);
+        if let Err(_e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
+            error!("Failed to drop metadata from {}: {:?}", &from, &_e);
             panic!("{}", SQL_FAIL_MESSAGE);
         }
     }
@@ -152,8 +218,8 @@ impl SqliteConnection {
             .optional()
         {
             Ok(x) => x,
-            Err(e) => {
-                error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
+            Err(_e) => {
+                error!("Failed to query ({},{}): {:?}", &bhh, &key, &_e);
                 panic!("{}", SQL_FAIL_MESSAGE);
             }
         }
@@ -166,13 +232,13 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
-        conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
+        conn.query_row("PRAGMA journal_mode = WAL;", [], |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS data_table
                       (key TEXT PRIMARY KEY, value TEXT)",
-            NO_PARAMS,
+            [],
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -180,7 +246,7 @@ impl SqliteConnection {
             "CREATE TABLE IF NOT EXISTS metadata_table
                       (key TEXT NOT NULL, blockhash TEXT, value TEXT,
                        UNIQUE (key, blockhash))",
-            NO_PARAMS,
+            [],
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -217,5 +283,121 @@ impl SqliteConnection {
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         Ok(conn)
+    }
+}
+
+pub struct MemoryBackingStore {
+    side_store: Connection,
+}
+
+impl MemoryBackingStore {
+    pub fn new() -> MemoryBackingStore {
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let mut memory_marf = MemoryBackingStore { side_store };
+
+        memory_marf.as_clarity_db().initialize();
+
+        memory_marf
+    }
+
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl ClarityBackingStore for MemoryBackingStore {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+    }
+
+    fn get(&mut self, key: &str) -> Option<String> {
+        SqliteConnection::get(self.get_side_store(), key)
+    }
+
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
+        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
+    }
+
+    fn get_side_store(&mut self) -> &Connection {
+        &self.side_store
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+        if height == 0 {
+            Some(StacksBlockId([255; 32]))
+        } else {
+            None
+        }
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId([255; 32])
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        1
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
+
+    fn put_all(&mut self, items: Vec<(String, String)>) {
+        for (key, value) in items.into_iter() {
+            SqliteConnection::put(self.get_side_store(), &key, &value);
+        }
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl ToSql for ExecutionCost {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
+impl FromSql for ExecutionCost {
+    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
+        let str_val = String::column_result(value)?;
+        let parsed = serde_json::from_str(&str_val)
+            .expect("CORRUPTION: failed to parse ExecutionCost from DB");
+        Ok(parsed)
     }
 }

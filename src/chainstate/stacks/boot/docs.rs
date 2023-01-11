@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
 use super::STACKS_BOOT_CODE_MAINNET;
-use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use clarity::vm::tooling::{produce_docs_refs, ContractSupportDocs};
 
 fn make_contract_support_docs() -> HashMap<&'static str, ContractSupportDocs> {
     let pox_descriptions = vec![

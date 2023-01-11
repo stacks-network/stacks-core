@@ -19,7 +19,8 @@ use crate::util::hash::Hash160;
 use std::cmp::Ordering;
 
 pub mod chainstate;
-
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
