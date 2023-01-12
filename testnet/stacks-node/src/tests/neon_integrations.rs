@@ -10743,7 +10743,8 @@ fn microblock_miner_multiple_attempts() {
 
 #[test]
 #[ignore]
-fn test_submit_and_observe_sbtc_ops() {
+fn test_submit_and_observe_peg_in_request() {
+
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -10760,6 +10761,7 @@ fn test_submit_and_observe_sbtc_ops() {
     let peg_wallet_address = address::PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
 
     let recipient_btc_addr = address::PoxAddress::Standard(recipient_stx_addr, None);
+    let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -10810,19 +10812,19 @@ fn test_submit_and_observe_sbtc_ops() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // Let's send some sBTC ops.
+    // Let's send a Peg-in op.
     let peg_in_op_standard = PegInOp {
         recipient: receiver_standard_principal,
         peg_wallet_address: peg_wallet_address.clone(),
         amount: 133700,
         memo: Vec::new(),
-        // filled in later
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
+    // Let's send a Peg-in op with a contract principal.
     let peg_in_op_contract = PegInOp {
         recipient: receiver_contract_principal,
         peg_wallet_address: peg_wallet_address.clone(),
