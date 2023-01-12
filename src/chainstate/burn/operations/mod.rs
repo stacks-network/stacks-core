@@ -60,6 +60,8 @@ pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
 pub mod peg_in;
+pub mod peg_out_fulfill;
+pub mod peg_out_request;
 pub mod stack_stx;
 pub mod transfer_stx;
 pub mod user_burn_support;
@@ -374,7 +376,34 @@ pub struct PegInOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegOutRequestOp {
+    pub amount: u64,                 // sBTC amount to peg out, in satoshis
+    pub address: PoxAddress,         // Address to receive the BTC when the request is fulfilled
+    pub signature: MessageSignature, // Signature from sBTC owner's private key(s)
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegOutFulfillOp {
+    pub block_header_hash: BlockHeaderHash, // The Stacks block tip whose chain state view was used to validate the peg-out request
+
+    pub amount: u64,         // Transferred BTC amount, in satoshis
+    pub address: PoxAddress, // Recepient address
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
@@ -384,6 +413,8 @@ pub enum BlockstackOperationType {
     TransferStx(TransferStxOp),
     DelegateStx(DelegateStxOp),
     PegIn(PegInOp),
+    PegOutRequest(PegOutRequestOp),
+    PegOutFulfill(PegOutFulfillOp),
 }
 
 // serialization helpers for blockstack_op_to_json function
@@ -412,6 +443,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
             BlockstackOperationType::DelegateStx(_) => Opcodes::DelegateStx,
             BlockstackOperationType::PegIn(_) => Opcodes::PegIn,
+            BlockstackOperationType::PegOutRequest(_) => Opcodes::PegOutRequest,
+            BlockstackOperationType::PegOutFulfill(_) => Opcodes::PegOutFulfill,
         }
     }
 
@@ -429,6 +462,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
             BlockstackOperationType::DelegateStx(ref data) => &data.txid,
             BlockstackOperationType::PegIn(ref data) => &data.txid,
+            BlockstackOperationType::PegOutRequest(ref data) => &data.txid,
+            BlockstackOperationType::PegOutFulfill(ref data) => &data.txid,
         }
     }
 
@@ -442,6 +477,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
             BlockstackOperationType::DelegateStx(ref data) => data.vtxindex,
             BlockstackOperationType::PegIn(ref data) => data.vtxindex,
+            BlockstackOperationType::PegOutRequest(ref data) => data.vtxindex,
+            BlockstackOperationType::PegOutFulfill(ref data) => data.vtxindex,
         }
     }
 
@@ -455,6 +492,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
             BlockstackOperationType::DelegateStx(ref data) => data.block_height,
             BlockstackOperationType::PegIn(ref data) => data.block_height,
+            BlockstackOperationType::PegOutRequest(ref data) => data.block_height,
+            BlockstackOperationType::PegOutFulfill(ref data) => data.block_height,
         }
     }
 
@@ -468,6 +507,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::PegIn(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PegOutRequest(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PegOutFulfill(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -484,6 +525,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::DelegateStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PegIn(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PegOutRequest(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PegOutFulfill(ref mut data) => data.block_height = height,
         };
     }
 
@@ -502,6 +545,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DelegateStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::PegIn(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PegOutRequest(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PegOutFulfill(ref mut data) => data.burn_header_hash = hash,
         };
     }
 
@@ -595,6 +640,8 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::PegIn(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PegOutRequest(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PegOutFulfill(ref op) => write!(f, "{:?}", op),
         }
     }
 }
