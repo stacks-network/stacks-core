@@ -6,9 +6,9 @@ use std::{
 
 use crate::{http::RequestMessageEx, state::State, url::QueryEx};
 
-mod url;
 mod http;
 mod state;
+mod url;
 
 fn main() {
     let mut state = State::default();
@@ -19,11 +19,15 @@ fn main() {
         match rm.method.as_str() {
             "GET" => {
                 let query = *rm.url.url_query().get("id").unwrap();
-                let msg = state.get(query.to_string()).map_or("", |v| v.as_str()).as_bytes();
+                let msg = state
+                    .get(query.to_string())
+                    .map_or("", |v| v.as_str())
+                    .as_bytes();
                 let len = msg.len();
-                println!("{query:?}");
                 stream.write("HTTP/1.1 200 OK\r\n".as_bytes()).unwrap();
-                stream.write(format!("content-length:{len}\r\n").as_bytes()).unwrap();
+                stream
+                    .write(format!("content-length:{len}\r\n").as_bytes())
+                    .unwrap();
                 stream.write("\r\n".as_bytes()).unwrap();
                 stream.write(msg).unwrap();
             }
@@ -39,7 +43,6 @@ fn main() {
                 stream.read_exact(buffer.as_mut_slice()).unwrap();
                 let message = from_utf8(buffer.as_slice()).unwrap();
                 state.post(message.to_string());
-                println!("{message}");
                 stream.write("HTTP/1.1 200 OK\r\n".as_bytes()).unwrap();
                 stream.write("\r\n".as_bytes()).unwrap();
             }

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::Read
-};
+use std::{collections::HashMap, io::Read};
 
 #[derive(Debug)]
 pub struct RequestMessage {
@@ -45,7 +42,12 @@ pub trait RequestMessageEx: Read {
             let (name, value) = line.split_once(':').unwrap();
             headers.insert(name.to_lowercase(), value.trim().to_string());
         }
-        RequestMessage { method, url, protocol, headers }
+        RequestMessage {
+            method,
+            url,
+            protocol,
+            headers,
+        }
     }
 }
 
