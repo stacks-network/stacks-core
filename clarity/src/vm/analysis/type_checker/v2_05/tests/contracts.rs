@@ -19,11 +19,11 @@ use serde_json;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 use crate::vm::{

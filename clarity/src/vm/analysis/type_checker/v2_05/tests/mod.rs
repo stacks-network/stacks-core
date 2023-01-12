@@ -17,7 +17,6 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::type_check;
 use crate::vm::analysis::type_checker::v2_05::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::types::ContractAnalysis;
@@ -26,6 +25,7 @@ use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::{
     FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
     BUFF_32, BUFF_64,
