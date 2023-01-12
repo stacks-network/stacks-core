@@ -52,8 +52,8 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, Sort
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PreStxOp, StackStxOp, TransferStxOp,
-    UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -151,6 +151,12 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::PegIn(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegOutRequest(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegOutFulfill(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
@@ -910,6 +916,34 @@ impl Burnchain {
                     None
                 }
             },
+
+            x if x == Opcodes::PegOutRequest as u8 => {
+                match PegOutRequestOp::from_tx(block_header, burn_tx) {
+                    Ok(op) => Some(BlockstackOperationType::PegOutRequest(op)),
+                    Err(e) => {
+                        warn!("Failed to parse peg out request tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                }
+            }
+
+            x if x == Opcodes::PegOutFulfill as u8 => {
+                match PegOutFulfillOp::from_tx(block_header, burn_tx) {
+                    Ok(op) => Some(BlockstackOperationType::PegOutFulfill(op)),
+                    Err(e) => {
+                        warn!("Failed to parse peg in tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                }
+            }
 
             _ => None,
         }

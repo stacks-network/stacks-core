@@ -76,6 +76,8 @@ pub enum Opcodes {
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
     PegIn = '<' as u8,
+    PegOutRequest = '>' as u8,
+    PegOutFulfill = '!' as u8,
 }
 
 // a burnchain block snapshot
