@@ -311,3 +311,4 @@ mod tests {
             .expect("Any strictly positive amounts should be ok");
     }
 }
+mod tests {}

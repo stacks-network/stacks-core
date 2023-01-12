@@ -812,6 +812,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
 
+// TODO(3493): Add peg out tables
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
     r#"
     CREATE TABLE peg_in (
@@ -4964,6 +4965,20 @@ impl<'a> SortitionHandleTx<'a> {
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
                 self.insert_peg_in_sbtc(op)
+            }
+            BlockstackOperationType::PegOutRequest(ref op) => {
+                info!(
+                    "ACCEPTED({}) sBTC peg out request opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                todo!(); // TODO(3493): Add insertion logic
+            }
+            BlockstackOperationType::PegOutFulfill(ref op) => {
+                info!(
+                    "ACCEPTED({}) sBTC peg out fulfill op {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                todo!(); // TODO(3493): Add insertion logic
             }
             BlockstackOperationType::PegOutRequest(ref op) => {
                 info!(
