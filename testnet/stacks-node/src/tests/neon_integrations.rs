@@ -16,8 +16,11 @@ use rusqlite::types::ToSql;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, PegInOp, PreStxOp, TransferStxOp,
+};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -10416,4 +10419,94 @@ fn microblock_miner_multiple_attempts() {
     }
 
     channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn test_submit_and_observe_peg_in_request() {
+    let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
+    let peg_wallet_address =
+        address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+
+    let (mut conf, _) = neon_integration_test_conf();
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
+
+    conf.burnchain.epochs = Some(epochs);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+
+    btcd_controller
+        .start_bitcoind()
+        .ok()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(216);
+
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let run_loop_coordinator_channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // Let's send a Peg-in op.
+    let peg_in_op = PegInOp {
+        address: receiver_stx_addr,
+        peg_wallet_address,
+        amount: 1337,
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PegIn(peg_in_op.clone()),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Peg-in operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let sortdb = btc_regtest_controller.sortdb_mut();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
+        .expect("Failed to get peg in ops");
+
+    assert_eq!(ops.len(), 1);
+
+    let parsed_peg_in_op = ops.first().unwrap();
+
+    assert_eq!(parsed_peg_in_op.address, peg_in_op.address);
+    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
+    assert_eq!(
+        parsed_peg_in_op.peg_wallet_address,
+        peg_in_op.peg_wallet_address
+    );
+
+    run_loop_coordinator_channel.stop_chains_coordinator();
 }
