@@ -33,6 +33,10 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
+[[bin]]
+name = "stacks-relay"
+path = "contrib/tools/stacks-relay/src/main.rs"
+
 [[bench]]
 name = "marf_bench"
 harness = false
