@@ -52,7 +52,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, Sort
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PreStxOp, StackStxOp, TransferStxOp,
     UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
@@ -148,6 +148,9 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegIn(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
@@ -895,6 +898,19 @@ impl Burnchain {
                     None
                 }
             }
+
+            x if x == Opcodes::PegIn as u8 => match PegInOp::from_tx(block_header, burn_tx) {
+                Ok(op) => Some(BlockstackOperationType::PegIn(op)),
+                Err(e) => {
+                    warn!("Failed to parse peg in tx";
+                        "txid" => %burn_tx.txid(),
+                        "data" => %to_hex(&burn_tx.data()),
+                        "error" => ?e,
+                    );
+                    None
+                }
+            },
+
             _ => None,
         }
     }
