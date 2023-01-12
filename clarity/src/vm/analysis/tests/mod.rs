@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 
 #[test]
 fn test_list_types_must_match() {

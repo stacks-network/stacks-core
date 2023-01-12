@@ -28,7 +28,7 @@ use crate::types::StacksEpochId;
 pub use self::types::{AnalysisPass, ContractAnalysis};
 
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
+use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
@@ -44,50 +44,6 @@ use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::ast::build_ast_with_rules;
 use crate::vm::ast::ASTRules;
-
-/// Used by CLI tools like the docs generator. Not used in production
-pub fn mem_type_check(
-    snippet: &str,
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = build_ast_with_rules(
-        &contract_identifier,
-        snippet,
-        &mut (),
-        version,
-        epoch,
-        ASTRules::PrecheckSize,
-    )
-    .unwrap()
-    .expressions;
-
-    let mut marf = MemoryBackingStore::new();
-    let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
-    match run_analysis(
-        &QualifiedContractIdentifier::transient(),
-        &mut contract,
-        &mut analysis_db,
-        false,
-        cost_tracker,
-        epoch,
-        version,
-    ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-            let first_type = x
-                .type_map
-                .as_ref()
-                .unwrap()
-                .get_type(&x.expressions.last().unwrap())
-                .cloned();
-            Ok((first_type, x))
-        }
-        Err((e, _)) => Err(e),
-    }
-}
 
 // Legacy function
 // The analysis is not just checking type.
