@@ -1,6 +1,6 @@
 use std::{io::Write, net::TcpListener};
 
-use crate::{http::RequestMessageEx, state::State, url::QueryEx};
+use crate::{http::RequestEx, state::State, url::QueryEx};
 
 mod http;
 mod state;
@@ -11,7 +11,7 @@ fn main() {
     let listner = TcpListener::bind("127.0.0.1:9776").unwrap();
     for stream_or_error in listner.incoming() {
         let mut stream = stream_or_error.unwrap();
-        let rm = stream.read_http_request_message();
+        let rm = stream.read_http_request();
         let mut write = |text: &str| stream.write(text.as_bytes()).unwrap();
         let mut write_line = |line: &str| {
             write(line);

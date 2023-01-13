@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::Read};
 
 #[derive(Debug)]
-pub struct RequestMessage {
+pub struct Request {
     pub method: String,
     pub url: String,
     pub protocol: String,
@@ -9,8 +9,8 @@ pub struct RequestMessage {
     pub content: Vec<u8>,
 }
 
-pub trait RequestMessageEx: Read {
-    fn read_http_request_message(&mut self) -> RequestMessage {
+pub trait RequestEx: Read {
+    fn read_http_request(&mut self) -> Request {
         let mut read_byte = || {
             let mut buf = [0; 1];
             self.read_exact(&mut buf).unwrap();
@@ -58,7 +58,7 @@ pub trait RequestMessageEx: Read {
         self.read_exact(content.as_mut_slice()).unwrap();
 
         // return the message
-        RequestMessage {
+        Request {
             method,
             url,
             protocol,
@@ -68,17 +68,17 @@ pub trait RequestMessageEx: Read {
     }
 }
 
-impl<T: Read> RequestMessageEx for T {}
+impl<T: Read> RequestEx for T {}
 
 #[cfg(test)]
 mod tests {
     use std::io::Read;
 
-    use crate::http::RequestMessageEx;
+    use crate::http::RequestEx;
 
-    struct MessageRead<'a>(&'a [u8], usize);
+    struct ReadFromSlice<'a>(&'a [u8], usize);
 
-    impl<'a> Read for MessageRead<'a> {
+    impl<'a> Read for ReadFromSlice<'a> {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let len = buf.len();
             let new_position = self.1 + len;
@@ -90,13 +90,13 @@ mod tests {
 
     #[test]
     fn test() {
-        const MESSAGE: &str = "\
+        const REQUEST: &str = "\
             GET /images/logo.png HTTP/1.1\r\n\
             Content-Length: 6\r\n\
             \r\n\
             Hello!";
-        let mut read = MessageRead(MESSAGE.as_bytes(), 0);
-        let rm = read.read_http_request_message();
+        let mut read = ReadFromSlice(REQUEST.as_bytes(), 0);
+        let rm = read.read_http_request();
         assert_eq!(rm.method, "GET");
         assert_eq!(rm.url, "/images/logo.png");
         assert_eq!(rm.protocol, "HTTP/1.1");
