@@ -34,8 +34,8 @@ name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
 [[bin]]
-name = "stacks-relay"
-path = "contrib/tools/stacks-relay/src/main.rs"
+name = "relay-server"
+path = "contrib/tools/relay-server/src/main.rs"
 
 [[bench]]
 name = "marf_bench"
@@ -149,4 +149,4 @@ members = [
     "stx-genesis",
     "testnet/stacks-node",
     "testnet/stacks-signer",
-    "contrib/tools/stacks-relay"]
+    "contrib/tools/relay-server"]
