@@ -6,6 +6,7 @@ pub struct RequestMessage {
     pub url: String,
     pub protocol: String,
     pub headers: HashMap<String, String>,
+    pub content: Vec<u8>,
 }
 
 pub trait RequestMessageEx: Read {
@@ -42,11 +43,18 @@ pub trait RequestMessageEx: Read {
             let (name, value) = line.split_once(':').unwrap();
             headers.insert(name.to_lowercase(), value.trim().to_string());
         }
+        let content_length = headers
+            .get("content-length")
+            .map_or(0, |v| v.parse::<usize>().unwrap());
+        let mut content = Vec::new();
+        content.resize(content_length, 0);
+        self.read_exact(content.as_mut_slice()).unwrap();
         RequestMessage {
             method,
             url,
             protocol,
             headers,
+            content,
         }
     }
 }

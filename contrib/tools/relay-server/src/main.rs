@@ -1,8 +1,4 @@
-use std::{
-    io::{Read, Write},
-    net::TcpListener,
-    str::from_utf8,
-};
+use std::{io::Write, net::TcpListener};
 
 use crate::{http::RequestMessageEx, state::State, url::QueryEx};
 
@@ -16,35 +12,28 @@ fn main() {
     for stream_or_error in listner.incoming() {
         let mut stream = stream_or_error.unwrap();
         let rm = stream.read_http_request_message();
+        let mut write = |text: &str| stream.write(text.as_bytes()).unwrap();
+        let mut write_line = |line: &str| {
+            write(line);
+            write("\r\n");
+        };
+        let mut write_response_line = || write_line("HTTP/1.1 200 OK");
         match rm.method.as_str() {
             "GET" => {
                 let query = *rm.url.url_query().get("id").unwrap();
                 let msg = state
                     .get(query.to_string())
-                    .map_or("", |v| v.as_str())
-                    .as_bytes();
+                    .map_or([].as_slice(), |v| v.as_slice());
                 let len = msg.len();
-                stream.write("HTTP/1.1 200 OK\r\n".as_bytes()).unwrap();
-                stream
-                    .write(format!("content-length:{len}\r\n").as_bytes())
-                    .unwrap();
-                stream.write("\r\n".as_bytes()).unwrap();
+                write_response_line();
+                write_line(format!("content-length:{len}").as_str());
+                write_line("");
                 stream.write(msg).unwrap();
             }
             "POST" => {
-                let len = rm
-                    .headers
-                    .get("content-length")
-                    .unwrap()
-                    .parse::<usize>()
-                    .unwrap();
-                let mut buffer = Vec::new();
-                buffer.resize(len, 0);
-                stream.read_exact(buffer.as_mut_slice()).unwrap();
-                let message = from_utf8(buffer.as_slice()).unwrap();
-                state.post(message.to_string());
-                stream.write("HTTP/1.1 200 OK\r\n".as_bytes()).unwrap();
-                stream.write("\r\n".as_bytes()).unwrap();
+                state.post(rm.content);
+                write_response_line();
+                write_line("");
             }
             _ => panic!(),
         };
