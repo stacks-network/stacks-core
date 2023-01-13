@@ -1,12 +1,12 @@
 use std::net::TcpListener;
 
-use update::StreamEx;
+use server::ServerEx;
 
 use crate::state::State;
 
 mod http;
 mod state;
-mod update;
+mod server;
 mod url;
 
 fn main() {

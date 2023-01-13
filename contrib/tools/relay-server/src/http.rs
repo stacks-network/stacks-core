@@ -18,7 +18,7 @@ pub trait RequestEx: Read {
         };
 
         let mut read_line = || {
-            let mut result = String::new();
+            let mut result = String::default();
             loop {
                 let b = read_byte();
                 if b == 13 {
@@ -39,7 +39,7 @@ pub trait RequestEx: Read {
         let protocol = next();
 
         // read and parse headers
-        let mut headers = HashMap::new();
+        let mut headers = HashMap::default();
         loop {
             let line = read_line();
             if line.is_empty() {
@@ -53,8 +53,7 @@ pub trait RequestEx: Read {
         let content_length = headers
             .get("content-length")
             .map_or(0, |v| v.parse::<usize>().unwrap());
-        let mut content = Vec::new();
-        content.resize(content_length, 0);
+        let mut content = vec![0; content_length];
         self.read_exact(content.as_mut_slice()).unwrap();
 
         // return the message
@@ -72,21 +71,9 @@ impl<T: Read> RequestEx for T {}
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Read, str::from_utf8};
+    use std::{io::Cursor, str::from_utf8};
 
     use crate::http::RequestEx;
-
-    struct ReadFromSlice<'a>(&'a [u8], usize);
-
-    impl<'a> Read for ReadFromSlice<'a> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let len = buf.len();
-            let new_position = self.1 + len;
-            buf.copy_from_slice(&self.0[self.1..new_position]);
-            self.1 = new_position;
-            Ok(len)
-        }
-    }
 
     #[test]
     fn test() {
@@ -95,7 +82,7 @@ mod tests {
             Content-Length: 6\r\n\
             \r\n\
             Hello!";
-        let mut read = ReadFromSlice(REQUEST.as_bytes(), 0);
+        let mut read = Cursor::new(REQUEST);
         let rm = read.read_http_request();
         assert_eq!(rm.method, "POST");
         assert_eq!(rm.url, "/");
@@ -103,7 +90,7 @@ mod tests {
         assert_eq!(rm.headers.len(), 1);
         assert_eq!(rm.headers["content-length"], "6");
         assert_eq!(from_utf8(&rm.content), Ok("Hello!"));
-        assert_eq!(read.1, REQUEST.len());
+        assert_eq!(read.position(), REQUEST.len() as u64);
     }
 
     #[test]
@@ -111,13 +98,13 @@ mod tests {
         const REQUEST: &str = "\
             GET /images/logo.png HTTP/1.1\r\n\
             \r\n";
-        let mut read = ReadFromSlice(REQUEST.as_bytes(), 0);
+        let mut read = Cursor::new(REQUEST);
         let rm = read.read_http_request();
         assert_eq!(rm.method, "GET");
         assert_eq!(rm.url, "/images/logo.png");
         assert_eq!(rm.protocol, "HTTP/1.1");
         assert!(rm.headers.is_empty());
         assert!(rm.content.is_empty());
-        assert_eq!(read.1, REQUEST.len());
+        assert_eq!(read.position(), REQUEST.len() as u64);
     }
 }
