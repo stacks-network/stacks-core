@@ -10,10 +10,12 @@ pub struct Signer {
     parties: Vec<Party>,
 }
 
+#[derive(Debug)]
 pub struct SignatureShare {
     pub signature_share: frost::common::SignatureShare,
 }
 
+#[derive(Debug)]
 pub enum MessageTypes {
     Join,
     SignatureShare(SignatureShare),
