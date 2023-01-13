@@ -49,5 +49,4 @@ fn main() {
             _ => panic!(),
         };
     }
-    println!("Hello, world!");
 }
