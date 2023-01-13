@@ -2581,7 +2581,8 @@ impl StacksChainState {
         Ok(AffirmationMap::empty())
     }
 
-    /// Get the affirmation map represented by the Stacks chain tip
+    /// Get the affirmation map represented by the Stacks chain tip.
+    /// This uses the 2.1 rules exclusively (i.e. only block-commits are considered).
     pub fn find_stacks_tip_affirmation_map(
         burnchain_db: &BurnchainDB,
         sort_db_conn: &DBConn,
