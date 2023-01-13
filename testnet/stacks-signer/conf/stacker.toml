@@ -1,1 +1,1 @@
-stacks_node_url = "http://localhost:9776"
+stacks_node_url = "http://localhost:9776?id=1"
