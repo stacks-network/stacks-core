@@ -752,7 +752,7 @@ fn inner_static_get_stacks_tip_affirmation_map(
     sort_am: &AffirmationMap,
     sortdb_conn: &DBConn,
     canonical_ch: &ConsensusHash,
-    canonical_bhh: &BlockHeaderHash
+    canonical_bhh: &BlockHeaderHash,
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = last_2_05_rc as usize;
 
@@ -760,7 +760,7 @@ fn inner_static_get_stacks_tip_affirmation_map(
         burnchain_blocks_db,
         sortdb_conn,
         canonical_ch,
-        canonical_bhh
+        canonical_bhh,
     )?;
 
     let mut am_entries = vec![];
@@ -784,7 +784,7 @@ pub fn static_get_stacks_tip_affirmation_map(
     sortition_db: &SortitionDB,
     sortition_tip: &SortitionId,
     canonical_ch: &ConsensusHash,
-    canonical_bhh: &BlockHeaderHash
+    canonical_bhh: &BlockHeaderHash,
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()?;
     let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
@@ -794,10 +794,9 @@ pub fn static_get_stacks_tip_affirmation_map(
         &sort_am,
         sortition_db.conn(),
         canonical_ch,
-        canonical_bhh
+        canonical_bhh,
     )
 }
-
 
 impl<
         'a,
@@ -831,8 +830,9 @@ impl<
             let sn = SortitionDB::get_block_snapshot(self.sortition_db.conn(), &sort_id)?
                 .expect("FATAL: have sortition ID without snapshot");
 
-            let sort_am =
-                self.sortition_db.find_sortition_tip_affirmation_map(&sort_id)?;
+            let sort_am = self
+                .sortition_db
+                .find_sortition_tip_affirmation_map(&sort_id)?;
             ret.push((sn, sort_am));
         }
 
@@ -874,7 +874,11 @@ impl<
         chainstate_conn: &DBConn,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), Error> {
         let mut search_height = StacksChainState::get_max_header_height(chainstate_conn)?;
-        let last_2_05_rc = SortitionDB::static_get_last_epoch_2_05_reward_cycle(sort_tx, sort_tx.context.first_block_height, &sort_tx.context.pox_constants)?;
+        let last_2_05_rc = SortitionDB::static_get_last_epoch_2_05_reward_cycle(
+            sort_tx,
+            sort_tx.context.first_block_height,
+            &sort_tx.context.pox_constants,
+        )?;
         let sort_am = sort_tx.find_sortition_tip_affirmation_map(sort_tip)?;
         loop {
             let mut search_weight = StacksChainState::get_max_affirmation_weight_at_height(
@@ -904,10 +908,12 @@ impl<
                         &sort_am,
                         sort_tx,
                         &hdr.consensus_hash,
-                        &hdr.anchored_header.block_hash()
+                        &hdr.anchored_header.block_hash(),
                     ) {
                         Ok(am) => am,
-                        Err(Error::ChainstateError(ChainstateError::DBError(DBError::InvalidPoxSortition))) => {
+                        Err(Error::ChainstateError(ChainstateError::DBError(
+                            DBError::InvalidPoxSortition,
+                        ))) => {
                             debug!(
                                 "Stacks tip {}/{} is not on a valid sortition",
                                 &hdr.consensus_hash,
@@ -1039,11 +1045,12 @@ impl<
             &self.sortition_db,
             &sortition_tip,
             &canonical_ch,
-            &canonical_bhh
+            &canonical_bhh,
         )?;
 
-        let sortition_tip_affirmation_map =
-            self.sortition_db.find_sortition_tip_affirmation_map(&sortition_tip)?;
+        let sortition_tip_affirmation_map = self
+            .sortition_db
+            .find_sortition_tip_affirmation_map(&sortition_tip)?;
 
         let heaviest_am = self.get_heaviest_affirmation_map(&sortition_tip)?;
 
@@ -1239,8 +1246,9 @@ impl<
             // of the heaviest affirmation map
             let mut found_diverged = false;
             for sort_id in sort_ids.iter() {
-                let sort_am =
-                    self.sortition_db.find_sortition_tip_affirmation_map(&sort_id)?;
+                let sort_am = self
+                    .sortition_db
+                    .find_sortition_tip_affirmation_map(&sort_id)?;
 
                 debug!(
                     "Compare {} as prefix of {}? {}",
@@ -1450,9 +1458,9 @@ impl<
                         // means that we have new anchor blocks to consider
                         let canonical_affirmation_map =
                             self.get_canonical_affirmation_map(&sortition_tip)?;
-                        let sort_am = self.sortition_db.find_sortition_tip_affirmation_map(
-                            &sortition_tip,
-                        )?;
+                        let sort_am = self
+                            .sortition_db
+                            .find_sortition_tip_affirmation_map(&sortition_tip)?;
                         let revalidation_params = if canonical_affirmation_map.len()
                             == sort_am.len()
                             && canonical_affirmation_map != sort_am
@@ -1492,7 +1500,8 @@ impl<
                             // everything is consistent.
                             // Just update the canonical stacks block pointer on the highest valid
                             // sortition.
-                            let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
+                            let last_2_05_rc =
+                                self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
                             let mut sort_tx = self.sortition_db.tx_begin()?;
                             let (canonical_ch, canonical_bhh, canonical_height) =
@@ -1510,7 +1519,7 @@ impl<
                                 &sort_tx.find_sortition_tip_affirmation_map(&sortition_tip)?,
                                 &sort_tx,
                                 &canonical_ch,
-                                &canonical_bhh
+                                &canonical_bhh,
                             )?;
 
                             debug!("Canonical Stacks tip for highest valid sortition {} ({}) is {}/{} height {} am `{}`", &sortition_tip, sortition_height, &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
@@ -2073,7 +2082,7 @@ impl<
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new burnchain block");
-        
+
         let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
         // first, see if the canonical affirmation map has changed.  If so, this will wind back the
@@ -2324,7 +2333,7 @@ impl<
                         &sort_tx.find_sortition_tip_affirmation_map(&next_snapshot.sortition_id)?,
                         &sort_tx,
                         &ch,
-                        &bhh
+                        &bhh,
                     )?;
                     if StacksChainState::is_block_compatible_with_affirmation_map(
                         &am,

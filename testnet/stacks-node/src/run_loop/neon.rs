@@ -22,9 +22,9 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, static_get_canonical_affirmation_map, static_get_stacks_tip_affirmation_map,
-    static_get_heaviest_affirmation_map, ChainsCoordinator, ChainsCoordinatorConfig,
-    CoordinatorCommunication, Error as coord_error,
+    migrate_chainstate_dbs, static_get_canonical_affirmation_map,
+    static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
+    ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
@@ -752,7 +752,7 @@ impl RunLoop {
             // too soon
             return;
         }
-        
+
         // compare sortition and heaviest AMs
         let burnchain_db = burnchain
             .open_burnchain_db(false)

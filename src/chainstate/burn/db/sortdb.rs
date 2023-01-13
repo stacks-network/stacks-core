@@ -3010,7 +3010,10 @@ impl SortitionDB {
 }
 
 impl<'a> SortitionDBTx<'a> {
-    pub fn find_sortition_tip_affirmation_map(&mut self, chain_tip: &SortitionId) -> Result<AffirmationMap, db_error> {
+    pub fn find_sortition_tip_affirmation_map(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<AffirmationMap, db_error> {
         let affirmation_map = match self.get_indexed(chain_tip, &db_keys::pox_affirmation_map())? {
             Some(am_str) => {
                 AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
@@ -3021,7 +3024,9 @@ impl<'a> SortitionDBTx<'a> {
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
         if affirmation_map.len() > 0 {
-            Ok(AffirmationMap::new(affirmation_map.as_slice()[1..].to_vec()))
+            Ok(AffirmationMap::new(
+                affirmation_map.as_slice()[1..].to_vec(),
+            ))
         } else {
             Ok(AffirmationMap::empty())
         }
@@ -4437,11 +4442,19 @@ impl SortitionDB {
 
     /// Get the last reward cycle in epoch 2.05
     pub fn get_last_epoch_2_05_reward_cycle(&self) -> Result<u64, db_error> {
-        Self::static_get_last_epoch_2_05_reward_cycle(self.conn(), self.first_block_height, &self.pox_constants)
+        Self::static_get_last_epoch_2_05_reward_cycle(
+            self.conn(),
+            self.first_block_height,
+            &self.pox_constants,
+        )
     }
-    
+
     /// Get the last reward cycle in epoch 2.05
-    pub fn static_get_last_epoch_2_05_reward_cycle(conn: &DBConn, first_block_height: u64, pox_constants: &PoxConstants) -> Result<u64, db_error> {
+    pub fn static_get_last_epoch_2_05_reward_cycle(
+        conn: &DBConn,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+    ) -> Result<u64, db_error> {
         let epochs = SortitionDB::get_stacks_epochs(conn)?;
 
         for epoch in epochs {

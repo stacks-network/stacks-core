@@ -725,8 +725,7 @@ impl Config {
                             ));
                         }
                     }
-                }
-                else {
+                } else {
                     // testnet requires that we use the 2.05 rules for anchor block affirmations,
                     // because reward cycle 360 (and possibly future ones) has a different anchor
                     // block choice in 2.05 rules than in 2.1 rules.
