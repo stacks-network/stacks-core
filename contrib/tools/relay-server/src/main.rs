@@ -5,8 +5,8 @@ use server::ServerEx;
 use crate::state::State;
 
 mod http;
-mod state;
 mod server;
+mod state;
 mod url;
 
 fn main() {
