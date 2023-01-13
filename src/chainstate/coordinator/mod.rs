@@ -693,7 +693,7 @@ pub fn static_get_heaviest_affirmation_map(
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
 
-    let sort_am = SortitionDB::find_sortition_tip_affirmation_map(&sortition_db, sortition_tip)?;
+    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
 
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_blocks_db.conn(),
@@ -725,7 +725,7 @@ pub fn static_get_canonical_affirmation_map(
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
 
-    let sort_am = SortitionDB::find_sortition_tip_affirmation_map(&sortition_db, sortition_tip)?;
+    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
 
     let canonical_am = StacksChainState::find_canonical_affirmation_map(
         burnchain,
@@ -745,6 +745,59 @@ pub fn static_get_canonical_affirmation_map(
 
     Ok(AffirmationMap::new(am_entries))
 }
+
+fn inner_static_get_stacks_tip_affirmation_map(
+    burnchain_blocks_db: &BurnchainDB,
+    last_2_05_rc: u64,
+    sort_am: &AffirmationMap,
+    sortdb_conn: &DBConn,
+    canonical_ch: &ConsensusHash,
+    canonical_bhh: &BlockHeaderHash
+) -> Result<AffirmationMap, Error> {
+    let last_2_05_rc = last_2_05_rc as usize;
+
+    let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
+        burnchain_blocks_db,
+        sortdb_conn,
+        canonical_ch,
+        canonical_bhh
+    )?;
+
+    let mut am_entries = vec![];
+    for i in 0..last_2_05_rc {
+        if i < sort_am.affirmations.len() {
+            am_entries.push(sort_am.affirmations[i]);
+        }
+    }
+    for i in last_2_05_rc..stacks_am.len() {
+        am_entries.push(stacks_am.affirmations[i]);
+    }
+
+    Ok(AffirmationMap::new(am_entries))
+}
+
+/// Get the canonical Stacks tip affirmation map, when considering epochs.
+/// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
+/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM
+pub fn static_get_stacks_tip_affirmation_map(
+    burnchain_blocks_db: &BurnchainDB,
+    sortition_db: &SortitionDB,
+    sortition_tip: &SortitionId,
+    canonical_ch: &ConsensusHash,
+    canonical_bhh: &BlockHeaderHash
+) -> Result<AffirmationMap, Error> {
+    let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()?;
+    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
+    inner_static_get_stacks_tip_affirmation_map(
+        burnchain_blocks_db,
+        last_2_05_rc,
+        &sort_am,
+        sortition_db.conn(),
+        canonical_ch,
+        canonical_bhh
+    )
+}
+
 
 impl<
         'a,
@@ -779,7 +832,7 @@ impl<
                 .expect("FATAL: have sortition ID without snapshot");
 
             let sort_am =
-                SortitionDB::find_sortition_tip_affirmation_map(&self.sortition_db, &sort_id)?;
+                self.sortition_db.find_sortition_tip_affirmation_map(&sort_id)?;
             ret.push((sn, sort_am));
         }
 
@@ -821,6 +874,8 @@ impl<
         chainstate_conn: &DBConn,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), Error> {
         let mut search_height = StacksChainState::get_max_header_height(chainstate_conn)?;
+        let last_2_05_rc = SortitionDB::static_get_last_epoch_2_05_reward_cycle(sort_tx, sort_tx.context.first_block_height, &sort_tx.context.pox_constants)?;
+        let sort_am = sort_tx.find_sortition_tip_affirmation_map(sort_tip)?;
         loop {
             let mut search_weight = StacksChainState::get_max_affirmation_weight_at_height(
                 chainstate_conn,
@@ -843,14 +898,16 @@ impl<
 
                 for hdr in all_headers {
                     // load this block's affirmation map
-                    let am = match StacksChainState::find_stacks_tip_affirmation_map(
+                    let am = match inner_static_get_stacks_tip_affirmation_map(
                         burnchain_db,
+                        last_2_05_rc,
+                        &sort_am,
                         sort_tx,
                         &hdr.consensus_hash,
-                        &hdr.anchored_header.block_hash(),
+                        &hdr.anchored_header.block_hash()
                     ) {
                         Ok(am) => am,
-                        Err(ChainstateError::DBError(DBError::InvalidPoxSortition)) => {
+                        Err(Error::ChainstateError(ChainstateError::DBError(DBError::InvalidPoxSortition))) => {
                             debug!(
                                 "Stacks tip {}/{} is not on a valid sortition",
                                 &hdr.consensus_hash,
@@ -970,12 +1027,6 @@ impl<
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortition_db.conn())?;
         let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
-        let stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
-            &self.burnchain_blocks_db,
-            &self.sortition_db.conn(),
-            &canonical_ch,
-            &canonical_bhh,
-        )?;
 
         let sortition_tip = match &self.canonical_sortition_tip {
             Some(tip) => tip.clone(),
@@ -985,9 +1036,16 @@ impl<
                 sn.sortition_id
             }
         };
+        let stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
+            &self.burnchain_blocks_db,
+            &self.sortition_db,
+            &sortition_tip,
+            &canonical_ch,
+            &canonical_bhh
+        )?;
 
         let sortition_tip_affirmation_map =
-            SortitionDB::find_sortition_tip_affirmation_map(&self.sortition_db, &sortition_tip)?;
+            self.sortition_db.find_sortition_tip_affirmation_map(&sortition_tip)?;
 
         let heaviest_am = self.get_heaviest_affirmation_map(&sortition_tip)?;
 
@@ -1104,9 +1162,9 @@ impl<
                     sn.block_height,
                     &sn_am,
                     &compare_am,
-                    &compare_am.has_sortition_prefix(&sn_am, last_2_05_rc),
+                    &compare_am.has_prefix(&sn_am),
                 );
-                if compare_am.has_sortition_prefix(&sn_am, last_2_05_rc) {
+                if compare_am.has_prefix(&sn_am) {
                     // have already processed this sortitoin
                     debug!("Already processed sortition {} at height {} with AM `{}` on comparative affirmation map {}", &sn.sortition_id, sn.block_height, &sn_am, &compare_am);
                     found = true;
@@ -1188,15 +1246,15 @@ impl<
             let mut found_diverged = false;
             for sort_id in sort_ids.iter() {
                 let sort_am =
-                    SortitionDB::find_sortition_tip_affirmation_map(&self.sortition_db, &sort_id)?;
+                    self.sortition_db.find_sortition_tip_affirmation_map(&sort_id)?;
 
                 debug!(
                     "Compare {} as prefix of {}? {}",
                     &compare_am,
                     &sort_am,
-                    compare_am.has_sortition_prefix(&sort_am, last_2_05_rc)
+                    compare_am.has_prefix(&sort_am)
                 );
-                if compare_am.has_sortition_prefix(&sort_am, last_2_05_rc) {
+                if compare_am.has_prefix(&sort_am) {
                     continue;
                 }
 
@@ -1210,9 +1268,9 @@ impl<
                     "Compare {} as a prior prefix of {}? {}",
                     &prior_compare_am,
                     &prior_sort_am,
-                    prior_compare_am.has_sortition_prefix(&prior_sort_am, last_2_05_rc)
+                    prior_compare_am.has_prefix(&prior_sort_am)
                 );
-                if prior_compare_am.has_sortition_prefix(&prior_sort_am, last_2_05_rc) {
+                if prior_compare_am.has_prefix(&prior_sort_am) {
                     // this is the first reward cycle where history diverged.
                     found_diverged = true;
                     debug!("{} diverges from {}", &sort_am, &compare_am);
@@ -1398,8 +1456,7 @@ impl<
                         // means that we have new anchor blocks to consider
                         let canonical_affirmation_map =
                             self.get_canonical_affirmation_map(&sortition_tip)?;
-                        let sort_am = SortitionDB::find_sortition_tip_affirmation_map(
-                            &self.sortition_db,
+                        let sort_am = self.sortition_db.find_sortition_tip_affirmation_map(
                             &sortition_tip,
                         )?;
                         let revalidation_params = if canonical_affirmation_map.len()
@@ -1441,6 +1498,8 @@ impl<
                             // everything is consistent.
                             // Just update the canonical stacks block pointer on the highest valid
                             // sortition.
+                            let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
+
                             let mut sort_tx = self.sortition_db.tx_begin()?;
                             let (canonical_ch, canonical_bhh, canonical_height) =
                                 Self::find_highest_stacks_block_with_compatible_affirmation_map(
@@ -1450,11 +1509,14 @@ impl<
                                     &mut sort_tx,
                                     &self.chain_state_db.db(),
                                 )?;
-                            let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
+
+                            let stacks_am = inner_static_get_stacks_tip_affirmation_map(
                                 &self.burnchain_blocks_db,
-                                &mut sort_tx,
+                                last_2_05_rc,
+                                &sort_tx.find_sortition_tip_affirmation_map(&sortition_tip)?,
+                                &sort_tx,
                                 &canonical_ch,
-                                &canonical_bhh,
+                                &canonical_bhh
                             )?;
 
                             debug!("Canonical Stacks tip for highest valid sortition {} ({}) is {}/{} height {} am `{}`", &sortition_tip, sortition_height, &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
@@ -1563,8 +1625,16 @@ impl<
                     // sortitions have been invalidated.
                     let (canonical_ch, canonical_bhh, canonical_height) = Self::find_highest_stacks_block_with_compatible_affirmation_map(&heaviest_am, &highest_valid_sortition_id, &self.burnchain_blocks_db, sort_tx, &chainstate_db_conn)
                         .expect("FATAL: could not find a valid parent Stacks block");
-                    let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(&self.burnchain_blocks_db, sort_tx, &canonical_ch, &canonical_bhh)
-                        .expect("FATAL: failed to query stacks DB");
+
+                    let stacks_am = inner_static_get_stacks_tip_affirmation_map(
+                        &self.burnchain_blocks_db,
+                        last_2_05_rc,
+                        &sort_tx.find_sortition_tip_affirmation_map(&highest_valid_sortition_id).expect("FATAL: failed to query stacks DB"),
+                        sort_tx,
+                        &canonical_ch,
+                        &canonical_bhh
+                    )
+                    .expect("FATAL: failed to query stacks DB");
 
                     debug!("Canonical Stacks tip after invalidations is {}/{} height {} am `{}`", &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
 
@@ -1611,8 +1681,16 @@ impl<
                     // recalculate highest valid stacks tip
                     let (canonical_ch, canonical_bhh, canonical_height) = Self::find_highest_stacks_block_with_compatible_affirmation_map(&heaviest_am, &highest_valid_sortition_id, &self.burnchain_blocks_db, sort_tx, &chainstate_db_conn)
                         .expect("FATAL: could not find a valid parent Stacks block");
-                    let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(&self.burnchain_blocks_db, sort_tx, &canonical_ch, &canonical_bhh)
-                        .expect("FATAL: failed to query stacks DB");
+
+                    let stacks_am = inner_static_get_stacks_tip_affirmation_map(
+                        &self.burnchain_blocks_db,
+                        last_2_05_rc,
+                        &sort_tx.find_sortition_tip_affirmation_map(&highest_valid_sortition_id).expect("FATAL: failed to query stacks DB"),
+                        sort_tx,
+                        &canonical_ch,
+                        &canonical_bhh
+                    )
+                    .expect("FATAL: failed to query stacks DB");
 
                     debug!("Canonical Stacks tip after invalidations and revalidations is {}/{} height {} am `{}`", &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
 
@@ -1644,8 +1722,16 @@ impl<
                     // recalculate highest valid stacks tip once more
                     let (canonical_ch, canonical_bhh, canonical_height) = Self::find_highest_stacks_block_with_compatible_affirmation_map(&heaviest_am, &highest_valid_sortition_id, &self.burnchain_blocks_db, sort_tx, &chainstate_db_conn)
                         .expect("FATAL: could not find a valid parent Stacks block");
-                    let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(&self.burnchain_blocks_db, sort_tx, &canonical_ch, &canonical_bhh)
-                        .expect("FATAL: failed to query stacks DB");
+
+                    let stacks_am = inner_static_get_stacks_tip_affirmation_map(
+                        &self.burnchain_blocks_db,
+                        last_2_05_rc,
+                        &sort_tx.find_sortition_tip_affirmation_map(&highest_valid_sortition_id).expect("FATAL: failed to query stacks DB"),
+                        sort_tx,
+                        &canonical_ch,
+                        &canonical_bhh
+                    )
+                    .expect("FATAL: failed to query stacks DB");
 
                     debug!("Canonical Stacks tip after invalidations, revalidations, and processed dirty snapshots is {}/{} height {} am `{}`", &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
 
@@ -1704,16 +1790,24 @@ impl<
             )?
             .expect("FATAL: highest valid sortition doesn't exist");
 
+            let stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
+                &self.burnchain_blocks_db,
+                &self.sortition_db,
+                &highest_valid_snapshot.sortition_id,
+                &highest_valid_snapshot.canonical_stacks_tip_consensus_hash,
+                &highest_valid_snapshot.canonical_stacks_tip_hash,
+            )?;
+
             debug!(
                 "Highest valid sortition (changed) is {} ({} in height {}, affirmation map {}); Stacks tip is {}/{} height {} (affirmation map {}); heaviest AM is {}",
                 &highest_valid_snapshot.sortition_id,
                 &highest_valid_snapshot.burn_header_hash,
                 highest_valid_snapshot.block_height,
-                &SortitionDB::find_sortition_tip_affirmation_map(&self.sortition_db, &highest_valid_snapshot.sortition_id)?,
+                &self.sortition_db.find_sortition_tip_affirmation_map(&highest_valid_snapshot.sortition_id)?,
                 &highest_valid_snapshot.canonical_stacks_tip_consensus_hash,
                 &highest_valid_snapshot.canonical_stacks_tip_hash,
                 highest_valid_snapshot.canonical_stacks_tip_height,
-                &StacksChainState::find_stacks_tip_affirmation_map(&self.burnchain_blocks_db, &self.sortition_db.conn(), &highest_valid_snapshot.canonical_stacks_tip_consensus_hash, &highest_valid_snapshot.canonical_stacks_tip_hash)?,
+                &stacks_tip_affirmation_map,
                 &heaviest_am
             );
 
@@ -1723,16 +1817,24 @@ impl<
                 SortitionDB::get_block_snapshot(&self.sortition_db.conn(), &sortition_tip)?
                     .expect("FATAL: highest valid sortition doesn't exist");
 
+            let stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
+                &self.burnchain_blocks_db,
+                &self.sortition_db,
+                &highest_valid_snapshot.sortition_id,
+                &highest_valid_snapshot.canonical_stacks_tip_consensus_hash,
+                &highest_valid_snapshot.canonical_stacks_tip_hash,
+            )?;
+
             debug!(
                 "Highest valid sortition (not changed) is {} ({} in height {}, affirmation map {}); Stacks tip is {}/{} height {} (affirmation map {}); heaviest AM is {}",
                 &highest_valid_snapshot.sortition_id,
                 &highest_valid_snapshot.burn_header_hash,
                 highest_valid_snapshot.block_height,
-                &SortitionDB::find_sortition_tip_affirmation_map(&self.sortition_db, &highest_valid_snapshot.sortition_id)?,
+                &self.sortition_db.find_sortition_tip_affirmation_map(&highest_valid_snapshot.sortition_id)?,
                 &highest_valid_snapshot.canonical_stacks_tip_consensus_hash,
                 &highest_valid_snapshot.canonical_stacks_tip_hash,
                 highest_valid_snapshot.canonical_stacks_tip_height,
-                &StacksChainState::find_stacks_tip_affirmation_map(&self.burnchain_blocks_db, &self.sortition_db.conn(), &highest_valid_snapshot.canonical_stacks_tip_consensus_hash, &highest_valid_snapshot.canonical_stacks_tip_hash)?,
+                &stacks_tip_affirmation_map,
                 &heaviest_am
             );
         }
@@ -1977,6 +2079,8 @@ impl<
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new burnchain block");
+        
+        let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
         // first, see if the canonical affirmation map has changed.  If so, this will wind back the
         // canonical sortition tip.
@@ -2220,11 +2324,13 @@ impl<
                         &ch, &bhh, height, &heaviest_am
                     );
 
-                    let am = StacksChainState::find_stacks_tip_affirmation_map(
+                    let am = inner_static_get_stacks_tip_affirmation_map(
                         &self.burnchain_blocks_db,
-                        &mut sort_tx,
+                        last_2_05_rc,
+                        &sort_tx.find_sortition_tip_affirmation_map(&next_snapshot.sortition_id)?,
+                        &sort_tx,
                         &ch,
-                        &bhh,
+                        &bhh
                     )?;
                     if StacksChainState::is_block_compatible_with_affirmation_map(
                         &am,
@@ -2338,9 +2444,11 @@ impl<
             )
             .expect("FATAL: could not find a valid parent Stacks block");
 
-        let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
+        let stacks_am = inner_static_get_stacks_tip_affirmation_map(
             &self.burnchain_blocks_db,
-            &mut sort_tx,
+            last_2_05_rc,
+            &sort_tx.find_sortition_tip_affirmation_map(&highest_valid_sortition_id)?,
+            &sort_tx,
             &canonical_ch,
             &canonical_bhh,
         )
