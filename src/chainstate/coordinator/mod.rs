@@ -1025,8 +1025,6 @@ impl<
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let (canonical_ch, canonical_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortition_db.conn())?;
-        let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
-
 
         let sortition_tip = match &self.canonical_sortition_tip {
             Some(tip) => tip.clone(),
@@ -1147,8 +1145,6 @@ impl<
         // by a subsequent prepare phase.
         let mut last_invalidate_start_block = start_height;
         let mut valid_sortitions = vec![];
-        let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
-
         for height in start_height..(end_height + 1) {
             let snapshots_and_ams = self.get_snapshots_and_affirmation_maps_at_height(height)?;
             let num_sns = snapshots_and_ams.len();
@@ -1220,8 +1216,6 @@ impl<
         // set of sortitions that are currently invalid, but could need to be reset
         // as valid.
         let mut valid_sortitions = vec![];
-
-        let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let mut diverged = false;
