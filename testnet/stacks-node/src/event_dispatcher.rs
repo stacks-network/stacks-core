@@ -46,6 +46,7 @@ struct ReceiptPayloadInfo<'a> {
     raw_result: String,
     raw_tx: String,
     contract_interface_json: serde_json::Value,
+    burnchain_op_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -214,12 +215,14 @@ impl EventObserver {
             }
         };
 
-        let (txid, raw_tx) = match tx {
-            TransactionOrigin::Burn(txid) => (txid.to_string(), "00".to_string()),
+        let (txid, raw_tx, burnchain_op) = match tx {
+            TransactionOrigin::Burn(op) => (
+                op.txid().to_string(), "00".to_string(), json!(op.clone())
+            ),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
                 let bytes = tx.serialize_to_vec();
-                (txid, bytes_to_hex(&bytes))
+                (txid, bytes_to_hex(&bytes), json!(null))
             }
         };
 
@@ -239,6 +242,7 @@ impl EventObserver {
             raw_result,
             raw_tx,
             contract_interface_json,
+            burnchain_op_json: burnchain_op,
         }
     }
 
@@ -256,6 +260,7 @@ impl EventObserver {
             "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
             "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
             "contract_abi": receipt_payload_info.contract_interface_json,
+            "burnchain_op": receipt_payload_info.burnchain_op_json,
             "execution_cost": receipt.execution_cost,
             "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
             "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),

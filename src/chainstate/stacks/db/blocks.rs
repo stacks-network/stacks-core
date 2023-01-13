@@ -4920,23 +4920,23 @@ impl StacksChainState {
                 txid,
                 burn_header_hash,
                 ..
-            } = stack_stx_op;
+            } = &stack_stx_op;
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.into(),
+                    &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
                     &[
-                        Value::UInt(stacked_ustx),
+                        Value::UInt(*stacked_ustx),
                         // this .expect() should be unreachable since we coerce the hash mode when
                         // we parse the StackStxOp from a burnchain transaction
                         reward_addr
                             .as_clarity_tuple()
                             .expect("FATAL: stack-stx operation has no hash mode")
                             .into(),
-                        Value::UInt(u128::from(block_height)),
-                        Value::UInt(u128::from(num_cycles)),
+                        Value::UInt(u128::from(*block_height)),
+                        Value::UInt(u128::from(*num_cycles)),
                     ],
                     |_, _| false,
                 )
@@ -4958,7 +4958,7 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(txid),
+                            transaction: TransactionOrigin::Burn(BlockstackOperationType::StackStx(stack_stx_op)),
                             events,
                             result: value,
                             post_condition_aborted: false,
@@ -5009,20 +5009,20 @@ impl StacksChainState {
                             burn_header_hash,
                             memo,
                             ..
-                        } = transfer_stx_op;
+                        } = &transfer_stx_op;
                         let result = clarity_tx.connection().as_transaction(|tx| {
                             tx.run_stx_transfer(
-                                &sender.into(),
-                                &recipient.into(),
-                                transfered_ustx,
-                                &BuffData { data: memo },
+                                &sender.clone().into(),
+                                &recipient.clone().into(),
+                                *transfered_ustx,
+                                &BuffData { data: memo.clone() },
                             )
                         });
                         match result {
                             Ok((value, _, events)) => {
                                 debug!("Processed TransferStx burnchain op"; "transfered_ustx" => transfered_ustx, "sender" => %sender, "recipient" => %recipient, "txid" => %txid);
                                 Some(StacksTransactionReceipt {
-                                    transaction: TransactionOrigin::Burn(txid),
+                                    transaction: TransactionOrigin::Burn(BlockstackOperationType::TransferStx(transfer_stx_op)),
                                     events,
                                     result: value,
                                     post_condition_aborted: false,
@@ -5071,7 +5071,7 @@ impl StacksChainState {
                 txid,
                 burn_header_hash,
                 ..
-            } = delegate_stx_op;
+            } = &delegate_stx_op;
             let reward_addr_val = if let Some((_, addr)) = &reward_addr {
                 // this .expect() should be unreachable since we coerce the hash mode when
                 // we parse the DelegateStxOp from a burnchain transaction
@@ -5087,20 +5087,20 @@ impl StacksChainState {
             };
 
             let until_burn_height_val = if let Some(height) = until_burn_height {
-                Value::some(Value::UInt(u128::from(height)))
+                Value::some(Value::UInt(u128::from(*height)))
                     .expect("FATAL: construction of an optional uint Clarity value should succeed.")
             } else {
                 Value::none()
             };
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.into(),
+                    &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
                     &[
-                        Value::UInt(delegated_ustx),
-                        Value::Principal(delegate_to.into()),
+                        Value::UInt(*delegated_ustx),
+                        Value::Principal(delegate_to.clone().into()),
                         until_burn_height_val,
                         reward_addr_val,
                     ],
@@ -5126,7 +5126,7 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(txid),
+                            transaction: TransactionOrigin::Burn(BlockstackOperationType::DelegateStx(delegate_stx_op)),
                             events,
                             result: value,
                             post_condition_aborted: false,
