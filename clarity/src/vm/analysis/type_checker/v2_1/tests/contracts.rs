@@ -3543,8 +3543,8 @@ fn clarity_trait_experiments_cross_epochs(
         load_versioned(
             db,
             "use-compute",
-            ClarityVersion::Clarity1,
-            StacksEpochId::Epoch2_05,
+            version,
+            epoch,
         )?;
         call_versioned(
             db,
@@ -3552,7 +3552,7 @@ fn clarity_trait_experiments_cross_epochs(
             "do-it",
             ".impl-compute .impl-math-trait u1",
             version,
-            epoch,
+            StacksEpochId::Epoch21,
         )
     });
     match result {

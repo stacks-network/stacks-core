@@ -645,6 +645,22 @@ impl TypeSignature {
         }
     }
 
+    /// Canonicalize the type. This method will replace any types from previous
+    /// epochs with the appropriate types for the current epoch.
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
+        match epoch {
+            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
+            _ => self.clone(),
+        }
+    }
+
+    pub fn canonicalize_v2_1(&self) -> TypeSignature {
+        match self {
+            TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
+            _ => self.clone(),
+        }
+    }
+
     /// Concretize the type. The input to this method may include
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
