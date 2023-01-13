@@ -83,12 +83,14 @@ use clarity::vm::types::TypeSignature;
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerStatus {
     blockers: HashSet<ThreadId>,
+    spend_amount: u64,
 }
 
 impl MinerStatus {
-    pub fn make_ready() -> MinerStatus {
+    pub fn make_ready(spend_amount: u64) -> MinerStatus {
         MinerStatus {
             blockers: HashSet::new(),
+            spend_amount,
         }
     }
 
@@ -107,6 +109,13 @@ impl MinerStatus {
         } else {
             false
         }
+    }
+
+    pub fn get_spend_amount(&self) -> u64 {
+        return self.spend_amount;
+    }
+    pub fn set_spend_amount(&mut self, amt: u64) {
+        self.spend_amount = amt;
     }
 }
 
@@ -140,6 +149,28 @@ pub fn signal_mining_ready(miner_status: Arc<Mutex<MinerStatus>>) {
     }
 }
 
+/// get the mining amount
+pub fn get_mining_spend_amount(miner_status: Arc<Mutex<MinerStatus>>) -> u64 {
+    match miner_status.lock() {
+        Ok(status) => status.get_spend_amount(),
+        Err(_e) => {
+            panic!("FATAL: mutex poisoned");
+        }
+    }
+}
+
+/// set the mining amount
+pub fn set_mining_spend_amount(miner_status: Arc<Mutex<MinerStatus>>, amt: u64) {
+    match miner_status.lock() {
+        Ok(mut status) => {
+            status.set_spend_amount(amt);
+        }
+        Err(_e) => {
+            panic!("FATAL: mutex poisoned");
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
     pub max_miner_time_ms: u64,
@@ -152,7 +183,7 @@ impl BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::default(),
-            miner_status: Arc::new(Mutex::new(MinerStatus::make_ready())),
+            miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
     }
 
@@ -160,7 +191,7 @@ impl BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::zero(),
-            miner_status: Arc::new(Mutex::new(MinerStatus::make_ready())),
+            miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
     }
 }
