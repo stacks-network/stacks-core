@@ -3771,7 +3771,6 @@ impl SortitionDB {
 
     /// Find the affirmation map represented by a given sortition ID.
     pub fn find_sortition_tip_affirmation_map(
-        _burnchain_db: &BurnchainDB,
         sortition_db: &SortitionDB,
         tip_id: &SortitionId,
     ) -> Result<AffirmationMap, db_error> {
@@ -4415,6 +4414,22 @@ impl SortitionDB {
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
+    }
+
+    /// Get the last reward cycle in epoch 2.05
+    pub fn get_last_epoch_2_05_reward_cycle(&self) -> Result<u64, db_error> {
+        let epochs = SortitionDB::get_stacks_epochs(&self.conn())?;
+
+        for epoch in epochs {
+            if epoch.epoch_id == StacksEpochId::Epoch2_05 {
+                return Ok(self
+                    .pox_constants
+                    .block_height_to_reward_cycle(self.first_block_height, epoch.end_height)
+                    .expect("FATAL: end block of epoch 2.05 is before system start height"));
+            }
+        }
+
+        Ok(u64::MAX)
     }
 
     /// Get the latest block snapshot on this fork where a sortition occured.
