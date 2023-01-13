@@ -72,7 +72,7 @@ impl<T: Read> RequestEx for T {}
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
+    use std::{io::Read, str::from_utf8};
 
     use crate::http::RequestEx;
 
@@ -91,16 +91,33 @@ mod tests {
     #[test]
     fn test() {
         const REQUEST: &str = "\
-            GET /images/logo.png HTTP/1.1\r\n\
+            POST / HTTP/1.1\r\n\
             Content-Length: 6\r\n\
             \r\n\
             Hello!";
         let mut read = ReadFromSlice(REQUEST.as_bytes(), 0);
         let rm = read.read_http_request();
-        assert_eq!(rm.method, "GET");
-        assert_eq!(rm.url, "/images/logo.png");
+        assert_eq!(rm.method, "POST");
+        assert_eq!(rm.url, "/");
         assert_eq!(rm.protocol, "HTTP/1.1");
         assert_eq!(rm.headers.len(), 1);
         assert_eq!(rm.headers["content-length"], "6");
+        assert_eq!(from_utf8(&rm.content), Ok("Hello!"));
+        assert_eq!(read.1, REQUEST.len());
+    }
+
+    #[test]
+    fn no_content_test() {
+        const REQUEST: &str = "\
+            GET /images/logo.png HTTP/1.1\r\n\
+            \r\n";
+        let mut read = ReadFromSlice(REQUEST.as_bytes(), 0);
+        let rm = read.read_http_request();
+        assert_eq!(rm.method, "GET");
+        assert_eq!(rm.url, "/images/logo.png");
+        assert_eq!(rm.protocol, "HTTP/1.1");
+        assert!(rm.headers.is_empty());
+        assert!(rm.content.is_empty());
+        assert_eq!(read.1, REQUEST.len());
     }
 }
