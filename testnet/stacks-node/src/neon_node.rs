@@ -166,8 +166,9 @@ use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{
-    miner::signal_mining_blocked, miner::signal_mining_ready, miner::BlockBuilderSettings,
-    miner::MinerStatus, miner::StacksMicroblockBuilder, StacksBlockBuilder, StacksBlockHeader,
+    miner::get_mining_spend_amount, miner::signal_mining_blocked, miner::signal_mining_ready,
+    miner::BlockBuilderSettings, miner::MinerStatus, miner::StacksMicroblockBuilder,
+    StacksBlockBuilder, StacksBlockHeader,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
@@ -1712,7 +1713,8 @@ impl BlockMinerThread {
             }
         };
 
-        let burn_fee_cap = self.config.burnchain.burn_fee_cap;
+        // let burn_fee_cap = self.config.burnchain.burn_fee_cap;
+        let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
         let sunset_burn = self.burnchain.expected_sunset_burn(
             self.burn_block.block_height + 1,
             burn_fee_cap,
