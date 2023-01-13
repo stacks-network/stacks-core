@@ -68,6 +68,7 @@ pub fn type_check(
         expressions,
         analysis_db,
         save_contract,
+        StacksEpochId::Epoch21,
         ClarityVersion::Clarity2,
     )
 }
@@ -77,6 +78,7 @@ pub fn type_check_version(
     expressions: &mut [SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
+    epoch: StacksEpochId,
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, CheckError> {
     run_analysis(
@@ -85,7 +87,7 @@ pub fn type_check_version(
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
-        StacksEpochId::Epoch21,
+        epoch,
         version,
     )
     .map_err(|(e, _)| e)
@@ -1702,8 +1704,22 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
     let mut db = marf.as_analysis_db();
 
     match db.execute(|db| {
-        type_check_version(&trait_contract_id, &mut trait_contract, db, true, version)?;
-        type_check_version(&use_contract_id, &mut use_contract, db, true, version)
+        type_check_version(
+            &trait_contract_id,
+            &mut trait_contract,
+            db,
+            true,
+            StacksEpochId::Epoch21,
+            version,
+        )?;
+        type_check_version(
+            &use_contract_id,
+            &mut use_contract,
+            db,
+            true,
+            StacksEpochId::Epoch21,
+            version,
+        )
     }) {
         Err(CheckError {
             err: CheckErrors::TraitMethodUnknown(trait_name, function),
@@ -1735,7 +1751,8 @@ fn load_versioned(
     let contract_id = QualifiedContractIdentifier::local(name).unwrap();
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
-    type_check_version(&contract_id, &mut contract, db, true, version).map_err(|e| e.to_string())
+    type_check_version(&contract_id, &mut contract, db, true, epoch, version)
+        .map_err(|e| e.to_string())
 }
 
 fn call_versioned(
@@ -1750,7 +1767,8 @@ fn call_versioned(
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
-    type_check_version(&contract_id, &mut contract, db, false, version).map_err(|e| e.to_string())
+    type_check_version(&contract_id, &mut contract, db, false, epoch, version)
+        .map_err(|e| e.to_string())
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2532,7 +2550,11 @@ fn clarity_trait_experiments_upcast_trait_1(
             load_versioned(db, "upcast-trait-1", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
+    } else {
+        assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2570,7 +2592,11 @@ fn clarity_trait_experiments_upcast_trait_3(
             load_versioned(db, "upcast-trait-3", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
+    } else {
+        assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2608,7 +2634,11 @@ fn clarity_trait_experiments_upcast_renamed(
             load_versioned(db, "upcast-renamed", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
+    } else {
+        assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2650,6 +2680,9 @@ fn clarity_trait_experiments_constant_to_trait(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+            assert!(err.starts_with("TypeError(TraitReferenceType"))
+        }
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
@@ -2674,6 +2707,9 @@ fn clarity_trait_experiments_constant_to_constant_call(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+            assert!(err.starts_with("TypeError(TraitReferenceType"))
+        }
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
@@ -2698,7 +2734,12 @@ fn clarity_trait_experiments_downcast_literal_1(
             load_versioned(db, "downcast-literal-1", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        println!("err: {}", err);
+        assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
+    } else {
+        assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2761,7 +2802,11 @@ fn clarity_trait_experiments_downcast_trait_2(
             load_versioned(db, "downcast-trait-2", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
+    } else {
+        assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2780,7 +2825,11 @@ fn clarity_trait_experiments_downcast_trait_3(
             load_versioned(db, "downcast-trait-3", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
+    } else {
+        assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2799,7 +2848,11 @@ fn clarity_trait_experiments_downcast_trait_4(
             load_versioned(db, "downcast-trait-4", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
+    } else {
+        assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2818,7 +2871,11 @@ fn clarity_trait_experiments_downcast_trait_5(
             load_versioned(db, "downcast-trait-5", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    if epoch == StacksEpochId::Epoch2_05 {
+        assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
+    } else {
+        assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2837,6 +2894,9 @@ fn clarity_trait_experiments_identical_trait_cast(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+            assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
+        }
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
@@ -2860,6 +2920,9 @@ fn clarity_trait_experiments_trait_cast(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+            assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
+        }
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
@@ -2885,7 +2948,11 @@ fn clarity_trait_experiments_trait_cast_incompatible(
         .unwrap_err();
     match version {
         ClarityVersion::Clarity1 => {
-            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+            if epoch == StacksEpochId::Epoch2_05 {
+                assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
+            } else {
+                assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+            }
         }
         ClarityVersion::Clarity2 => assert!(err.starts_with("IncompatibleTrait")),
     }
@@ -3286,6 +3353,9 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+            assert!(err.starts_with("TypeError(TraitReferenceType"))
+        }
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(SequenceType(ListType"))
         }
@@ -3427,6 +3497,62 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
             "use-partial-double-trait-2",
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_cross_epochs(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types in Clarity1, then use it in Clarity2?
+    let result = db.execute(|db| {
+        load_versioned(
+            db,
+            "math-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )?;
+        load_versioned(
+            db,
+            "compute",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )?;
+        load_versioned(
+            db,
+            "impl-compute",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )?;
+        load_versioned(
+            db,
+            "impl-math-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )?;
+        load_versioned(
+            db,
+            "use-compute",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05,
+        )?;
+        call_versioned(
+            db,
+            "use-compute",
+            "do-it",
+            ".impl-compute .impl-math-trait u1",
+            version,
+            epoch,
         )
     });
     match result {

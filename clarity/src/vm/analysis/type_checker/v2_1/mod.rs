@@ -701,6 +701,12 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         (
             TypeSignature::CallableType(CallableSubtype::Trait(atom_trait_id)),
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+        )
+        | (
+            TypeSignature::CallableType(CallableSubtype::Trait(atom_trait_id)),
+            // In 2.1, TraitReferenceType may show up as an expected type if it
+            // came from a trait deployed before 2.1.
+            TypeSignature::TraitReferenceType(expected_trait_id),
         ) => {
             if atom_trait_id != expected_trait_id {
                 let atom_trait =
@@ -721,6 +727,12 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         (
             TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+        )
+        | (
+            TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
+            // In 2.1, TraitReferenceType may show up as an expected type if it
+            // came from a trait deployed before 2.1.
+            TypeSignature::TraitReferenceType(expected_trait_id),
         ) => {
             let contract_to_check = match db.load_contract(&contract_identifier) {
                 Some(contract) => {
@@ -1225,6 +1237,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             (
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            )
+            | (
+                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+                // In 2.1, TraitReferenceType may show up as an expected type if it
+                // came from a trait deployed before 2.1.
+                TypeSignature::TraitReferenceType(trait_identifier),
             ) => {
                 let contract_to_check = self
                     .db
