@@ -3540,12 +3540,7 @@ fn clarity_trait_experiments_cross_epochs(
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05,
         )?;
-        load_versioned(
-            db,
-            "use-compute",
-            version,
-            epoch,
-        )?;
+        load_versioned(db, "use-compute", version, epoch)?;
         call_versioned(
             db,
             "use-compute",
