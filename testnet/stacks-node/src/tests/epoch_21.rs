@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::env;
 use std::thread;
 
-use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
@@ -4638,7 +4637,7 @@ fn test_sortition_divergence_pre_21() {
     info!("####################### end of cycle ##############################");
 
     // run some cycles in 2.1
-    for j in 0..2 {
+    for _ in 0..2 {
         for i in 0..10 {
             eprintln!("\n\nBuild block {}\n\n", i);
             btc_regtest_controller.build_next_block(1);
