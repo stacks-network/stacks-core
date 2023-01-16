@@ -8286,6 +8286,10 @@ fn spawn_follower_node(
     conf.burnchain.ast_precheck_size_height =
         initial_conf.burnchain.ast_precheck_size_height.clone();
 
+    conf.connection_options.inv_sync_interval = 3;
+
+    conf.node.always_use_affirmation_maps = false;
+
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
@@ -9499,6 +9503,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     conf.node.microblock_frequency = 1_000;
     conf.miner.microblock_attempt_time_ms = 1_000;
     conf.node.wait_time_for_microblocks = 0;
+
+    conf.connection_options.inv_sync_interval = 3;
 
     test_observer::spawn();
 
