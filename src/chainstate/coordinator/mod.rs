@@ -704,6 +704,8 @@ pub fn static_get_heaviest_affirmation_map(
     for i in 0..last_2_05_rc {
         if i < sort_am.affirmations.len() {
             am_entries.push(sort_am.affirmations[i]);
+        } else {
+            return Ok(AffirmationMap::new(am_entries));
         }
     }
     for i in last_2_05_rc..heaviest_am.len() {
@@ -737,6 +739,8 @@ pub fn static_get_canonical_affirmation_map(
     for i in 0..last_2_05_rc {
         if i < sort_am.affirmations.len() {
             am_entries.push(sort_am.affirmations[i]);
+        } else {
+            return Ok(AffirmationMap::new(am_entries));
         }
     }
     for i in last_2_05_rc..canonical_am.len() {
@@ -767,6 +771,8 @@ fn inner_static_get_stacks_tip_affirmation_map(
     for i in 0..last_2_05_rc {
         if i < sort_am.affirmations.len() {
             am_entries.push(sort_am.affirmations[i]);
+        } else {
+            return Ok(AffirmationMap::new(am_entries));
         }
     }
     for i in last_2_05_rc..stacks_am.len() {
