@@ -48,6 +48,7 @@ use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{
     static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
+    static_get_stacks_tip_affirmation_map,
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
@@ -5027,12 +5028,16 @@ impl PeerNetwork {
         {
             // update stacks tip affirmation map view
             let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-            self.stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
+            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
                 &burnchain_db,
-                sortdb.conn(),
+                sortdb,
+                &sn.sortition_id,
                 &sn.canonical_stacks_tip_consensus_hash,
                 &sn.canonical_stacks_tip_hash,
-            )?;
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
+            })?;
         }
 
         // can't fail after this point
