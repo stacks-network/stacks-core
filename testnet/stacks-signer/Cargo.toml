@@ -19,10 +19,10 @@ sha3 = "0.10.6"
 serde = { version = "1.0", features = ["serde_derive"] }
 toml = "0.5.9"
 hashbrown = { version = "0.13", features = ["serde"] }
-frost = { git = "https://github.com/trust-machines/frost", branch = "multiple-parties-per-signer" }
+frost = { git = "https://github.com/trust-machines/frost", rev = "d618e4e08d14c9f90581aec355c316377274392c" }
 rand_core = { version  = "0.5"}
 itertools = "^0.10.5"
-secp256k1-math = { git = "https://github.com/Trust-Machines/rust-secp256k1-math", rev = "ad35f79ce18d67fdd3c11697066b28ea38c5fbde"  }
+secp256k1-math = { git = "https://github.com/Trust-Machines/rust-secp256k1-math", rev = "f1720d822a0903bb84d6e86dcf2c71ba4e67a0bc"  }
 ureq = { version = "2.6", features = [] }
 stacks-common = { path = "../../stacks-common" }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }

@@ -1047,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "frost"
 version = "0.1.0"
-source = "git+https://github.com/trust-machines/frost?branch=multiple-parties-per-signer#7032a25a9d08a32bf038fba9c5dd68ee39433c99"
+source = "git+https://github.com/trust-machines/frost?rev=d618e4e08d14c9f90581aec355c316377274392c#d618e4e08d14c9f90581aec355c316377274392c"
 dependencies = [
  "hashbrown 0.13.1",
  "hex",
@@ -2514,7 +2514,7 @@ dependencies = [
 [[package]]
 name = "secp256k1-math"
 version = "0.1.0"
-source = "git+https://github.com/Trust-Machines/rust-secp256k1-math?rev=ad35f79ce18d67fdd3c11697066b28ea38c5fbde#ad35f79ce18d67fdd3c11697066b28ea38c5fbde"
+source = "git+https://github.com/Trust-Machines/rust-secp256k1-math?rev=f1720d822a0903bb84d6e86dcf2c71ba4e67a0bc#f1720d822a0903bb84d6e86dcf2c71ba4e67a0bc"
 dependencies = [
  "bindgen",
  "cc",
