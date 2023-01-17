@@ -269,6 +269,10 @@ impl BurnchainDB {
         Ok(db)
     }
 
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
         let sql_tx = tx_begin_immediate(&mut self.conn)?;
         Ok(BurnchainDBTransaction { sql_tx: sql_tx })
