@@ -1,13 +1,13 @@
 use crate::config::Config;
 use crate::signer;
-use slog::{slog_info, slog_warn, slog_debug};
-use stacks_common::{info, warn, debug};
+use slog::{slog_debug, slog_info, slog_warn};
+use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
 
 pub struct HttpNet {
     pub stacks_node_url: String,
     in_queue: Vec<Message>,
-    out_queue: Vec<Message>,
+    _out_queue: Vec<Message>,
 }
 
 pub trait Net {
@@ -27,7 +27,7 @@ impl HttpNet {
         HttpNet {
             stacks_node_url: config.stacks_node_url.to_owned(),
             in_queue: in_q,
-            out_queue: out_q,
+            _out_queue: out_q,
         }
     }
 }
@@ -40,7 +40,10 @@ impl Net for HttpNet {
             Ok(response) => {
                 match response.status() {
                     200 => {
-                        debug!("{:?}", response);
+                        info!("get/poll returned {:?}", response);
+                        let mut body = String::new();
+                        response.into_reader().read_to_string(&mut body);
+                        info!("{:?}", body);
                     }
                     _ => {}
                 };
@@ -58,10 +61,13 @@ impl Net for HttpNet {
 
     fn send_message(&self, _msg: Message) {
         let req = ureq::post(&self.stacks_node_url);
-        match req.call() {
-            Ok(_) => {}
-            Err(_) => {
-                info!("post failed to {}", self.stacks_node_url)
+        let bytes = "somebytes".as_bytes();
+        match req.send_bytes(bytes) {
+            Ok(response) => {
+                info!("sent {:?}", &response)
+            }
+            Err(e) => {
+                info!("post failed to {} {}", self.stacks_node_url, e)
             }
         }
     }
