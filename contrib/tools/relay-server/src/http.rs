@@ -1,4 +1,9 @@
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::HashMap,
+    io::{Error, Read},
+};
+
+use crate::to_io_result::ToIoResult;
 
 #[derive(Debug)]
 pub struct Request {
@@ -10,60 +15,65 @@ pub struct Request {
 }
 
 pub trait RequestEx: Read {
-    fn read_http_request(&mut self) -> Request {
-        let mut read_byte = || {
+    fn read_http_request(&mut self) -> Result<Request, Error> {
+        let mut read_byte = || -> Result<u8, Error> {
             let mut buf = [0; 1];
-            self.read_exact(&mut buf).unwrap();
-            buf[0]
+            self.read_exact(&mut buf)?;
+            Ok(buf[0])
         };
 
-        let mut read_line = || {
+        let mut read_line = || -> Result<String, Error> {
             let mut result = String::default();
             loop {
-                let b = read_byte();
+                let b = read_byte()?;
                 if b == 13 {
                     break;
                 };
                 result.push(b as char);
             }
-            assert_eq!(read_byte(), 10);
-            result
+            assert_eq!(read_byte()?, 10);
+            Ok(result)
         };
 
         // read and parse the request line
-        let request_line = read_line();
+        let request_line = read_line()?;
         let mut split = request_line.split(' ');
-        let mut next = || split.next().unwrap().to_string();
-        let method = next();
-        let url = next();
-        let protocol = next();
+        let mut next = || {
+            split
+                .next()
+                .to_io_result("invalid HTTP request line")
+                .map(|x| x.to_string())
+        };
+        let method = next()?;
+        let url = next()?;
+        let protocol = next()?;
 
         // read and parse headers
         let mut headers = HashMap::default();
         loop {
-            let line = read_line();
+            let line = read_line()?;
             if line.is_empty() {
                 break;
             }
-            let (name, value) = line.split_once(':').unwrap();
+            let (name, value) = line.split_once(':').to_io_result("")?;
             headers.insert(name.to_lowercase(), value.trim().to_string());
         }
 
         // read content
-        let content_length = headers
-            .get("content-length")
-            .map_or(0, |v| v.parse::<usize>().unwrap());
+        let content_length = headers.get("content-length").map_or(Ok(0), |v| {
+            v.parse::<usize>().to_io_result("invalid content-length")
+        })?;
         let mut content = vec![0; content_length];
-        self.read_exact(content.as_mut_slice()).unwrap();
+        self.read_exact(content.as_mut_slice())?;
 
         // return the message
-        Request {
+        Ok(Request {
             method,
             url,
             protocol,
             headers,
             content,
-        }
+        })
     }
 }
 
@@ -83,7 +93,7 @@ mod tests {
             \r\n\
             Hello!";
         let mut read = Cursor::new(REQUEST);
-        let rm = read.read_http_request();
+        let rm = read.read_http_request().unwrap();
         assert_eq!(rm.method, "POST");
         assert_eq!(rm.url, "/");
         assert_eq!(rm.protocol, "HTTP/1.1");
@@ -94,12 +104,42 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_message_test() {
+        const REQUEST: &str = "\
+            POST / HTTP/1.1\r\n\
+            Content-Leng";
+        let mut read = Cursor::new(REQUEST);
+        let _ = read.read_http_request().unwrap_err();
+    }
+
+    #[test]
+    fn incomplete_content_test() {
+        const REQUEST: &str = "\
+            POST / HTTP/1.1\r\n\
+            Content-Length: 6\r\n\
+            \r\n";
+        let mut read = Cursor::new(REQUEST);
+        let _ = read.read_http_request().unwrap_err();
+    }
+
+    #[test]
+    fn invalid_message_test() {
+        const REQUEST: &str = "\
+            POST / HTTP/1.1\r\n\
+            Content-Length 6\r\n\
+            \r\n\
+            Hello!";
+        let mut read = Cursor::new(REQUEST);
+        let _ = read.read_http_request().unwrap_err();
+    }
+
+    #[test]
     fn no_content_test() {
         const REQUEST: &str = "\
             GET /images/logo.png HTTP/1.1\r\n\
             \r\n";
         let mut read = Cursor::new(REQUEST);
-        let rm = read.read_http_request();
+        let rm = read.read_http_request().unwrap();
         assert_eq!(rm.method, "GET");
         assert_eq!(rm.url, "/images/logo.png");
         assert_eq!(rm.protocol, "HTTP/1.1");

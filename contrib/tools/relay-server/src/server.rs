@@ -1,9 +1,9 @@
 use std::{
-    io::{Read, Write},
+    io::{Error, ErrorKind, Read, Write},
     net::TcpStream,
 };
 
-use crate::{http::RequestEx, state::State, url::QueryEx};
+use crate::{http::RequestEx, state::State, to_io_result::ToIoResult, url::QueryEx};
 
 pub trait Stream {
     type Read: Read;
@@ -24,34 +24,36 @@ impl Stream for TcpStream {
 }
 
 pub trait ServerEx: Stream {
-    fn update_state(&mut self, state: &mut State) {
-        let rm = self.istream().read_http_request();
+    fn update_state(&mut self, state: &mut State) -> Result<(), Error> {
+        let rm = self.istream().read_http_request()?;
         let ostream = self.ostream();
-        let mut write = |text: &str| ostream.write(text.as_bytes()).unwrap();
+        let mut write = |text: &str| ostream.write(text.as_bytes());
         let mut write_line = |line: &str| {
-            write(line);
-            write("\r\n");
+            write(line)?;
+            write("\r\n")?;
+            Ok::<(), Error>(())
         };
         let mut write_response_line = || write_line("HTTP/1.1 200 OK");
         match rm.method.as_str() {
             "GET" => {
-                let query = *rm.url.url_query().get("id").unwrap();
+                let query = *rm.url.url_query().get("id").to_io_result("no id")?;
                 let msg = state
                     .get(query.to_string())
                     .map_or([].as_slice(), |v| v.as_slice());
                 let len = msg.len();
-                write_response_line();
-                write_line(format!("content-length:{len}").as_str());
-                write_line("");
-                ostream.write(msg).unwrap();
+                write_response_line()?;
+                write_line(format!("content-length:{len}").as_str())?;
+                write_line("")?;
+                ostream.write(msg)?;
             }
             "POST" => {
                 state.post(rm.content);
-                write_response_line();
-                write_line("");
+                write_response_line()?;
+                write_line("")?;
             }
-            _ => panic!(),
+            _ => return Err(Error::new(ErrorKind::InvalidData, "unknown HTTP method")),
         };
+        Ok(())
     }
 }
 
@@ -103,7 +105,7 @@ mod test {
                 \r\n\
                 Hello!";
             let mut stream = REQUEST.mock_stream();
-            stream.update_state(&mut state);
+            stream.update_state(&mut state).unwrap();
             assert_eq!(stream.i.position(), REQUEST.len() as u64);
             const RESPONSE: &str = "\
                 HTTP/1.1 200 OK\r\n\
@@ -115,7 +117,7 @@ mod test {
                 GET /?id=x HTTP/1.1\r\n\
                 \r\n";
             let mut stream = REQUEST.mock_stream();
-            stream.update_state(&mut state);
+            stream.update_state(&mut state).unwrap();
             assert_eq!(stream.i.position(), REQUEST.len() as u64);
             const RESPONSE: &str = "\
                 HTTP/1.1 200 OK\r\n\
@@ -129,7 +131,7 @@ mod test {
                 GET /?id=x HTTP/1.1\r\n\
                 \r\n";
             let mut stream = REQUEST.mock_stream();
-            stream.update_state(&mut state);
+            stream.update_state(&mut state).unwrap();
             assert_eq!(stream.i.position(), REQUEST.len() as u64);
             const RESPONSE: &str = "\
                 HTTP/1.1 200 OK\r\n\
