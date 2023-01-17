@@ -33,6 +33,10 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
+[[bin]]
+name = "relay-server"
+path = "contrib/tools/relay-server/src/main.rs"
+
 [dependencies]
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
@@ -131,4 +135,5 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "contrib/tools/relay-server"]
