@@ -29,7 +29,7 @@ fuzz_target!(|types: (TypeSignature, TypeSignature)| {
     };
     println!("old_types: {}, {}", old_types.0, old_types.1);
 
-    let new_res = types.0.admits_type(&types.1);
+    let new_res = types.0.admits_type(&types.1).unwrap();
     let old_res = old_types.0.old_admits_type(&old_types.1).unwrap();
     assert_eq!(old_res, new_res)
 });
