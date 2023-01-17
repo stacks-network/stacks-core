@@ -4,10 +4,11 @@ WORKDIR /build
 
 ENV CARGO_MANIFEST_DIR="$(pwd)"
 
-RUN rustup component add llvm-tools-preview && \
+RUN rustup component add llvm-tools-preview rustfmt && \
     cargo install grcov
 
-RUN apt-get -y install clang
+RUN apt-get -y update
+RUN apt-get -y install libclang-11-dev
 
 ENV RUSTFLAGS="-Cinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
