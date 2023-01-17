@@ -15,12 +15,10 @@ fn main() {
 
     let net: HttpNet = HttpNet::new(&config, vec![], vec![]);
 
-    net.send_message(Message { msg: Join});
+    net.send_message(Message { msg: Join });
     // start p2p sync
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
-    spawn(move || {
-        poll_loop(net, tx)
-    });
+    spawn(move || poll_loop(net, tx));
     main_loop(&config, rx);
 }
 
@@ -30,7 +28,10 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
         net.poll();
         match net.next_message() {
             None => {}
-            Some(m) => { tx.send(m).unwrap(); }
+            Some(m) => {
+                info!("{:?}", m);
+                tx.send(m).unwrap();
+            }
         };
         thread::sleep(time::Duration::from_millis(1000));
     }
