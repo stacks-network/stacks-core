@@ -86,7 +86,7 @@ use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
     chainstate::{
-        burn::db::sortdb::SortitionDB,
+        burn::db::sortdb::{SortitionDB, SortitionHandleTx},
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
@@ -1318,9 +1318,37 @@ simulating a miner.
         return;
     }
 
-    if argv.len() < 4 {
-        eprintln!("Usage: {} blockchain network working_dir", argv[0]);
-        process::exit(1);
+    if argv[1] == "replay-block" {
+        if argv.len() < 5 {
+            eprintln!("Usage: {} CHAINSTATE_PATH BLOCK_CONSENSUS_HASH, BLOCK_HASH", &argv[0]);
+            process::exit(1);
+        }
+
+        let chainstate_root = &argv[2];
+        let block_ch_str = &argv[3];
+        let block_bhh_str = &argv[4];
+
+        let burnchain_db_path = format!("{}/mainnet/burnchain/burnchain.sqlite", chainstate_root);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", chainstate_root);
+        let chain_state_path = format!("{}/mainnet/chainstate/", chainstate_root);
+
+        let block_ch = ConsensusHash::from_hex(&block_ch_str).unwrap();
+        let block_bhh = BlockHeaderHash::from_hex(&block_bhh_str).unwrap();
+        let block_id = StacksBlockId::new(&block_ch, &block_bhh);
+
+        let burnchain = Burnchain::new("nope", "bitcoin", "mainnet").unwrap();
+        let burnchain_db = BurnchainDB::connect(&burnchain_db_path, &burnchain, true).unwrap();
+        let mut sortition_db = SortitionDB::open(&sort_db_path, true, burnchain.pox_constants.clone()).unwrap();
+        let (mut chainstate, _) =
+            StacksChainState::open(true, 0x00000001, &chain_state_path, None).unwrap();
+
+        let staging_block = StacksChainState::get_staging_block_data(chainstate.db(), &chainstate.blocks_path, &block_ch, &block_bhh).unwrap().unwrap();
+        let parent_microblocks = StacksChainState::find_parent_microblock_stream(chainstate.db(), &staging_block).unwrap().unwrap_or(vec![]);
+        let sn = SortitionDB::get_block_snapshot_consensus(sortition_db.conn(), &staging_block.parent_consensus_hash).unwrap().unwrap();
+        let mut sort_tx = SortitionHandleTx::begin(&mut sortition_db, &sn.sortition_id).unwrap();
+        chainstate.replay_block(burnchain_db.conn(), &mut sort_tx, parent_microblocks, staging_block).unwrap();
+
+        process::exit(0);
     }
 }
 

@@ -1327,6 +1327,37 @@ impl StacksChainState {
             }
         }
     }
+    
+    /// Load up a staging block
+    /// used for replay
+    pub fn get_staging_block_data(
+        block_conn: &DBConn,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<Option<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND orphaned = 0".to_string();
+        let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
+        let mut rows =
+            query_rows::<StagingBlock, _>(block_conn, &sql, args).map_err(Error::DBError)?;
+        let len = rows.len();
+        match len {
+            0 => Ok(None),
+            1 => {
+                let mut staging_block = rows.pop().unwrap();
+
+                // load up associated block data
+                staging_block.block_data =
+                    StacksChainState::load_block_bytes(blocks_path, consensus_hash, block_hash)?
+                        .unwrap_or(vec![]);
+                Ok(Some(staging_block))
+            }
+            _ => {
+                // should be impossible since this is the primary key
+                panic!("Got two or more block rows with same burn and block hashes");
+            }
+        }
+    }
 
     /// Load up a preprocessed block from the staging DB, regardless of its processed status.
     /// Do not load the associated block.
@@ -5538,21 +5569,7 @@ impl StacksChainState {
 
         Ok(vec![])
     }
-
-    /// Called in both follower and miner block assembly paths.
-    ///
-    /// Returns clarity_tx, list of receipts, microblock execution cost,
-    /// microblock fees, microblock burns, list of microblock tx receipts,
-    /// miner rewards tuples, the stacks epoch id, and a boolean that
-    /// represents whether the epoch transition has been applied.
-    ///
-    /// The `burn_dbconn`, `sortition_dbconn`, and `conn` arguments
-    ///  all reference the same sortition database through different
-    ///  interfaces. `burn_dbconn` and `sortition_dbconn` should
-    ///  reference the same object. The reason to provide both is that
-    ///  `SortitionDBRef` captures trait functions that Clarity does
-    ///  not need, and Rust does not support trait upcasting (even
-    ///  though it would theoretically be safe).
+    
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
@@ -5568,6 +5585,56 @@ impl StacksChainState {
         parent_microblocks: &Vec<StacksMicroblock>,
         mainnet: bool,
         miner_id_opt: Option<usize>,
+    ) -> Result<SetupBlockResult<'a, 'b>, Error> {
+        Self::setup_block_ex(
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            sortition_dbconn,
+            conn,
+            pox_constants,
+            chain_tip,
+            burn_tip,
+            burn_tip_height,
+            parent_consensus_hash,
+            parent_header_hash,
+            parent_microblocks,
+            mainnet,
+            miner_id_opt,
+            None
+        )
+    }
+
+    /// Called in both follower and miner block assembly paths.
+    ///
+    /// Returns clarity_tx, list of receipts, microblock execution cost,
+    /// microblock fees, microblock burns, list of microblock tx receipts,
+    /// miner rewards tuples, the stacks epoch id, and a boolean that
+    /// represents whether the epoch transition has been applied.
+    ///
+    /// The `burn_dbconn`, `sortition_dbconn`, and `conn` arguments
+    ///  all reference the same sortition database through different
+    ///  interfaces. `burn_dbconn` and `sortition_dbconn` should
+    ///  reference the same object. The reason to provide both is that
+    ///  `SortitionDBRef` captures trait functions that Clarity does
+    ///  not need, and Rust does not support trait upcasting (even
+    ///  though it would theoretically be safe).
+    pub fn setup_block_ex<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'b dyn BurnStateDB,
+        sortition_dbconn: &'b dyn SortitionDBRef,
+        conn: &Connection, // connection to the sortition DB
+        pox_constants: &PoxConstants,
+        chain_tip: &StacksHeaderInfo,
+        burn_tip: BurnchainHeaderHash,
+        burn_tip_height: u32,
+        parent_consensus_hash: ConsensusHash,
+        parent_header_hash: BlockHeaderHash,
+        parent_microblocks: &Vec<StacksMicroblock>,
+        mainnet: bool,
+        miner_id_opt: Option<usize>,
+        child_id: Option<(ConsensusHash, BlockHeaderHash)>
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = burn_dbconn
@@ -5627,14 +5694,17 @@ impl StacksChainState {
             ExecutionCost::zero()
         };
 
+        let (child_block_ch, child_block_bhh) = child_id
+            .unwrap_or((MINER_BLOCK_CONSENSUS_HASH.clone(), MINER_BLOCK_HEADER_HASH));
+
         let mut clarity_tx = StacksChainState::chainstate_block_begin(
             chainstate_tx,
             clarity_instance,
             burn_dbconn,
             &parent_consensus_hash,
             &parent_header_hash,
-            &MINER_BLOCK_CONSENSUS_HASH,
-            &MINER_BLOCK_HEADER_HASH,
+            &child_block_ch,
+            &child_block_bhh
         );
 
         clarity_tx.reset_cost(parent_block_cost.clone());
@@ -5896,6 +5966,7 @@ impl StacksChainState {
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
         affirmation_weight: u64,
+        child_id: Option<(ConsensusHash, BlockHeaderHash)>
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -5996,7 +6067,7 @@ impl StacksChainState {
             burn_transfer_stx_ops,
             mut auto_unlock_events,
             burn_delegate_stx_ops,
-        } = StacksChainState::setup_block(
+        } = StacksChainState::setup_block_ex(
             chainstate_tx,
             clarity_instance,
             burn_dbconn,
@@ -6011,6 +6082,7 @@ impl StacksChainState {
             microblocks,
             mainnet,
             None,
+            child_id
         )?;
 
         let block_limit = clarity_tx.block_limit().unwrap_or_else(|| {
@@ -6439,6 +6511,216 @@ impl StacksChainState {
         Ok(next_microblocks)
     }
 
+    /// Try to process a block, but don't commit.
+    /// Used only for testing
+    pub fn replay_block(
+        &mut self,
+        burnchain_dbconn: &DBConn,
+        sort_tx: &mut SortitionHandleTx,
+        next_microblocks: Vec<StacksMicroblock>,
+        next_staging_block: StagingBlock,
+    ) -> Result<(), Error> {
+        let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
+
+        let (burn_header_hash, burn_header_height, burn_header_timestamp) =
+            match SortitionDB::get_block_snapshot_consensus(
+                sort_tx,
+                &next_staging_block.consensus_hash,
+            )? {
+                Some(sn) => (
+                    sn.burn_header_hash,
+                    sn.block_height as u32,
+                    sn.burn_header_timestamp,
+                ),
+                None => {
+                    // shouldn't happen
+                    panic!(
+                        "CORRUPTION: staging block {}/{} does not correspond to a burn block",
+                        &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash
+                    );
+                }
+            };
+
+        debug!(
+            "Process staging block {}/{} in burn block {}, parent microblock {}",
+            next_staging_block.consensus_hash,
+            next_staging_block.anchored_block_hash,
+            &burn_header_hash,
+            &next_staging_block.parent_microblock_hash,
+        );
+
+        let parent_header_info = match StacksChainState::get_parent_header_info(
+            &mut chainstate_tx,
+            &next_staging_block,
+        )? {
+            Some(hinfo) => hinfo,
+            None => return Ok(()),
+        };
+
+        let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
+        let block_size = next_staging_block.block_data.len() as u64;
+
+        // validation check -- the block must attach to its accepted parent
+        if !StacksChainState::check_block_attachment(
+            &parent_header_info.anchored_header,
+            &block.header,
+        ) {
+            let msg = format!(
+                "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
+                &next_staging_block.consensus_hash,
+                block.block_hash(),
+                parent_header_info.anchored_header.block_hash(),
+                &parent_header_info.consensus_hash
+            );
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksBlock(msg));
+        }
+
+        // validation check -- validate parent microblocks and find the ones that connect the
+        // block's parent to this block.
+        let next_microblocks = StacksChainState::extract_connecting_microblocks(
+            &parent_header_info,
+            &next_staging_block,
+            &block,
+            next_microblocks,
+        )?;
+        let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
+            0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+            _ => {
+                let l = next_microblocks.len();
+                (
+                    next_microblocks[l - 1].block_hash(),
+                    next_microblocks[l - 1].header.sequence,
+                )
+            }
+        };
+        assert_eq!(
+            next_staging_block.parent_microblock_hash,
+            last_microblock_hash
+        );
+        assert_eq!(
+            next_staging_block.parent_microblock_seq,
+            last_microblock_seq
+        );
+
+        // find users that burned in support of this block, so we can calculate the miner reward
+        let user_supports = StacksChainState::load_staging_block_user_supports(
+            chainstate_tx.deref().deref(),
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )?;
+
+        test_debug!(
+            "About to load affirmation map for {}/{}",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash
+        );
+        let block_am = StacksChainState::inner_find_stacks_tip_affirmation_map(
+            burnchain_dbconn,
+            sort_tx.tx(),
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )?;
+        test_debug!(
+            "Affirmation map for {}/{} is `{}`",
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+            &block_am
+        );
+
+        // attach the block to the chain state and calculate the next chain tip.
+        // Execute the confirmed microblocks' transactions against the chain state, and then
+        // execute the anchored block's transactions against the chain state.
+        let pox_constants = sort_tx.context.pox_constants.clone();
+        let (epoch_receipt, _) = match StacksChainState::append_block(
+            &mut chainstate_tx,
+            clarity_instance,
+            sort_tx,
+            &pox_constants,
+            &parent_header_info,
+            &next_staging_block.consensus_hash,
+            &burn_header_hash,
+            burn_header_height,
+            burn_header_timestamp,
+            &block,
+            block_size,
+            &next_microblocks,
+            next_staging_block.commit_burn,
+            next_staging_block.sortition_burn,
+            &user_supports,
+            block_am.weight(),
+            Some((ConsensusHash([0x02; 20]), BlockHeaderHash([0x02; 32]))),
+        ) {
+            Ok(next_chain_tip_info) => next_chain_tip_info,
+            Err(e) => {
+                // something's wrong with this epoch -- either a microblock was invalid, or the
+                // anchored block was invalid.  Either way, the anchored block will _never be_
+                // valid, so we can drop it from the chunk store and orphan all of its descendants.
+                test_debug!(
+                    "Failed to append {}/{}",
+                    &next_staging_block.consensus_hash,
+                    &block.block_hash()
+                );
+                match e {
+                    Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
+                        // specifically, an ancestor microblock was invalid.  Drop any descendant microblocks --
+                        // they're never going to be valid in _any_ fork, even if they have a clone
+                        // in a neighboring burnchain fork.
+                        error!(
+                            "Parent microblock stream from {}/{} is invalid at microblock {}: {}",
+                            parent_header_info.consensus_hash,
+                            parent_header_info.anchored_header.block_hash(),
+                            header_hash,
+                            msg
+                        );
+                        StacksChainState::drop_staging_microblocks(
+                            chainstate_tx.deref_mut(),
+                            &parent_header_info.consensus_hash,
+                            &parent_header_info.anchored_header.block_hash(),
+                            header_hash,
+                        )?;
+                    }
+                    _ => {
+                        // block was invalid, but this means all the microblocks it confirmed are
+                        // still (potentially) valid.  However, they are not confirmed yet, so
+                        // leave them in the staging database.
+                    }
+                }
+                return Err(e);
+            }
+        };
+
+        assert_eq!(
+            epoch_receipt.header.anchored_header.block_hash(),
+            block.block_hash()
+        );
+        assert_eq!(
+            epoch_receipt.header.consensus_hash,
+            next_staging_block.consensus_hash
+        );
+        assert_eq!(
+            epoch_receipt.header.anchored_header.parent_microblock,
+            last_microblock_hash
+        );
+        assert_eq!(
+            epoch_receipt
+                .header
+                .anchored_header
+                .parent_microblock_sequence,
+            last_microblock_seq
+        );
+
+        debug!(
+            "Reached chain tip {}/{} from {}/{}",
+            epoch_receipt.header.consensus_hash,
+            epoch_receipt.header.anchored_header.block_hash(),
+            next_staging_block.parent_consensus_hash,
+            next_staging_block.parent_anchored_block_hash
+        );
+
+        Ok(())
+    }
+
     /// Find and process the next staging block.
     /// Return the next chain tip if we processed this block, or None if we couldn't.
     /// Return a poison microblock transaction payload if the microblock stream contains a
@@ -6645,6 +6927,7 @@ impl StacksChainState {
             next_staging_block.sortition_burn,
             &user_supports,
             block_am.weight(),
+            None
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
