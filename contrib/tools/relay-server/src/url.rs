@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn one_item_test() {
-        let x = "?xyz".url_query();
+        let x = "locahost:8080/?xyz".url_query();
         assert_eq!(x.len(), 1);
         assert!(x.get("xyz").unwrap().is_empty());
     }
@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn three_items_test() {
-        let x = "?xyz=5&azx&id=hello".url_query();
+        let x = "something.example?xyz=5&azx&id=hello".url_query();
         assert_eq!(x.len(), 3);
         assert_eq!(x.get("xyz").unwrap().to_owned(), "5");
         assert!(x.get("azx").unwrap().is_empty());
