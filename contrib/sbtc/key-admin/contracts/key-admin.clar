@@ -41,8 +41,8 @@
 
 ;; read only functions
 ;;
-(define-read-only (get-coordinator-key (signer uint))
-  (map-get? signers signer)
+(define-read-only (get-coordinator-key)
+  (var-get coordinator)
 )
 
 (define-read-only (get-signer-key (signer uint))
