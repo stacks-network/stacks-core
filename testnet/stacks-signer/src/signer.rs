@@ -57,5 +57,7 @@ impl Signer {
         self.parties[party_id].get_shares()
     }
 
-    pub fn dkg_begin(&mut self) {}
+    pub fn dkg_begin(&mut self) {
+        let _party_state = self.parties[self.id].save();
+    }
 }

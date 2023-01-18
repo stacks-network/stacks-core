@@ -19,6 +19,7 @@ pub struct Common {
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct Signer {
     pub frost_id: usize,
+    pub frost_state_file: String,
 }
 
 #[derive(Parser)]

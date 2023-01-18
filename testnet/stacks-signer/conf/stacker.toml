@@ -5,4 +5,5 @@ minimum_signers = 2
 
 [signer]
 frost_id = 1
+frost_state_file = "frost.state.bin"
 
