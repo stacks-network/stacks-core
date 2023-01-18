@@ -101,6 +101,10 @@ Clarinet.test({
     async fn(chain: Chain, accounts: Map<string, Account>) {
         let deployer = accounts.get("deployer")!;
 
+        let balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+
+        balance.result.expectOk().expectUint(0);
+
         let block = chain.mineBlock([
             // Generate a contract call to count-up from the deployer address.
             Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
@@ -112,7 +116,7 @@ Clarinet.test({
         // Assert that the returned result is a boolean true.
         //receipt.result.expectOk().expectBool(true);
 
-        let balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
 
         balance.result.expectOk().expectUint(1234);
     },
