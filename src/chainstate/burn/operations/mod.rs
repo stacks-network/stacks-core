@@ -316,6 +316,7 @@ pub struct DelegateStxOp {
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
     pub recipient: StacksAddress,
+    pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
 
