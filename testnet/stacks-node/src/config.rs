@@ -721,10 +721,15 @@ impl Config {
 
                 let mut result = BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    chain_id: if &burnchain_mode == "mainnet" {
-                        CHAIN_ID_MAINNET
-                    } else {
-                        CHAIN_ID_TESTNET
+                    chain_id: match burnchain.chain_id {
+                        Some(chain_id) => chain_id,
+                        None => {
+                            if &burnchain_mode == "mainnet" {
+                                CHAIN_ID_MAINNET
+                            } else {
+                                CHAIN_ID_TESTNET
+                            }
+                        }
                     },
                     peer_version: if &burnchain_mode == "mainnet" {
                         PEER_VERSION_MAINNET
@@ -1396,6 +1401,7 @@ pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,
