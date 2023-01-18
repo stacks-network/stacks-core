@@ -9,6 +9,7 @@
 
 ;; token definitions
 ;; 
+(define-fungible-token tokens)
 
 ;; constants
 ;;
@@ -37,6 +38,10 @@
         (ok (map-set signers id key))
         err-invalid-caller
     )
+)
+
+(define-public (mint! (amount uint))
+  (token-credit! tx-sender amount)
 )
 
 ;; read only functions
