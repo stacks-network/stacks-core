@@ -1320,9 +1320,11 @@ mod test {
     #[test]
     fn test_long_contract_name() {
         let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
-        assert!(match ast::parser::v1::parse(long_contract_name).unwrap_err().err {
-            ParseErrors::SeparatorExpected(_) => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(long_contract_name).unwrap_err().err {
+                ParseErrors::SeparatorExpected(_) => true,
+                _ => false,
+            }
+        );
     }
 }
