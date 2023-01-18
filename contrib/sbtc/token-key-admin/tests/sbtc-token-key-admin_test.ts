@@ -114,7 +114,7 @@ Clarinet.test({
         let [receipt] = block.receipts;
 
         // Assert that the returned result is a boolean true.
-        //receipt.result.expectOk().expectBool(true);
+        receipt.result.expectOk().expectBool(true);
 
         balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
 
