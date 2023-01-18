@@ -4,11 +4,15 @@ description = ''
 authors = []
 telemetry = true
 cache_dir = './.cache'
-requirements = []
+
+[[project.requirements]]
+contract_id = "SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard"
+
 [contracts.sbtc-token-key-admin]
 path = 'contracts/sbtc-token-key-admin.clar'
 clarity_version = 1
 epoch = 2.0
+
 [repl.analysis]
 passes = ['check_checker']
 
