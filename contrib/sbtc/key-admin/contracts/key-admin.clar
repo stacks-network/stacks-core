@@ -6,6 +6,7 @@
 
 ;; traits
 ;;
+;;(impl-trait tokens-ft)
 
 ;; token definitions
 ;; 
@@ -41,7 +42,10 @@
 )
 
 (define-public (mint! (amount uint))
-  (token-credit! tx-sender amount)
+    (if (is-valid-caller)
+        (token-credit! tx-sender amount)
+        err-invalid-caller
+    )
 )
 
 ;; read only functions
@@ -60,3 +64,5 @@
     (is-eq contract-owner tx-sender)
 )
 
+(define-private (token-credit! (account principal) (amount uint))
+  (ft-mint? tokens amount account))
