@@ -1339,6 +1339,7 @@ fn delegate_stack_increase() {
     let tip = get_tip(peer.sortdb.as_ref());
 
     // submit delegation tx
+    let success_alice_delegation = alice_nonce;
     let alice_delegation_1 = make_pox_2_contract_call(
         &alice,
         alice_nonce,
@@ -1553,6 +1554,33 @@ fn delegate_stack_increase() {
         &bob_txs[&fail_invalid_amount].result.to_string(),
         "(err 18)"
     );
+
+    let delegate_stx_tx = &alice_txs.get(&success_alice_delegation).unwrap().clone().events[0];
+    let delegate_stx_op_data = HashMap::from([
+        ("pox-addr", Value::none()),
+        ("amount-ustx", Value::UInt(10230000000000)),
+        ("unlock-burn-height", Value::none()),
+        (
+            "delegate-to",
+            Value::Principal(
+                StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                    .unwrap()
+                    .to_account_principal(),
+            ),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stx".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(delegate_stx_tx, common_data, delegate_stx_op_data);
 
     // Check that the call to `delegate-stack-increase` has a well-formed print event.
     let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0];

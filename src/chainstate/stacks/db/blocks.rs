@@ -5866,9 +5866,9 @@ impl StacksChainState {
     /// in the block, and a `PreCommitClarityBlock` struct.
     ///
     /// The `StacksEpochReceipts` contains the list of transaction
-    /// receipts for both the preceeding microblock stream that the
-    /// block confirms, as well as the transaction receipts for the
-    /// anchored block's transactions. Finally, it returns the
+    /// receipts for the preceeding microblock stream that the
+    /// block confirms, the anchored block's transactions, and the
+    /// btc wire transactions. Finally, it returns the
     /// execution costs for the microblock stream and for the anchored
     /// block (separately).
     ///

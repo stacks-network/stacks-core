@@ -38,10 +38,7 @@ use stacks::burnchains::{
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp,
-    UserBurnSupportOp,
-};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp, UserBurnSupportOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -950,6 +947,89 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
+    #[cfg(test)]
+    /// Build a delegate stacks tx.
+    ///   this *only* works if the only existant UTXO is from a PreStx Op
+    ///   this is okay for testing, but obviously not okay for actual use.
+    ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
+    ///     and signing logic are fairly intertwined, and untangling the two seems excessive
+    ///     for a functionality that won't be implemented for production via this controller.
+    fn build_delegate_stacks_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: DelegateStxOp,
+        signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
+            (
+                Transaction {
+                    input: vec![],
+                    output: vec![],
+                    version: 1,
+                    lock_time: 0,
+                },
+                UTXOSet {
+                    bhh: BurnchainHeaderHash::zero(),
+                    utxos: vec![utxo],
+                },
+            )
+        } else {
+            self.prepare_tx(
+                epoch_id,
+                &public_key,
+                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                None,
+                None,
+                0,
+            )?
+        };
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            payload.consensus_serialize(&mut bytes).ok()?;
+            bytes
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+        tx.output.push(
+            PoxAddress::Standard(payload.delegate_to.clone(), None)
+                .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
+        );
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            DUST_UTXO_LIMIT,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting stacks delegate op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
@@ -1687,7 +1767,9 @@ impl BitcoinRegtestController {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
-            BlockstackOperationType::DelegateStx(_payload) => unimplemented!(),
+            BlockstackOperationType::DelegateStx(payload) => {
+                self.build_delegate_stacks_tx(epoch_id, payload, op_signer, None)
+            }
         };
 
         transaction.map(|tx| SerializedTx::new(tx))

@@ -253,11 +253,11 @@ fn handle_pox_v1_api_contract_call(
 }
 
 /// Determine who the stacker is for a given function.
-/// - for non-delegate functions, it's tx-sender
-/// - for delegate functions, it's the first argument
+/// - for non-delegate stacking functions, it's tx-sender
+/// - for delegate stacking functions, it's the first argument
 fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> Value {
     match function_name {
-        "stack-stx" | "stack-increase" | "stack-extend" => Value::Principal(sender.clone()),
+        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => Value::Principal(sender.clone()),
         _ => args[0].clone(),
     }
 }
@@ -318,6 +318,39 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
             }}
         )
         "#,
+        func_name = function_name
+    )
+}
+
+/// Craft the code snippet to evaluate an event-info for the delegate-stx function
+fn create_event_info_delegation_code(
+    sender: &PrincipalData,
+    function_name: &str,
+    args: &[Value],
+) -> String {
+    format!(
+        r#"
+        (let (
+            (stacker '{stacker})
+            (func-name "{func_name}")
+            (stacker-info (stx-account stacker))
+            (total-balance (stx-get-balance stacker))
+        )
+            {{
+                ;; Function name
+                name: func-name,
+                ;; The principal of the stacker
+                stacker: stacker,
+                ;; The current available balance
+                balance: total-balance,
+                ;; The amount of locked STX
+                locked: (get locked stacker-info),
+                ;; The burnchain block height of when the tokens unlock. Zero if no tokens are locked.
+                burnchain-unlock-height: (get unlock-height stacker-info),
+            }}
+        )
+        "#,
+        stacker = get_stacker(sender, function_name, args),
         func_name = function_name
     )
 }
@@ -532,6 +565,32 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                 reward_cycle = &args[1]
             )
         }
+        "delegate-stx" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; amount of ustx to delegate.
+                        ;; equal to args[0]
+                        amount-ustx: {amount_ustx},
+                        ;; address of delegatee.
+                        ;; equal to args[1]
+                        delegate-to: '{delegate_to},
+                        ;; optional burnchain height when the delegation finishes.
+                        ;; derived from args[2]
+                        unlock-burn-height: {until_burn_height},
+                        ;; optional PoX address tuple.
+                        ;; equal to args[3].
+                        pox-addr: {pox_addr}
+                    }}
+                }}
+                "#,
+                amount_ustx = &args[0],
+                delegate_to = &args[1],
+                until_burn_height = &args[2],
+                pox_addr = &args[3],
+            )
+        },
         _ => format!("{{ data: {{ unimplemented: true }} }}"),
     }
 }
@@ -566,6 +625,8 @@ fn synthesize_pox_2_event_info(
         "stack-aggregation-commit"
         | "stack-aggregation-commit-indexed"
         | "stack-aggregation-increase" => Some(create_event_info_aggregation_code(function_name)),
+        "delegate-stx" => Some(create_event_info_delegation_code(sender, function_name, args)),
+        // use create_event_info_stack_or_delegate_code
         _ => None,
     };
 
@@ -631,7 +692,7 @@ fn synthesize_pox_2_event_info(
                 e
             })?;
 
-        test_debug!(
+        info!(
             "Synthesized PoX-2 event info for '{}''s call to '{}': {:?}",
             sender,
             function_name,
