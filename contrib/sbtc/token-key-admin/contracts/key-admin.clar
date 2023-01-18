@@ -1,5 +1,5 @@
 
-;; title: key-admin
+;; title: token-key-admin
 ;; version:
 ;; summary:
 ;; description:
