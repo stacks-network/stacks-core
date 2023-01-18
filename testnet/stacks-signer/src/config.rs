@@ -1,11 +1,38 @@
 use serde::Deserialize;
 use std::fs;
 use toml;
+use clap::Parser;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct Config {
-    pub stacks_node_url: String,
+    pub common: Common,
+    pub signer: Signer,
 }
+
+#[derive(Clone, Deserialize, Default, Debug)]
+pub struct Common {
+    pub stacks_node_url: String,
+    pub total_signers: usize,
+    pub minimum_signers: usize,
+}
+
+#[derive(Clone, Deserialize, Default, Debug)]
+pub struct Signer {
+    pub frost_id: usize,
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+pub struct Cli {
+    /// Turn debugging information on
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
+
+    /// Turn debugging information on
+    #[arg(short, long)]
+    id: Option<usize>,
+}
+
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Config, String> {
@@ -15,5 +42,11 @@ impl Config {
     pub fn from_str(content: &str) -> Result<Config, String> {
         let config: Config = toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
         Ok(config)
+    }
+
+    pub fn merge(&mut self, cli: Cli) {
+        if let Some(frost_id) = cli.id {
+            self.signer.frost_id = frost_id;
+        }
     }
 }

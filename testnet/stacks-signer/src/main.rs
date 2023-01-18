@@ -1,15 +1,18 @@
 use slog::slog_info;
 use stacks_common::info;
-use stacks_signer::config::Config;
+use stacks_signer::config::{Cli, Config};
 use stacks_signer::net::{HttpNet, Message, Net};
 use stacks_signer::signer::{Signer};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
 use std::{thread, time};
+use clap::Parser;
 
 fn main() {
-    let config = Config::from_file("conf/stacker.toml").unwrap();
+    let mut config = Config::from_file("conf/stacker.toml").unwrap();
+    let cli = Cli::parse();
+    config.merge(cli);
     info!("{}", stacks_signer::version());
 
     let net: HttpNet = HttpNet::new(&config, vec![], vec![]);
@@ -37,8 +40,9 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
     }
 }
 
-fn main_loop(_config: &Config, rx: Receiver<Message>) {
+fn main_loop(config: &Config, rx: Receiver<Message>) {
     let mut signer = Signer::new();
+    signer.reset(config.common.minimum_signers, config.common.total_signers);
 
     loop {
         let message = rx.recv().unwrap();

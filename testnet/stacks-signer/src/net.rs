@@ -26,7 +26,7 @@ pub struct Message {
 impl HttpNet {
     pub fn new(config: &Config, in_q: Vec<Message>, out_q: Vec<Message>) -> Self {
         HttpNet {
-            stacks_node_url: config.stacks_node_url.to_owned(),
+            stacks_node_url: config.common.stacks_node_url.to_owned(),
             in_queue: in_q,
             _out_queue: out_q,
         }

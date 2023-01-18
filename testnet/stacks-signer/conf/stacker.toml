@@ -1,1 +1,8 @@
+[common]
 stacks_node_url = "http://localhost:9776?id=1"
+total_signers = 3
+minimum_signers = 2
+
+[signer]
+frost_id = 1
+

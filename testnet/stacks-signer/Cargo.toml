@@ -16,6 +16,7 @@ crate-type = ["lib"]   # The crate types to generate.
 
 [dependencies]
 bincode = "1.3.3"
+clap = { version = "4.1.1", features = ["derive"] }
 frost = { git = "https://github.com/trust-machines/frost", rev = "d618e4e08d14c9f90581aec355c316377274392c" }
 hashbrown = { version = "0.13", features = ["serde"] }
 itertools = "^0.10.5"
