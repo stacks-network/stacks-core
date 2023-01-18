@@ -41,6 +41,13 @@
     )
 )
 
+(define-public (delete-signer-key (id uint))
+    (if (is-valid-caller)
+        (ok (map-delete signers id))
+        err-invalid-caller
+    )
+)
+
 (define-public (mint! (amount uint))
     (if (is-valid-caller)
         (token-credit! tx-sender amount)
