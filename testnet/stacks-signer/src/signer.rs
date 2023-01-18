@@ -18,7 +18,8 @@ pub struct SignatureShare {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageTypes {
-    Join,
+    DkgBegin,
+    DkgEnd,
     SignatureShare(SignatureShare),
 }
 
@@ -40,10 +41,9 @@ impl Signer {
 
     pub fn process(&mut self, message: MessageTypes) -> bool {
         match message {
-            MessageTypes::Join => {
-                self.reset(1, 2);
-            }
+            MessageTypes::DkgBegin => {}
             MessageTypes::SignatureShare(_share) => {}
+            MessageTypes::DkgEnd => {}
         };
         true
     }
