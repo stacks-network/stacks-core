@@ -3,6 +3,7 @@ use frost::v1::Party;
 use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
+use serde::{Serialize, Deserialize};
 
 type KeyShare = HashMap<usize, Scalar>;
 
@@ -10,12 +11,12 @@ pub struct Signer {
     parties: Vec<Party>,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShare {
     pub signature_share: frost::common::SignatureShare,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum MessageTypes {
     Join,
     SignatureShare(SignatureShare),

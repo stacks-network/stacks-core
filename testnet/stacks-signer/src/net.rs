@@ -3,6 +3,7 @@ use crate::signer;
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
+use serde::{Serialize, Deserialize};
 
 pub struct HttpNet {
     pub stacks_node_url: String,
@@ -17,7 +18,7 @@ pub trait Net {
     fn send_message(&self, _msg: Message);
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
     pub msg: signer::MessageTypes,
 }
@@ -59,12 +60,12 @@ impl Net for HttpNet {
         self.in_queue.pop()
     }
 
-    fn send_message(&self, _msg: Message) {
+    fn send_message(&self, msg: Message) {
         let req = ureq::post(&self.stacks_node_url);
-        let bytes = "somebytes".as_bytes();
-        match req.send_bytes(bytes) {
+        let bytes = bincode::serialize(&msg).unwrap();
+        match req.send_bytes(&bytes[..]) {
             Ok(response) => {
-                info!("sent {:?}", &response)
+                info!("sent {} bytes {:?}", bytes.len(), &response)
             }
             Err(e) => {
                 info!("post failed to {} {}", self.stacks_node_url, e)
