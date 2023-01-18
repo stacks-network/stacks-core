@@ -1,5 +1,5 @@
 
-;; title: token-key-admin
+;; title: sbtc-token-key-admin
 ;; version:
 ;; summary:
 ;; description:
