@@ -27,7 +27,7 @@ impl PegInOp {
                 return Err(OpError::InvalidInput);
             };
 
-        let recipient = Self::parse_data(&tx.data())?;
+        let parsed_data = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -35,7 +35,8 @@ impl PegInOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            recipient,
+            recipient: parsed_data.address,
+            recipient_contract_name: parsed_data.contract_name,
             peg_wallet_address,
             amount,
             txid,
@@ -45,21 +46,42 @@ impl PegInOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<StacksAddress, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
         /*
             Wire format:
 
-            0      2  3                     24
-            |------|--|---------------------|
-             magic  op   Stacks address
+            0      2  3                  24                            64
+            |------|--|------------------|-----------------------------|
+             magic  op   Stacks address      Contract name (optional)
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
              this is done in `burnchains::bitcoin::blocks::BitcoinBlockParser::parse_data`.
         */
-        StacksAddress::consensus_deserialize(&mut &data[..]).map_err(|e| {
-            warn!("PEG_IN Address parsing error: {}", e);
-            ParseError::AddressParsing
+
+        if data.len() < 21 {
+            warn!(
+                "PegInOp payload is malformed ({} bytes, expected at least {})",
+                data.len(),
+                21
+            );
+            return Err(ParseError::MalformedData);
+        }
+
+        let mut address_data = data.get(..21).ok_or(ParseError::MalformedData)?;
+
+        let address = StacksAddress::consensus_deserialize(&mut address_data)?;
+
+        let contract_name = data
+            .get(21..)
+            .filter(|bytes| !bytes.is_empty())
+            .map(std::str::from_utf8)
+            .transpose()?
+            .map(ToOwned::to_owned);
+
+        Ok(ParsedData {
+            address,
+            contract_name,
         })
     }
 
@@ -73,13 +95,32 @@ impl PegInOp {
     }
 }
 
+struct ParsedData {
+    address: StacksAddress,
+    contract_name: Option<String>,
+}
+
 enum ParseError {
     AddressParsing,
+    MalformedData,
+    Utf8Error,
 }
 
 impl From<ParseError> for OpError {
     fn from(_: ParseError) -> Self {
         Self::ParseError
+    }
+}
+
+impl From<std::str::Utf8Error> for ParseError {
+    fn from(_: std::str::Utf8Error) -> Self {
+        Self::Utf8Error
+    }
+}
+
+impl From<stacks_common::codec::Error> for ParseError {
+    fn from(_: stacks_common::codec::Error) -> Self {
+        Self::AddressParsing
     }
 }
 
@@ -123,6 +164,34 @@ mod tests {
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
         assert_eq!(op.recipient, stx_address);
+        assert!(op.recipient_contract_name.is_none());
+        assert_eq!(op.amount, amount);
+        assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+    }
+
+    #[test]
+    fn test_parse_peg_in_should_succeed_given_a_contract_recipient() {
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let contract_name = "my_amazing_contract";
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+
+        let mut data = vec![1];
+        let addr_bytes = random_bytes(&mut rng);
+        let stx_address = StacksAddress::new(1, addr_bytes.into());
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(contract_name.as_bytes());
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
+
+        assert_eq!(op.recipient, stx_address);
+        assert_eq!(op.recipient_contract_name.unwrap(), contract_name);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
     }
@@ -148,6 +217,33 @@ mod tests {
         match op {
             Err(OpError::InvalidInput) => (),
             result => panic!("Expected OpError::InvalidInput, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_peg_in_should_return_error_given_invalid_utf8_contract_name() {
+        let invalid_utf8_byte_sequence = [255, 255];
+
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+
+        let mut data = vec![1];
+        let addr_bytes: [u8; 20] = random_bytes(&mut rng);
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&invalid_utf8_byte_sequence);
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::ParseError) => (),
+            result => panic!("Expected OpError::ParseError, got {:?}", result),
         }
     }
 
