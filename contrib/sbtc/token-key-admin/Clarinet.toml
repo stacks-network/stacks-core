@@ -1,12 +1,12 @@
 [project]
-name = 'sbtc-sbtc-token-key-admin'
+name = 'sbtc-token-key-admin'
 description = ''
 authors = []
 telemetry = true
 cache_dir = './.cache'
 requirements = []
-[contracts.sbtc-sbtc-token-key-admin]
-path = 'contracts/sbtc-sbtc-token-key-admin.clar'
+[contracts.sbtc-token-key-admin]
+path = 'contracts/sbtc-token-key-admin.clar'
 clarity_version = 1
 epoch = 2.0
 [repl.analysis]
