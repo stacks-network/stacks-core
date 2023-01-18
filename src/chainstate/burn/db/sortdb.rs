@@ -414,7 +414,7 @@ impl FromRow<PegInOp> for PegInOp {
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
-        let address = StacksAddress::from_column(row, "address")?;
+        let recipient = StacksAddress::from_column(row, "recipient")?;
         let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
         let amount = row
             .get::<_, String>("amount")?
@@ -426,7 +426,7 @@ impl FromRow<PegInOp> for PegInOp {
             vtxindex,
             block_height,
             burn_header_hash,
-            address,
+            recipient,
             peg_wallet_address,
             amount,
         })
@@ -738,7 +738,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
 
-        address TEXT NOT NULL,
+        recipient TEXT NOT NULL,            -- Stacks address to receive the sBTC, can also be a smart contract address
         peg_wallet_address TEXT NOT NULL,
         amount TEXT NOT NULL,
 
@@ -4894,12 +4894,12 @@ impl<'a> SortitionHandleTx<'a> {
             &op.vtxindex,
             &u64_to_sql(op.block_height)?,
             &op.burn_header_hash,
-            &op.address.to_string(),
+            &op.recipient.to_string(),
             &op.peg_wallet_address.to_string(),
             &op.amount.to_string(),
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, address, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
 
         Ok(())
     }
@@ -6333,7 +6333,7 @@ pub mod tests {
         let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
         let peg_in = PegInOp {
-            address,
+            recipient: address,
             peg_wallet_address,
             amount,
 

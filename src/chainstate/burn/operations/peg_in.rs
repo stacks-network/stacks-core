@@ -27,7 +27,7 @@ impl PegInOp {
                 return Err(OpError::InvalidInput);
             };
 
-        let address = Self::parse_data(&tx.data())?;
+        let recipient = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -35,7 +35,7 @@ impl PegInOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            address,
+            recipient,
             peg_wallet_address,
             amount,
             txid,
@@ -122,7 +122,7 @@ mod tests {
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
-        assert_eq!(op.address, stx_address);
+        assert_eq!(op.recipient, stx_address);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
     }
