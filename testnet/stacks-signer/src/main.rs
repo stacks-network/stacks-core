@@ -2,12 +2,11 @@ use slog::slog_info;
 use stacks_common::info;
 use stacks_signer::config::Config;
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signer::{MessageTypes, Signer};
+use stacks_signer::signer::{Signer};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
 use std::{thread, time};
-use MessageTypes::Join;
 
 fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
@@ -15,9 +14,10 @@ fn main() {
 
     let net: HttpNet = HttpNet::new(&config, vec![], vec![]);
 
-    net.send_message(Message { msg: Join });
-    // start p2p sync
+    // thread coordination
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+
+    // start p2p sync
     spawn(move || poll_loop(net, tx));
     main_loop(&config, rx);
 }
@@ -38,11 +38,11 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
 }
 
 fn main_loop(_config: &Config, rx: Receiver<Message>) {
-    info!("mainloop");
-    let _signer = Signer::new();
+    let mut signer = Signer::new();
 
     loop {
         let message = rx.recv().unwrap();
         info!("received message {:?}", message);
+        signer.process(message.msg);
     }
 }

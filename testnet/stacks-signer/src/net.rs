@@ -41,12 +41,12 @@ impl Net for HttpNet {
             Ok(response) => {
                 match response.status() {
                     200 => {
-                        info!("get/poll returned {:?}", response);
+                        debug!("get/poll returned {:?}", response);
                         match bincode::deserialize_from::<_, Message>(response.into_reader()) {
                             Ok(msg) => {
                                 info!("{:?}", &msg);
                             }
-                            Err(e) => {}
+                            Err(_e) => {}
                         };
                     }
                     _ => {}
@@ -68,7 +68,7 @@ impl Net for HttpNet {
         let bytes = bincode::serialize(&msg).unwrap();
         match req.send_bytes(&bytes[..]) {
             Ok(response) => {
-                info!("sent {} bytes {:?}", bytes.len(), &response)
+                debug!("sent {} bytes {:?}", bytes.len(), &response)
             }
             Err(e) => {
                 info!("post failed to {} {}", self.stacks_node_url, e)
