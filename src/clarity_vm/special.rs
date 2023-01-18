@@ -262,7 +262,8 @@ fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> V
     }
 }
 
-/// Craft the code snippet to evaluate an event-info for a stack-* or a delegate-stack-* function
+/// Craft the code snippet to evaluate an event-info for a stack-* function,
+/// a delegate-stack-* function, or for delegate-stx
 fn create_event_info_stack_or_delegate_code(
     sender: &PrincipalData,
     function_name: &str,
@@ -318,39 +319,6 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
             }}
         )
         "#,
-        func_name = function_name
-    )
-}
-
-/// Craft the code snippet to evaluate an event-info for the delegate-stx function
-fn create_event_info_delegation_code(
-    sender: &PrincipalData,
-    function_name: &str,
-    args: &[Value],
-) -> String {
-    format!(
-        r#"
-        (let (
-            (stacker '{stacker})
-            (func-name "{func_name}")
-            (stacker-info (stx-account stacker))
-            (total-balance (stx-get-balance stacker))
-        )
-            {{
-                ;; Function name
-                name: func-name,
-                ;; The principal of the stacker
-                stacker: stacker,
-                ;; The current available balance
-                balance: total-balance,
-                ;; The amount of locked STX
-                locked: (get locked stacker-info),
-                ;; The burnchain block height of when the tokens unlock. Zero if no tokens are locked.
-                burnchain-unlock-height: (get unlock-height stacker-info),
-            }}
-        )
-        "#,
-        stacker = get_stacker(sender, function_name, args),
         func_name = function_name
     )
 }
@@ -625,8 +593,7 @@ fn synthesize_pox_2_event_info(
         "stack-aggregation-commit"
         | "stack-aggregation-commit-indexed"
         | "stack-aggregation-increase" => Some(create_event_info_aggregation_code(function_name)),
-        "delegate-stx" => Some(create_event_info_delegation_code(sender, function_name, args)),
-        // use create_event_info_stack_or_delegate_code
+        "delegate-stx" => Some(create_event_info_stack_or_delegate_code(sender, function_name, args)),
         _ => None,
     };
 

@@ -1795,13 +1795,8 @@ fn stx_delegate_btc_integration_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     test_observer::clear();
@@ -1836,6 +1831,7 @@ fn stx_delegate_btc_integration_test() {
     );
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
     // let's fire off our delegate op.
     let del_stx_op = DelegateStxOp {
         sender: spender_stx_addr.clone(),
@@ -1870,6 +1866,7 @@ fn stx_delegate_btc_integration_test() {
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 300);
 
+    // send a delegate-stack-stx transaction
     let sort_height = channel.get_sortitions_processed();
     let tx = make_contract_call(
         &recipient_sk,
@@ -1902,9 +1899,12 @@ fn stx_delegate_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // check the locked amount for the spender account
     let account = get_account(&http_origin, &spender_stx_addr);
     assert_eq!(account.locked, 100_000);
 
+    let mut delegate_stack_stx_found = false;
+    let mut delegate_stx_found = false;
     let blocks = test_observer::get_blocks();
     for block in blocks.iter() {
         let events = block.get("events").unwrap().as_array().unwrap();
@@ -1912,17 +1912,27 @@ fn stx_delegate_btc_integration_test() {
             let event_type = event.get("type").unwrap().as_str().unwrap();
             if event_type == "contract_event" {
                 let contract_event = event.get("contract_event").unwrap().as_object().unwrap();
+
+                // Check that it is a print event
                 let sub_type = contract_event.get("topic").unwrap().as_str().unwrap();
                 assert_eq!(sub_type, "print");
 
+                // Ensure that the function name is as expected
+                // This verifies that there were print events for delegate-stack-stx and delegate-stx
                 let name_field = &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
                 let name_data = name_field["Sequence"]["String"]["ASCII"]["data"].as_array().unwrap();
                 let ascii_vec = name_data.iter().map(|num| num.as_u64().unwrap() as u8).collect();
                 let name = String::from_utf8(ascii_vec).unwrap();
-                assert!(name == "delegate-stack-stx" || name == "delegate-stx");
+                if name == "delegate-stack-stx" {
+                    delegate_stack_stx_found = true;
+                } else if name == "delegate-stx" {
+                    delegate_stx_found = true;
+                }
             }
         }
     }
+    assert!(delegate_stx_found);
+    assert!(delegate_stack_stx_found);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

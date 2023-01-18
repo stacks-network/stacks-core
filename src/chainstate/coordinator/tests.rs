@@ -3548,10 +3548,6 @@ fn test_delegate_stx_btc_ops() {
                 &second_del,
             );
 
-            if ix == 10 {
-
-            }
-
             // Check that the effects of the delegate stx op sent when ix==10
             // are materialized for ix=11... (we check that the
             // changes endure for the following blocks)
@@ -3586,8 +3582,6 @@ fn test_delegate_stx_btc_ops() {
                     "The second delegation should not be active"
                 );
             }
-
-
         }
     }
 
