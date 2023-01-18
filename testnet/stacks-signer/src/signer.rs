@@ -3,7 +3,7 @@ use frost::v1::Party;
 use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 type KeyShare = HashMap<usize, Scalar>;
 

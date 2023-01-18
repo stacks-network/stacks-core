@@ -1,9 +1,9 @@
 use crate::config::Config;
 use crate::signer;
+use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
-use serde::{Serialize, Deserialize};
 
 pub struct HttpNet {
     pub stacks_node_url: String,
@@ -42,9 +42,12 @@ impl Net for HttpNet {
                 match response.status() {
                     200 => {
                         info!("get/poll returned {:?}", response);
-                        let mut body = String::new();
-                        response.into_reader().read_to_string(&mut body);
-                        info!("{:?}", body);
+                        match bincode::deserialize_from::<_, Message>(response.into_reader()) {
+                            Ok(msg) => {
+                                info!("{:?}", &msg);
+                            }
+                            Err(e) => {}
+                        };
                     }
                     _ => {}
                 };
