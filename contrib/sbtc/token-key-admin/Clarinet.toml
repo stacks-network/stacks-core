@@ -1,12 +1,12 @@
 [project]
-name = 'key-admin'
+name = 'token-key-admin'
 description = ''
 authors = []
 telemetry = true
 cache_dir = './.cache'
 requirements = []
-[contracts.key-admin]
-path = 'contracts/key-admin.clar'
+[contracts.token-key-admin]
+path = 'contracts/token-key-admin.clar'
 clarity_version = 1
 epoch = 2.0
 [repl.analysis]
