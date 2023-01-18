@@ -95,3 +95,25 @@ Clarinet.test({
         coordinator_delete.result.expectNone();
     },
 });
+
+Clarinet.test({
+    name: "Ensure we can mint tokens",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let block = chain.mineBlock([
+            // Generate a contract call to count-up from the deployer address.
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+        ]);
+
+        // Get the first (and only) transaction receipt.
+        let [receipt] = block.receipts;
+
+        // Assert that the returned result is a boolean true.
+        //receipt.result.expectOk().expectBool(true);
+
+        let balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+
+        balance.result.expectOk().expectUint(1234);
+    },
+});
