@@ -1166,8 +1166,8 @@ impl BitcoinRegtestController {
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             bytes.push(Opcodes::PegIn as u8);
-            bytes.push(payload.address.version);
-            bytes.extend_from_slice(payload.address.bytes.as_bytes());
+            bytes.push(payload.recipient.version);
+            bytes.extend_from_slice(payload.recipient.bytes.as_bytes());
             bytes
         };
 

@@ -10779,7 +10779,7 @@ fn test_submit_and_observe_peg_in_request() {
 
     // Let's send a Peg-in op.
     let peg_in_op = PegInOp {
-        address: receiver_stx_addr,
+        recipient: receiver_stx_addr,
         peg_wallet_address,
         amount: 1337,
         txid: Txid([0u8; 32]),
@@ -10812,7 +10812,7 @@ fn test_submit_and_observe_peg_in_request() {
 
     let parsed_peg_in_op = ops.first().unwrap();
 
-    assert_eq!(parsed_peg_in_op.address, peg_in_op.address);
+    assert_eq!(parsed_peg_in_op.recipient, peg_in_op.recipient);
     assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
     assert_eq!(
         parsed_peg_in_op.peg_wallet_address,

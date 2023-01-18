@@ -315,7 +315,7 @@ pub struct DelegateStxOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
-    pub address: StacksAddress,
+    pub recipient: StacksAddress,
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
 
