@@ -1,7 +1,7 @@
+use clap::Parser;
 use serde::Deserialize;
 use std::fs;
 use toml;
-use clap::Parser;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct Config {
@@ -32,7 +32,6 @@ pub struct Cli {
     #[arg(short, long)]
     id: Option<usize>,
 }
-
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Config, String> {

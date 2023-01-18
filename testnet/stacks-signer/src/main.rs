@@ -1,18 +1,17 @@
+use clap::Parser;
 use slog::slog_info;
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signer::{Signer};
+use stacks_signer::signer::Signer;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
 use std::{thread, time};
-use clap::Parser;
 
 fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
-    let cli = Cli::parse();
-    config.merge(cli);
+    config.merge(Cli::parse());
     info!("{}", stacks_signer::version());
 
     let net: HttpNet = HttpNet::new(&config, vec![], vec![]);
