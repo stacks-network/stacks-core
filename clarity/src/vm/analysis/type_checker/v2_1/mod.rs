@@ -612,8 +612,8 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     }
 
     // Canonicalize the types for 2.1
-    let actual_type = actual_in.canonicalize(&StacksEpochId::Epoch21);
-    let expected_type = expected_in.canonicalize(&StacksEpochId::Epoch21);
+    let actual_type = actual_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
+    let expected_type = expected_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
 
     // Recurse into values to check embedded traits properly
     match (&actual_type, &expected_type) {
@@ -1225,7 +1225,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected: &TypeSignature,
     ) -> TypeResult {
-        let expected_type = expected.canonicalize(&StacksEpochId::Epoch21);
+        let expected_type = expected.canonicalize_simple_type(&StacksEpochId::Epoch21);
         match (&expr.expr, &expected_type) {
             (
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
