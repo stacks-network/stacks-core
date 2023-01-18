@@ -1697,16 +1697,9 @@ fn stx_delegate_btc_integration_test() {
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.clone().into();
-    let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
-        BitcoinNetworkType::Regtest,
-        LegacyBitcoinAddressType::PublicKeyHash,
-        &spender_stx_addr.bytes.0,
-    )
-        .unwrap();
 
-    let spender_2_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
-    let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
-    let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
+    let recipient_sk = StacksPrivateKey::new();
+    let recipient_addr = to_addr(&recipient_sk);
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
@@ -1723,13 +1716,12 @@ fn stx_delegate_btc_integration_test() {
         address: spender_addr.clone(),
         amount: 100300,
     });
-
     conf.initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
-        amount: 100300,
+        address: recipient_addr.clone().into(),
+        amount: 300,
     });
 
-    // force mainnet limits in 2.05 for this test
+    // update epoch info so that Epoch 2.1 takes effect
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -1819,13 +1811,6 @@ fn stx_delegate_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let pox_info = get_pox_info(&http_origin);
-    info!("pox info after startup: {:?}", pox_info);
-    assert_eq!(pox_info.contract_id, format!("{}", boot_code_id("pox-2", false)));
-
-    // let's query the spender's account:
-    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
-
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
         output: spender_stx_addr.clone(),
@@ -1852,8 +1837,6 @@ fn stx_delegate_btc_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // let's fire off our delegate op.
-    let recipient_sk = StacksPrivateKey::new();
-    let recipient_addr = to_addr(&recipient_sk);
     let del_stx_op = DelegateStxOp {
         sender: spender_stx_addr.clone(),
         delegate_to: recipient_addr.clone(),
@@ -1868,7 +1851,6 @@ fn stx_delegate_btc_integration_test() {
     };
 
     let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
-
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -1880,48 +1862,40 @@ fn stx_delegate_btc_integration_test() {
             .is_some(),
         "Delegate operation should submit successfully"
     );
-    // should be elected in the same block as the transfer, so balances should be unchanged.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
-    assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
 
-    // this block should process the delegation, after which the balaces should be unchanged
+    // the second block should process the delegation, after which the balaces should be unchanged
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
-    assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 300);
 
+    let sort_height = channel.get_sortitions_processed();
     let tx = make_contract_call(
-        &spender_2_sk,
+        &recipient_sk,
         0,
-        262,
+        293,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
-        "stack-stx",
+        "delegate-stack-stx",
         &[
-            Value::UInt(500),
+            Value::Principal(spender_addr.clone()),
+            Value::UInt(100_000),
             execute(
                 &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
                 ClarityVersion::Clarity2,
             )
                 .unwrap()
                 .unwrap(),
-            Value::UInt(10),
+            Value::UInt(sort_height as u128),
             Value::UInt(6),
         ],
     );
 
-    // okay, let's push that stacking transaction!
+    // push the stacking transaction
     submit_tx(&http_origin, &tx);
 
-    let pox_info = get_pox_info(&http_origin);
-    // now let's mine until the next reward cycle starts ...
-    // while sort_height < ((pox_info.current_cycle.id as u32 * pox_constants.reward_cycle_length) + 1).into() {
-    //     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    //     sort_height = channel.get_sortitions_processed();
-    //     eprintln!("Sort height: {}", sort_height);
-    // }
-
+    // let's mine until the next reward cycle starts ...
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -1929,8 +1903,7 @@ fn stx_delegate_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &spender_stx_addr);
-    assert_eq!(account.locked, 500);
-
+    assert_eq!(account.locked, 100_000);
 
     let blocks = test_observer::get_blocks();
     for block in blocks.iter() {
@@ -1946,7 +1919,7 @@ fn stx_delegate_btc_integration_test() {
                 let name_data = name_field["Sequence"]["String"]["ASCII"]["data"].as_array().unwrap();
                 let ascii_vec = name_data.iter().map(|num| num.as_u64().unwrap() as u8).collect();
                 let name = String::from_utf8(ascii_vec).unwrap();
-                assert_eq!(name, "delegate-stx");
+                assert!(name == "delegate-stack-stx" || name == "delegate-stx");
             }
         }
     }

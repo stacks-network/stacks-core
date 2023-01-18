@@ -692,7 +692,7 @@ fn synthesize_pox_2_event_info(
                 e
             })?;
 
-        info!(
+        test_debug!(
             "Synthesized PoX-2 event info for '{}''s call to '{}': {:?}",
             sender,
             function_name,
