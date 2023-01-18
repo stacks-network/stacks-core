@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 type KeyShare = HashMap<usize, Scalar>;
 
 pub struct Signer {
-    parties: Vec<Party>,
+    pub id: usize,
+    pub parties: Vec<Party>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -24,12 +25,16 @@ pub enum MessageTypes {
 }
 
 impl Signer {
-    pub fn new() -> Signer {
-        Signer { parties: vec![] }
+    pub fn new(id: usize) -> Signer {
+        Signer {
+            id: id,
+            parties: vec![],
+        }
     }
 
     pub fn reset(&mut self, threshold: usize, total: usize) {
         assert!(threshold <= total);
+        assert!(self.id <= total);
         let mut rng = OsRng::default();
 
         // Initial set-up
@@ -41,7 +46,7 @@ impl Signer {
 
     pub fn process(&mut self, message: MessageTypes) -> bool {
         match message {
-            MessageTypes::DkgBegin => {}
+            MessageTypes::DkgBegin => self.dkg_begin(),
             MessageTypes::SignatureShare(_share) => {}
             MessageTypes::DkgEnd => {}
         };
@@ -51,4 +56,6 @@ impl Signer {
     pub fn key_share(&self, party_id: usize) -> KeyShare {
         self.parties[party_id].get_shares()
     }
+
+    pub fn dkg_begin(&mut self) {}
 }

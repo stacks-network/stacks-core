@@ -40,7 +40,7 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
 }
 
 fn main_loop(config: &Config, rx: Receiver<Message>) {
-    let mut signer = Signer::new();
+    let mut signer = Signer::new(config.signer.frost_id);
     signer.reset(config.common.minimum_signers, config.common.total_signers);
 
     loop {

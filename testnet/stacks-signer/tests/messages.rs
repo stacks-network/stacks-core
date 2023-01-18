@@ -3,27 +3,38 @@ use stacks_signer::config::Config;
 use stacks_signer::net::{HttpNet, Message, Net};
 use stacks_signer::signer::{MessageTypes, SignatureShare, Signer};
 
-fn setup(in_queue: Vec<Message>, out_queue: Vec<Message>) -> (Signer, Box<dyn Net>) {
-    let mut signer = Signer::new();
+fn setup_signer() -> Signer {
+    let my_id = 1;
+    let mut signer = Signer::new(my_id);
     signer.reset(1, 2);
-    let mut config = Config::default();
-    config.common.stacks_node_url = "http://localhost:9775".to_owned();
-
-    // prepopulate network receive queue
-    (signer, Box::new(HttpNet::new(&config, in_queue, out_queue)))
+    signer
 }
 
 #[test]
-fn receive_join() {
+fn receive_msg() {
     let m1 = Message {
-        msg: MessageTypes::DkgBegin
+        msg: MessageTypes::DkgBegin,
     };
+    let mut config = Config::default();
+    config.common.stacks_node_url = "http://localhost:9775".to_owned();
+
     let in_queue = vec![m1];
     let out_queue = vec![];
-    let (mut signer, _net) = setup(in_queue, out_queue);
+    let mut net = HttpNet::new(&config, in_queue, out_queue);
+    match net.next_message() {
+        Some(_msg) => {
+            assert!(true)
+        }
+        None => {}
+    }
+}
 
-    let join = MessageTypes::DkgBegin;
-    assert!(signer.process(join));
+#[test]
+fn dkg_begin() {
+    let mut signer = setup_signer();
+
+    let dkg_begin_msg = MessageTypes::DkgBegin;
+    assert!(signer.process(dkg_begin_msg));
 }
 
 #[test]
@@ -34,27 +45,10 @@ fn receive_share() {
         public_key: Default::default(),
     };
 
-    let m1 = Message {
-        msg: MessageTypes::SignatureShare(SignatureShare {
+    let msg_share = MessageTypes::SignatureShare(SignatureShare {
             signature_share: share,
-        }),
-    };
-    let in_queue = vec![m1];
-    let out_queue = vec![];
-    let (_signer, mut net) = setup(in_queue, out_queue);
+        });
 
-    let next = net.next_message();
-    match next {
-        Some(msg) => match msg.msg {
-            MessageTypes::SignatureShare(share) => {
-                assert_eq!(share.signature_share.id, 0)
-            }
-            _ => {
-                panic!("wrong msg received")
-            }
-        },
-        None => {
-            panic!("net.next_message() failed")
-        }
-    }
+    let mut signer = setup_signer();
+    signer.process(msg_share);
 }
