@@ -439,6 +439,15 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
     })
 }
 
+/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
+/// This allows `handle_get_burn_ops` to use an enum for the different operation
+///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
+///  from a, e.g., `Vec<PegInOp>`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BurnchainOpsVec {
+    PegIn(Vec<PegInOp>),
+}
+
 impl BlockstackOperationType {
     pub fn opcode(&self) -> Opcodes {
         match *self {
