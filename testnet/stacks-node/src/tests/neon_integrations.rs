@@ -10469,6 +10469,7 @@ fn test_submit_and_observe_peg_in_request() {
     // Let's send a Peg-in op.
     let peg_in_op = PegInOp {
         recipient: receiver_stx_addr,
+        recipient_contract_name: None,
         peg_wallet_address,
         amount: 1337,
         txid: Txid([0u8; 32]),
