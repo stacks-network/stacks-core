@@ -36,7 +36,9 @@ use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::operations::BurnchainOpsVec;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{
     blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
@@ -759,6 +761,70 @@ impl ConversationHttp {
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
+        response.send(http, fd)
+    }
+
+    fn response_get_burn_ops(
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<HttpResponseType, net_error> {
+        let response_metadata = HttpResponseMetadata::from_http_request_type(req, None);
+        let handle = sortdb.index_handle_at_tip();
+        let burn_header_hash = match handle.get_block_snapshot_by_height(burn_block_height) {
+            Ok(Some(snapshot)) => snapshot.burn_header_hash,
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!("Could not find burn block at height {}", burn_block_height),
+                ));
+            }
+        };
+
+        let response = match op_type {
+            Opcodes::PegIn => {
+                SortitionDB::get_peg_in_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOpsVec::PegIn(ops),
+                    )
+                })
+            }
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!(
+                        "Burnchain operation {:?} is not supported by this endpoint",
+                        op_type
+                    ),
+                ));
+            }
+        };
+
+        response.or_else(|e| {
+            Ok(HttpResponseType::NotFound(
+                response_metadata,
+                format!(
+                    "Failure fetching {:?} operations from the sortition db: {}",
+                    op_type, e
+                ),
+            ))
+        })
+    }
+
+    /// Handle a GET for the burnchain operations at a particular
+    /// burn block height
+    fn handle_get_burn_ops<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<(), net_error> {
+        let response = Self::response_get_burn_ops(req, sortdb, burn_block_height, op_type)?;
+
         response.send(http, fd)
     }
 
@@ -2962,6 +3028,21 @@ impl ConversationHttp {
                 response
                     .send(&mut self.connection.protocol, &mut reply)
                     .map(|_| ())?;
+                None
+            }
+            HttpRequestType::GetBurnOps {
+                ref md,
+                height,
+                ref opcode,
+            } => {
+                Self::handle_get_burn_ops(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    height,
+                    opcode,
+                )?;
                 None
             }
         };
