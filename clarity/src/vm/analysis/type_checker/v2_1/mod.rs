@@ -602,8 +602,8 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
 fn clarity2_inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
-    actual_type: &TypeSignature,
-    expected_type: &TypeSignature,
+    actual_in: &TypeSignature,
+    expected_in: &TypeSignature,
     depth: u8,
     tracker: &mut T,
 ) -> TypeResult {
@@ -611,8 +611,12 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         return Err(CheckErrors::TypeSignatureTooDeep.into());
     }
 
+    // Canonicalize the types for 2.1
+    let actual_type = actual_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
+    let expected_type = expected_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
+
     // Recurse into values to check embedded traits properly
-    match (actual_type, expected_type) {
+    match (&actual_type, &expected_type) {
         (
             TypeSignature::OptionalType(atom_inner_type),
             TypeSignature::OptionalType(expected_inner_type),
@@ -693,7 +697,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                             expected_type.clone(),
                             actual_type.clone(),
                         )
-                        .into())
+                        .into());
                     }
                 }
             }
@@ -754,7 +758,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     db,
                     contract_context,
                     &TypeSignature::CallableType(subtype.clone()),
-                    expected_type,
+                    &expected_type,
                     depth + 1,
                     tracker,
                 )?;
@@ -1219,9 +1223,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-        expected_type: &TypeSignature,
+        expected: &TypeSignature,
     ) -> TypeResult {
-        match (&expr.expr, expected_type) {
+        let expected_type = expected.canonicalize_simple_type(&StacksEpochId::Epoch21);
+        match (&expr.expr, &expected_type) {
             (
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
@@ -1256,11 +1261,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
 
         let actual_type = self.type_check(expr, context)?;
-        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+        analysis_typecheck_cost(self, &expected_type, &actual_type)?;
 
         if !expected_type.admits_type(&StacksEpochId::Epoch21, &actual_type)? {
-            let mut err: CheckError =
-                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+            let mut err: CheckError = CheckErrors::TypeError(expected_type, actual_type).into();
             err.set_expression(expr);
             Err(err)
         } else {
