@@ -332,6 +332,8 @@ pub struct PegInOp {
     #[serde(deserialize_with = "crate::chainstate::stacks::address::address_deser")]
     pub recipient: StacksAddress,
     pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
 
