@@ -15,6 +15,8 @@ fn dkg_begin() {
 
     let dkg_begin_msg = MessageTypes::DkgBegin;
     assert!(signer.process(dkg_begin_msg));
+
+    // part of the DKG_BEGIN process is to fill the commitments array
     assert_eq!(signer.commitments.len(), signer.total);
 }
 

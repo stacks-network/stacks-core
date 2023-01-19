@@ -5,22 +5,16 @@ use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
 
+// Message is the format over the wire and a place for future metadata such as sender_id
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Message {
+    pub msg: signing_round::MessageTypes,
+}
+
 pub struct HttpNet {
     pub stacks_node_url: String,
     in_queue: Vec<Message>,
     _out_queue: Vec<Message>,
-}
-
-pub trait Net {
-    fn listen(&self);
-    fn poll(&mut self);
-    fn next_message(&mut self) -> Option<Message>;
-    fn send_message(&self, _msg: Message);
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Message {
-    pub msg: signing_round::MessageTypes,
 }
 
 impl HttpNet {
@@ -31,6 +25,13 @@ impl HttpNet {
             _out_queue: out_q,
         }
     }
+}
+
+pub trait Net {
+    fn listen(&self);
+    fn poll(&mut self);
+    fn next_message(&mut self) -> Option<Message>;
+    fn send_message(&self, _msg: Message);
 }
 
 impl Net for HttpNet {
