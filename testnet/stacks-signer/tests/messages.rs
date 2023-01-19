@@ -25,8 +25,8 @@ fn receive_share() {
     };
 
     let msg_share = MessageTypes::SignatureShare(SignatureShare {
-            signature_share: share,
-        });
+        signature_share: share,
+    });
 
     let mut signer = setup_signer();
     signer.process(msg_share);

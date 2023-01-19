@@ -1,4 +1,5 @@
 pub use frost;
+use frost::common::PolyCommitment;
 use frost::v1::Party;
 use hashbrown::HashMap;
 use rand_core::OsRng;
@@ -9,7 +10,10 @@ type KeyShare = HashMap<usize, Scalar>;
 
 pub struct Signer {
     pub id: usize,
+    pub threshold: usize,
+    pub total: usize,
     pub parties: Vec<Party>,
+    pub commitments: Vec<PolyCommitment>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -25,21 +29,23 @@ pub enum MessageTypes {
 }
 
 impl Signer {
-    pub fn new(id: usize) -> Signer {
+    pub fn new(id: usize, threshold: usize, total: usize) -> Signer {
+        assert!(threshold <= total);
+        assert!(id <= total);
         Signer {
             id: id,
+            threshold: threshold,
+            total: total,
             parties: vec![],
+            commitments: vec![]
         }
     }
 
-    pub fn reset(&mut self, threshold: usize, total: usize) {
-        assert!(threshold <= total);
-        assert!(self.id <= total);
+    pub fn reset(&mut self) {
         let mut rng = OsRng::default();
 
-        // Initial set-up
-        let parties = (0..total)
-            .map(|i| Party::new(i, total, threshold, &mut rng))
+        let parties = (0..self.total)
+            .map(|i| Party::new(i, self.total, self.threshold, &mut rng))
             .collect();
         self.parties = parties;
     }
@@ -58,6 +64,13 @@ impl Signer {
     }
 
     pub fn dkg_begin(&mut self) {
+        // T and N from dkg_begin msg?
+        self.reset();
         let _party_state = self.parties[self.id].save();
+        let mut rng = OsRng::default();
+        self.commitments = self.parties
+            .iter()
+            .map(|p| p.get_poly_commitment(&mut rng))
+            .collect();
     }
 }
