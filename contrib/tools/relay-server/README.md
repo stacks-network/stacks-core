@@ -13,6 +13,8 @@ The `relay` server is an HTTP service that has two functions:
 cargo run --bin relay-server 
 ```
 
+The default address is `http://127.0.0.1:9776`.
+
 ## Integration Test
 
 1. Start the server `cargo run --bit relay-server`
