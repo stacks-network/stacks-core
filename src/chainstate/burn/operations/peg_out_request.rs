@@ -1,5 +1,5 @@
-use clarity::codec::StacksMessageCodec;
-use clarity::util::secp256k1::MessageSignature;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -76,8 +76,8 @@ impl PegOutRequestOp {
 
     pub fn check(&self) -> Result<(), OpError> {
         if self.amount == 0 {
-            warn!("PEG_OUT Invalid: Peg amount must be positive");
-            return Err(OpError::PegInAmountMustBePositive);
+            warn!("PEG_OUT_REQUEST Invalid: Requested BTC amount must be positive");
+            return Err(OpError::AmountMustBePositive);
         }
 
         Ok(())
