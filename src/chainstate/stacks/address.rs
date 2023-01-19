@@ -93,14 +93,14 @@ pub enum PoxAddress {
     Addr32(bool, PoxAddressType32, [u8; 32]),
 }
 
-pub fn DisplaySerialize<S: Serializer, T: std::fmt::Display>(
+pub fn display_serialize<S: Serializer, T: std::fmt::Display>(
     input: &T,
     ser: S,
 ) -> Result<S::Ok, S::Error> {
     ser.serialize_str(&input.to_string())
 }
 
-pub fn AddressDeser<'de, D: Deserializer<'de>, T: Address>(deser: D) -> Result<T, D::Error> {
+pub fn address_deser<'de, D: Deserializer<'de>, T: Address>(deser: D) -> Result<T, D::Error> {
     let string_repr = String::deserialize(deser)?;
     T::from_string(&string_repr)
         .ok_or_else(|| serde::de::Error::custom("Failed to decode address from string"))
