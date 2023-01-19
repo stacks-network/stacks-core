@@ -257,7 +257,9 @@ fn handle_pox_v1_api_contract_call(
 /// - for delegate stacking functions, it's the first argument
 fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> Value {
     match function_name {
-        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => Value::Principal(sender.clone()),
+        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => {
+            Value::Principal(sender.clone())
+        }
         _ => args[0].clone(),
     }
 }
@@ -558,7 +560,7 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                 until_burn_height = &args[2],
                 pox_addr = &args[3],
             )
-        },
+        }
         _ => format!("{{ data: {{ unimplemented: true }} }}"),
     }
 }
@@ -585,7 +587,8 @@ fn synthesize_pox_2_event_info(
         | "stack-extend"
         | "delegate-stack-extend"
         | "stack-increase"
-        | "delegate-stack-increase" => Some(create_event_info_stack_or_delegate_code(
+        | "delegate-stack-increase"
+        | "delegate-stx" => Some(create_event_info_stack_or_delegate_code(
             sender,
             function_name,
             args,
@@ -593,7 +596,6 @@ fn synthesize_pox_2_event_info(
         "stack-aggregation-commit"
         | "stack-aggregation-commit-indexed"
         | "stack-aggregation-increase" => Some(create_event_info_aggregation_code(function_name)),
-        "delegate-stx" => Some(create_event_info_stack_or_delegate_code(sender, function_name, args)),
         _ => None,
     };
 

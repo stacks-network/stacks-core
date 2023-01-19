@@ -1555,7 +1555,11 @@ fn delegate_stack_increase() {
         "(err 18)"
     );
 
-    let delegate_stx_tx = &alice_txs.get(&success_alice_delegation).unwrap().clone().events[0];
+    let delegate_stx_tx = &alice_txs
+        .get(&success_alice_delegation)
+        .unwrap()
+        .clone()
+        .events[0];
     let delegate_stx_op_data = HashMap::from([
         ("pox-addr", Value::none()),
         ("amount-ustx", Value::UInt(10230000000000)),

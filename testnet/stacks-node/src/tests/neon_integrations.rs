@@ -16,7 +16,9 @@ use rusqlite::types::ToSql;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
+};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
@@ -1703,7 +1705,7 @@ fn stx_delegate_btc_integration_test() {
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey)
             .to_bytes()
@@ -1777,7 +1779,10 @@ fn stx_delegate_btc_integration_test() {
     burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf.clone(), None, Some(burnchain_config.clone()), None
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -1882,8 +1887,8 @@ fn stx_delegate_btc_integration_test() {
                 &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
                 ClarityVersion::Clarity2,
             )
-                .unwrap()
-                .unwrap(),
+            .unwrap()
+            .unwrap(),
             Value::UInt(sort_height as u128),
             Value::UInt(6),
         ],
@@ -1919,9 +1924,15 @@ fn stx_delegate_btc_integration_test() {
 
                 // Ensure that the function name is as expected
                 // This verifies that there were print events for delegate-stack-stx and delegate-stx
-                let name_field = &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
-                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"].as_array().unwrap();
-                let ascii_vec = name_data.iter().map(|num| num.as_u64().unwrap() as u8).collect();
+                let name_field =
+                    &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
+                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
+                    .as_array()
+                    .unwrap();
+                let ascii_vec = name_data
+                    .iter()
+                    .map(|num| num.as_u64().unwrap() as u8)
+                    .collect();
                 let name = String::from_utf8(ascii_vec).unwrap();
                 if name == "delegate-stack-stx" {
                     delegate_stack_stx_found = true;

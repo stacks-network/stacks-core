@@ -38,7 +38,10 @@ use stacks::burnchains::{
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp, UserBurnSupportOp};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
+    TransferStxOp, UserBurnSupportOp,
+};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -825,6 +828,17 @@ impl BitcoinRegtestController {
         &mut self,
         _epoch_id: StacksEpochId,
         _payload: TransferStxOp,
+        _signer: &mut BurnchainOpSigner,
+        _utxo: Option<UTXO>,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(not(test))]
+    fn build_delegate_stacks_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: DelegateStxOp,
         _signer: &mut BurnchainOpSigner,
         _utxo: Option<UTXO>,
     ) -> Option<Transaction> {
