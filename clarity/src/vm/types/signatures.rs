@@ -641,10 +641,25 @@ impl TypeSignature {
                 }
             }
             NoType => Err(CheckErrors::CouldNotDetermineType),
-            TraitReferenceType(_) => {
-                unreachable!("TraitReferenceType should not be used in epoch v2.1")
-            }
             _ => Ok(&other == self),
+        }
+    }
+
+    /// Canonicalize a simple type. This method will replace any simple types
+    /// from previous epochs with the appropriate types for the current epoch.
+    /// Note that complex types (`optional`, `list`, `response`, `tuple`) should
+    /// be recursed by the caller.
+    pub fn canonicalize_simple_type(&self, epoch: &StacksEpochId) -> TypeSignature {
+        match epoch {
+            StacksEpochId::Epoch21 => self.canonicalize_simple_type_v2_1(),
+            _ => self.clone(),
+        }
+    }
+
+    pub fn canonicalize_simple_type_v2_1(&self) -> TypeSignature {
+        match self {
+            TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
+            _ => self.clone(),
         }
     }
 
