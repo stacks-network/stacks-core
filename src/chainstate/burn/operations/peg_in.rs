@@ -115,7 +115,7 @@ impl PegInOp {
     pub fn check(&self) -> Result<(), OpError> {
         if self.amount == 0 {
             warn!("PEG_IN Invalid: Peg amount must be positive");
-            return Err(OpError::PegInAmountMustBePositive);
+            return Err(OpError::AmountMustBePositive);
         }
 
         Ok(())
@@ -448,7 +448,7 @@ mod tests {
         };
 
         match create_op(0).check() {
-            Err(OpError::PegInAmountMustBePositive) => (),
+            Err(OpError::AmountMustBePositive) => (),
             result => panic!(
                 "Expected OpError::PegInAmountMustBePositive, got {:?}",
                 result

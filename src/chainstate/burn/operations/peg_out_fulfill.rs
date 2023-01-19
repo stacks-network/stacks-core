@@ -1,4 +1,5 @@
-use clarity::codec::StacksMessageCodec;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::BlockHeaderHash;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -14,20 +15,73 @@ impl PegOutFulfillOp {
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<Self, OpError> {
-        todo!();
+        if tx.opcode() != Opcodes::PegOutFulfill as u8 {
+            warn!("Invalid tx: invalid opcode {}", tx.opcode());
+            return Err(OpError::InvalidInput);
+        }
+
+        let (amount, recipient) = if let Some(Some(recipient)) = tx.get_recipients().first() {
+            (recipient.amount, recipient.address.clone())
+        } else {
+            warn!("Invalid tx: Output 2 not provided");
+            return Err(OpError::InvalidInput);
+        };
+
+        let block_header_hash = Self::parse_data(&tx.data())?;
+
+        let txid = tx.txid();
+        let vtxindex = tx.vtxindex();
+        let block_height = block_header.block_height;
+        let burn_header_hash = block_header.block_hash;
+
+        Ok(Self {
+            block_header_hash,
+            amount,
+            recipient,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+        })
     }
 
-    fn parse_data(data: &[u8]) -> Result<StacksAddress, ParseError> {
-        todo!();
+    fn parse_data(data: &[u8]) -> Result<BlockHeaderHash, ParseError> {
+        /*
+            Wire format:
+
+            0      2  3                     35
+            |------|--|---------------------|
+             magic  op   Block header hash
+
+             Note that `data` is missing the first 3 bytes -- the magic and op must
+             be stripped before this method is called. At the time of writing,
+             this is done in `burnchains::bitcoin::blocks::BitcoinBlockParser::parse_data`.
+        */
+
+        if data.len() < 32 {
+            warn!(
+                "PegInOp payload is malformed ({} bytes, expected at least {})",
+                data.len(),
+                32
+            );
+            return Err(ParseError::MalformedData);
+        }
+
+        BlockHeaderHash::from_bytes(data).ok_or(ParseError::MalformedData)
     }
 
     pub fn check(&self) -> Result<(), OpError> {
-        todo!();
+        if self.amount == 0 {
+            warn!("PEG_OUT_FULFILLMENT Invalid: Transferred amount must be positive");
+            return Err(OpError::AmountMustBePositive);
+        }
+
+        Ok(())
     }
 }
 
 enum ParseError {
-    AddressParsing,
+    MalformedData,
 }
 
 impl From<ParseError> for OpError {
