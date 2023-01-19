@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::signer;
+use crate::signing_round;
 use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
@@ -20,7 +20,7 @@ pub trait Net {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
-    pub msg: signer::MessageTypes,
+    pub msg: signing_round::MessageTypes,
 }
 
 impl HttpNet {

@@ -1,9 +1,9 @@
 use secp256k1_math::scalar::Scalar;
-use stacks_signer::signer::{MessageTypes, SignatureShare, Signer};
+use stacks_signer::signing_round::{MessageTypes, SignatureShare, SigningRound};
 
-fn setup_signer(total: usize, threshold: usize) -> Signer {
+fn setup_signer(total: usize, threshold: usize) -> SigningRound {
     let my_id = 1;
-    let mut signer = Signer::new(my_id, threshold, total);
+    let mut signer = SigningRound::new(my_id, threshold, total);
     signer.reset();
     signer
 }

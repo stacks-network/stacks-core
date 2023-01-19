@@ -3,7 +3,7 @@ use slog::slog_info;
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signer::Signer;
+use stacks_signer::signing_round::SigningRound;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
@@ -40,7 +40,7 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
 }
 
 fn main_loop(config: &Config, rx: Receiver<Message>) {
-    let mut signer = Signer::new(config.signer.frost_id, config.common.minimum_signers, config.common.total_signers);
+    let mut signer = SigningRound::new(config.signer.frost_id, config.common.minimum_signers, config.common.total_signers);
     signer.reset();
 
     loop {

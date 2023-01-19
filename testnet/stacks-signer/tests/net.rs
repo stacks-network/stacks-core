@@ -1,6 +1,6 @@
 use stacks_signer::config::Config;
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signer::MessageTypes;
+use stacks_signer::signing_round::MessageTypes;
 
 #[test]
 fn receive_msg() {

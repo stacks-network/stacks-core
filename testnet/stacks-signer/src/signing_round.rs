@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 type KeyShare = HashMap<usize, Scalar>;
 
-pub struct Signer {
+pub struct SigningRound {
     pub id: usize,
     pub threshold: usize,
     pub total: usize,
@@ -28,11 +28,11 @@ pub enum MessageTypes {
     SignatureShare(SignatureShare),
 }
 
-impl Signer {
-    pub fn new(id: usize, threshold: usize, total: usize) -> Signer {
+impl SigningRound {
+    pub fn new(id: usize, threshold: usize, total: usize) -> SigningRound {
         assert!(threshold <= total);
         assert!(id <= total);
-        Signer {
+        SigningRound {
             id: id,
             threshold: threshold,
             total: total,
