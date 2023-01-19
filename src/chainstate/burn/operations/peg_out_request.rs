@@ -15,7 +15,34 @@ impl PegOutRequestOp {
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<Self, OpError> {
-        todo!();
+        if tx.opcode() != Opcodes::PegOutRequest as u8 {
+            warn!("Invalid tx: invalid opcode {}", tx.opcode());
+            return Err(OpError::InvalidInput);
+        }
+
+        let recipient = if let Some(Some(recipient)) = tx.get_recipients().first() {
+            recipient.address.clone()
+        } else {
+            warn!("Invalid tx: Output 2 not provided");
+            return Err(OpError::InvalidInput);
+        };
+
+        let parsed_data = Self::parse_data(&tx.data())?;
+
+        let txid = tx.txid();
+        let vtxindex = tx.vtxindex();
+        let block_height = block_header.block_height;
+        let burn_header_hash = block_header.block_hash;
+
+        Ok(Self {
+            amount: parsed_data.amount,
+            signature: parsed_data.signature,
+            recipient,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+        })
     }
 
     fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
@@ -48,7 +75,12 @@ impl PegOutRequestOp {
     }
 
     pub fn check(&self) -> Result<(), OpError> {
-        todo!();
+        if self.amount == 0 {
+            warn!("PEG_OUT Invalid: Peg amount must be positive");
+            return Err(OpError::PegInAmountMustBePositive);
+        }
+
+        Ok(())
     }
 }
 
