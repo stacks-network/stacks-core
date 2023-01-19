@@ -29,7 +29,7 @@ fn signature_share() {
     };
 
     let msg_share = MessageTypes::SignatureShare(SignatureShare {
-        signature_share: share,
+        signature_shares: vec![share.z_i],
     });
 
     let mut signer = setup_signer(2, 1);

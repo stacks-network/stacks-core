@@ -1,4 +1,3 @@
-use crate::signing_round;
 pub use frost;
 use frost::common::PolyCommitment;
 use frost::v1::{Party, Signer};
@@ -19,7 +18,7 @@ pub struct SigningRound {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShare {
-    pub signature_share: frost::common::SignatureShare,
+    pub signature_shares: Vec<Scalar>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,14 +79,8 @@ impl SigningRound {
             .collect();
 
         for party in &self.signer.parties {
-            let share = frost::common::SignatureShare {
-                id: 0,
-                z_i: Scalar::new(),
-                public_key: Default::default(),
-            };
-            let a = party;
-            let msg_share = MessageTypes::SignatureShare(SignatureShare {
-                signature_share: share,
+            let _msg_share = MessageTypes::SignatureShare(SignatureShare {
+                signature_shares: party.get_shares().into_values().collect(),
             });
             //net.send_message(msg_share);
         }
