@@ -893,7 +893,6 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_)
             | BlockstackOperationType::PegOutRequest(_)
-            | BlockstackOperationType::PegOutFulfill(_)
             | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
             }

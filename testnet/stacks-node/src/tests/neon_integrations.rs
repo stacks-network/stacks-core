@@ -10818,6 +10818,7 @@ fn test_submit_and_observe_peg_in_request() {
         peg_wallet_address: peg_wallet_address.clone(),
         amount: 133700,
         memo: Vec::new(),
+        // filled in later
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
