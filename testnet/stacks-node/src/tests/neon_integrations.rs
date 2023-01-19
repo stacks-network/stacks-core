@@ -10477,7 +10477,6 @@ fn test_submit_and_observe_peg_in_request() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        recipient_contract_name: None,
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
