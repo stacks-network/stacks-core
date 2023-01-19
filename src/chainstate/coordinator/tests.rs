@@ -38,7 +38,8 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::boot::{PoxStartCycleInfo, POX_3_NAME};
@@ -3276,6 +3277,183 @@ fn test_stx_transfer_btc_ops() {
                    "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
+}
+
+#[test]
+fn test_sbtc_peg_in_btc_op() {
+    let path = "/tmp/stacks-blockchain-sbtc-peg-in-btc-ops";
+    let _r = std::fs::remove_dir_all(path);
+
+    let pox_v1_unlock_ht = 12;
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        100,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let recipient = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut burnchain_block_hashes = vec![];
+
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+        let peg_wallet_address = PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]);
+
+        if ix == 0 {
+            // add a peg-in op
+            ops.push(BlockstackOperationType::PegIn(PegInOp {
+                recipient: stacker,
+                recipient_contract_name: None,
+                peg_wallet_address,
+                amount: 1337,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            // shouldn't be accepted -- amount must be positive
+            ops.push(BlockstackOperationType::PegIn(PegInOp {
+                recipient: stacker,
+                recipient_contract_name: None,
+                peg_wallet_address,
+                amount: 0,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &b,
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+
+        burnchain_block_hashes.push(burnchain_tip.block_hash);
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+    let total_number_of_peg_in_ops = burnchain_block_hashes
+        .into_iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_in_ops(&sort_db.conn(), &block_hash)
+                .expect("Failed to get peg in ops")
+        })
+        .count();
+
+    assert_eq!(total_number_of_peg_in_ops, 1);
 }
 
 // This helper function retrieves the delegation info from the delegate address
