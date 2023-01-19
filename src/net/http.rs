@@ -159,7 +159,7 @@ lazy_static! {
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_GET_BURN_OPS: Regex =
-        Regex::new(r#"^/v2/burn_ops/(?P<height>[0-9]{1,20}/(?P<op>[a-z]{1,20})$"#).unwrap();
+        Regex::new(r#"^/v2/burn_ops/(?P<height>[0-9]{1,20})/(?P<op>[a-z_]{1,20})$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -4477,7 +4477,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
-                HttpRequestType::GetBurnOps { md, height, opcode } => "HTTP(GetBurnOps)",
+                HttpRequestType::GetBurnOps { .. } => "HTTP(GetBurnOps)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
