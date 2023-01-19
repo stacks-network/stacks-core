@@ -46,7 +46,8 @@ use url;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::operations::BurnchainOpsVec;
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::index::Error as marf_error;
@@ -1527,6 +1528,11 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+    GetBurnOps {
+        md: HttpRequestMetadata,
+        height: u64,
+        opcode: Opcodes,
+    },
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1653,6 +1659,7 @@ pub enum HttpResponseType {
     NotFound(HttpResponseMetadata, String),
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
+    GetBurnchainOps(HttpResponseMetadata, BurnchainOpsVec),
     Error(HttpResponseMetadata, u16, String),
 }
 
