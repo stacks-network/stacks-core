@@ -20,8 +20,8 @@ impl PegInOp {
         }
 
         let (amount, peg_wallet_address) =
-            if let Some(Some(recepient)) = tx.get_recipients().first() {
-                (recepient.amount, recepient.address.clone())
+            if let Some(Some(recipient)) = tx.get_recipients().first() {
+                (recipient.amount, recipient.address.clone())
             } else {
                 warn!("Invalid tx: Output 2 not provided");
                 return Err(OpError::InvalidInput);
