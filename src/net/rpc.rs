@@ -3011,9 +3011,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::GetBurnOps {
-                ref md,
-                height,
-                ref opcode,
+                height, ref opcode, ..
             } => {
                 Self::handle_get_burn_ops(
                     &mut self.connection.protocol,

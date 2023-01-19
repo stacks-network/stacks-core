@@ -1,0 +1,20 @@
+{
+  "PegIn": [
+    {
+      "amount": 1337,
+      "block_height": 217,
+      "burn_header_hash": "7ce0139a3fe356316409fe704dbdb9ac8f1847c168fe68bd913d0df75c359fe1",
+      "peg_wallet_address": {
+        "Addr32": [
+          false,
+          "P2TR",
+          [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
+        ]
+      },
+      "recipient": "S0000000000000000000002AA028H",
+      "recipient_contract_name": null,
+      "txid": "84808f747841fb26e74f171487e56eda1a51373581eb04a8c87a421a77bd46d2",
+      "vtxindex": 1
+    }
+  ]
+}

@@ -16,6 +16,7 @@ use rusqlite::types::ToSql;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::operations::BurnchainOpsVec;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PegInOp, PreStxOp, TransferStxOp,
 };
@@ -10802,6 +10803,7 @@ fn test_submit_and_observe_peg_in_request() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        recipient_contract_name: None,
     };
 
 <<<<<<< HEAD
@@ -10908,6 +10910,32 @@ fn test_submit_and_observe_peg_in_request() {
         parsed_peg_in_op.peg_wallet_address,
         peg_in_op.peg_wallet_address
 >>>>>>> 51d662777 (feat: Peg-in wire format)
+    );
+
+    let query_block_height = parsed_peg_in_op.block_height;
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, query_block_height);
+    let client = reqwest::blocking::Client::new();
+
+    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
+
+    eprintln!("{}", response);
+
+    let parsed_resp: BurnchainOpsVec = serde_json::from_value(response).unwrap();
+
+    let parsed_peg_in_op = match parsed_resp {
+        BurnchainOpsVec::PegIn(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+    };
+
+    assert_eq!(parsed_peg_in_op.recipient, peg_in_op.recipient);
+    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
+    assert_eq!(
+        parsed_peg_in_op.peg_wallet_address,
+        peg_in_op.peg_wallet_address
     );
 
     run_loop_coordinator_channel.stop_chains_coordinator();
