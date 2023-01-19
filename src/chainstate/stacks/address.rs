@@ -34,6 +34,7 @@ use crate::chainstate::stacks::{
 use crate::net::Error as net_error;
 use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
+use serde::{Deserialize, Deserializer, Serializer};
 use stacks_common::address::b58;
 use stacks_common::address::c32::c32_address;
 use stacks_common::address::c32::c32_address_decode;
@@ -90,6 +91,19 @@ pub enum PoxAddress {
     /// representation.  This includes Bitcoin p2wsh and p2tr.
     /// Fields are (mainnet, address type ID, bytes)
     Addr32(bool, PoxAddressType32, [u8; 32]),
+}
+
+pub fn DisplaySerialize<S: Serializer, T: std::fmt::Display>(
+    input: &T,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(&input.to_string())
+}
+
+pub fn AddressDeser<'de, D: Deserializer<'de>, T: Address>(deser: D) -> Result<T, D::Error> {
+    let string_repr = String::deserialize(deser)?;
+    T::from_string(&string_repr)
+        .ok_or_else(|| serde::de::Error::custom("Failed to decode address from string"))
 }
 
 impl std::fmt::Display for PoxAddress {

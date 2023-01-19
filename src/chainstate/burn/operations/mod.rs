@@ -318,7 +318,11 @@ pub struct DelegateStxOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
+    // TODO(3553): Serialization logic
     pub recipient: PrincipalData,
+    //#[serde(serialize_with = "crate::chainstate::stacks::address::DisplaySerialize")]
+    //#[serde(deserialize_with = "crate::chainstate::stacks::address::AddressDeser")]
+    //pub recipient: StacksAddress,
     pub peg_wallet_address: PoxAddress,
     pub amount: u64,   // BTC amount to peg in, in satoshis
     pub memo: Vec<u8>, // extra unused bytes
@@ -355,6 +359,15 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
         "address_hash_bytes": format!("0x{}", addr.bytes),
         "address_version": addr.version
     })
+}
+
+/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
+/// This allows `handle_get_burn_ops` to use an enum for the different operation
+///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
+///  from a, e.g., `Vec<PegInOp>`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BurnchainOpsVec {
+    PegIn(Vec<PegInOp>),
 }
 
 impl BlockstackOperationType {
