@@ -107,4 +107,150 @@ impl From<std::array::TryFromSliceError> for ParseError {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::chainstate::burn::operations::test_helpers;
+
+    use super::*;
+
+    #[test]
+    fn test_parse_peg_out_request_should_succeed_given_a_conforming_transaction() {
+        let mut rng = test_helpers::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
+        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+
+        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
+        let header = test_helpers::burnchain_block_header();
+
+        let op =
+            PegOutRequestOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
+
+        assert_eq!(op.recipient.bytes(), recipient_address_bytes);
+        assert_eq!(op.signature.as_bytes(), &signature);
+        assert_eq!(op.amount, amount);
+    }
+
+    #[test]
+    fn test_parse_peg_out_request_should_return_error_given_wrong_opcode() {
+        let mut rng = test_helpers::seeded_rng();
+        let opcode = Opcodes::LeaderKeyRegister;
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
+        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+
+        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
+        let header = test_helpers::burnchain_block_header();
+
+        let op = PegOutRequestOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::InvalidInput) => (),
+            result => panic!("Expected OpError::InvalidInput, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_peg_out_request_should_return_error_given_no_second_output() {
+        let mut rng = test_helpers::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let output2 = None;
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+
+        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
+        let header = test_helpers::burnchain_block_header();
+
+        let op = PegOutRequestOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::InvalidInput) => (),
+            result => panic!("Expected OpError::InvalidInput, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_peg_out_request_should_return_error_given_no_signature() {
+        let mut rng = test_helpers::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
+        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 0] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+
+        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
+        let header = test_helpers::burnchain_block_header();
+
+        let op = PegOutRequestOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::ParseError) => (),
+            result => panic!("Expected OpError::ParseError, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_peg_out_request_should_return_error_on_zero_amount_and_ok_on_any_other_values() {
+        let mut rng = test_helpers::seeded_rng();
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
+        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+
+        let mut create_op = move |amount: u64| {
+            let opcode = Opcodes::PegOutRequest;
+
+            let mut data = vec![];
+            let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+            data.extend_from_slice(&amount.to_be_bytes());
+            data.extend_from_slice(&signature);
+
+            let tx = test_helpers::burnchain_transaction(data, output2.clone(), opcode);
+            let header = test_helpers::burnchain_block_header();
+
+            PegOutRequestOp::from_tx(&header, &tx)
+                .expect("Failed to construct peg-out request operation")
+        };
+
+        match create_op(0).check() {
+            Err(OpError::AmountMustBePositive) => (),
+            result => panic!(
+                "Expected OpError::PegInAmountMustBePositive, got {:?}",
+                result
+            ),
+        };
+
+        create_op(1)
+            .check()
+            .expect("Any strictly positive amounts should be ok");
+
+        create_op(u64::MAX)
+            .check()
+            .expect("Any strictly positive amounts should be ok");
+    }
+}
