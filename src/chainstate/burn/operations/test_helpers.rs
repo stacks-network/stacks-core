@@ -36,7 +36,7 @@ pub(crate) fn burnchain_block_header() -> BurnchainBlockHeader {
 
 pub(crate) fn burnchain_transaction(
     data: Vec<u8>,
-    output2: Option<Output2Data>,
+    output2: Option<Output>,
     opcode: Opcodes,
 ) -> BurnchainTransaction {
     BurnchainTransaction::Bitcoin(bitcoin_transaction(data, output2, opcode))
@@ -44,7 +44,7 @@ pub(crate) fn burnchain_transaction(
 
 fn bitcoin_transaction(
     data: Vec<u8>,
-    output2: Option<Output2Data>,
+    output2: Option<Output>,
     opcode: Opcodes,
 ) -> BitcoinTransaction {
     BitcoinTransaction {
@@ -67,12 +67,13 @@ fn bitcoin_transaction(
     }
 }
 
-pub(crate) struct Output2Data {
+#[derive(Debug, Clone)]
+pub(crate) struct Output {
     amount: u64,
     address: [u8; 32],
 }
 
-impl Output2Data {
+impl Output {
     pub(crate) fn new_as_option(amount: u64, peg_wallet_address: [u8; 32]) -> Option<Self> {
         Some(Self {
             amount,
