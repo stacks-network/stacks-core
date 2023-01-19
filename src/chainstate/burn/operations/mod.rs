@@ -64,6 +64,9 @@ pub mod stack_stx;
 pub mod transfer_stx;
 pub mod user_burn_support;
 
+#[cfg(test)]
+mod test_helpers;
+
 #[derive(Debug)]
 pub enum Error {
     /// Failed to parse the operation from the burnchain transaction
