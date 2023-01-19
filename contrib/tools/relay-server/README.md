@@ -1,5 +1,12 @@
 # A Relay Server
 
+The `relay` server is an HTTP service that has two functions:
+
+- Accepting messages and storing all of them. `POST` method. 
+  For example, `curl 'http://127.0.0.1:9776' -X POST -d 'message'`. 
+- Returning the messages in the same order as received for each client. 
+  For example, `curl 'http://127.0.0.1:9776/?id=alice'`. 
+
 ## Start the `relay-server` server
 
 ```sh
