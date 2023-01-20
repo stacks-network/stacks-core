@@ -38,6 +38,7 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::address::PoxAddressType20;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::boot::POX_1_NAME;
@@ -61,6 +62,7 @@ use clarity::vm::{
 use stacks_common::address;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
 use crate::chainstate::stacks::boot::COSTS_2_NAME;
@@ -3250,8 +3252,8 @@ fn test_stx_transfer_btc_ops() {
 }
 
 #[test]
-fn test_sbtc_peg_in_btc_op() {
-    let path = "/tmp/stacks-blockchain-sbtc-peg-in-btc-ops";
+fn test_sbtc_ops() {
+    let path = "/tmp/stacks-blockchain-sbtc-ops";
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
@@ -3363,9 +3365,14 @@ fn test_sbtc_peg_in_btc_op() {
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
         let peg_wallet_address = PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]);
+        let recipient_btc_address =
+            PoxAddress::Standard(stacker.into(), Some(AddressHashMode::SerializeP2PKH));
+        let block_header_hash = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .unwrap()
+            .winning_stacks_block_hash;
 
         if ix == 0 {
-            // add a peg-in op
+            // Add a valid peg-in op
             ops.push(BlockstackOperationType::PegIn(PegInOp {
                 recipient: stacker.into(),
                 peg_wallet_address,
@@ -3377,7 +3384,7 @@ fn test_sbtc_peg_in_btc_op() {
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
         } else if ix == 1 {
-            // shouldn't be accepted -- amount must be positive
+            // Shouldn't be accepted -- amount must be positive
             ops.push(BlockstackOperationType::PegIn(PegInOp {
                 recipient: stacker.into(),
                 peg_wallet_address,
@@ -3385,6 +3392,50 @@ fn test_sbtc_peg_in_btc_op() {
                 memo: second_peg_in_memo.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 2 {
+            // Shouldn't be accepted -- amount must be positive
+            ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                recipient: recipient_btc_address,
+                signature: MessageSignature([0; 65]),
+                amount: 0,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 3 {
+            // Add a valid peg-out request op
+            ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                recipient: recipient_btc_address,
+                signature: MessageSignature([0; 65]),
+                amount: 5,
+                txid: next_txid(),
+                vtxindex: 8,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 4 {
+            // Partially fulfill the peg-out request
+            ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
+                recipient: recipient_btc_address,
+                amount: 3,
+                block_header_hash,
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 5 {
+            // Fulfill remainder of the peg-out request
+            ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
+                recipient: recipient_btc_address,
+                amount: 2,
+                block_header_hash,
+                txid: next_txid(),
+                vtxindex: 7,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
@@ -3419,15 +3470,33 @@ fn test_sbtc_peg_in_btc_op() {
     }
 
     let peg_in_ops: Vec<_> = burnchain_block_hashes
-        .into_iter()
+        .iter()
         .flat_map(|block_hash| {
-            SortitionDB::get_peg_in_ops(&sort_db.conn(), &block_hash)
+            SortitionDB::get_peg_in_ops(&sort_db.conn(), block_hash)
                 .expect("Failed to get peg in ops")
+        })
+        .collect();
+
+    let peg_out_request_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_out_request_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg out request ops")
+        })
+        .collect();
+
+    let peg_out_fulfill_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_out_fulfill_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg out fulfillment ops")
         })
         .collect();
 
     assert_eq!(peg_in_ops.len(), 1);
     assert_eq!(peg_in_ops[0].memo, first_peg_in_memo);
+    assert_eq!(peg_out_request_ops.len(), 1);
+    assert_eq!(peg_out_fulfill_ops.len(), 2); // TODO(3493): Test that these are the expected ops
 }
 
 // This helper function retrieves the delegation info from the delegate address
