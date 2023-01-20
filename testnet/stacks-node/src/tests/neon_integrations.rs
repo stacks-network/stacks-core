@@ -10730,7 +10730,6 @@ fn microblock_miner_multiple_attempts() {
 #[test]
 #[ignore]
 fn test_submit_and_observe_peg_in_request() {
-<<<<<<< HEAD
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -10742,9 +10741,6 @@ fn test_submit_and_observe_peg_in_request() {
     let receiver_standard_principal: PrincipalData =
         StandardPrincipalData::from(receiver_stx_addr).into();
 
-=======
-    let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
->>>>>>> 51d662777 (feat: Peg-in wire format)
     let peg_wallet_address =
         address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
 
@@ -10787,25 +10783,17 @@ fn test_submit_and_observe_peg_in_request() {
     wait_for_runloop(&blocks_processed);
 
     // Let's send a Peg-in op.
-<<<<<<< HEAD
     let peg_in_op_standard = PegInOp {
         recipient: receiver_standard_principal,
         peg_wallet_address: peg_wallet_address.clone(),
         amount: 1337,
         memo: Vec::new(),
-=======
-    let peg_in_op = PegInOp {
-        address: receiver_stx_addr,
-        peg_wallet_address,
-        amount: 1337,
->>>>>>> 51d662777 (feat: Peg-in wire format)
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-<<<<<<< HEAD
     // Let's send a Peg-in op with a contract principal.
     let peg_in_op_contract = PegInOp {
         recipient: receiver_contract_principal,
@@ -10818,18 +10806,12 @@ fn test_submit_and_observe_peg_in_request() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-=======
->>>>>>> 51d662777 (feat: Peg-in wire format)
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     assert!(
         btc_regtest_controller
             .submit_operation(
                 StacksEpochId::Epoch21,
-<<<<<<< HEAD
                 BlockstackOperationType::PegIn(peg_in_op_standard.clone()),
-=======
-                BlockstackOperationType::PegIn(peg_in_op.clone()),
->>>>>>> 51d662777 (feat: Peg-in wire format)
                 &mut miner_signer,
                 1
             )
@@ -10839,7 +10821,6 @@ fn test_submit_and_observe_peg_in_request() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-<<<<<<< HEAD
     let parsed_peg_in_op_standard = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -10893,25 +10874,9 @@ fn test_submit_and_observe_peg_in_request() {
     assert_eq!(
         parsed_peg_in_op_contract.peg_wallet_address,
         peg_in_op_contract.peg_wallet_address
-=======
-    let sortdb = btc_regtest_controller.sortdb_mut();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-    let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-        .expect("Failed to get peg in ops");
-
-    assert_eq!(ops.len(), 1);
-
-    let parsed_peg_in_op = ops.first().unwrap();
-
-    assert_eq!(parsed_peg_in_op.address, peg_in_op.address);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op.peg_wallet_address
->>>>>>> 51d662777 (feat: Peg-in wire format)
     );
 
-    let query_block_height = parsed_peg_in_op.block_height;
+    let query_block_height = parsed_peg_in_op_standard.block_height;
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, query_block_height);
@@ -10929,13 +10894,6 @@ fn test_submit_and_observe_peg_in_request() {
             vec.pop().unwrap()
         }
     };
-
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op.peg_wallet_address
-    );
 
     run_loop_coordinator_channel.stop_chains_coordinator();
 }
