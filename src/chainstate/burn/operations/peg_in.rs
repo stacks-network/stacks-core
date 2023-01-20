@@ -89,6 +89,8 @@ impl PegInOp {
             .map(TryInto::try_into)
             .transpose()?;
 
+        println!("Contract name: {:?}", maybe_contract_name);
+
         let recipient: PrincipalData = if let Some(contract_name) = maybe_contract_name {
             QualifiedContractIdentifier::new(standard_principal_data, contract_name).into()
         } else {
@@ -187,7 +189,7 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let contract_name = "my_amazing_contract";
+        let contract_name = "This_is_a_valid_contract_name";
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
@@ -209,6 +211,33 @@ mod tests {
         assert_eq!(op.recipient, expected_principal);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+    }
+
+    #[test]
+    fn test_parse_peg_in_should_return_error_given_invalid_contract_name() {
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let contract_name = "Mårten_is_not_a_valid_smart_contract_name";
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+
+        let mut data = vec![1];
+        let addr_bytes = random_bytes(&mut rng);
+        let stx_address = StacksAddress::new(1, addr_bytes.into());
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(contract_name.as_bytes());
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::ParseError) => (),
+            result => panic!("Expected OpError::ParseError, got {:?}", result),
+        }
     }
 
     #[test]
