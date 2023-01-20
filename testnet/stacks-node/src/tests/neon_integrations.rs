@@ -14,11 +14,13 @@ use std::{env, thread};
 use rusqlite::types::ToSql;
 use serde_json::json;
 
+use stacks::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PreStxOp, TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
+    TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address;
@@ -10743,20 +10745,20 @@ fn microblock_miner_multiple_attempts() {
 
 #[test]
 #[ignore]
-fn test_submit_and_observe_peg_in_request() {
+fn test_submit_and_observe_sbtc_ops() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-
-    let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
+    let recipient_stx_addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0; 20]));
     let receiver_contract_name = ContractName::from("awesome_contract");
     let receiver_contract_principal: PrincipalData =
-        QualifiedContractIdentifier::new(receiver_stx_addr.into(), receiver_contract_name).into();
+        QualifiedContractIdentifier::new(recipient_stx_addr.into(), receiver_contract_name).into();
     let receiver_standard_principal: PrincipalData =
-        StandardPrincipalData::from(receiver_stx_addr).into();
-
+        StandardPrincipalData::from(recipient_stx_addr).into();
     let peg_wallet_address =
         address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+    let recipient_btc_addr = address::PoxAddress::Standard(recipient_stx_addr, None);
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -10796,7 +10798,7 @@ fn test_submit_and_observe_peg_in_request() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    // Let's send a Peg-in op.
+    // Let's send some sBTC ops.
     let peg_in_op_standard = PegInOp {
         recipient: receiver_standard_principal,
         peg_wallet_address: peg_wallet_address.clone(),
@@ -10808,13 +10810,32 @@ fn test_submit_and_observe_peg_in_request() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    // Let's send a Peg-in op with a contract principal.
     let peg_in_op_contract = PegInOp {
         recipient: receiver_contract_principal,
         peg_wallet_address,
         amount: 1337,
         memo: Vec::new(),
         txid: Txid([1u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let peg_out_request_op = PegOutRequestOp {
+        recipient: recipient_btc_addr.clone(),
+        signature: MessageSignature([0; 65]),
+        amount: 1337,
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let peg_out_fulfill_op = PegOutFulfillOp {
+        block_header_hash: BlockHeaderHash([0; 32]),
+        recipient: recipient_btc_addr,
+        amount: 1337,
+        txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
@@ -10869,6 +10890,58 @@ fn test_submit_and_observe_peg_in_request() {
 
         ops.into_iter().next().unwrap()
     };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Peg-out request operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let parsed_peg_out_request_op = {
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let ops = SortitionDB::get_peg_out_request_ops(&sortdb.conn(), &tip.burn_header_hash)
+            .expect("Failed to get peg out request ops");
+        assert_eq!(ops.len(), 1);
+
+        ops.into_iter().next().unwrap()
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PegOutFulfill(peg_out_fulfill_op.clone()),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Peg-out fulfill operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let parsed_peg_out_fulfill_op = {
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let ops = SortitionDB::get_peg_out_fulfill_ops(&sortdb.conn(), &tip.burn_header_hash)
+            .expect("Failed to get peg out fulfill ops");
+        assert_eq!(ops.len(), 1);
+
+        ops.into_iter().next().unwrap()
+    };
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     assert_eq!(
         parsed_peg_in_op_standard.recipient,
@@ -10931,6 +11004,26 @@ fn test_submit_and_observe_peg_in_request() {
     assert_eq!(
         parsed_peg_in_op_contract.peg_wallet_address,
         peg_in_op_contract.peg_wallet_address
+    );
+
+    assert_eq!(
+        parsed_peg_out_request_op.recipient,
+        peg_out_request_op.recipient
+    );
+    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
+    assert_eq!(
+        parsed_peg_out_request_op.signature,
+        peg_out_request_op.signature
+    );
+
+    assert_eq!(
+        parsed_peg_out_fulfill_op.recipient,
+        peg_out_fulfill_op.recipient
+    );
+    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
+    assert_eq!(
+        parsed_peg_out_fulfill_op.block_header_hash,
+        peg_out_fulfill_op.block_header_hash
     );
 
     run_loop_coordinator_channel.stop_chains_coordinator();

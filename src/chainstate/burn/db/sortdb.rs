@@ -4939,7 +4939,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) sBTC peg in opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_peg_in_sbtc(op, sort_id)
+                self.insert_peg_in_sbtc(op)
             }
             BlockstackOperationType::PegOutRequest(ref op) => {
                 info!(

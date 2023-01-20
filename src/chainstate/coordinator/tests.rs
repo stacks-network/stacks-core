@@ -39,8 +39,7 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::PoxAddressType20;
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
@@ -3366,8 +3365,7 @@ fn test_sbtc_ops() {
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
         let peg_wallet_address = PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]);
-        let recipient_btc_address =
-            PoxAddress::Standard(stacker.into(), Some(AddressHashMode::SerializeP2PKH));
+        let recipient_btc_address = PoxAddress::Standard(stacker.into(), None);
         let block_header_hash = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .unwrap()
             .winning_stacks_block_hash;

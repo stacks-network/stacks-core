@@ -406,7 +406,7 @@ pub struct PegOutFulfillOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
