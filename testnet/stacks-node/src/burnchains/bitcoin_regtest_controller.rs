@@ -57,6 +57,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+use stacks_common::types::chainstate::StacksAddress;
 
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
