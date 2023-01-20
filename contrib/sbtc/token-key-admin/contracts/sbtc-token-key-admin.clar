@@ -15,9 +15,9 @@
 ;; constants
 ;;
 (define-constant contract-owner tx-sender)
-(define-constant err-invalid-caller (err u1))
-(define-constant err-owner-only (err u100))
-(define-constant err-not-token-owner (err u101))
+(define-constant err-invalid-caller u1)
+(define-constant err-owner-only u100)
+(define-constant err-not-token-owner u101)
 
 ;; data vars
 ;;
@@ -32,41 +32,41 @@
 (define-public (set-coordinator-data (data {addr: principal, key: (buff 33)}))
     (if (is-valid-caller)
         (ok (var-set coordinator (some data)))
-        err-invalid-caller
+        (err err-invalid-caller)
     )
 )
 
 (define-public (set-signer-data (id uint) (data {addr: principal, key: (buff 33)}))
     (if (is-valid-caller)
         (ok (map-set signers id data))
-        err-invalid-caller
+        (err err-invalid-caller)
     )
 )
 
 (define-public (delete-signer-data (id uint))
     (if (is-valid-caller)
         (ok (map-delete signers id))
-        err-invalid-caller
+        (err err-invalid-caller)
     )
 )
 
 (define-public (mint! (amount uint))
     (if (is-valid-caller)
         (token-credit! tx-sender amount)
-        err-invalid-caller
+        (err err-invalid-caller)
     )
 )
 
 (define-public (burn! (amount uint))
     (if (is-valid-caller)
         (token-debit! tx-sender amount)
-        err-invalid-caller
+        (err err-invalid-caller)
     )
 )
 
 (define-public (transfer (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))))
 	(begin
-		(asserts! (is-eq tx-sender sender) err-not-token-owner)
+		(asserts! (is-eq tx-sender sender) (err err-not-token-owner))
 		(try! (ft-transfer? sbtc amount sender recipient))
 		(match memo to-print (print to-print) 0x)
 		(ok true)
