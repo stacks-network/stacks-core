@@ -101,7 +101,7 @@
 )
 
 (define-read-only (get-token-uri)
-	(ok none)
+	(ok (some u"https://github.com/stacks-network/stacks-blockchain"))
 )
 
 ;; private functions
