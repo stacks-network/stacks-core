@@ -1,11 +1,11 @@
+use crate::state_machine::{StateMachine, States};
 pub use frost;
 use frost::common::PolyCommitment;
 use frost::v1::{Party, Signer};
 use hashbrown::HashMap;
-use rand_core::OsRng;
 use p256k1::scalar::Scalar;
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use crate::state_machine::{StateMachine, States};
 
 type KeyShare = HashMap<usize, Scalar>;
 
@@ -85,7 +85,7 @@ impl SigningRound {
         self.signer.parties[party_id].get_shares()
     }
 
-    pub fn dkg_begin(&mut self)  -> Result<Vec<MessageTypes>, String> {
+    pub fn dkg_begin(&mut self) -> Result<Vec<MessageTypes>, String> {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();

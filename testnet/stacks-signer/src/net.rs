@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::signing_round;
+use crate::signing_round::MessageTypes;
 use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
-use crate::signing_round::MessageTypes;
 
 // Message is the format over the wire and a place for future metadata such as sender_id
 #[derive(Serialize, Deserialize, Debug)]
@@ -69,15 +69,15 @@ impl Net for HttpNet {
     }
 }
 
-    pub fn send_message(url: &str, msg: Message) {
-        let req = ureq::post(url);
-        let bytes = bincode::serialize(&msg).unwrap();
-        match req.send_bytes(&bytes[..]) {
-            Ok(response) => {
-                debug!("sent {} bytes {:?}", bytes.len(), &response)
-            }
-            Err(e) => {
-                info!("post failed to {} {}", url, e)
-            }
+pub fn send_message(url: &str, msg: Message) {
+    let req = ureq::post(url);
+    let bytes = bincode::serialize(&msg).unwrap();
+    match req.send_bytes(&bytes[..]) {
+        Ok(response) => {
+            debug!("sent {} bytes {:?}", bytes.len(), &response)
+        }
+        Err(e) => {
+            info!("post failed to {} {}", url, e)
         }
     }
+}

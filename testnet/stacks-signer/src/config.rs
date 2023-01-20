@@ -29,6 +29,10 @@ pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     debug: u8,
 
+    /// Start a signing round
+    #[arg(short, long)]
+    pub start: bool,
+
     /// Turn debugging information on
     #[arg(short, long)]
     id: Option<usize>,
@@ -44,7 +48,7 @@ impl Config {
         Ok(config)
     }
 
-    pub fn merge(&mut self, cli: Cli) {
+    pub fn merge(&mut self, cli: &Cli) {
         if let Some(frost_id) = cli.id {
             self.signer.frost_id = frost_id;
         }
