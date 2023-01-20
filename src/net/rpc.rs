@@ -36,7 +36,6 @@ use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::BurnchainOpsVec;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::db::blocks::CheckError;
