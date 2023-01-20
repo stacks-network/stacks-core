@@ -4,11 +4,18 @@ use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::fmt::Debug;
+use crate::signing_round::MessageTypes;
 
 // Message is the format over the wire and a place for future metadata such as sender_id
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
     pub msg: signing_round::MessageTypes,
+}
+
+impl From<MessageTypes> for Message {
+    fn from(value: MessageTypes) -> Self {
+        Message { msg: value }
+    }
 }
 
 pub struct HttpNet {

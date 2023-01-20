@@ -35,5 +35,5 @@ fn signature_share() {
     });
 
     let mut signer = setup_signer(2, 1);
-    signer.process(msg_share);
+    signer.process(msg_share).unwrap();
 }

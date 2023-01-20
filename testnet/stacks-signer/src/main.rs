@@ -21,7 +21,7 @@ fn main() {
 
     // start p2p sync
     spawn(move || poll_loop(net, tx));
-    main_loop(&config, rx);
+    main_loop(&config, net, rx);
 }
 
 fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
@@ -39,7 +39,7 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
     }
 }
 
-fn main_loop(config: &Config, rx: Receiver<Message>) {
+fn main_loop(config: &Config, net: HttpNet, rx: Receiver<Message>) {
     let mut signer = SigningRound::new(
         config.signer.frost_id,
         config.common.minimum_signers,
@@ -48,8 +48,11 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
     signer.reset();
 
     loop {
-        let message = rx.recv().unwrap();
-        info!("received message {:?}", message);
-        signer.process(message.msg);
+        let inbound = rx.recv().unwrap();
+        info!("received message {:?}", inbound);
+        let outbounds = signer.process(inbound.msg).unwrap();
+        for out in outbounds {
+            net.send_message(out.into())
+        }
     }
 }
