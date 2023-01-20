@@ -161,14 +161,10 @@ pub fn get_mining_spend_amount(miner_status: Arc<Mutex<MinerStatus>>) -> u64 {
 
 /// set the mining amount
 pub fn set_mining_spend_amount(miner_status: Arc<Mutex<MinerStatus>>, amt: u64) {
-    match miner_status.lock() {
-        Ok(mut status) => {
-            status.set_spend_amount(amt);
-        }
-        Err(_e) => {
-            panic!("FATAL: mutex poisoned");
-        }
-    }
+    miner_status
+        .lock()
+        .expect("FATAL: mutex poisoned")
+        .set_spend_amount(amt);
 }
 
 #[derive(Debug, Clone)]
