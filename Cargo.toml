@@ -148,4 +148,5 @@ members = [
     "clarity",
     "stx-genesis",
     "testnet/stacks-node",
+    "testnet/stacks-signer",
     "contrib/tools/relay-server"]
