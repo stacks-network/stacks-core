@@ -1114,16 +1114,17 @@ dependencies = [
 [[package]]
 name = "frost"
 version = "0.1.0"
-source = "git+https://github.com/trust-machines/frost?rev=d618e4e08d14c9f90581aec355c316377274392c#d618e4e08d14c9f90581aec355c316377274392c"
+source = "git+https://github.com/trust-machines/frost?branch=sbtc#31d99f46b70944daecba90dee4d047553f8f4755"
 dependencies = [
  "hashbrown 0.13.1",
  "hex",
  "num-traits",
+ "p256k1",
  "polynomial",
  "rand_core 0.5.1",
- "secp256k1-math",
  "serde",
  "sha3",
+ "thiserror",
 ]
 
 [[package]]
@@ -1990,6 +1991,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b7820b9daea5457c9f21c69448905d723fbd21136ccf521748f23fd49e723ee"
 
 [[package]]
+name = "p256k1"
+version = "0.1.0"
+source = "git+https://github.com/Trust-Machines/p256k1?branch=sbtc#18a547bff7fa495d8a567075609ae66fea88954e"
+dependencies = [
+ "bindgen",
+ "cc",
+ "hex",
+ "itertools",
+ "num-traits",
+ "proc-macro2",
+ "quote",
+ "rand_core 0.5.1",
+ "rustfmt-wrapper",
+ "serde",
+ "sha3",
+ "syn",
+]
+
+[[package]]
 name = "parking"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2633,25 +2653,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp256k1-math"
-version = "0.1.0"
-source = "git+https://github.com/Trust-Machines/rust-secp256k1-math?rev=f1720d822a0903bb84d6e86dcf2c71ba4e67a0bc#f1720d822a0903bb84d6e86dcf2c71ba4e67a0bc"
-dependencies = [
- "bindgen",
- "cc",
- "hex",
- "itertools",
- "num-traits",
- "proc-macro2",
- "quote",
- "rand_core 0.5.1",
- "rustfmt-wrapper",
- "serde",
- "sha3",
- "syn",
-]
-
-[[package]]
 name = "secp256k1-sys"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3044,8 +3045,8 @@ dependencies = [
  "frost",
  "hashbrown 0.13.1",
  "itertools",
+ "p256k1",
  "rand_core 0.5.1",
- "secp256k1-math",
  "serde",
  "sha3",
  "slog",

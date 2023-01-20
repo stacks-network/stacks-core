@@ -1,4 +1,5 @@
-use secp256k1_math::scalar::Scalar;
+use p256k1::point::Point;
+use p256k1::scalar::Scalar;
 use stacks_signer::signing_round::{MessageTypes, SignatureShare, SigningRound};
 
 fn setup_signer(total: usize, threshold: usize) -> SigningRound {
@@ -24,7 +25,7 @@ fn dkg_begin() {
 
 #[test]
 fn signature_share() {
-    let share = frost::common::SignatureShare {
+    let share: frost::common::SignatureShare<Point> = frost::common::SignatureShare {
         id: 0,
         z_i: Scalar::new(),
         public_key: Default::default(),

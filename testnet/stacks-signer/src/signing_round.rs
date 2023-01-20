@@ -3,7 +3,7 @@ use frost::common::PolyCommitment;
 use frost::v1::{Party, Signer};
 use hashbrown::HashMap;
 use rand_core::OsRng;
-use secp256k1_math::scalar::Scalar;
+use p256k1::scalar::Scalar;
 use serde::{Deserialize, Serialize};
 use crate::state_machine::{StateMachine, States};
 
