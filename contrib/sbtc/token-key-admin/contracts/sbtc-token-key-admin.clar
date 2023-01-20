@@ -103,6 +103,18 @@
     (var-get coordinator)
 )
 
+(define-read-only (get-num-keys)
+    (var-get num-keys)
+)
+
+(define-read-only (get-num-parties)
+    (var-get num-parties)
+)
+
+(define-read-only (get-threshold)
+    (var-get threshold)
+)
+
 (define-read-only (get-signer-data (signer uint))
     (map-get? signers signer)
 )

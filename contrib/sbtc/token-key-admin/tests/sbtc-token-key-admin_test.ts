@@ -33,6 +33,63 @@ Clarinet.test({
 });
 
 Clarinet.test({
+    name: "Ensure that num-keys can be written then read",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-num-keys", [types.uint(23)], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-num-keys", [], deployer.address);
+
+        coordinator.result.expectUint(23);
+    },
+});
+
+Clarinet.test({
+    name: "Ensure that num-parties can be written then read",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-num-parties", [types.uint(23)], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-num-parties", [], deployer.address);
+
+        coordinator.result.expectUint(23);
+    },
+});
+
+Clarinet.test({
+    name: "Ensure that threshold can be written then read",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-threshold", [types.uint(23)], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-threshold", [], deployer.address);
+
+        coordinator.result.expectUint(23);
+    },
+});
+
+Clarinet.test({
     name: "Ensure that signer can be written then read",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         let deployer = accounts.get("deployer")!;
