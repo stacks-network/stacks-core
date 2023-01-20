@@ -117,6 +117,9 @@
     (is-eq contract-owner tx-sender)
 )
 
-;;(define-private (is-coordinator)
-;;    (is-eq (get addr coordinator) tx-sender)
-;;)
+(define-private (is-coordinator)
+    (match (var-get coordinator) cdata
+        (is-eq (get addr cdata) tx-sender)
+        false
+    )
+)
