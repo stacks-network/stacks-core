@@ -42,6 +42,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
+
 use serde::Deserialize;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
