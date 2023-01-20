@@ -24,7 +24,8 @@ fn main() {
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
 
     // start p2p sync
-    spawn(move || poll_loop(net, tx));
+    let id = config.signer.frost_id;
+    spawn(move || poll_loop(net, tx, id));
 
     // temporary fill-in for a coordinator
     if cli.start {
@@ -36,10 +37,9 @@ fn main() {
     main_loop(&config, rx);
 }
 
-fn poll_loop(mut net: HttpNet, tx: Sender<Message>) {
+fn poll_loop(mut net: HttpNet, tx: Sender<Message>, id: usize) {
     loop {
-        info!("polling {}", net.stacks_node_url);
-        net.poll();
+        net.poll(id);
         match net.next_message() {
             None => {}
             Some(m) => {
@@ -61,7 +61,7 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 
     loop {
         let inbound = rx.recv().unwrap(); // blocking
-        info!("received message {:?}", inbound);
+        info!("received {:?}", inbound);
         let outbounds = signer.process(inbound.msg).unwrap();
         for out in outbounds {
             net::send_message(&config.common.stacks_node_url, out.into())
@@ -70,7 +70,7 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 }
 
 fn start_round(config: &Config) {
-    info!("Starting signature round");
+    info!("Starting signature round (--start)");
     let dkg_start = MessageTypes::DkgBegin{};
     net::send_message(&config.common.stacks_node_url, dkg_start.into());
 }

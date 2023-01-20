@@ -1,10 +1,13 @@
+use std::fmt::Debug;
+
+use serde::{Deserialize, Serialize};
+use slog::{slog_debug, slog_info, slog_warn};
+
+use stacks_common::{debug, info, warn};
+
 use crate::config::Config;
 use crate::signing_round;
 use crate::signing_round::MessageTypes;
-use serde::{Deserialize, Serialize};
-use slog::{slog_debug, slog_info, slog_warn};
-use stacks_common::{debug, info, warn};
-use std::fmt::Debug;
 
 // Message is the format over the wire and a place for future metadata such as sender_id
 #[derive(Serialize, Deserialize, Debug)]
@@ -34,15 +37,16 @@ impl HttpNet {
 
 pub trait Net {
     fn listen(&self);
-    fn poll(&mut self);
+    fn poll(&mut self, id: usize);
     fn next_message(&mut self) -> Option<Message>;
 }
 
 impl Net for HttpNet {
     fn listen(&self) {}
 
-    fn poll(&mut self) {
-        match ureq::get(&self.stacks_node_url).call() {
+    fn poll(&mut self, id: usize) {
+        let url = url_with_id(&self.stacks_node_url, id);
+        match ureq::get(&url).call() {
             Ok(response) => {
                 match response.status() {
                     200 => {
@@ -50,16 +54,16 @@ impl Net for HttpNet {
                         match bincode::deserialize_from::<_, Message>(response.into_reader()) {
                             Ok(msg) => {
                                 info!("{:?}", &msg);
+                                self.in_queue.push(msg);
                             }
                             Err(_e) => {}
                         };
                     }
                     _ => {}
                 };
-                //self.msg_queue.push(msg);
             }
             Err(e) => {
-                warn!("{} U: {}", e, self.stacks_node_url)
+                warn!("{} U: {}", e, url)
             }
         };
     }
@@ -74,10 +78,16 @@ pub fn send_message(url: &str, msg: Message) {
     let bytes = bincode::serialize(&msg).unwrap();
     match req.send_bytes(&bytes[..]) {
         Ok(response) => {
-            debug!("sent {} bytes {:?}", bytes.len(), &response)
+            info!("sent {} bytes {:?} to {}", bytes.len(), &response, url)
         }
         Err(e) => {
             info!("post failed to {} {}", url, e)
         }
     }
+}
+
+fn url_with_id(base: &str, id: usize) -> String {
+    let mut url = base.to_owned();
+    url.push_str(&format!("?id={}", id));
+    url
 }
