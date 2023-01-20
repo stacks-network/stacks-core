@@ -10747,7 +10747,7 @@ fn test_submit_and_observe_sbtc_ops() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-
+    
     let recipient_stx_addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0; 20]));
     let receiver_contract_name = ContractName::from("awesome_contract");
@@ -11036,6 +11036,7 @@ fn test_submit_and_observe_sbtc_ops() {
         parsed_peg_in_op_contract.peg_wallet_address,
         peg_in_op_contract.peg_wallet_address
     );
+
     assert_eq!(
         parsed_peg_out_request_op.recipient,
         peg_out_request_op.recipient

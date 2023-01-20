@@ -893,6 +893,7 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_)
             | BlockstackOperationType::PegOutRequest(_)
+            | BlockstackOperationType::PegOutFulfill(_)
             | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
             }
@@ -1248,6 +1249,7 @@ impl BitcoinRegtestController {
             + payload.fulfillment_fee;
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
 
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();

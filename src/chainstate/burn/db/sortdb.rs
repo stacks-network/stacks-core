@@ -4971,20 +4971,6 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) sBTC peg out request opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                todo!(); // TODO(3493): Add insertion logic
-            }
-            BlockstackOperationType::PegOutFulfill(ref op) => {
-                info!(
-                    "ACCEPTED({}) sBTC peg out fulfill op {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
-                todo!(); // TODO(3493): Add insertion logic
-            }
-            BlockstackOperationType::PegOutRequest(ref op) => {
-                info!(
-                    "ACCEPTED({}) sBTC peg out request opt {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
                 self.insert_sbtc_peg_out_request(op)
             }
             BlockstackOperationType::PegOutFulfill(ref op) => {
