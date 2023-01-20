@@ -36,7 +36,6 @@ use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::BurnchainOpsVec;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::db::blocks::CheckError;
@@ -62,6 +61,7 @@ use crate::net::p2p::PeerMap;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
 use crate::net::BlocksDatum;
+use crate::net::BurnchainOps;
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -787,7 +787,7 @@ impl ConversationHttp {
                 SortitionDB::get_peg_in_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
                     HttpResponseType::GetBurnchainOps(
                         response_metadata.clone(),
-                        BurnchainOpsVec::PegIn(ops),
+                        BurnchainOps::PegIn(ops),
                     )
                 })
             }

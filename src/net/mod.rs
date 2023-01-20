@@ -46,7 +46,7 @@ use url;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::operations::BurnchainOpsVec;
+use crate::chainstate::burn::operations::PegInOp;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
@@ -1659,7 +1659,7 @@ pub enum HttpResponseType {
     NotFound(HttpResponseMetadata, String),
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
-    GetBurnchainOps(HttpResponseMetadata, BurnchainOpsVec),
+    GetBurnchainOps(HttpResponseMetadata, BurnchainOps),
     Error(HttpResponseMetadata, u16, String),
 }
 
@@ -1693,6 +1693,15 @@ pub enum StacksMessageID {
     NatPunchReply = 18,
     // reserved
     Reserved = 255,
+}
+
+/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
+/// This allows `handle_get_burn_ops` to use an enum for the different operation
+///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
+///  from a, e.g., `Vec<PegInOp>`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BurnchainOps {
+    PegIn(Vec<PegInOp>),
 }
 
 /// Message type for all P2P Stacks network messages
