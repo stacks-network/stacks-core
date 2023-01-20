@@ -10,7 +10,7 @@
 
 ;; token definitions
 ;; 
-(define-fungible-token sbtc u2100000000000000)
+(define-fungible-token sbtc u21000000)
 
 ;; constants
 ;;
@@ -30,37 +30,37 @@
 ;; public functions
 ;;
 (define-public (set-coordinator-data (data {addr: principal, key: (buff 33)}))
-    (if (is-valid-caller)
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
         (ok (var-set coordinator (some data)))
-        (err err-invalid-caller)
     )
 )
 
 (define-public (set-signer-data (id uint) (data {addr: principal, key: (buff 33)}))
-    (if (is-valid-caller)
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
         (ok (map-set signers id data))
-        (err err-invalid-caller)
     )
 )
 
 (define-public (delete-signer-data (id uint))
-    (if (is-valid-caller)
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
         (ok (map-delete signers id))
-        (err err-invalid-caller)
     )
 )
 
 (define-public (mint! (amount uint))
-    (if (is-valid-caller)
-        (token-credit! tx-sender amount)
-        (err err-invalid-caller)
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ft-mint? sbtc amount tx-sender)
     )
 )
 
 (define-public (burn! (amount uint))
-    (if (is-valid-caller)
-        (token-debit! tx-sender amount)
-        (err err-invalid-caller)
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ft-burn? sbtc amount tx-sender)
     )
 )
 
@@ -96,7 +96,7 @@
 )
 
 (define-read-only (get-decimals)
-	(ok u0)
+	(ok u8)
 )
 
 (define-read-only (get-balance (who principal))
@@ -113,14 +113,10 @@
 
 ;; private functions
 ;;
-(define-private (is-valid-caller)
+(define-private (is-contract-owner)
     (is-eq contract-owner tx-sender)
 )
 
-(define-private (token-credit! (account principal) (amount uint))
-    (ft-mint? sbtc amount account)
-)
-
-(define-private (token-debit! (account principal) (amount uint))
-    (ft-burn? sbtc amount account)
-)
+;;(define-private (is-coordinator)
+;;    (is-eq (get addr coordinator) tx-sender)
+;;)
