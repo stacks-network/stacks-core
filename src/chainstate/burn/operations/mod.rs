@@ -42,10 +42,13 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
+
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
+
+use clarity::vm::types::PrincipalData;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -315,8 +318,7 @@ pub struct DelegateStxOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
-    pub recipient: StacksAddress,
-    pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
+    pub recipient: PrincipalData,
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
 

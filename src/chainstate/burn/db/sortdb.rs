@@ -24,6 +24,7 @@ use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::PrincipalData;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -414,8 +415,7 @@ impl FromRow<PegInOp> for PegInOp {
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
-        let recipient = StacksAddress::from_column(row, "recipient")?;
-        let recipient_contract_name = row.get::<_, Option<String>>("recipient_contract_name")?;
+        let recipient = PrincipalData::from_column(row, "recipient")?;
         let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
         let amount = row
             .get::<_, String>("amount")?
@@ -428,7 +428,6 @@ impl FromRow<PegInOp> for PegInOp {
             block_height,
             burn_header_hash,
             recipient,
-            recipient_contract_name,
             peg_wallet_address,
             amount,
         })
@@ -740,8 +739,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
 
-        recipient TEXT NOT NULL,            -- Stacks address to receive the sBTC, can also be a smart contract address
-        recipient_contract_name TEXT,       -- Optional contract name, making the recepient a contract principal if set
+        recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
         peg_wallet_address TEXT NOT NULL,
         amount TEXT NOT NULL,
 
@@ -4898,12 +4896,11 @@ impl<'a> SortitionHandleTx<'a> {
             &u64_to_sql(op.block_height)?,
             &op.burn_header_hash,
             &op.recipient.to_string(),
-            &op.recipient_contract_name,
             &op.peg_wallet_address.to_string(),
             &op.amount.to_string(),
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, recipient_contract_name, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
 
         Ok(())
     }
@@ -6331,14 +6328,13 @@ pub mod tests {
         let block_height = 123;
         let vtxindex = 456;
         let amount = 1337;
-        let recipient = StacksAddress::new(1, Hash160([1u8; 20]));
+        let recipient = StacksAddress::new(1, Hash160([1u8; 20])).into();
         let peg_wallet_address =
             PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
         let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
         let peg_in = PegInOp {
             recipient,
-            recipient_contract_name: None,
             peg_wallet_address,
             amount,
 
@@ -6368,7 +6364,6 @@ pub mod tests {
 
         assert_eq!(res_peg_ins.len(), 1);
         assert_eq!(res_peg_ins[0].amount, 1337);
-        assert!(res_peg_ins[0].recipient_contract_name.is_none());
     }
 
     #[test]
