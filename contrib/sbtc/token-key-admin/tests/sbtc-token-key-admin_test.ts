@@ -92,10 +92,18 @@ Clarinet.test({
         balance.result.expectOk().expectUint(0);
 
         let block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
         ]);
 
         let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
 
         receipt.result.expectOk().expectBool(true);
 
@@ -115,10 +123,18 @@ Clarinet.test({
         balance.result.expectOk().expectUint(0);
 
         let block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
         ]);
 
         let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
 
         receipt.result.expectOk().expectBool(true);
 
@@ -150,10 +166,18 @@ Clarinet.test({
         balance.result.expectOk().expectUint(0);
 
         let block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
         ]);
 
         let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
 
         receipt.result.expectOk().expectBool(true);
 

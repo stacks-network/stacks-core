@@ -52,14 +52,14 @@
 
 (define-public (mint! (amount uint))
     (begin
-        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (asserts! (is-coordinator) (err err-invalid-caller))
         (ft-mint? sbtc amount tx-sender)
     )
 )
 
 (define-public (burn! (amount uint))
     (begin
-        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (asserts! (is-coordinator) (err err-invalid-caller))
         (ft-burn? sbtc amount tx-sender)
     )
 )
