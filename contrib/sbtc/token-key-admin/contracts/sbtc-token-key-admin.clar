@@ -21,29 +21,29 @@
 
 ;; data vars
 ;;
-(define-data-var coordinator (optional principal) none)
+(define-data-var coordinator (optional {addr: principal, key: (buff 33)}) none)
 
 ;; data maps
 ;;
-(define-map signers uint principal)
+(define-map signers uint {addr: principal, key: (buff 33)})
 
 ;; public functions
 ;;
-(define-public (set-coordinator-key (key principal))
+(define-public (set-coordinator-data (data {addr: principal, key: (buff 33)}))
     (if (is-valid-caller)
-        (ok (var-set coordinator (some key)))
+        (ok (var-set coordinator (some data)))
         err-invalid-caller
     )
 )
 
-(define-public (set-signer-key (id uint) (key principal))
+(define-public (set-signer-data (id uint) (data {addr: principal, key: (buff 33)}))
     (if (is-valid-caller)
-        (ok (map-set signers id key))
+        (ok (map-set signers id data))
         err-invalid-caller
     )
 )
 
-(define-public (delete-signer-key (id uint))
+(define-public (delete-signer-data (id uint))
     (if (is-valid-caller)
         (ok (map-delete signers id))
         err-invalid-caller
@@ -53,6 +53,13 @@
 (define-public (mint! (amount uint))
     (if (is-valid-caller)
         (token-credit! tx-sender amount)
+        err-invalid-caller
+    )
+)
+
+(define-public (burn! (amount uint))
+    (if (is-valid-caller)
+        (token-debit! tx-sender amount)
         err-invalid-caller
     )
 )
@@ -68,11 +75,11 @@
 
 ;; read only functions
 ;;
-(define-read-only (get-coordinator-key)
+(define-read-only (get-coordinator-data)
     (var-get coordinator)
 )
 
-(define-read-only (get-signer-key (signer uint))
+(define-read-only (get-signer-data (signer uint))
     (map-get? signers signer)
 )
 
@@ -112,4 +119,8 @@
 
 (define-private (token-credit! (account principal) (amount uint))
     (ft-mint? sbtc amount account)
+)
+
+(define-private (token-debit! (account principal) (amount uint))
+    (ft-burn? sbtc amount account)
 )
