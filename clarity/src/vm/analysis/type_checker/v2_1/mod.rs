@@ -423,8 +423,9 @@ impl FunctionType {
         check_argument_count(expected_args.len(), func_args)?;
 
         if clarity_version < ClarityVersion::Clarity2 {
-            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
-                match (&expected_arg.signature, arg) {
+            for (expected, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+                let expected_arg = expected.signature.canonicalize_simple_type_v2_1();
+                match (&expected_arg, arg) {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_id)),
                         Value::Principal(PrincipalData::Contract(contract)),
