@@ -22,6 +22,9 @@
 ;; data vars
 ;;
 (define-data-var coordinator (optional {addr: principal, key: (buff 33)}) none)
+(define-data-var num-keys uint u4000)
+(define-data-var num-parties uint u4000)
+(define-data-var threshold uint u2800)
 
 ;; data maps
 ;;
@@ -33,6 +36,27 @@
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
         (ok (var-set coordinator (some data)))
+    )
+)
+
+(define-public (set-num-keys (n uint))
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ok (var-set num-keys n))
+    )
+)
+
+(define-public (set-num-parties (n uint))
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ok (var-set num-parties n))
+    )
+)
+
+(define-public (set-threshold (n uint))
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ok (var-set threshold n))
     )
 )
 
