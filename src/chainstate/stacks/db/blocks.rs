@@ -4958,7 +4958,9 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(BlockstackOperationType::StackStx(stack_stx_op)),
+                            transaction: TransactionOrigin::Burn(
+                                BlockstackOperationType::StackStx(stack_stx_op),
+                            ),
                             events,
                             result: value,
                             post_condition_aborted: false,
@@ -5009,13 +5011,13 @@ impl StacksChainState {
                             burn_header_hash,
                             memo,
                             ..
-                        } = &transfer_stx_op;
+                        } = transfer_stx_op.clone();
                         let result = clarity_tx.connection().as_transaction(|tx| {
                             tx.run_stx_transfer(
-                                &sender.clone().into(),
-                                &recipient.clone().into(),
-                                *transfered_ustx,
-                                &BuffData { data: memo.clone() },
+                                &sender.into(),
+                                &recipient.into(),
+                                transfered_ustx,
+                                &BuffData { data: memo },
                             )
                         });
                         match result {
@@ -5126,7 +5128,9 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(BlockstackOperationType::DelegateStx(delegate_stx_op)),
+                            transaction: TransactionOrigin::Burn(
+                                BlockstackOperationType::DelegateStx(delegate_stx_op),
+                            ),
                             events,
                             result: value,
                             post_condition_aborted: false,

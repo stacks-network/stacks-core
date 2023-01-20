@@ -10,8 +10,8 @@ use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 
-pub use clarity::vm::events::StacksTransactionEvent;
 use crate::chainstate::burn::operations::BlockstackOperationType;
+pub use clarity::vm::events::StacksTransactionEvent;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionOrigin {
