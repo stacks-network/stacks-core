@@ -1,4 +1,9 @@
 use clarity::codec::StacksMessageCodec;
+use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::ContractName;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -27,7 +32,7 @@ impl PegInOp {
                 return Err(OpError::InvalidInput);
             };
 
-        let parsed_data = Self::parse_data(&tx.data())?;
+        let recipient = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -35,8 +40,7 @@ impl PegInOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            recipient: parsed_data.address,
-            recipient_contract_name: parsed_data.contract_name,
+            recipient,
             peg_wallet_address,
             amount,
             txid,
@@ -46,7 +50,7 @@ impl PegInOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<PrincipalData, ParseError> {
         /*
             Wire format:
 
@@ -68,21 +72,32 @@ impl PegInOp {
             return Err(ParseError::MalformedData);
         }
 
-        let mut address_data = data.get(..21).ok_or(ParseError::MalformedData)?;
+        let version = *data.get(0).ok_or(ParseError::MalformedData)?;
+        let address_data: [u8; 20] = data
+            .get(1..21)
+            .ok_or(ParseError::MalformedData)?
+            .try_into()?;
 
-        let address = StacksAddress::consensus_deserialize(&mut address_data)?;
+        let standard_principal_data = StandardPrincipalData(version, address_data);
 
-        let contract_name = data
+        let maybe_contract_name: Option<ContractName> = data
             .get(21..)
             .filter(|bytes| !bytes.is_empty())
             .map(std::str::from_utf8)
             .transpose()?
-            .map(ToOwned::to_owned);
+            .map(ToOwned::to_owned)
+            .map(TryInto::try_into)
+            .transpose()?;
 
-        Ok(ParsedData {
-            address,
-            contract_name,
-        })
+        println!("Contract name: {:?}", maybe_contract_name);
+
+        let recipient: PrincipalData = if let Some(contract_name) = maybe_contract_name {
+            QualifiedContractIdentifier::new(standard_principal_data, contract_name).into()
+        } else {
+            standard_principal_data.into()
+        };
+
+        Ok(recipient)
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -95,13 +110,8 @@ impl PegInOp {
     }
 }
 
-struct ParsedData {
-    address: StacksAddress,
-    contract_name: Option<String>,
-}
-
 enum ParseError {
-    AddressParsing,
+    BadContractName,
     MalformedData,
     Utf8Error,
 }
@@ -118,9 +128,15 @@ impl From<std::str::Utf8Error> for ParseError {
     }
 }
 
-impl From<stacks_common::codec::Error> for ParseError {
-    fn from(_: stacks_common::codec::Error) -> Self {
-        Self::AddressParsing
+impl From<std::array::TryFromSliceError> for ParseError {
+    fn from(_: std::array::TryFromSliceError) -> Self {
+        Self::MalformedData
+    }
+}
+
+impl From<ClarityRuntimeError> for ParseError {
+    fn from(_: ClarityRuntimeError) -> Self {
+        Self::BadContractName
     }
 }
 
@@ -163,8 +179,7 @@ mod tests {
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
-        assert_eq!(op.recipient, stx_address);
-        assert!(op.recipient_contract_name.is_none());
+        assert_eq!(op.recipient, stx_address.into());
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
     }
@@ -174,7 +189,7 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let contract_name = "my_amazing_contract";
+        let contract_name = "This_is_a_valid_contract_name";
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
@@ -190,10 +205,39 @@ mod tests {
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
-        assert_eq!(op.recipient, stx_address);
-        assert_eq!(op.recipient_contract_name.unwrap(), contract_name);
+        let expected_principal =
+            QualifiedContractIdentifier::new(stx_address.into(), contract_name.into()).into();
+
+        assert_eq!(op.recipient, expected_principal);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+    }
+
+    #[test]
+    fn test_parse_peg_in_should_return_error_given_invalid_contract_name() {
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let contract_name = "Mårten_is_not_a_valid_smart_contract_name";
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+
+        let mut data = vec![1];
+        let addr_bytes = random_bytes(&mut rng);
+        let stx_address = StacksAddress::new(1, addr_bytes.into());
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(contract_name.as_bytes());
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::ParseError) => (),
+            result => panic!("Expected OpError::ParseError, got {:?}", result),
+        }
     }
 
     #[test]
@@ -328,6 +372,8 @@ mod tests {
             .check()
             .expect("Any strictly positive amounts should be ok");
     }
+
+    // TODO: Invalid contract name test
 
     fn seeded_rng() -> StdRng {
         SeedableRng::from_seed([0; 32])

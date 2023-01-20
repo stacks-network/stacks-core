@@ -3351,8 +3351,7 @@ fn test_sbtc_peg_in_btc_op() {
         if ix == 0 {
             // add a peg-in op
             ops.push(BlockstackOperationType::PegIn(PegInOp {
-                recipient: stacker,
-                recipient_contract_name: None,
+                recipient: stacker.into(),
                 peg_wallet_address,
                 amount: 1337,
                 txid: next_txid(),
@@ -3363,8 +3362,7 @@ fn test_sbtc_peg_in_btc_op() {
         } else if ix == 1 {
             // shouldn't be accepted -- amount must be positive
             ops.push(BlockstackOperationType::PegIn(PegInOp {
-                recipient: stacker,
-                recipient_contract_name: None,
+                recipient: stacker.into(),
                 peg_wallet_address,
                 amount: 0,
                 txid: next_txid(),

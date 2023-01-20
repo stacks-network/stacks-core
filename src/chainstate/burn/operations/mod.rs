@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde::Deserialize;
 use std::convert::From;
 use std::convert::TryInto;
 use std::error;
@@ -42,11 +43,13 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
-use serde::Deserialize;
+
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
+
+use clarity::vm::types::PrincipalData;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -314,6 +317,24 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegInOp {
+    #[serde(serialize_with = "principal_serialize")]
+    #[serde(deserialize_with = "principal_deserialize")]
+    pub recipient: PrincipalData,
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
+    pub peg_wallet_address: PoxAddress,
+    pub amount: u64, // BTC amount to peg in, in satoshis
+
+    // common to all transactions
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
 fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
     let inst = bhh.to_hex();
     s.serialize_str(inst.as_str())
@@ -326,23 +347,16 @@ fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
     BurnchainHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub struct PegInOp {
-    #[serde(serialize_with = "crate::chainstate::stacks::address::display_serialize")]
-    #[serde(deserialize_with = "crate::chainstate::stacks::address::address_deser")]
-    pub recipient: StacksAddress,
-    pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
-    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
-    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
-    pub peg_wallet_address: PoxAddress,
-    pub amount: u64, // BTC amount to peg in, in satoshis
+fn principal_serialize<S: serde::Serializer>(pd: &PrincipalData, s: S) -> Result<S::Ok, S::Error> {
+    let inst = pd.to_string();
+    s.serialize_str(inst.as_str())
+}
 
-    // common to all transactions
-    pub txid: Txid,        // transaction ID
-    pub vtxindex: u32,     // index in the block where this tx occurs
-    pub block_height: u64, // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
-    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+fn principal_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<PrincipalData, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    PrincipalData::parse(&inst_str).map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -56,6 +56,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+use stacks_common::types::chainstate::StacksAddress;
 
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
@@ -1041,8 +1042,9 @@ impl BitcoinRegtestController {
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             bytes.push(Opcodes::PegIn as u8);
-            bytes.push(payload.recipient.version);
-            bytes.extend_from_slice(payload.recipient.bytes.as_bytes());
+            let recipient_address: StacksAddress = payload.recipient.into();
+            bytes.push(recipient_address.version);
+            bytes.extend_from_slice(recipient_address.bytes.as_bytes());
             bytes
         };
 

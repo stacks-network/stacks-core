@@ -31,6 +31,7 @@ use crate::types::chainstate::TrieHash;
 use crate::util_lib::db;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::FromColumn;
+use clarity::vm::types::PrincipalData;
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
@@ -73,6 +74,13 @@ impl FromColumn<StacksAddress> for StacksAddress {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }
+    }
+}
+
+impl FromColumn<PrincipalData> for PrincipalData {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
+        let address_str: String = row.get_unwrap(column_name);
+        Self::parse(&address_str).map_err(|_| db_error::ParseError)
     }
 }
 
