@@ -455,4 +455,80 @@ mod tests {
             .check()
             .expect("Any strictly positive amounts should be ok");
     }
+    
+    // TODO: Invalid contract name test
+
+    fn seeded_rng() -> StdRng {
+        SeedableRng::from_seed([0; 32])
+    }
+
+    fn random_bytes<Rng: rand::Rng, const N: usize>(rng: &mut Rng) -> [u8; N] {
+        [rng.gen(); N]
+    }
+
+    fn burnchain_block_header() -> BurnchainBlockHeader {
+        BurnchainBlockHeader {
+            block_height: 0,
+            block_hash: [0; 32].into(),
+            parent_block_hash: [0; 32].into(),
+            num_txs: 0,
+            timestamp: 0,
+        }
+    }
+
+    fn burnchain_transaction(
+        data: Vec<u8>,
+        output2: Option<Output2Data>,
+        opcode: Opcodes,
+    ) -> BurnchainTransaction {
+        BurnchainTransaction::Bitcoin(bitcoin_transaction(data, output2, opcode))
+    }
+
+    fn bitcoin_transaction(
+        data: Vec<u8>,
+        output2: Option<Output2Data>,
+        opcode: Opcodes,
+    ) -> BitcoinTransaction {
+        BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: opcode as u8,
+            data,
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: output2
+                .into_iter()
+                .map(|output2data| output2data.as_bitcoin_tx_output())
+                .collect(),
+        }
+    }
+
+    struct Output2Data {
+        amount: u64,
+        peg_wallet_address: [u8; 32],
+    }
+
+    impl Output2Data {
+        fn new_as_option(amount: u64, peg_wallet_address: [u8; 32]) -> Option<Self> {
+            Some(Self {
+                amount,
+                peg_wallet_address,
+            })
+        }
+        fn as_bitcoin_tx_output(&self) -> BitcoinTxOutput {
+            BitcoinTxOutput {
+                units: self.amount,
+                address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(
+                    true,
+                    self.peg_wallet_address,
+                )),
+            }
+        }
+    }
 }

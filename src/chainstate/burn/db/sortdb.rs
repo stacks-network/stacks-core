@@ -5060,7 +5060,7 @@ impl<'a> SortitionHandleTx<'a> {
             &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
 
         Ok(())
     }

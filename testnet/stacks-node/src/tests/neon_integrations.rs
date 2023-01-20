@@ -10744,7 +10744,6 @@ fn microblock_miner_multiple_attempts() {
 #[test]
 #[ignore]
 fn test_submit_and_observe_peg_in_request() {
-
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
