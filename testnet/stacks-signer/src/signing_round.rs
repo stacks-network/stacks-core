@@ -13,7 +13,34 @@ pub struct SigningRound {
     pub threshold: usize,
     pub total: usize,
     pub signer: Signer,
+    pub state: States,
     pub commitments: Vec<PolyCommitment>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum States {
+    Init,
+    DkgDistribute,
+    DkgGather,
+    SignGather,
+    Signed,
+}
+
+impl SigningRound {
+    pub fn move_to(&self, state: States) -> Result<(), String> {
+        let accepted = match state {
+            States::Init => false,
+            States::DkgDistribute => self.state == States::Init,
+            States::DkgGather => self.state == States::DkgDistribute,
+            States::SignGather => self.state == States::DkgGather,
+            States::Signed => self.state == States::SignGather,
+        };
+        if accepted {
+            Ok(())
+        } else {
+            Err(format!("bad state change: {:?} to {:?}", self.state, state))
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -41,6 +68,7 @@ impl SigningRound {
                 group_key: Default::default(),
                 parties: vec![],
             },
+            state: States::Init,
             commitments: vec![],
         }
     }
