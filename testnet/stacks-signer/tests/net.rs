@@ -11,8 +11,7 @@ fn receive_msg() {
     config.common.stacks_node_url = "http://localhost:9775".to_owned();
 
     let in_queue = vec![m1];
-    let out_queue = vec![];
-    let mut net = HttpNet::new(&config, in_queue, out_queue);
+    let mut net = HttpNet::new(&config, in_queue);
     match net.next_message() {
         Some(_msg) => {
             assert!(true)

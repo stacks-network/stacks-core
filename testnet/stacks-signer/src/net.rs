@@ -21,15 +21,13 @@ impl From<MessageTypes> for Message {
 pub struct HttpNet {
     pub stacks_node_url: String,
     in_queue: Vec<Message>,
-    _out_queue: Vec<Message>,
 }
 
 impl HttpNet {
-    pub fn new(config: &Config, in_q: Vec<Message>, out_q: Vec<Message>) -> Self {
+    pub fn new(config: &Config, in_q: Vec<Message>) -> Self {
         HttpNet {
             stacks_node_url: config.common.stacks_node_url.to_owned(),
             in_queue: in_q,
-            _out_queue: out_q,
         }
     }
 }
@@ -38,7 +36,6 @@ pub trait Net {
     fn listen(&self);
     fn poll(&mut self);
     fn next_message(&mut self) -> Option<Message>;
-    fn send_message(&self, _msg: Message);
 }
 
 impl Net for HttpNet {
@@ -70,17 +67,17 @@ impl Net for HttpNet {
     fn next_message(&mut self) -> Option<Message> {
         self.in_queue.pop()
     }
+}
 
-    fn send_message(&self, msg: Message) {
-        let req = ureq::post(&self.stacks_node_url);
+    pub fn send_message(url: &str, msg: Message) {
+        let req = ureq::post(url);
         let bytes = bincode::serialize(&msg).unwrap();
         match req.send_bytes(&bytes[..]) {
             Ok(response) => {
                 debug!("sent {} bytes {:?}", bytes.len(), &response)
             }
             Err(e) => {
-                info!("post failed to {} {}", self.stacks_node_url, e)
+                info!("post failed to {} {}", url, e)
             }
         }
     }
-}

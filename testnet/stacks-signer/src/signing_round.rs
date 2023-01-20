@@ -5,7 +5,6 @@ use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
 use serde::{Deserialize, Serialize};
-use crate::net::Message;
 use crate::state_machine::{StateMachine, States};
 
 type KeyShare = HashMap<usize, Scalar>;
