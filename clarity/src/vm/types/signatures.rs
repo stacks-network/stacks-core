@@ -455,9 +455,10 @@ impl TypeSignature {
     }
 
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
+        let canonical_other = other.canonicalize_simple_type(epoch);
         match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
-            StacksEpochId::Epoch21 => self.admits_type_v2_1(other),
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&canonical_other),
+            StacksEpochId::Epoch21 => self.admits_type_v2_1(&canonical_other),
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
     }
@@ -941,9 +942,10 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature> {
+        let canonical_a = a.canonicalize_simple_type(epoch);
         match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(a, b),
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(&canonical_a, b),
+            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(&canonical_a, b),
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
     }

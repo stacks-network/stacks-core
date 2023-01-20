@@ -175,10 +175,10 @@ impl DefinedFunction {
 
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
-
+            let canonical_sig = type_sig.canonicalize_simple_type(env.epoch());
             // Clarity 1 behavior
             if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
-                match (type_sig, value) {
+                match (&canonical_sig, value) {
                     // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
@@ -212,9 +212,9 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), value)? {
+                        if !canonical_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
-                                type_sig.clone(),
+                                canonical_sig.clone(),
                                 value.clone(),
                             )
                             .into());
@@ -231,9 +231,9 @@ impl DefinedFunction {
                 // e.g. `(some .foo)` to `(optional <trait>`)
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
-                let cast_value = clarity2_implicit_cast(type_sig, value)?;
+                let cast_value = clarity2_implicit_cast(&canonical_sig, value)?;
 
-                match (&type_sig, &cast_value) {
+                match (&canonical_sig, &cast_value) {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(_)),
                         Value::CallableContract(CallableData {
@@ -253,9 +253,9 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), &cast_value)? {
+                        if !canonical_sig.admits(env.epoch(), &cast_value)? {
                             return Err(
-                                CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
+                                CheckErrors::TypeValueError(canonical_sig.clone(), cast_value).into()
                             );
                         }
                     }
