@@ -212,24 +212,16 @@ impl Opcodes {
     }
 
     pub fn from_http_str(input: &str) -> Option<Opcodes> {
-        let opcode = if input == Self::HTTP_PEG_IN {
-            Opcodes::PegIn
-        } else if input == Self::HTTP_BLOCK_COMMIT {
-            Opcodes::LeaderBlockCommit
-        } else if input == Self::HTTP_KEY_REGISTER {
-            Opcodes::LeaderKeyRegister
-        } else if input == Self::HTTP_BURN_SUPPORT {
-            Opcodes::UserBurnSupport
-        } else if input == Self::HTTP_STACK_STX {
-            Opcodes::StackStx
-        } else if input == Self::HTTP_PRE_STX {
-            Opcodes::PreStx
-        } else if input == Self::HTTP_TRANSFER_STX {
-            Opcodes::TransferStx
-        } else if input == Self::HTTP_DELEGATE_STX {
-            Opcodes::DelegateStx
-        } else {
-            return None;
+        let opcode = match input {
+            Self::HTTP_PEG_IN => Opcodes::PegIn,
+            Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
+            Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
+            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
+            Self::HTTP_STACK_STX => Opcodes::StackStx,
+            Self::HTTP_PRE_STX => Opcodes::PreStx,
+            Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
+            Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
+            _ => return None,
         };
 
         Some(opcode)

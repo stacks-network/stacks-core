@@ -16,7 +16,6 @@ use rusqlite::types::ToSql;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::operations::BurnchainOpsVec;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, PegInOp, PreStxOp, TransferStxOp,
 };
@@ -31,6 +30,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use stacks::net::BurnchainOps;
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
@@ -736,6 +736,18 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
     (stacks_tip_consensus_hash, block)
+}
+
+fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
+    let client = reqwest::blocking::Client::new();
+
+    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
+
+    eprintln!("{}", response);
+
+    serde_json::from_value(response).unwrap()
 }
 
 fn find_microblock_privkey(
@@ -10509,20 +10521,8 @@ fn test_submit_and_observe_peg_in_request() {
         peg_in_op.peg_wallet_address
     );
 
-    let query_block_height = parsed_peg_in_op.block_height;
-
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, query_block_height);
-    let client = reqwest::blocking::Client::new();
-
-    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
-
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOpsVec = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_in_op = match parsed_resp {
-        BurnchainOpsVec::PegIn(mut vec) => {
+    let parsed_peg_in_op = match get_peg_in_ops(&conf, parsed_peg_in_op.block_height) {
+        BurnchainOps::PegIn(mut vec) => {
             assert_eq!(vec.len(), 1);
             vec.pop().unwrap()
         }
