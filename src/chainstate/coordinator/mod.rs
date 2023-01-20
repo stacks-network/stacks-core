@@ -682,6 +682,33 @@ fn forget_orphan_stacks_blocks(
     Ok(())
 }
 
+/// Consolidate affirmation maps.
+/// `sort_am` will be the prefix of the resulting AM.
+/// If `given_am` represents more reward cycles than `last_2_05_rc`, then its affirmations will be
+/// appended to `sort_am` to compute the consolidated affirmation map.
+///
+/// This way, the affirmation map reflects affirmations made under the 2.05 rules during epoch 2.05
+/// reward cycles, and affirmations made under the 2.1 rules during epoch 2.1.
+fn consolidate_affirmation_maps(
+    given_am: AffirmationMap,
+    sort_am: &AffirmationMap,
+    last_2_05_rc: usize,
+) -> AffirmationMap {
+    let mut am_entries = vec![];
+    for i in 0..last_2_05_rc {
+        if i < sort_am.affirmations.len() {
+            am_entries.push(sort_am.affirmations[i]);
+        } else {
+            return AffirmationMap::new(am_entries);
+        }
+    }
+    for i in last_2_05_rc..given_am.len() {
+        am_entries.push(given_am.affirmations[i]);
+    }
+
+    AffirmationMap::new(am_entries)
+}
+
 /// Get the heaviest affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
@@ -700,19 +727,11 @@ pub fn static_get_heaviest_affirmation_map(
         burnchain,
     )?;
 
-    let mut am_entries = vec![];
-    for i in 0..last_2_05_rc {
-        if i < sort_am.affirmations.len() {
-            am_entries.push(sort_am.affirmations[i]);
-        } else {
-            return Ok(AffirmationMap::new(am_entries));
-        }
-    }
-    for i in last_2_05_rc..heaviest_am.len() {
-        am_entries.push(heaviest_am.affirmations[i]);
-    }
-
-    Ok(AffirmationMap::new(am_entries))
+    Ok(consolidate_affirmation_maps(
+        heaviest_am,
+        &sort_am,
+        last_2_05_rc,
+    ))
 }
 
 /// Get the canonical affirmation map, when considering epochs.
@@ -735,19 +754,11 @@ pub fn static_get_canonical_affirmation_map(
         chain_state_db,
     )?;
 
-    let mut am_entries = vec![];
-    for i in 0..last_2_05_rc {
-        if i < sort_am.affirmations.len() {
-            am_entries.push(sort_am.affirmations[i]);
-        } else {
-            return Ok(AffirmationMap::new(am_entries));
-        }
-    }
-    for i in last_2_05_rc..canonical_am.len() {
-        am_entries.push(canonical_am.affirmations[i]);
-    }
-
-    Ok(AffirmationMap::new(am_entries))
+    Ok(consolidate_affirmation_maps(
+        canonical_am,
+        &sort_am,
+        last_2_05_rc,
+    ))
 }
 
 fn inner_static_get_stacks_tip_affirmation_map(
@@ -767,19 +778,11 @@ fn inner_static_get_stacks_tip_affirmation_map(
         canonical_bhh,
     )?;
 
-    let mut am_entries = vec![];
-    for i in 0..last_2_05_rc {
-        if i < sort_am.affirmations.len() {
-            am_entries.push(sort_am.affirmations[i]);
-        } else {
-            return Ok(AffirmationMap::new(am_entries));
-        }
-    }
-    for i in last_2_05_rc..stacks_am.len() {
-        am_entries.push(stacks_am.affirmations[i]);
-    }
-
-    Ok(AffirmationMap::new(am_entries))
+    Ok(consolidate_affirmation_maps(
+        stacks_am,
+        sort_am,
+        last_2_05_rc,
+    ))
 }
 
 /// Get the canonical Stacks tip affirmation map, when considering epochs.
