@@ -1,6 +1,7 @@
 pub mod config;
 pub mod net;
 pub mod signing_round;
+pub mod state_machine;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");

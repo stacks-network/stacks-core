@@ -5,6 +5,7 @@ use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
 use serde::{Deserialize, Serialize};
+use crate::state_machine::{StateMachine, States};
 
 type KeyShare = HashMap<usize, Scalar>;
 
@@ -17,17 +18,8 @@ pub struct SigningRound {
     pub commitments: Vec<PolyCommitment>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum States {
-    Init,
-    DkgDistribute,
-    DkgGather,
-    SignGather,
-    Signed,
-}
-
-impl SigningRound {
-    pub fn move_to(&self, state: States) -> Result<(), String> {
+impl StateMachine for SigningRound {
+    fn move_to(&self, state: States) -> Result<(), String> {
         let accepted = match state {
             States::Init => false,
             States::DkgDistribute => self.state == States::Init,
