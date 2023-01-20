@@ -139,3 +139,38 @@ Clarinet.test({
         balance.result.expectOk().expectUint(1230);
     },
 });
+
+Clarinet.test({
+    name: "Ensure burning tokens fails if insufficient balance",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+
+        balance.result.expectOk().expectUint(0);
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234)], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+
+        balance.result.expectOk().expectUint(1234);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "burn!", [types.uint(1235)], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
+
+        receipt.result.expectErr();
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(deployer.address)], deployer.address);
+
+        balance.result.expectOk().expectUint(1234);
+    },
+});
