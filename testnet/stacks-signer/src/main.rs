@@ -1,20 +1,22 @@
+use std::{thread, time};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::spawn;
+
 use clap::Parser;
 use slog::slog_info;
+
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net;
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signing_round::SigningRound;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread::spawn;
-use std::{thread, time};
+use stacks_signer::signing_round::{MessageTypes, SigningRound};
 
 fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
     let cli = Cli::parse();
     config.merge(&cli); // merge command line options
-    info!("{}", stacks_signer::version()); // sign-on message
+    info!("{} signer id #{}", stacks_signer::version(), config.signer.frost_id); // sign-on message
 
     let net: HttpNet = HttpNet::new(&config, vec![]);
 
@@ -26,7 +28,8 @@ fn main() {
 
     // temporary fill-in for a coordinator
     if cli.start {
-        spawn(|| start_round());
+        let config2 = config.clone();
+        spawn(move || start_round(&config2));
     }
 
     // listen to p2p messages
@@ -66,6 +69,8 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
     }
 }
 
-fn start_round() {
+fn start_round(config: &Config) {
     info!("Starting signature round");
+    let dkg_start = MessageTypes::DkgBegin{};
+    net::send_message(&config.common.stacks_node_url, dkg_start.into());
 }

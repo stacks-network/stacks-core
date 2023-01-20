@@ -1,4 +1,3 @@
-use crate::state_machine::{StateMachine, States};
 pub use frost;
 use frost::common::PolyCommitment;
 use frost::v1::{Party, Signer};
@@ -6,6 +5,11 @@ use hashbrown::HashMap;
 use p256k1::scalar::Scalar;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
+use slog::slog_info;
+
+use stacks_common::info;
+
+use crate::state_machine::{StateMachine, States};
 
 type KeyShare = HashMap<usize, Scalar>;
 
@@ -28,6 +32,7 @@ impl StateMachine for SigningRound {
             States::Signed => self.state == States::SignGather,
         };
         if accepted {
+            info!("");
             Ok(())
         } else {
             Err(format!("bad state change: {:?} to {:?}", self.state, state))
@@ -36,15 +41,15 @@ impl StateMachine for SigningRound {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct SignatureShare {
-    pub signature_shares: Vec<Scalar>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub enum MessageTypes {
     DkgBegin,
     DkgEnd,
     SignatureShare(SignatureShare),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignatureShare {
+    pub signature_shares: Vec<Scalar>,
 }
 
 impl SigningRound {
