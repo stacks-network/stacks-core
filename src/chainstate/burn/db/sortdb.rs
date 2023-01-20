@@ -3023,13 +3023,10 @@ impl<'a> SortitionDBTx<'a> {
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
-        if affirmation_map.len() > 0 {
-            Ok(AffirmationMap::new(
-                affirmation_map.as_slice()[1..].to_vec(),
-            ))
-        } else {
-            Ok(AffirmationMap::empty())
-        }
+        Ok(match affirmation_map.as_slice() {
+            [] => AffirmationMap::empty(),
+            a => AffirmationMap::new(a[1..].to_vec()),
+        })
     }
 }
 
