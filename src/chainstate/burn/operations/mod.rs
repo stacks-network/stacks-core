@@ -48,6 +48,8 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
+use clarity::vm::types::PrincipalData;
+
 use crate::types::chainstate::BurnchainHeaderHash;
 
 pub mod delegate_stx;
@@ -328,10 +330,7 @@ fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
-    #[serde(serialize_with = "crate::chainstate::stacks::address::DisplaySerialize")]
-    #[serde(deserialize_with = "crate::chainstate::stacks::address::AddressDeser")]
-    pub recipient: StacksAddress,
-    pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
+    pub recipient: PrincipalData,
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
 

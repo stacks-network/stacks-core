@@ -1425,6 +1425,15 @@ impl From<StandardPrincipalData> for StacksAddress {
     }
 }
 
+impl From<PrincipalData> for StacksAddress {
+    fn from(principal: PrincipalData) -> Self {
+        match principal {
+            PrincipalData::Standard(standard_principal) => standard_principal.into(),
+            PrincipalData::Contract(contract_principal) => contract_principal.issuer.into(),
+        }
+    }
+}
+
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
         Value::Principal(PrincipalData::from(principal))
