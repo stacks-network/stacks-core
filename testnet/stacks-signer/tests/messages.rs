@@ -10,11 +10,13 @@ fn setup_signer(total: usize, threshold: usize) -> SigningRound {
 
 #[test]
 fn dkg_begin() {
-    let mut signer = setup_signer(2, 1);
+    let total = 2;
+    let mut signer = setup_signer(total, total - 1);
     assert_eq!(signer.commitments.len(), 0);
 
     let dkg_begin_msg = MessageTypes::DkgBegin;
-    assert!(signer.process(dkg_begin_msg));
+    let msgs = signer.process(dkg_begin_msg).unwrap();
+    assert_eq!(msgs.len(), total);
 
     // part of the DKG_BEGIN process is to fill the commitments array
     assert_eq!(signer.commitments.len(), signer.total);

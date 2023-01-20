@@ -5,6 +5,7 @@ use hashbrown::HashMap;
 use rand_core::OsRng;
 use secp256k1_math::scalar::Scalar;
 use serde::{Deserialize, Serialize};
+use crate::net::Message;
 use crate::state_machine::{StateMachine, States};
 
 type KeyShare = HashMap<usize, Scalar>;
@@ -73,21 +74,21 @@ impl SigningRound {
             .collect();
     }
 
-    pub fn process(&mut self, message: MessageTypes) -> bool {
+    pub fn process(&mut self, message: MessageTypes) -> Result<Vec<MessageTypes>, String> {
         match message {
             MessageTypes::DkgBegin => self.dkg_begin(),
-            MessageTypes::SignatureShare(_share) => {}
-            MessageTypes::DkgEnd => {}
-        };
-        true
+            MessageTypes::SignatureShare(_share) => Ok(vec![]),
+            MessageTypes::DkgEnd => Ok(vec![]),
+        }
     }
 
     pub fn key_share(&self, party_id: usize) -> KeyShare {
         self.signer.parties[party_id].get_shares()
     }
 
-    pub fn dkg_begin(&mut self) {
-        // T and N from dkg_begin msg?
+    pub fn dkg_begin(&mut self)  -> Result<Vec<MessageTypes>, String> {
+        self.move_to(States::DkgDistribute).unwrap();
+
         self.reset();
         let _party_state = self.signer.parties[self.id].save();
         let mut rng = OsRng::default();
@@ -98,11 +99,13 @@ impl SigningRound {
             .map(|p| p.get_poly_commitment(&mut rng))
             .collect();
 
+        let mut msgs = vec![];
         for party in &self.signer.parties {
-            let _msg_share = MessageTypes::SignatureShare(SignatureShare {
+            let msg_share = MessageTypes::SignatureShare(SignatureShare {
                 signature_shares: party.get_shares().into_values().collect(),
             });
-            //net.send_message(msg_share);
+            msgs.push(msg_share);
         }
+        Ok(msgs)
     }
 }
