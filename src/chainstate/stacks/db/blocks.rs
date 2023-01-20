@@ -12131,7 +12131,10 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
-        peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let num_epochs = epochs.len();
+        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
 
         let mut peer = TestPeer::new(peer_config);
