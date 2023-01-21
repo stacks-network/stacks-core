@@ -3009,6 +3009,27 @@ impl SortitionDB {
     }
 }
 
+impl<'a> SortitionDBTx<'a> {
+    pub fn find_sortition_tip_affirmation_map(
+        &mut self,
+        chain_tip: &SortitionId,
+    ) -> Result<AffirmationMap, db_error> {
+        let affirmation_map = match self.get_indexed(chain_tip, &db_keys::pox_affirmation_map())? {
+            Some(am_str) => {
+                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
+            }
+            None => AffirmationMap::empty(),
+        };
+
+        // remove the first entry -- it's always `n` based on the way we construct it, while the
+        // heaviest affirmation map just has nothing.
+        Ok(match affirmation_map.as_slice() {
+            [] => AffirmationMap::empty(),
+            a => AffirmationMap::new(a[1..].to_vec()),
+        })
+    }
+}
+
 impl<'a> SortitionDBConn<'a> {
     pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
         SortitionHandleConn {
@@ -3771,11 +3792,10 @@ impl SortitionDB {
 
     /// Find the affirmation map represented by a given sortition ID.
     pub fn find_sortition_tip_affirmation_map(
-        _burnchain_db: &BurnchainDB,
-        sortition_db: &SortitionDB,
+        &self,
         tip_id: &SortitionId,
     ) -> Result<AffirmationMap, db_error> {
-        let ih = sortition_db.index_handle(tip_id);
+        let ih = self.index_handle(tip_id);
         let am = ih.get_sortition_affirmation_map()?;
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
@@ -4415,6 +4435,34 @@ impl SortitionDB {
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
+    }
+
+    /// Get the last reward cycle in epoch 2.05
+    pub fn get_last_epoch_2_05_reward_cycle(&self) -> Result<u64, db_error> {
+        Self::static_get_last_epoch_2_05_reward_cycle(
+            self.conn(),
+            self.first_block_height,
+            &self.pox_constants,
+        )
+    }
+
+    /// Get the last reward cycle in epoch 2.05
+    pub fn static_get_last_epoch_2_05_reward_cycle(
+        conn: &DBConn,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+    ) -> Result<u64, db_error> {
+        let epochs = SortitionDB::get_stacks_epochs(conn)?;
+
+        for epoch in epochs {
+            if epoch.epoch_id == StacksEpochId::Epoch2_05 {
+                return Ok(pox_constants
+                    .block_height_to_reward_cycle(first_block_height, epoch.end_height)
+                    .expect("FATAL: end block of epoch 2.05 is before system start height"));
+            }
+        }
+
+        Ok(u64::MAX)
     }
 
     /// Get the latest block snapshot on this fork where a sortition occured.
