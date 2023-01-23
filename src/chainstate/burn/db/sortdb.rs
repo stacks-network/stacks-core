@@ -4072,8 +4072,6 @@ impl SortitionDB {
         )
     }
 
-    // TODO(3493): Query functions for peg out request and peg out fulfill
-
     /// Get the list of Transfer-STX operations processed in a given burnchain block.
     /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
     /// to reject them.
