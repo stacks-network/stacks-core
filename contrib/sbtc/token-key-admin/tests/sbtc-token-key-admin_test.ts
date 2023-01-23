@@ -140,6 +140,34 @@ Clarinet.test({
 });
 
 Clarinet.test({
+    name: "Ensure that set-signer-info fails if the key-id is out of range",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-num-keys", [types.uint(23)], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-num-keys", [], deployer.address);
+
+        coordinator.result.expectUint(23);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-signer-data", [types.uint(23), types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
+
+        receipt.result.expectErr();
+
+    },
+});
+
+Clarinet.test({
     name: "Ensure we can mint tokens",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         let deployer = accounts.get("deployer")!;

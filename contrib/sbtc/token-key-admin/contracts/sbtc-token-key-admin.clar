@@ -16,6 +16,7 @@
 ;;
 (define-constant contract-owner tx-sender)
 (define-constant err-invalid-caller u1)
+(define-constant err-invalid-signer-id u1)
 (define-constant err-owner-only u100)
 (define-constant err-not-token-owner u101)
 
@@ -63,6 +64,7 @@
 (define-public (set-signer-data (id uint) (data {addr: principal, key: (buff 33)}))
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
+        (asserts! (is-valid-signer-id id) (err err-invalid-signer-id))
         (ok (map-set signers id data))
     )
 )
@@ -70,6 +72,7 @@
 (define-public (delete-signer-data (id uint))
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
+        (asserts! (is-valid-signer-id id) (err err-invalid-signer-id))
         (ok (map-delete signers id))
     )
 )
@@ -158,4 +161,8 @@
         (is-eq (get addr cdata) tx-sender)
         false
     )
+)
+
+(define-private (is-valid-signer-id (id uint))
+    (and (>= id u0) (< id (var-get num-keys)))
 )
