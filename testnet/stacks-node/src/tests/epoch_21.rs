@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::env;
 use std::thread;
 
-use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
@@ -43,7 +42,7 @@ use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
-use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::PrivateKey;
@@ -60,6 +59,7 @@ use stacks::clarity_cli::vm_execute as execute;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ClarityVersion;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
+use stacks::net::RPCPoxInfoData;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::neon_node::StacksNode;
@@ -4258,6 +4258,120 @@ fn test_pox_missing_five_anchor_blocks() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Final tip for miner {}: {:?}", i, &tip_info);
+    }
+}
+
+#[test]
+#[ignore]
+fn test_v1_pox_default_contract() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 4;
+    let epoch_2_05 = 10;
+    let epoch_2_1 = 21;
+    let v1_unlock_height = 22;
+
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        1,
+        1,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
+        v1_unlock_height,
+    );
+
+    let (mut conf, _) = neon_integration_test_conf();
+
+    info!("advance_to_2_1 finished");
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+    conf.burnchain.epochs = Some(epochs);
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+
+    btc_regtest_controller.bootstrap_chain(epoch_2_1 - 1);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let runloop_burnchain = burnchain_config.clone();
+
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+    info!("wait_for_runloop over");
+
+    // first block wakes up the run loop
+    //next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let sortdb = btc_regtest_controller.sortdb_mut();
+    let (tip_consensus_hash, tip_block_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let tip = StacksBlockId::new(&tip_consensus_hash, &tip_block_bhh);
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    // pre-v1_unlock_height
+    match RPCPoxInfoData::from_db(sortdb, &mut chainstate, &tip, &burnchain_config) {
+        Ok(pox_info) => {
+            let mut parts = pox_info.contract_id.split('.');
+            parts.next();
+            assert_eq!("pox", parts.next().unwrap())
+        }
+        Err(e) => {
+            info!("{}", e)
+        }
+    }
+
+    // Advance chain to epoch_2_1
+
+    // post-v1_unlock_height
+    match RPCPoxInfoData::from_db(sortdb, &mut chainstate, &tip, &burnchain_config) {
+        Ok(pox_info) => {
+            let mut parts = pox_info.contract_id.split('.');
+            parts.next();
+            assert_eq!("pox-2", parts.next().unwrap())
+        }
+        Err(e) => {
+            info!("{}", e)
+        }
     }
 }
 
