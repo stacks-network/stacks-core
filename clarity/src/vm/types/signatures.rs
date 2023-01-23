@@ -240,6 +240,78 @@ pub enum FunctionType {
     ),
 }
 
+impl FunctionArgSignature {
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionArgSignature {
+        match self {
+            FunctionArgSignature::Union(arg_types) => {
+                let arg_types = arg_types
+                    .iter()
+                    .map(|arg_type| arg_type.canonicalize(epoch))
+                    .collect();
+                FunctionArgSignature::Union(arg_types)
+            }
+            FunctionArgSignature::Single(arg_type) => {
+                let arg_type = arg_type.canonicalize(epoch);
+                FunctionArgSignature::Single(arg_type)
+            }
+        }
+    }
+}
+
+impl FunctionReturnsSignature {
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionReturnsSignature {
+        match self {
+            FunctionReturnsSignature::TypeOfArgAtPosition(_) => self.clone(),
+            FunctionReturnsSignature::Fixed(return_type) => {
+                let return_type = return_type.canonicalize(epoch);
+                FunctionReturnsSignature::Fixed(return_type)
+            }
+        }
+    }
+}
+
+impl FunctionType {
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionType {
+        match self {
+            FunctionType::Variadic(arg_type, return_type) => {
+                let arg_type = arg_type.canonicalize(epoch);
+                let return_type = return_type.canonicalize(epoch);
+                FunctionType::Variadic(arg_type, return_type)
+            }
+            FunctionType::Fixed(fixed_function) => {
+                let args = fixed_function
+                    .args
+                    .iter()
+                    .map(|arg| FunctionArg {
+                        signature: arg.signature.canonicalize(epoch),
+                        name: arg.name.clone(),
+                    })
+                    .collect();
+                let returns = fixed_function.returns.canonicalize(epoch);
+                FunctionType::Fixed(FixedFunction { args, returns })
+            }
+            FunctionType::UnionArgs(arg_types, return_type) => {
+                let arg_types = arg_types
+                    .iter()
+                    .map(|arg_type| arg_type.canonicalize(epoch))
+                    .collect();
+                let return_type = return_type.canonicalize(epoch);
+                FunctionType::UnionArgs(arg_types, return_type)
+            }
+            FunctionType::ArithmeticVariadic => FunctionType::ArithmeticVariadic,
+            FunctionType::ArithmeticUnary => FunctionType::ArithmeticUnary,
+            FunctionType::ArithmeticBinary => FunctionType::ArithmeticBinary,
+            FunctionType::ArithmeticComparison => FunctionType::ArithmeticComparison,
+            FunctionType::Binary(arg1, arg2, return_type) => {
+                let arg1 = arg1.canonicalize(epoch);
+                let arg2 = arg2.canonicalize(epoch);
+                let return_type = return_type.canonicalize(epoch);
+                FunctionType::Binary(arg1, arg2, return_type)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionArg {
     pub signature: TypeSignature,
@@ -455,10 +527,9 @@ impl TypeSignature {
     }
 
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
-        let canonical_other = other.canonicalize_simple_type(epoch);
         match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&canonical_other),
-            StacksEpochId::Epoch21 => self.admits_type_v2_1(&canonical_other),
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&other),
+            StacksEpochId::Epoch21 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
     }
@@ -646,19 +717,38 @@ impl TypeSignature {
         }
     }
 
-    /// Canonicalize a simple type. This method will replace any simple types
-    /// from previous epochs with the appropriate types for the current epoch.
-    /// Note that complex types (`optional`, `list`, `response`, `tuple`) should
-    /// be recursed by the caller.
-    pub fn canonicalize_simple_type(&self, epoch: &StacksEpochId) -> TypeSignature {
+    /// Canonicalize a type.
+    /// This method will convert types from previous epochs with the appropriate
+    /// types for the specified epoch.
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_simple_type_v2_1(),
+            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
             _ => self.clone(),
         }
     }
 
-    pub fn canonicalize_simple_type_v2_1(&self) -> TypeSignature {
+    pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
+            SequenceType(SequenceSubtype::ListType(ref list_type)) => {
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: list_type.max_len,
+                    entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                }))
+            }
+            OptionalType(ref inner_type) => OptionalType(Box::new(inner_type.canonicalize_v2_1())),
+            ResponseType(ref inner_type) => ResponseType(Box::new((
+                inner_type.0.canonicalize_v2_1(),
+                inner_type.1.canonicalize_v2_1(),
+            ))),
+            TupleType(ref tuple_sig) => {
+                let mut canonicalized_fields = BTreeMap::new();
+                for (field_name, field_type) in tuple_sig.get_type_map() {
+                    canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
+                }
+                TypeSignature::from(TupleTypeSignature {
+                    type_map: canonicalized_fields,
+                })
+            }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
             _ => self.clone(),
         }
@@ -836,6 +926,17 @@ impl FunctionSignature {
         }
         Ok(true)
     }
+
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> FunctionSignature {
+        let mut canonicalized_args = vec![];
+        for arg in &self.args {
+            canonicalized_args.push(arg.canonicalize(epoch));
+        }
+        FunctionSignature {
+            args: canonicalized_args,
+            returns: self.returns.canonicalize(epoch),
+        }
+    }
 }
 
 impl FunctionArg {
@@ -942,10 +1043,9 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature> {
-        let canonical_a = a.canonicalize_simple_type(epoch);
         match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(&canonical_a, b),
-            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(&canonical_a, b),
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
+            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
     }

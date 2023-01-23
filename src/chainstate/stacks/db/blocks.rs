@@ -7221,7 +7221,7 @@ impl StacksChainState {
                 let epoch = clarity_connection.get_epoch().clone();
                 clarity_connection.with_analysis_db_readonly(|db| {
                     let function_type = db
-                        .get_public_function_type(&contract_identifier, &function_name)
+                        .get_public_function_type(&contract_identifier, &function_name, &epoch)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
                     let clarity_version = db

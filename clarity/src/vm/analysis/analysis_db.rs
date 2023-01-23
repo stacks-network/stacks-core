@@ -16,6 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
@@ -85,7 +87,8 @@ impl<'a> AnalysisDatabase<'a> {
             .has_metadata_entry(contract_identifier, AnalysisDatabase::storage_key())
     }
 
-    pub fn load_contract(
+    /// Load a contract from the database, without canonicalizing its types.
+    pub fn load_contract_non_canonical(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Option<ContractAnalysis> {
@@ -95,6 +98,23 @@ impl<'a> AnalysisDatabase<'a> {
             //    the analysis will propagate that as a CheckError anyways.
             .ok()?
             .map(|x| ContractAnalysis::deserialize(&x))
+    }
+
+    pub fn load_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        epoch: &StacksEpochId,
+    ) -> Option<ContractAnalysis> {
+        self.store
+            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            // treat NoSuchContract error thrown by get_metadata as an Option::None --
+            //    the analysis will propagate that as a CheckError anyways.
+            .ok()?
+            .map(|x| ContractAnalysis::deserialize(&x))
+            .and_then(|mut x| {
+                x.canonicalize_types(epoch);
+                Some(x)
+            })
     }
 
     pub fn insert_contract(
@@ -121,7 +141,7 @@ impl<'a> AnalysisDatabase<'a> {
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.clarity_version)
     }
@@ -130,45 +150,61 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
+        epoch: &StacksEpochId,
     ) -> CheckResult<Option<FunctionType>> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        Ok(contract.get_public_function_type(function_name).cloned())
+        Ok(contract
+            .get_public_function_type(function_name)
+            .and_then(|x| Some(x.canonicalize(epoch))))
     }
 
     pub fn get_read_only_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
+        epoch: &StacksEpochId,
     ) -> CheckResult<Option<FunctionType>> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        Ok(contract.get_read_only_function_type(function_name).cloned())
+        Ok(contract
+            .get_read_only_function_type(function_name)
+            .and_then(|x| Some(x.canonicalize(epoch))))
     }
 
     pub fn get_defined_trait(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
+        epoch: &StacksEpochId,
     ) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        Ok(contract.get_defined_trait(trait_name).cloned())
+        Ok(contract
+            .get_defined_trait(trait_name)
+            .and_then(|trait_map| {
+                Some(
+                    trait_map
+                        .into_iter()
+                        .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
+                        .collect(),
+                )
+            }))
     }
 
     pub fn get_implemented_traits(
@@ -176,7 +212,7 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> CheckResult<BTreeSet<TraitIdentifier>> {
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.implemented_traits)
     }
@@ -185,14 +221,18 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
+        epoch: &StacksEpochId,
     ) -> CheckResult<(TypeSignature, TypeSignature)> {
         let contract = self
-            .load_contract(contract_identifier)
+            .load_contract_non_canonical(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         let map_type = contract
             .get_map_type(map_name)
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-        Ok(map_type.clone())
+        Ok((
+            map_type.0.canonicalize(epoch),
+            map_type.1.canonicalize(epoch),
+        ))
     }
 
     pub fn destroy(self) -> RollbackWrapper<'a> {
