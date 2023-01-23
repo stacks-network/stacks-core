@@ -479,14 +479,14 @@ impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
             .parse()
             .map_err(|_| db_error::ParseError)?;
 
-        let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
+        let chain_tip = StacksBlockId::from_column(row, "chain_tip")?;
 
         Ok(Self {
             txid,
             vtxindex,
             block_height,
             burn_header_hash,
-            block_header_hash,
+            chain_tip,
             recipient,
             amount,
         })
@@ -826,7 +826,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
 
-        block_header_hash TEXT NOT NULL,
+        chain_tip TEXT NOT NULL,
         amount TEXT NOT NULL,
         recipient TEXT NOT NULL,
 
@@ -5062,12 +5062,12 @@ impl<'a> SortitionHandleTx<'a> {
             &op.vtxindex,
             &u64_to_sql(op.block_height)?,
             &op.burn_header_hash,
-            &op.block_header_hash,
+            &op.chain_tip,
             &op.amount.to_string(),
             &op.recipient.to_string(),
         ];
 
-        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, block_header_hash, amount, recipient) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -6608,13 +6608,13 @@ pub mod tests {
         let vtxindex = 456;
         let amount = 1337;
         let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-        let block_header_hash = BlockHeaderHash([0; 32]);
+        let chain_tip = StacksBlockId([0; 32]);
         let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
         let peg_out_fulfill = PegOutFulfillOp {
             recipient,
             amount,
-            block_header_hash,
+            chain_tip,
 
             txid,
             vtxindex,
