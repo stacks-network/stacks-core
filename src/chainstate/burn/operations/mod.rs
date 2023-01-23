@@ -44,6 +44,7 @@ use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
@@ -392,7 +393,7 @@ pub struct PegOutRequestOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegOutFulfillOp {
-    pub block_header_hash: BlockHeaderHash, // The Stacks block tip whose chain state view was used to validate the peg-out request
+    pub chain_tip: StacksBlockId, // The Stacks chain tip whose state view was used to validate the peg-out request
 
     pub amount: u64,           // Transferred BTC amount, in satoshis
     pub recipient: PoxAddress, // Address to receive the BTC
