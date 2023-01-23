@@ -14,7 +14,6 @@
 
 ;; constants
 ;;
-(define-constant contract-owner tx-sender)
 (define-constant err-invalid-caller u1)
 (define-constant err-invalid-signer-id u1)
 (define-constant err-owner-only u100)
@@ -22,6 +21,7 @@
 
 ;; data vars
 ;;
+(define-data-var contract-owner principal tx-sender)
 (define-data-var coordinator (optional {addr: principal, key: (buff 33)}) none)
 (define-data-var num-keys uint u4000)
 (define-data-var num-parties uint u4000)
@@ -33,6 +33,13 @@
 
 ;; public functions
 ;;
+(define-public (set-contract-owner (owner principal))
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ok (var-set contract-owner owner))
+    )
+)
+
 (define-public (set-coordinator-data (data {addr: principal, key: (buff 33)}))
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
@@ -153,7 +160,7 @@
 ;; private functions
 ;;
 (define-private (is-contract-owner)
-    (is-eq contract-owner tx-sender)
+    (is-eq (var-get contract-owner) tx-sender)
 )
 
 (define-private (is-coordinator)
