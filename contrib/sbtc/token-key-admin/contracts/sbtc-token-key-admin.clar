@@ -15,7 +15,7 @@
 ;; constants
 ;;
 (define-constant err-invalid-caller u1)
-(define-constant err-invalid-signer-id u1)
+(define-constant err-invalid-signer-id u2)
 (define-constant err-owner-only u100)
 (define-constant err-not-token-owner u101)
 
