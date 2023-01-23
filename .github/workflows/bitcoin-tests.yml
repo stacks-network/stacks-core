@@ -2,8 +2,10 @@ name: stacks-bitcoin-integration-tests
 
 # Only run when:
 #   - PRs are opened
+#   - the workflow is started from the UI
 on:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: stacks-bitcoin-integration-tests-${{ github.ref }}
