@@ -3365,9 +3365,13 @@ fn test_sbtc_ops() {
         let mut ops = vec![good_op];
         let peg_wallet_address = PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]);
         let recipient_btc_address = PoxAddress::Standard(stacker.into(), None);
-        let block_header_hash = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-            .unwrap()
-            .winning_stacks_block_hash;
+        let canonical_chain_tip_snapshot =
+            SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+
+        let chain_tip = StacksBlockId::new(
+            &canonical_chain_tip_snapshot.consensus_hash,
+            &canonical_chain_tip_snapshot.winning_stacks_block_hash,
+        );
 
         if ix == 0 {
             // Add a valid peg-in op
@@ -3420,7 +3424,7 @@ fn test_sbtc_ops() {
             ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                 recipient: recipient_btc_address,
                 amount: 3,
-                block_header_hash,
+                chain_tip,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -3431,7 +3435,7 @@ fn test_sbtc_ops() {
             ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                 recipient: recipient_btc_address,
                 amount: 2,
-                block_header_hash,
+                chain_tip,
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,

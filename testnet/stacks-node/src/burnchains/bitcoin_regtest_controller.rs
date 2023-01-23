@@ -1307,7 +1307,7 @@ impl BitcoinRegtestController {
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             bytes.push(Opcodes::PegOutFulfill as u8);
-            bytes.extend_from_slice(payload.block_header_hash.as_bytes());
+            bytes.extend_from_slice(payload.chain_tip.as_bytes());
             bytes
         };
 

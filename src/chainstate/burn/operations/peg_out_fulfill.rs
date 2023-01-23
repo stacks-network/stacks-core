@@ -1,5 +1,5 @@
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -27,7 +27,7 @@ impl PegOutFulfillOp {
             return Err(OpError::InvalidInput);
         };
 
-        let block_header_hash = Self::parse_data(&tx.data())?;
+        let chain_tip = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -35,7 +35,7 @@ impl PegOutFulfillOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            block_header_hash,
+            chain_tip,
             amount,
             recipient,
             txid,
@@ -45,13 +45,13 @@ impl PegOutFulfillOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<BlockHeaderHash, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<StacksBlockId, ParseError> {
         /*
             Wire format:
 
             0      2  3                     35
             |------|--|---------------------|
-             magic  op   Block header hash
+             magic  op       Chain tip
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
@@ -67,7 +67,7 @@ impl PegOutFulfillOp {
             return Err(ParseError::MalformedData);
         }
 
-        BlockHeaderHash::from_bytes(data).ok_or(ParseError::MalformedData)
+        StacksBlockId::from_bytes(data).ok_or(ParseError::MalformedData)
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -106,8 +106,8 @@ mod tests {
         let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let block_header_hash_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
-        data.extend_from_slice(&block_header_hash_bytes);
+        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
 
         let tx = test_helpers::burnchain_transaction(data, output2, opcode);
         let header = test_helpers::burnchain_block_header();
@@ -116,7 +116,7 @@ mod tests {
             PegOutFulfillOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
 
         assert_eq!(op.recipient.bytes(), recipient_address_bytes);
-        assert_eq!(op.block_header_hash.as_bytes(), &block_header_hash_bytes);
+        assert_eq!(op.chain_tip.as_bytes(), &chain_tip_bytes);
         assert_eq!(op.amount, amount);
     }
 
@@ -130,8 +130,8 @@ mod tests {
         let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let block_header_hash_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
-        data.extend_from_slice(&block_header_hash_bytes);
+        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
 
         let tx = test_helpers::burnchain_transaction(data, output2, opcode);
         let header = test_helpers::burnchain_block_header();
@@ -152,8 +152,8 @@ mod tests {
         let output2 = None;
 
         let mut data = vec![];
-        let block_header_hash_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
-        data.extend_from_slice(&block_header_hash_bytes);
+        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
 
         let tx = test_helpers::burnchain_transaction(data, output2, opcode);
         let header = test_helpers::burnchain_block_header();
@@ -176,8 +176,8 @@ mod tests {
         let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let block_header_hash_bytes: [u8; 31] = test_helpers::random_bytes(&mut rng);
-        data.extend_from_slice(&block_header_hash_bytes);
+        let chain_tip_bytes: [u8; 31] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
 
         let tx = test_helpers::burnchain_transaction(data, output2, opcode);
         let header = test_helpers::burnchain_block_header();
@@ -195,8 +195,8 @@ mod tests {
         let mut rng = test_helpers::seeded_rng();
 
         let mut data = vec![];
-        let block_header_hash_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
-        data.extend_from_slice(&block_header_hash_bytes);
+        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
 
         let mut create_op = move |amount| {
             let opcode = Opcodes::PegOutFulfill;

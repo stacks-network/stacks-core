@@ -10817,7 +10817,7 @@ fn test_submit_and_observe_sbtc_ops() {
     };
 
     let peg_out_fulfill_op = PegOutFulfillOp {
-        block_header_hash: BlockHeaderHash([0; 32]),
+        chain_tip: StacksBlockId([0; 32]),
         recipient: recipient_btc_addr,
         amount: 1337,
         txid: Txid([0u8; 32]),
@@ -10964,8 +10964,8 @@ fn test_submit_and_observe_sbtc_ops() {
     );
     assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
     assert_eq!(
-        parsed_peg_out_fulfill_op.block_header_hash,
-        peg_out_fulfill_op.block_header_hash
+        parsed_peg_out_fulfill_op.chain_tip,
+        peg_out_fulfill_op.chain_tip
     );
 
     run_loop_coordinator_channel.stop_chains_coordinator();
