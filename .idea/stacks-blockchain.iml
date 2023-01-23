@@ -13,6 +13,7 @@
       <sourceFolder url="file://$MODULE_DIR$/build-utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-signer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-signer/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/contrib/tools/relay-server/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

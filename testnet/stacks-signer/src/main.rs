@@ -1,7 +1,7 @@
-use std::{thread, time};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::spawn;
+use std::{thread, time};
 
 use clap::Parser;
 use slog::slog_info;
@@ -16,7 +16,11 @@ fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
     let cli = Cli::parse();
     config.merge(&cli); // merge command line options
-    info!("{} signer id #{}", stacks_signer::version(), config.signer.frost_id); // sign-on message
+    info!(
+        "{} signer id #{}",
+        stacks_signer::version(),
+        config.signer.frost_id
+    ); // sign-on message
 
     let net: HttpNet = HttpNet::new(&config, vec![]);
 
@@ -71,6 +75,6 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 
 fn start_round(config: &Config) {
     info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin{};
+    let dkg_start = MessageTypes::DkgBegin {};
     net::send_message(&config.common.stacks_node_url, dkg_start.into());
 }

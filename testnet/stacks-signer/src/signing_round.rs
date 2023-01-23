@@ -23,7 +23,13 @@ pub struct SigningRound {
 }
 
 impl StateMachine for SigningRound {
-    fn move_to(&self, state: States) -> Result<(), String> {
+    fn move_to(&mut self, state: States) -> Result<(), String> {
+        self.can_move_to(&state)?;
+        self.state = state;
+        Ok(())
+    }
+
+    fn can_move_to(&self, state: &States) -> Result<(), String> {
         let accepted = match state {
             States::Init => false,
             States::DkgDistribute => self.state == States::Init,
