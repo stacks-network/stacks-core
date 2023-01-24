@@ -2604,7 +2604,15 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider,
+            (),
+            (),
+            BitcoinIndexer,
+        >,
     }
 
     impl<'a> TestPeer<'a> {

@@ -427,7 +427,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         indexer: B,
-    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         ChainsCoordinator::test_new_with_observer(
             burnchain,
             chain_id,
@@ -448,7 +448,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
-    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
