@@ -22,7 +22,7 @@ fn main() {
         config.signer.frost_id
     ); // sign-on message
 
-    let net: HttpNet = HttpNet::new(&config, vec![]);
+    let net: HttpNet = HttpNet::new(config.common.stacks_node_url.clone(), vec![]);
 
     // thread coordination
     let (tx, rx): (Sender<Message>, Receiver<Message>) = mpsc::channel();
@@ -67,7 +67,10 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
         info!("received {:?}", inbound);
         let outbounds = signer.process(inbound.msg).unwrap();
         for out in outbounds {
-            let msg = Message{ msg: out, sig: net::id_to_sig_bytes(config.signer.frost_id) };
+            let msg = Message {
+                msg: out,
+                sig: net::id_to_sig_bytes(config.signer.frost_id),
+            };
             net::send_message(&config.common.stacks_node_url, msg)
         }
     }
@@ -76,6 +79,9 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 fn start_round(config: &Config) {
     info!("Starting signature round (--start)");
     let dkg_start = MessageTypes::DkgBegin(DkgBegin { id: [0; 32] });
-    let msg = Message{ msg: dkg_start, sig: net::id_to_sig_bytes(config.signer.frost_id) };
+    let msg = Message {
+        msg: dkg_start,
+        sig: net::id_to_sig_bytes(config.signer.frost_id),
+    };
     net::send_message(&config.common.stacks_node_url, msg);
 }

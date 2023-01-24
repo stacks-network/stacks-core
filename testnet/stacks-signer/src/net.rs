@@ -5,7 +5,6 @@ use slog::{slog_info, slog_warn};
 
 use stacks_common::{info, warn};
 
-use crate::config::Config;
 use crate::signing_round;
 
 // Message is the format over the wire and a place for future metadata such as sender_id
@@ -21,9 +20,9 @@ pub struct HttpNet {
 }
 
 impl HttpNet {
-    pub fn new(config: &Config, in_q: Vec<Message>) -> Self {
+    pub fn new(stacks_node_url: String, in_q: Vec<Message>) -> Self {
         HttpNet {
-            stacks_node_url: config.common.stacks_node_url.to_owned(),
+            stacks_node_url,
             in_queue: in_q,
         }
     }
@@ -86,8 +85,8 @@ fn url_with_id(base: &str, id: usize) -> String {
     url
 }
 
-pub fn id_to_sig_bytes(id: usize) -> [u8;32] {
+pub fn id_to_sig_bytes(id: usize) -> [u8; 32] {
     let mut bytes = id.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&[0;32-8]);
+    bytes.extend_from_slice(&[0; 32 - 8]);
     bytes.try_into().unwrap()
 }
