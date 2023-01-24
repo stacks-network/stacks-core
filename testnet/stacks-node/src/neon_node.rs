@@ -149,7 +149,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -207,6 +207,7 @@ use stacks::vm::costs::ExecutionCost;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
+use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -3668,8 +3669,9 @@ impl PeerThread {
 
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
-    pub fn run_one_pass(
+    pub fn run_one_pass<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         dns_client_opt: Option<&mut DNSClient>,
         event_dispatcher: &EventDispatcher,
         cost_estimator: &Box<dyn CostEstimator>,
@@ -3728,6 +3730,7 @@ impl PeerThread {
             };
             p2p_thread.with_network(|_, net| {
                 net.run(
+                    indexer,
                     sortdb,
                     chainstate,
                     mempool,
@@ -4088,12 +4091,15 @@ impl StacksNode {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
+        let indexer = make_bitcoin_indexer(&p2p_thread.config);
+
         // receive until we can't reach the receiver thread
         loop {
             if !p2p_thread.globals.keep_running() {
                 break;
             }
             if !p2p_thread.run_one_pass(
+                &indexer,
                 Some(&mut dns_client),
                 &event_dispatcher,
                 &cost_estimator,
