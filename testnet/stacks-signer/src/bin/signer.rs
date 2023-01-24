@@ -71,17 +71,17 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
                 msg: out,
                 sig: net::id_to_sig_bytes(config.signer.frost_id),
             };
-            net::send_message(&config.common.stacks_node_url, msg)
+            net::send_message(&config.common.stacks_node_url, msg).unwrap();
         }
     }
 }
 
 fn start_round(config: &Config) {
     info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id: [0; 32] });
+    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id: 0 });
     let msg = Message {
         msg: dkg_start,
         sig: net::id_to_sig_bytes(config.signer.frost_id),
     };
-    net::send_message(&config.common.stacks_node_url, msg);
+    net::send_message(&config.common.stacks_node_url, msg).unwrap();
 }

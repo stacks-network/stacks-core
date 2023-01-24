@@ -103,15 +103,17 @@ pub enum HttpNetError {
     NetworkError(#[from] ureq::Error),
 }
 
-pub fn send_message(url: &str, msg: Message) {
+pub fn send_message(url: &str, msg: Message) -> Result<(), HttpNetError>{
     let req = ureq::post(url);
     let bytes = bincode::serialize(&msg).unwrap();
     match req.send_bytes(&bytes[..]) {
         Ok(response) => {
-            info!("sent {} bytes {:?} to {}", bytes.len(), &response, url)
+            info!("sent {} bytes {:?} to {}", bytes.len(), &response, url);
+            Ok(())
         }
         Err(e) => {
-            info!("post failed to {} {}", url, e)
+            info!("post failed to {} {}", url, e);
+            Err(e.into())
         }
     }
 }

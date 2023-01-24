@@ -6,10 +6,10 @@ use stacks_common::{debug, info};
 
 use stacks_signer::config::Config;
 use stacks_signer::net::{self, HttpNet, HttpNetError, Message, Net};
-use stacks_signer::signing_round::{DkgBegin, MessageTypes};
+use stacks_signer::signing_round::{DkgBegin, MessageTypes, NonceRequest};
 
 const DEVNET_COORDINATOR_ID: usize = 0;
-const DEVNET_COORDINATOR_DKG_ID: [u8; 32] = [0; 32]; //TODO: Remove, this is a correlation id
+const DEVNET_COORDINATOR_DKG_ID: u64 = 0; //TODO: Remove, this is a correlation id
 
 fn main() {
     let cli = Cli::parse();
@@ -46,7 +46,7 @@ enum Command {
 #[derive(Debug)]
 struct Coordinator<Network: Net> {
     id: usize,            // Used for relay coordination
-    dkg_id: [u8; 32],     // TODO: Is this a public key? Nope, it's a correlation ID. Remove.
+    current_dkg_id: u64,
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
     minimum_signers: usize,
     network: Network,
@@ -55,14 +55,14 @@ struct Coordinator<Network: Net> {
 impl<Network: Net> Coordinator<Network> {
     fn new(
         id: usize,
-        dkg_id: [u8; 32],
+        dkg_id: u64,
         total_signers: usize,
         minimum_signers: usize,
         network: Network,
     ) -> Self {
         Self {
             id,
-            dkg_id,
+            current_dkg_id: dkg_id,
             total_signers,
             minimum_signers,
             network,
@@ -85,7 +85,7 @@ where
     pub fn run_distributed_key_generation(&mut self) -> Result<(), Error> {
         let dkg_begin_message = Message {
             msg: MessageTypes::DkgBegin(DkgBegin {
-                dkg_id: self.dkg_id,
+                dkg_id: self.current_dkg_id,
             }),
             sig: net::id_to_sig_bytes(self.id),
         };
@@ -97,7 +97,7 @@ where
 
     pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
         let nonce_request_message = Message {
-            msg: MessageTypes::NonceRequest,
+            msg: MessageTypes::NonceRequest(NonceRequest{ dkg_id: 0 }),
             sig: net::id_to_sig_bytes(self.id),
         };
 

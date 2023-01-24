@@ -8,7 +8,7 @@ edition = "2021"
 
 [[bin]]
 name = "stacks-signer"
-path = "src/main.rs"
+path = "src/bin/signer.rs"
 
 [lib]
 path = "src/lib.rs"    # The source file of the target.

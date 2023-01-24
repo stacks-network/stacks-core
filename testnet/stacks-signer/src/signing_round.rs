@@ -62,7 +62,7 @@ pub enum MessageTypes {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgPublicShare {
-    pub public_share: PolyCommitment, // TODO: implement debug upstream
+    pub public_share: PolyCommitment,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,19 +101,19 @@ pub struct NonceResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareRequest {
-    dkg_id: u64,
-    correlation_id: u64,
-    signer_id: usize,
-    nonce: PublicNonce,
-    message: Vec<u8>,
+    pub dkg_id: u64,
+    pub correlation_id: u64,
+    pub signer_id: usize,
+    pub nonce: PublicNonce,
+    pub message: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareResponse {
-    dkg_id: u64,
-    correlation_id: u64,
-    signer_id: usize,
-    signature_share: frost::v1::SignatureShare,
+    pub dkg_id: u64,
+    pub correlation_id: u64,
+    pub signer_id: usize,
+    pub signature_share: frost::v1::SignatureShare,
 }
 
 impl SigningRound {
@@ -169,8 +169,8 @@ impl SigningRound {
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
             info!("creating signature share for party #{}", idx);
-            let msg_share = MessageTypes::DkgPublicShares(DkgShares {
-                public_shares: party.get_shares(),
+            let msg_share = MessageTypes::DkgPrivateShares(DkgPrivateShares {
+                private_shares: party.get_shares(),
             });
             msgs.push(msg_share);
         }

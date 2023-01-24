@@ -1,6 +1,5 @@
-use p256k1::point::Point;
-use p256k1::scalar::Scalar;
-use stacks_signer::signing_round::{DkgBegin, MessageTypes, SignatureShare, SigningRound};
+use frost::common::PublicNonce;
+use stacks_signer::signing_round::{DkgBegin, MessageTypes, SignatureShareRequest, SigningRound};
 
 fn setup_signer(total: usize, threshold: usize) -> SigningRound {
     let my_id = 1;
@@ -15,7 +14,7 @@ fn dkg_begin() {
     let mut signer = setup_signer(total, total - 1);
     assert_eq!(signer.commitments.len(), 0);
 
-    let dkg_begin_msg = MessageTypes::DkgBegin(DkgBegin { dkg_id: [0; 32] });
+    let dkg_begin_msg = MessageTypes::DkgBegin(DkgBegin { dkg_id: 0 });
     let msgs = signer.process(dkg_begin_msg).unwrap();
     assert_eq!(msgs.len(), total);
 
@@ -25,15 +24,15 @@ fn dkg_begin() {
 
 #[test]
 fn signature_share() {
-    let share: frost::common::SignatureShare<Point> = frost::common::SignatureShare {
-        id: 0,
-        z_i: Scalar::new(),
-        public_key: Default::default(),
+    let share = SignatureShareRequest{
+        dkg_id: 0,
+        correlation_id: 0,
+        signer_id: 0,
+        nonce: PublicNonce { D: Default::default(), E: Default::default() },
+        message: vec![],
     };
 
-    let msg_share = MessageTypes::SignatureShare(SignatureShare {
-        signature_shares: vec![share.z_i],
-    });
+    let msg_share = MessageTypes::SignShareRequest(share);
 
     let mut signer = setup_signer(2, 1);
     signer.process(msg_share).unwrap();
