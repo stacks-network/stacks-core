@@ -94,6 +94,13 @@ where
     }
 
     pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
+        let nonce_request_message = Message {
+            msg: MessageTypes::NonceRequest,
+            sig: net::id_to_sig_bytes(self.id),
+        };
+
+        self.network.send_message(nonce_request_message)?;
+
         todo!();
     }
 

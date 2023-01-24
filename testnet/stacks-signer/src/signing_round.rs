@@ -1,5 +1,5 @@
 pub use frost;
-use frost::common::PolyCommitment;
+use frost::common::{PolyCommitment, PublicNonce};
 use frost::v1::{Party, Signer};
 use hashbrown::HashMap;
 use p256k1::scalar::Scalar;
@@ -50,16 +50,18 @@ impl StateMachine for SigningRound {
 pub enum MessageTypes {
     DkgBegin(DkgBegin),
     DkgEnd(DkgEnd),
-    SignatureShare(SignatureShare),
+    DkgQuery,
+    DkgPublicShares(DkgShares),
+    DkgPrivateShares(DkgShares),
     NonceRequest,
     NonceResponse(NonceResponse),
-    SignatureShareRequest(SignatureShareRequest),
-    SignatureShareResponse(SignatureShareResponse),
+    SignShareRequest(SignatureShareRequest),
+    SignShareResponse(SignatureShareResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct SignatureShare {
-    pub signature_shares: Vec<Scalar>,
+pub struct DkgShares {
+    shares: KeyShare,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -74,17 +76,22 @@ pub struct DkgEnd {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NonceResponse {
-    // TODO
+    pub signer_id: usize,
+    pub nonce: PublicNonce,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareRequest {
-    // TODO
+    correlation_id: u64,
+    signer_id: usize,
+    nonce: PublicNonce,
+    message: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareResponse {
-    // TODO
+    signer_id: usize,
+    signature_share: frost::v1::SignatureShare,
 }
 
 impl SigningRound {
@@ -140,8 +147,8 @@ impl SigningRound {
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
             info!("creating signature share for party #{}", idx);
-            let msg_share = MessageTypes::SignatureShare(SignatureShare {
-                signature_shares: party.get_shares().into_values().collect(),
+            let msg_share = MessageTypes::DkgPublicShares(DkgShares {
+                shares: party.get_shares(),
             });
             msgs.push(msg_share);
         }
