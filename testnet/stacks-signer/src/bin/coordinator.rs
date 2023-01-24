@@ -33,9 +33,10 @@ enum Command {
     GetAggregatePublicKey,
 }
 
+#[derive(Debug)]
 struct Coordinator<Network: Net> {
     id: usize,        // Used for relay coordination
-    dkg_id: [u8; 32], // TODO: Is this a public key? I want a better name for it
+    dkg_id: [u8; 32], // TODO: Is this a public key?
     network: Network,
 }
 
@@ -53,7 +54,7 @@ impl<Network: Net> Coordinator<Network>
 where
     Error: From<Network::Error>,
 {
-    fn run(&mut self, command: &Command) -> Result<(), Error> {
+    pub fn run(&mut self, command: &Command) -> Result<(), Error> {
         match command {
             Command::Dkg => self.run_distributed_key_generation(),
             Command::Sign { msg } => self.sign_message(msg),
@@ -61,22 +62,54 @@ where
         }
     }
 
-    fn run_distributed_key_generation(&mut self) -> Result<(), Error> {
+    pub fn run_distributed_key_generation(&mut self) -> Result<(), Error> {
         let dkg_begin_message = Message {
             msg: MessageTypes::DkgBegin(DkgBegin { id: self.dkg_id }),
             sig: net::id_to_sig_bytes(self.id),
         };
 
         self.network.send_message(dkg_begin_message)?;
+
+        self.wait_for_dkg_end(10) // TODO: Should be number of signers + some delta
+    }
+
+    pub fn sign_message(&mut self, msg: &str) -> Result<(), Error> {
         todo!();
     }
 
-    fn sign_message(&mut self, msg: &str) -> Result<(), Error> {
+    pub fn get_aggregate_public_key(&mut self) -> Result<(), Error> {
         todo!();
     }
 
-    fn get_aggregate_public_key(&mut self) -> Result<(), Error> {
-        todo!();
+    fn wait_for_dkg_end(&mut self, mut attempts: usize) -> Result<(), Error> {
+        loop {
+            match (attempts, self.wait_for_next_message()?.msg) {
+                (0, _) => return Err(Error::MaxAttemptsReached),
+                (_, MessageTypes::DkgEnd) => return Ok(()),
+                (_, _) => attempts -= 1,
+            }
+        }
+    }
+
+    fn wait_for_next_message(&mut self) -> Result<Message, Error> {
+        let get_next_message = || {
+            self.network.poll(self.id);
+            self.network
+                .next_message()
+                .ok_or("No message yet".to_owned())
+                .map_err(backoff::Error::transient)
+        };
+
+        let notify = |_err, dur| {
+            println!("No message at {:?}, retrying again soon", dur);
+        };
+
+        backoff::retry_notify(
+            backoff::ExponentialBackoff::default(),
+            get_next_message,
+            notify,
+        )
+        .map_err(|_| Error::Timeout)
     }
 }
 
@@ -84,4 +117,10 @@ where
 enum Error {
     #[error("Http network error: {0}")]
     NetworkError(#[from] HttpNetError),
+
+    #[error("Operation timed out")]
+    Timeout,
+
+    #[error("Maximum attempts waiting for message reached")]
+    MaxAttemptsReached,
 }
