@@ -24,11 +24,14 @@ fn dkg_begin() {
 
 #[test]
 fn signature_share() {
-    let share = SignatureShareRequest{
+    let share = SignatureShareRequest {
         dkg_id: 0,
         correlation_id: 0,
         signer_id: 0,
-        nonce: PublicNonce { D: Default::default(), E: Default::default() },
+        nonce: PublicNonce {
+            D: Default::default(),
+            E: Default::default(),
+        },
         message: vec![],
     };
 

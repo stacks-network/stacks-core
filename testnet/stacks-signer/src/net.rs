@@ -14,36 +14,42 @@ pub struct Message {
     pub sig: [u8; 32],
 }
 
-pub struct HttpNet {
-    pub stacks_node_url: String,
+pub struct HttpNetQueue {
+    pub net: HttpNet,
     in_queue: Vec<Message>,
 }
 
-impl HttpNet {
-    pub fn new(stacks_node_url: String, in_q: Vec<Message>) -> Self {
-        HttpNet {
-            stacks_node_url,
-            in_queue: in_q,
+impl HttpNetQueue {
+    pub fn new(net: HttpNet, in_queue: Vec<Message>) -> Self {
+        HttpNetQueue {
+            net,
+            in_queue,
         }
     }
 }
 
-pub trait Net {
-    type Error: Debug;
+#[derive(Clone)]
+pub struct HttpNet {
+    pub stacks_node_url: String,
+}
 
+impl HttpNet {
+    pub fn new(stacks_node_url: String) -> Self {
+        HttpNet { stacks_node_url }
+    }
+}
+
+pub trait NetListen {
     fn listen(&self);
     fn poll(&mut self, id: usize);
     fn next_message(&mut self) -> Option<Message>;
-    fn send_message(&mut self, msg: Message) -> Result<(), Self::Error>;
 }
 
-impl Net for HttpNet {
-    type Error = HttpNetError;
-
+impl NetListen for HttpNetQueue {
     fn listen(&self) {}
 
     fn poll(&mut self, id: usize) {
-        let url = url_with_id(&self.stacks_node_url, id);
+        let url = url_with_id(&self.net.stacks_node_url, id);
         info!("poll {}", url);
         match ureq::get(&url).call() {
             Ok(response) => {
@@ -65,12 +71,21 @@ impl Net for HttpNet {
             }
         };
     }
-
     fn next_message(&mut self) -> Option<Message> {
         self.in_queue.pop()
     }
+}
 
-    fn send_message(&mut self, msg: Message) -> Result<(), Self::Error> {
+pub trait Net {
+    type Error: Debug;
+
+    fn send_message(&self, msg: Message) -> Result<(), Self::Error>;
+}
+
+impl Net for HttpNet {
+    type Error = HttpNetError;
+
+    fn send_message(&self, msg: Message) -> Result<(), Self::Error> {
         let req = ureq::post(&self.stacks_node_url);
         let bytes = bincode::serialize(&msg)?;
         let result = req.send_bytes(&bytes[..]);
@@ -101,21 +116,6 @@ pub enum HttpNetError {
 
     #[error("Network error: {0}")]
     NetworkError(#[from] ureq::Error),
-}
-
-pub fn send_message(url: &str, msg: Message) -> Result<(), HttpNetError>{
-    let req = ureq::post(url);
-    let bytes = bincode::serialize(&msg).unwrap();
-    match req.send_bytes(&bytes[..]) {
-        Ok(response) => {
-            info!("sent {} bytes {:?} to {}", bytes.len(), &response, url);
-            Ok(())
-        }
-        Err(e) => {
-            info!("post failed to {} {}", url, e);
-            Err(e.into())
-        }
-    }
 }
 
 fn url_with_id(base: &str, id: usize) -> String {

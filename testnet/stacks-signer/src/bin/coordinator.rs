@@ -45,7 +45,7 @@ enum Command {
 
 #[derive(Debug)]
 struct Coordinator<Network: Net> {
-    id: usize,            // Used for relay coordination
+    id: usize, // Used for relay coordination
     current_dkg_id: u64,
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
     minimum_signers: usize,
@@ -97,7 +97,7 @@ where
 
     pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
         let nonce_request_message = Message {
-            msg: MessageTypes::NonceRequest(NonceRequest{ dkg_id: 0 }),
+            msg: MessageTypes::NonceRequest(NonceRequest { dkg_id: 0 }),
             sig: net::id_to_sig_bytes(self.id),
         };
 
