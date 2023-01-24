@@ -29,12 +29,17 @@ impl HttpNet {
 }
 
 pub trait Net {
+    type Error: Debug;
+
     fn listen(&self);
     fn poll(&mut self, id: usize);
     fn next_message(&mut self) -> Option<Message>;
+    fn send_message(&mut self, msg: Message) -> Result<(), Self::Error>;
 }
 
 impl Net for HttpNet {
+    type Error = HttpNetError;
+
     fn listen(&self) {}
 
     fn poll(&mut self, id: usize) {
@@ -64,6 +69,38 @@ impl Net for HttpNet {
     fn next_message(&mut self) -> Option<Message> {
         self.in_queue.pop()
     }
+
+    fn send_message(&mut self, msg: Message) -> Result<(), Self::Error> {
+        let req = ureq::post(&self.stacks_node_url);
+        let bytes = bincode::serialize(&msg)?;
+        let result = req.send_bytes(&bytes[..]);
+
+        match result {
+            Ok(response) => {
+                info!(
+                    "sent {} bytes {:?} to {}",
+                    bytes.len(),
+                    &response,
+                    self.stacks_node_url
+                )
+            }
+            Err(e) => {
+                info!("post failed to {} {}", self.stacks_node_url, e);
+                return Err(e.into());
+            }
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum HttpNetError {
+    #[error("Serialization failed: {0}")]
+    SerializationError(#[from] bincode::Error),
+
+    #[error("Network error: {0}")]
+    NetworkError(#[from] ureq::Error),
 }
 
 pub fn send_message(url: &str, msg: Message) {
