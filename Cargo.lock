@@ -3053,6 +3053,7 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "thiserror",
  "toml",
  "ureq",
 ]
