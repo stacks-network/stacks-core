@@ -93,7 +93,7 @@ where
         self.wait_for_dkg_end()
     }
 
-    pub fn sign_message(&mut self, msg: &str) -> Result<(), Error> {
+    pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
         todo!();
     }
 

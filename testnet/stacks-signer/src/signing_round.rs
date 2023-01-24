@@ -51,6 +51,10 @@ pub enum MessageTypes {
     DkgBegin(DkgBegin),
     DkgEnd(DkgEnd),
     SignatureShare(SignatureShare),
+    NonceRequest,
+    NonceResponse(NonceResponse),
+    SignatureShareRequest(SignatureShareRequest),
+    SignatureShareResponse(SignatureShareResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -66,6 +70,21 @@ pub struct DkgBegin {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgEnd {
     pub signer_id: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NonceResponse {
+    // TODO
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignatureShareRequest {
+    // TODO
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignatureShareResponse {
+    // TODO
 }
 
 impl SigningRound {
@@ -97,8 +116,7 @@ impl SigningRound {
     pub fn process(&mut self, message: MessageTypes) -> Result<Vec<MessageTypes>, String> {
         match message {
             MessageTypes::DkgBegin(dkg_begin) => self.dkg_begin(dkg_begin),
-            MessageTypes::SignatureShare(_share) => Ok(vec![]),
-            MessageTypes::DkgEnd(_) => Ok(vec![]),
+            _ => Ok(vec![]), // TODO
         }
     }
 
