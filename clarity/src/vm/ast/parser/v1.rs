@@ -14,6 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
+use std::convert::TryInto;
+
+use lazy_static::lazy_static;
+use regex::{Captures, Regex};
+
+use stacks_common::address::c32::c32_address_decode;
+use stacks_common::util::hash::hex_bytes;
+
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::representations::{
@@ -22,12 +31,6 @@ use crate::vm::representations::{
     CONTRACT_PRINCIPAL_REGEX_STRING, MAX_STRING_LEN, STANDARD_PRINCIPAL_REGEX_STRING,
 };
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
-use regex::{Captures, Regex};
-use stacks_common::address::c32::c32_address_decode;
-use stacks_common::util::hash::hex_bytes;
-use std::cmp;
-use std::convert::TryInto;
-
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::MAX_CALL_STACK_DEPTH;
 

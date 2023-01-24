@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chrono::prelude::*;
+use lazy_static::lazy_static;
 use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 use std::env;

@@ -21,16 +21,6 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate rand;
-extern crate rand_chacha;
-extern crate rusqlite;
-extern crate serde;
-#[macro_use]
-extern crate lazy_static;
-extern crate integer_sqrt;
-extern crate regex;
-extern crate time;
-
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -38,10 +28,6 @@ extern crate slog;
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
-
-#[cfg(test)]
-#[macro_use]
-extern crate assert_json_diff;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]

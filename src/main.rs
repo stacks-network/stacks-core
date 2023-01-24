@@ -20,8 +20,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate blockstack_lib;
-extern crate rusqlite;
 #[macro_use]
 extern crate stacks_common;
 

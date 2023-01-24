@@ -10,6 +10,7 @@
       <sourceFolder url="file://$MODULE_DIR$/stx-genesis/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/puppet-chain/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/testnet/stacks-node/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/contrib/tools/relay-server/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -11,8 +11,8 @@ use stacks::util::vrf::VRFPublicKey;
 
 use stacks::vm::database::BurnStateDB;
 
-use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
-use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::EventDispatcher;
 use clarity::vm::costs::ExecutionCost;
 use stacks::burnchains::PoxConstants;

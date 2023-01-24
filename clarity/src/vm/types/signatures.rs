@@ -20,6 +20,8 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
+use lazy_static::lazy_static;
+
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
 use crate::vm::representations::CONTRACT_MAX_NAME_LENGTH;

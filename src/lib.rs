@@ -21,32 +21,13 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
-extern crate rand;
-extern crate rand_chacha;
-extern crate rusqlite;
-extern crate secp256k1;
-extern crate serde;
 #[macro_use]
 extern crate lazy_static;
-extern crate integer_sqrt;
-extern crate mio;
-extern crate percent_encoding;
-extern crate regex;
-extern crate ripemd;
-extern crate sha2;
-extern crate sha3;
-extern crate siphasher;
-extern crate time;
-extern crate url;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
-extern crate chrono;
 #[cfg(feature = "slog_json")]
 extern crate slog_json;
-extern crate slog_term;
 
 #[cfg(unix)]
 extern crate libc;
@@ -99,9 +80,6 @@ pub use clarity::vm;
 
 #[macro_use]
 pub mod chainstate;
-
-#[cfg(test)]
-extern crate stx_genesis;
 
 pub mod burnchains;
 

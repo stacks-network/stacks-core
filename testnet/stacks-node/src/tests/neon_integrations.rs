@@ -11,6 +11,7 @@ use std::{
 };
 use std::{env, thread};
 
+use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
