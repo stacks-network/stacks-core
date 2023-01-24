@@ -340,6 +340,12 @@ impl DefinedFunction {
         &self.arg_types
     }
 
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for i in 0..self.arguments.len() {
+            self.arg_types[i] = self.arg_types[i].canonicalize(epoch);
+        }
+    }
+
     #[cfg(feature = "developer-mode")]
     pub fn get_span(&self) -> Span {
         self.body.span.clone()

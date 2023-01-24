@@ -1837,6 +1837,18 @@ impl ContractContext {
     pub fn get_clarity_version(&self) -> &ClarityVersion {
         &self.clarity_version
     }
+
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for (_, function) in self.functions.iter_mut() {
+            function.canonicalize_types(epoch);
+        }
+
+        for trait_def in self.defined_traits.values_mut() {
+            for (_, function) in trait_def.iter_mut() {
+                *function = function.canonicalize(epoch);
+            }
+        }
+    }
 }
 
 impl<'a> LocalContext<'a> {
