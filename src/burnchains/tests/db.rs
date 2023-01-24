@@ -57,6 +57,18 @@ impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     fn get_burnchain_headers_height(&self) -> Result<u64, DBError> {
         Ok(self.len() as u64)
     }
+
+    fn find_burnchain_header_height(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError> {
+        for hdr in self.iter() {
+            if hdr.block_hash == *burn_header_hash {
+                return Ok(Some(hdr.block_height));
+            }
+        }
+        Ok(None)
+    }
 }
 
 fn make_tx(hex_str: &str) -> BtcTx {
@@ -504,7 +516,7 @@ fn test_get_commit_at() {
     let first_timestamp = 0;
     let first_height = 1;
 
-    let mut burnchain = Burnchain::regtest(":memory:");
+    let mut burnchain = Burnchain::regtest(":memory");
     burnchain.pox_constants =
         PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
     burnchain.first_block_height = first_height;
@@ -579,20 +591,38 @@ fn test_get_commit_at() {
     // fork off the last stored commit block
     let fork_hdr = BurnchainHeaderHash([90 as u8; 32]);
     let fork_block_header = BurnchainBlockHeader {
-        block_height: 4,
+        block_height: 5,
         block_hash: fork_hdr,
-        parent_block_hash: BurnchainHeaderHash([5 as u8; 32]),
-        num_txs: 0,
+        parent_block_hash: BurnchainHeaderHash([4 as u8; 32]),
+        num_txs: 1,
         timestamp: 4 as u64,
     };
 
-    burnchain_db
-        .store_new_burnchain_block_ops_unchecked(&burnchain, &headers, &fork_block_header, &vec![])
-        .unwrap();
-    headers[4] = fork_block_header;
+    let mut fork_cmt = cmts[4].clone();
+    fork_cmt.burn_header_hash = fork_hdr.clone();
+    fork_cmt.txid = Txid([0x80; 32]);
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 4, 0).unwrap();
-    assert!(cmt.is_none());
+    let mut fork_headers = headers.clone();
+    fork_headers[5] = fork_block_header.clone();
+
+    burnchain_db
+        .store_new_burnchain_block_ops_unchecked(
+            &burnchain,
+            &fork_headers,
+            &fork_block_header,
+            &vec![BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
+        )
+        .unwrap();
+
+    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 5, 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cmt, cmts[4]);
+
+    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &fork_headers, 5, 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cmt, fork_cmt);
 }
 
 #[test]
@@ -666,7 +696,7 @@ fn test_get_set_check_anchor_block() {
 
     assert!(BurnchainDB::has_anchor_block(burnchain_db.conn(), 1).unwrap());
     assert_eq!(
-        BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
+        BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), &cmts[3].burn_header_hash, 1)
             .unwrap()
             .unwrap()
             .0,
@@ -827,7 +857,7 @@ fn test_classify_delegate_stx() {
         &vec![],
         485,
     ));
-    let headers = vec![first_block_header.clone()];
+    let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
 
     let ops = burnchain_db
         .store_new_burnchain_block(
@@ -1018,6 +1048,10 @@ fn test_classify_delegate_stx() {
         360,
     ));
 
+    headers.push(block_0.header().clone());
+    headers.push(block_1.header().clone());
+
+    test_debug!("store ops ({}) for block 0", &ops_0.len());
     let processed_ops_0 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
         .unwrap();
@@ -1028,6 +1062,7 @@ fn test_classify_delegate_stx() {
         "Only pre_delegate_stx op should have been accepted"
     );
 
+    test_debug!("store ops ({}) for block 1", &ops_1.len());
     let processed_ops_1 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
         .unwrap();
