@@ -10,7 +10,7 @@ use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net;
 use stacks_signer::net::{HttpNet, Message, Net};
-use stacks_signer::signing_round::{MessageTypes, SigningRound};
+use stacks_signer::signing_round::{DkgBegin, MessageTypes, SigningRound};
 
 fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
@@ -47,7 +47,6 @@ fn poll_loop(mut net: HttpNet, tx: Sender<Message>, id: usize) {
         match net.next_message() {
             None => {}
             Some(m) => {
-                info!("{:?}", m);
                 tx.send(m).unwrap();
             }
         };
@@ -75,6 +74,6 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 
 fn start_round(config: &Config) {
     info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin {};
+    let dkg_start = MessageTypes::DkgBegin(DkgBegin { id: [0; 32] });
     net::send_message(&config.common.stacks_node_url, dkg_start.into());
 }

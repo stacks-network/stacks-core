@@ -48,7 +48,7 @@ impl StateMachine for SigningRound {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageTypes {
-    DkgBegin,
+    DkgBegin(DkgBegin),
     DkgEnd,
     SignatureShare(SignatureShare),
 }
@@ -56,6 +56,11 @@ pub enum MessageTypes {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShare {
     pub signature_shares: Vec<Scalar>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DkgBegin {
+    pub id: [u8; 32],
 }
 
 impl SigningRound {
@@ -86,7 +91,7 @@ impl SigningRound {
 
     pub fn process(&mut self, message: MessageTypes) -> Result<Vec<MessageTypes>, String> {
         match message {
-            MessageTypes::DkgBegin => self.dkg_begin(),
+            MessageTypes::DkgBegin(dkg_begin) => self.dkg_begin(dkg_begin),
             MessageTypes::SignatureShare(_share) => Ok(vec![]),
             MessageTypes::DkgEnd => Ok(vec![]),
         }
@@ -96,7 +101,7 @@ impl SigningRound {
         self.signer.parties[party_id].get_shares()
     }
 
-    pub fn dkg_begin(&mut self) -> Result<Vec<MessageTypes>, String> {
+    pub fn dkg_begin(&mut self, dkg_begin: DkgBegin) -> Result<Vec<MessageTypes>, String> {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();
@@ -110,7 +115,8 @@ impl SigningRound {
             .collect();
 
         let mut msgs = vec![];
-        for party in &self.signer.parties {
+        for (idx, party) in self.signer.parties.iter().enumerate() {
+            info!("creating signature share for party #{}", idx);
             let msg_share = MessageTypes::SignatureShare(SignatureShare {
                 signature_shares: party.get_shares().into_values().collect(),
             });

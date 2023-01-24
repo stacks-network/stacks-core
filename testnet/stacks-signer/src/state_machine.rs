@@ -1,4 +1,3 @@
-
 #[derive(Debug, PartialEq)]
 pub enum States {
     Init,

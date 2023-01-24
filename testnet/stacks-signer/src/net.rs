@@ -50,10 +50,9 @@ impl Net for HttpNet {
             Ok(response) => {
                 match response.status() {
                     200 => {
-                        debug!("get/poll returned {:?}", response);
                         match bincode::deserialize_from::<_, Message>(response.into_reader()) {
                             Ok(msg) => {
-                                info!("{:?}", &msg);
+                                info!("received {:?}", &msg);
                                 self.in_queue.push(msg);
                             }
                             Err(_e) => {}
