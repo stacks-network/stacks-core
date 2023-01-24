@@ -453,7 +453,15 @@ pub fn make_coordinator<'a>(
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()> {
     let (tx, _) = sync_channel(100000);
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
-    ChainsCoordinator::test_new(&burnchain, 0x80000000, path, OnChainRewardSetProvider(), tx)
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+    ChainsCoordinator::test_new(
+        &burnchain,
+        0x80000000,
+        path,
+        OnChainRewardSetProvider(),
+        tx,
+        indexer,
+    )
 }
 
 struct StubbedRewardSetProvider(Vec<PoxAddress>);
@@ -482,12 +490,15 @@ fn make_reward_set_coordinator<'a>(
     pox_consts: Option<PoxConstants>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), ()> {
     let (tx, _) = sync_channel(100000);
+    let burnchain = get_burnchain(path, None);
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
         0x80000000,
         path,
         StubbedRewardSetProvider(addrs),
         tx,
+        indexer,
     )
 }
 
