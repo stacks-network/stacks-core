@@ -1,4 +1,8 @@
 use clap::Parser;
+use hashbrown::HashSet;
+
+use slog::{slog_debug, slog_info};
+use stacks_common::{debug, info};
 
 use stacks_signer::config::Config;
 use stacks_signer::net::{self, HttpNet, HttpNetError, Message, Net};
@@ -12,7 +16,13 @@ fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
 
     let net: HttpNet = HttpNet::new(config.common.stacks_node_url.clone(), vec![]);
-    let mut coordinator = Coordinator::new(DEVNET_COORDINATOR_ID, DEVNET_COORDINATOR_DKG_ID, net);
+    let mut coordinator = Coordinator::new(
+        DEVNET_COORDINATOR_ID,
+        DEVNET_COORDINATOR_DKG_ID,
+        config.common.total_signers,
+        config.common.minimum_signers,
+        net,
+    );
 
     coordinator
         .run(&cli.command)
@@ -35,16 +45,26 @@ enum Command {
 
 #[derive(Debug)]
 struct Coordinator<Network: Net> {
-    id: usize,        // Used for relay coordination
-    dkg_id: [u8; 32], // TODO: Is this a public key?
+    id: usize,            // Used for relay coordination
+    dkg_id: [u8; 32],     // TODO: Is this a public key?
+    total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
+    minimum_signers: usize,
     network: Network,
 }
 
 impl<Network: Net> Coordinator<Network> {
-    fn new(id: usize, public_key: [u8; 32], network: Network) -> Self {
+    fn new(
+        id: usize,
+        dkg_id: [u8; 32],
+        total_signers: usize,
+        minimum_signers: usize,
+        network: Network,
+    ) -> Self {
         Self {
             id,
-            dkg_id: public_key,
+            dkg_id,
+            total_signers,
+            minimum_signers,
             network,
         }
     }
@@ -70,7 +90,7 @@ where
 
         self.network.send_message(dkg_begin_message)?;
 
-        self.wait_for_dkg_end(10) // TODO: Should be number of signers + some delta
+        self.wait_for_dkg_end()
     }
 
     pub fn sign_message(&mut self, msg: &str) -> Result<(), Error> {
@@ -81,12 +101,19 @@ where
         todo!();
     }
 
-    fn wait_for_dkg_end(&mut self, mut attempts: usize) -> Result<(), Error> {
+    fn wait_for_dkg_end(&mut self) -> Result<(), Error> {
+        let mut ids_to_await: HashSet<usize> = (1..=self.total_signers).collect();
         loop {
-            match (attempts, self.wait_for_next_message()?.msg) {
-                (0, _) => return Err(Error::MaxAttemptsReached),
-                (_, MessageTypes::DkgEnd) => return Ok(()),
-                (_, _) => attempts -= 1,
+            debug!(
+                "Awaiting DkgEnd messages from the following ID:s {:?}",
+                ids_to_await
+            );
+            match (ids_to_await.len(), self.wait_for_next_message()?.msg) {
+                (0, _) => return Ok(()),
+                (_, MessageTypes::DkgEnd(dkg_end_msg)) => {
+                    ids_to_await.remove(&dkg_end_msg.signer_id);
+                }
+                (_, _) => (),
             }
         }
     }
@@ -101,7 +128,7 @@ where
         };
 
         let notify = |_err, dur| {
-            println!("No message at {:?}, retrying again soon", dur);
+            info!("No message at {:?}, retrying again soon", dur);
         };
 
         backoff::retry_notify(
@@ -120,7 +147,4 @@ enum Error {
 
     #[error("Operation timed out")]
     Timeout,
-
-    #[error("Maximum attempts waiting for message reached")]
-    MaxAttemptsReached,
 }

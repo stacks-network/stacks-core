@@ -49,7 +49,7 @@ impl StateMachine for SigningRound {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageTypes {
     DkgBegin(DkgBegin),
-    DkgEnd,
+    DkgEnd(DkgEnd),
     SignatureShare(SignatureShare),
 }
 
@@ -61,6 +61,11 @@ pub struct SignatureShare {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgBegin {
     pub id: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DkgEnd {
+    pub signer_id: usize,
 }
 
 impl SigningRound {
@@ -93,7 +98,7 @@ impl SigningRound {
         match message {
             MessageTypes::DkgBegin(dkg_begin) => self.dkg_begin(dkg_begin),
             MessageTypes::SignatureShare(_share) => Ok(vec![]),
-            MessageTypes::DkgEnd => Ok(vec![]),
+            MessageTypes::DkgEnd(_) => Ok(vec![]),
         }
     }
 
