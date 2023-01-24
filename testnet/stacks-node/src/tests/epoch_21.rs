@@ -4822,6 +4822,17 @@ fn trait_invocation_cross_epoch() {
         10_000,
         &spender_addr_c32,
         "invoke-simple",
+        "invocation-1",
+        &[],
+    );
+    let invoke_1_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        5,
+        10_000,
+        &spender_addr_c32,
+        "invoke-simple",
         "invocation-2",
         &[Value::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::parse(&format!("{}.{}", &spender_addr_c32, "impl-simple"))
@@ -4836,6 +4847,7 @@ fn trait_invocation_cross_epoch() {
 
     let interesting_txids = vec![
         invoke_txid.clone(),
+        invoke_1_txid.clone(),
         invoke_2_txid.clone(),
         use_txid.clone(),
         impl_txid.clone(),
@@ -4843,6 +4855,7 @@ fn trait_invocation_cross_epoch() {
     ];
 
     let blocks = test_observer::get_blocks();
+    let mut results = vec![];
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
 
@@ -4859,6 +4872,7 @@ fn trait_invocation_cross_epoch() {
                     parsed.txid(),
                     tx.get("status").unwrap().as_str().unwrap()
                 );
+                results.push(tx.get("status").unwrap().as_str().unwrap().to_string());
                 eprintln!(
                     "{} => {}",
                     parsed.txid(),
@@ -4867,6 +4881,12 @@ fn trait_invocation_cross_epoch() {
                 //   eprintln!("{}", tx);
             }
         }
+    }
+
+    assert_eq!(results.len(), 6);
+
+    for result in results.iter() {
+        assert_eq!(result, "success");
     }
 
     test_observer::clear();
