@@ -101,7 +101,7 @@ impl SigningRound {
         self.signer.parties[party_id].get_shares()
     }
 
-    pub fn dkg_begin(&mut self, dkg_begin: DkgBegin) -> Result<Vec<MessageTypes>, String> {
+    pub fn dkg_begin(&mut self, _dkg_begin: DkgBegin) -> Result<Vec<MessageTypes>, String> {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();
