@@ -625,7 +625,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        PRIMARY KEY(txid)
+        sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(txid,sortition_id)
     );"#,
     r#"
     CREATE TABLE transfer_stx (
@@ -639,7 +641,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         transfered_ustx TEXT NOT NULL,
         memo TEXT NOT NULL,
 
-        PRIMARY KEY(txid)
+        sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(txid,sortition_id)
     );"#,
     r#"
     CREATE TABLE missed_commits (
@@ -687,7 +691,9 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegated_ustx TEXT NOT NULL,
         until_burn_height INTEGER,
 
-        PRIMARY KEY(txid)
+        sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(txid,sortition_id)
     );"#,
     r#"
     CREATE TABLE ast_rule_heights (
@@ -779,10 +785,12 @@ impl SortitionContext for SortitionDBTxContext {
 
 fn get_block_commit_by_txid(
     conn: &Connection,
+    sort_id: &SortitionId,
     txid: &Txid,
 ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-    let qry = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
-    query_row(conn, qry, &[&txid])
+    let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2 LIMIT 1";
+    let args: &[&dyn ToSql] = &[sort_id, txid];
+    query_row(conn, qry, args)
 }
 
 pub fn get_ancestor_sort_id<C: SortitionContext>(
@@ -1006,9 +1014,12 @@ pub trait SortitionHandle {
                     // we do not have the block_commit parent memoization data
                     // step back to the parent
                     test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
-                    let block_commit =
-                        get_block_commit_by_txid(&self.sqlite(), &sn.winning_block_txid)?
-                            .expect("CORRUPTION: winning block commit for snapshot not found");
+                    let block_commit = get_block_commit_by_txid(
+                        &self.sqlite(),
+                        &sn.sortition_id,
+                        &sn.winning_block_txid,
+                    )?
+                    .expect("CORRUPTION: winning block commit for snapshot not found");
                     sn = self
                         .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
                         .ok_or_else(|| db_error::NotFoundError)?;
@@ -1984,9 +1995,10 @@ impl<'a> SortitionHandleConn<'a> {
     ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
     pub fn get_block_commit_by_txid(
         &self,
+        sort_id: &SortitionId,
         txid: &Txid,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        get_block_commit_by_txid(self.conn(), txid)
+        get_block_commit_by_txid(self.conn(), sort_id, txid)
     }
 
     /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
@@ -1995,7 +2007,7 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         block_height_begin: u32,
         block_height_end: u32,
-    ) -> Result<Vec<(Txid, u64)>, BurnchainError> {
+    ) -> Result<Vec<(SortitionId, Txid, u64)>, BurnchainError> {
         let mut result = vec![];
         for height in (block_height_begin + 1)..(block_height_end + 1) {
             debug!("Looking for winners at height = {}", height);
@@ -2006,7 +2018,11 @@ impl<'a> SortitionHandleConn<'a> {
                     BurnchainError::MissingParentBlock
                 })?;
             if snapshot.sortition {
-                result.push((snapshot.winning_block_txid, snapshot.block_height));
+                result.push((
+                    snapshot.sortition_id,
+                    snapshot.winning_block_txid,
+                    snapshot.block_height,
+                ));
             }
         }
         Ok(result)
@@ -2224,29 +2240,30 @@ impl<'a> SortitionHandleConn<'a> {
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
         let mut candidate_anchors = HashMap::new();
-        let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();
+        let mut memoized_candidates: HashMap<_, (SortitionId, Txid, u64)> = HashMap::new();
 
         // iterate over every sortition winner in the prepare phase
         //   looking for their highest ancestor _before_ prepare_begin.
         let winners = self.get_sortition_winners_in_fork(prepare_begin, prepare_end)?;
-        for (winner_commit_txid, winner_block_height) in winners.into_iter() {
-            let mut cursor = (winner_commit_txid, winner_block_height);
+        for (winner_sort_id, winner_commit_txid, winner_block_height) in winners.into_iter() {
+            let mut cursor = (winner_sort_id, winner_commit_txid, winner_block_height);
             let mut found_ancestor = true;
 
-            while cursor.1 > (prepare_begin as u64) {
+            while cursor.2 > (prepare_begin as u64) {
                 // check if we've already discovered the candidate for this block
-                if let Some(ancestor) = memoized_candidates.get(&cursor.1) {
+                if let Some(ancestor) = memoized_candidates.get(&cursor.2) {
                     cursor = ancestor.clone();
                 } else {
                     // get the block commit
-                    let block_commit = self.get_block_commit_by_txid(&cursor.0)?.expect(
+                    let block_commit = self.get_block_commit_by_txid(&cursor.0, &cursor.1)?.expect(
                         "CORRUPTED: Failed to fetch block commit for known sortition winner",
                     );
                     // is this a height=1 block?
                     if block_commit.is_parent_genesis() {
                         debug!("First parent before prepare phase for block winner is the genesis block, dropping block's PoX anchor vote";
-                               "winner_txid" => %&cursor.0,
-                               "burn_block_height" => cursor.1);
+                               "sortition_id" => %&cursor.0,
+                               "winner_txid" => %&cursor.1,
+                               "burn_block_height" => cursor.2);
                         found_ancestor = false;
                         break;
                     }
@@ -2262,7 +2279,7 @@ impl<'a> SortitionHandleConn<'a> {
                     );
                     assert!(sn.sortition, "CORRUPTED: accepted block commit, but parent pointer not a sortition winner");
 
-                    cursor = (sn.winning_block_txid, sn.block_height);
+                    cursor = (sn.sortition_id, sn.winning_block_txid, sn.block_height);
                 }
             }
             if !found_ancestor {
@@ -2271,7 +2288,7 @@ impl<'a> SortitionHandleConn<'a> {
             // this is the burn block height of the sortition that chose the
             //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
             //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
-            let highest_ancestor = cursor.1;
+            let highest_ancestor = cursor.2;
             memoized_candidates.insert(winner_block_height, cursor);
             if let Some(x) = candidate_anchors.get_mut(&highest_ancestor) {
                 *x += 1;
@@ -4699,14 +4716,14 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) stack stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_stack_stx(op)
+                self.insert_stack_stx(op, sort_id)
             }
             BlockstackOperationType::TransferStx(ref op) => {
                 info!(
                     "ACCEPTED({}) transfer stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_transfer_stx(op)
+                self.insert_transfer_stx(op, sort_id)
             }
             BlockstackOperationType::PreStx(ref op) => {
                 info!(
@@ -4721,7 +4738,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) delegate stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_delegate_stx(op)
+                self.insert_delegate_stx(op, sort_id)
             }
         }
     }
@@ -4754,7 +4771,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Insert a stack-stx op
-    fn insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
+    fn insert_stack_stx(&mut self, op: &StackStxOp, sort_id: &SortitionId) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4764,15 +4781,20 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
+            sort_id,
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
 
     /// Insert a delegate-stx op
-    fn insert_delegate_stx(&mut self, op: &DelegateStxOp) -> Result<(), db_error> {
+    fn insert_delegate_stx(
+        &mut self,
+        op: &DelegateStxOp,
+        sort_id: &SortitionId,
+    ) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4783,15 +4805,20 @@ impl<'a> SortitionHandleTx<'a> {
             &serde_json::to_string(&op.reward_addr).unwrap(),
             &op.delegated_ustx.to_string(),
             &opt_u64_to_sql(op.until_burn_height)?,
+            sort_id,
         ];
 
-        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
 
         Ok(())
     }
 
     /// Insert a transfer-stx op
-    fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
+    fn insert_transfer_stx(
+        &mut self,
+        op: &TransferStxOp,
+        sort_id: &SortitionId,
+    ) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4801,9 +4828,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.recipient.to_string(),
             &op.transfered_ustx.to_string(),
             &to_hex(&op.memo),
+            sort_id,
         ];
 
-        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -6041,7 +6069,9 @@ pub mod tests {
         // test get_block_commit()
         {
             let handle = db.index_handle(&empty_snapshot.sortition_id);
-            let commit = handle.get_block_commit_by_txid(&block_commit.txid).unwrap();
+            let commit = handle
+                .get_block_commit_by_txid(&snapshot_consumed.sortition_id, &block_commit.txid)
+                .unwrap();
             assert!(commit.is_some());
             assert_eq!(commit.unwrap(), block_commit);
 
@@ -6050,7 +6080,9 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap();
-            let commit = handle.get_block_commit_by_txid(&bad_txid).unwrap();
+            let commit = handle
+                .get_block_commit_by_txid(&snapshot_consumed.sortition_id, &bad_txid)
+                .unwrap();
             assert!(commit.is_none());
         }
 
