@@ -3374,75 +3374,82 @@ fn test_sbtc_ops() {
             &canonical_chain_tip_snapshot.winning_stacks_block_hash,
         );
 
-        if ix == 0 {
-            // Add a valid peg-in op
-            ops.push(BlockstackOperationType::PegIn(PegInOp {
-                recipient: stacker.into(),
-                peg_wallet_address,
-                amount: 1337,
-                memo: first_peg_in_memo.clone(),
-                txid: next_txid(),
-                vtxindex: 5,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        } else if ix == 1 {
-            // Shouldn't be accepted -- amount must be positive
-            ops.push(BlockstackOperationType::PegIn(PegInOp {
-                recipient: stacker.into(),
-                peg_wallet_address,
-                amount: 0,
-                memo: second_peg_in_memo.clone(),
-                txid: next_txid(),
-                vtxindex: 5,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        } else if ix == 2 {
-            // Shouldn't be accepted -- amount must be positive
-            ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
-                recipient: recipient_btc_address,
-                signature: MessageSignature([0; 65]),
-                amount: 0,
-                txid: next_txid(),
-                vtxindex: 5,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        } else if ix == 3 {
-            // Add a valid peg-out request op
-            ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
-                recipient: recipient_btc_address,
-                signature: MessageSignature([0; 65]),
-                amount: 5,
-                txid: next_txid(),
-                vtxindex: 8,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        } else if ix == 4 {
-            // Partially fulfill the peg-out request
-            ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
-                recipient: recipient_btc_address,
-                amount: 3,
-                chain_tip,
-                txid: next_txid(),
-                vtxindex: 6,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        } else if ix == 5 {
-            // Fulfill remainder of the peg-out request
-            ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
-                recipient: recipient_btc_address,
-                amount: 2,
-                chain_tip,
-                txid: next_txid(),
-                vtxindex: 7,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0; 32]),
-            }));
-        }
+        match ix {
+            0 => {
+                ops.push(BlockstackOperationType::PegIn(PegInOp {
+                    recipient: stacker.into(),
+                    peg_wallet_address,
+                    amount: 1337,
+                    memo: first_peg_in_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            1 => {
+                // Shouldn't be accepted -- amount must be positive
+                ops.push(BlockstackOperationType::PegIn(PegInOp {
+                    recipient: stacker.into(),
+                    peg_wallet_address,
+                    amount: 0,
+                    memo: second_peg_in_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            2 => {
+                // Shouldn't be accepted -- amount must be positive
+                ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                    recipient: recipient_btc_address,
+                    signature: MessageSignature([0; 65]),
+                    amount: 0,
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            3 => {
+                // Add a valid peg-out request op
+                ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                    recipient: recipient_btc_address,
+                    signature: MessageSignature([0; 65]),
+                    amount: 5,
+                    txid: next_txid(),
+                    vtxindex: 8,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            4 => {
+                // Partially fulfill the peg-out request
+                ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
+                    recipient: recipient_btc_address,
+                    amount: 3,
+                    chain_tip,
+                    txid: next_txid(),
+                    vtxindex: 6,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            5 => {
+                // Fulfill remainder of the peg-out request
+                ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
+                    recipient: recipient_btc_address,
+                    amount: 2,
+                    chain_tip,
+                    txid: next_txid(),
+                    vtxindex: 7,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            _ => {}
+        };
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
