@@ -314,7 +314,7 @@ impl SpvClient {
                         tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
                     }
 
-                    SpvClient::db_set_version(&tx, "2")?;
+                    SpvClient::db_set_version(&tx, "3")?;
                     tx.commit().map_err(db_error::SqliteError)?;
                 }
                 SPV_DB_VERSION => {
@@ -660,7 +660,7 @@ impl SpvClient {
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
-            "SELECT MAX(height) FROM headers",
+            "SELECT IFNULL(MAX(height),0) FROM headers",
             NO_PARAMS,
         )? {
             Some(max) => Ok(max),
@@ -670,14 +670,7 @@ impl SpvClient {
 
     /// Is the DB devoid of headers?  Used during migrations
     pub fn is_empty(&self) -> Result<bool, btc_error> {
-        match query_row::<BlockHeader, _>(
-            &self.headers_db,
-            "SELECT * FROM headers LIMIT 1",
-            NO_PARAMS,
-        )? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
+        Ok(self.get_highest_header_height()? == 0)
     }
 
     /// Read the block header at a particular height
