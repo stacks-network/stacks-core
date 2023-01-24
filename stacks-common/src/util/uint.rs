@@ -480,13 +480,13 @@ impl Uint256 {
     #[inline]
     pub fn increment(&mut self) {
         let &mut Uint256(ref mut arr) = self;
-        arr[0] += 1;
+        arr[0] = arr[0].wrapping_add(1);
         if arr[0] == 0 {
-            arr[1] += 1;
+            arr[1] = arr[1].wrapping_add(1);
             if arr[1] == 0 {
-                arr[2] += 1;
+                arr[2] = arr[2].wrapping_add(1);
                 if arr[2] == 0 {
-                    arr[3] += 1;
+                    arr[3] = arr[3].wrapping_add(1);
                 }
             }
         }
