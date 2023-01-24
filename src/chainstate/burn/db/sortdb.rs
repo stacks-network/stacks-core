@@ -35,7 +35,7 @@ use sha2::{Digest, Sha512_256};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Address, PublicKey, Txid};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
@@ -2122,15 +2122,43 @@ impl<'a> SortitionHandleConn<'a> {
                 return Ok(None);
             }
         };
-        let (anchor_block_op, anchor_block_metadata) =
-            match BurnchainDB::get_anchor_block_commit(burnchain_db_conn, rc)? {
-                Some(x) => x,
-                None => {
-                    // no anchor block
-                    test_debug!("No anchor block for reward cycle {}", rc);
-                    return Ok(None);
+        let (anchor_block_op, anchor_block_metadata) = {
+            let mut res = None;
+            let metadatas = BurnchainDB::get_anchor_block_commit_metadatas(burnchain_db_conn, rc)?;
+
+            // find the one on this fork
+            for metadata in metadatas {
+                let sn = SortitionDB::get_ancestor_snapshot(
+                    self,
+                    metadata.block_height,
+                    &self.context.chain_tip,
+                )?
+                .expect("FATAL: accepted block-commit but no sortition at height");
+                if sn.burn_header_hash == metadata.burn_block_hash {
+                    // this is the metadata on this burnchain fork
+                    res = match BurnchainDB::get_anchor_block_commit(
+                        burnchain_db_conn,
+                        &sn.burn_header_hash,
+                        rc,
+                    )? {
+                        Some(x) => Some(x),
+                        None => {
+                            continue;
+                        }
+                    };
+                    if res.is_some() {
+                        break;
+                    }
                 }
-            };
+            }
+            if let Some(x) = res {
+                x
+            } else {
+                // no anchor block
+                test_debug!("No anchor block for reward cycle {}", rc);
+                return Ok(None);
+            }
+        };
 
         // sanity check: we must have processed this burnchain block already
         let anchor_sort_id = self.get_sortition_id_for_bhh(&anchor_block_metadata.burn_block_hash)?
