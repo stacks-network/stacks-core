@@ -10,6 +10,10 @@ edition = "2021"
 name = "stacks-signer"
 path = "src/bin/signer.rs"
 
+[[bin]]
+name = "stacks-coordinator"
+path = "src/bin/coordinator.rs"
+
 [lib]
 path = "src/lib.rs"    # The source file of the target.
 crate-type = ["lib"]   # The crate types to generate.
