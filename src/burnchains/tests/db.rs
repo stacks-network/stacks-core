@@ -600,7 +600,7 @@ fn test_get_commit_at() {
 
     let mut fork_cmt = cmts[4].clone();
     fork_cmt.burn_header_hash = fork_hdr.clone();
-    fork_cmt.txid = Txid([0x80; 32]);
+    fork_cmt.vtxindex += 1;
 
     let mut fork_headers = headers.clone();
     fork_headers[5] = fork_block_header.clone();
@@ -619,7 +619,7 @@ fn test_get_commit_at() {
         .unwrap();
     assert_eq!(cmt, cmts[4]);
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &fork_headers, 5, 0)
+    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &fork_headers, 5, 1)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, fork_cmt);
