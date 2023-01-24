@@ -9,7 +9,7 @@ use stacks_signer::net::{self, HttpNet, HttpNetError, Message, Net};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes};
 
 const DEVNET_COORDINATOR_ID: usize = 0;
-const DEVNET_COORDINATOR_DKG_ID: [u8; 32] = [0; 32];
+const DEVNET_COORDINATOR_DKG_ID: [u8; 32] = [0; 32]; //TODO: Remove, this is a correlation id
 
 fn main() {
     let cli = Cli::parse();
@@ -46,7 +46,7 @@ enum Command {
 #[derive(Debug)]
 struct Coordinator<Network: Net> {
     id: usize,            // Used for relay coordination
-    dkg_id: [u8; 32],     // TODO: Is this a public key?
+    dkg_id: [u8; 32],     // TODO: Is this a public key? Nope, it's a correlation ID. Remove.
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
     minimum_signers: usize,
     network: Network,
@@ -84,7 +84,9 @@ where
 
     pub fn run_distributed_key_generation(&mut self) -> Result<(), Error> {
         let dkg_begin_message = Message {
-            msg: MessageTypes::DkgBegin(DkgBegin { id: self.dkg_id }),
+            msg: MessageTypes::DkgBegin(DkgBegin {
+                dkg_id: self.dkg_id,
+            }),
             sig: net::id_to_sig_bytes(self.id),
         };
 

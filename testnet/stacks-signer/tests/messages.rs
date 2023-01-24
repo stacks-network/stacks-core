@@ -15,7 +15,7 @@ fn dkg_begin() {
     let mut signer = setup_signer(total, total - 1);
     assert_eq!(signer.commitments.len(), 0);
 
-    let dkg_begin_msg = MessageTypes::DkgBegin(DkgBegin { id: [0; 32] });
+    let dkg_begin_msg = MessageTypes::DkgBegin(DkgBegin { dkg_id: [0; 32] });
     let msgs = signer.process(dkg_begin_msg).unwrap();
     assert_eq!(msgs.len(), total);
 

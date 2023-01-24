@@ -11,7 +11,7 @@ use stacks_common::info;
 
 use crate::state_machine::{StateMachine, States};
 
-type KeyShare = HashMap<usize, Scalar>;
+type KeyShares = HashMap<usize, Scalar>;
 
 pub struct SigningRound {
     pub id: usize,
@@ -51,45 +51,67 @@ pub enum MessageTypes {
     DkgBegin(DkgBegin),
     DkgEnd(DkgEnd),
     DkgQuery,
-    DkgPublicShares(DkgShares),
-    DkgPrivateShares(DkgShares),
-    NonceRequest,
+    DkgQueryResponse(DkgQueryResponse),
+    DkgPublicShares(DkgPublicShare),
+    DkgPrivateShares(DkgPrivateShares),
+    NonceRequest(NonceRequest),
     NonceResponse(NonceResponse),
     SignShareRequest(SignatureShareRequest),
     SignShareResponse(SignatureShareResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DkgShares {
-    shares: KeyShare,
+pub struct DkgPublicShare {
+    pub public_share: PolyCommitment, // TODO: implement debug upstream
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DkgPrivateShares {
+    pub private_shares: KeyShares,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgBegin {
-    pub id: [u8; 32],
+    pub dkg_id: u64, //TODO: Strong typing for this, alternatively introduce a type alias
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgEnd {
+    pub dkg_id: u64,
     pub signer_id: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct DkgQueryResponse {
+    pub dkg_id: u64,
+    pub public_share: PolyCommitment,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NonceRequest {
+    pub dkg_id: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NonceResponse {
+    pub dkg_id: u64,
     pub signer_id: usize,
     pub nonce: PublicNonce,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareRequest {
+    dkg_id: u64,
     correlation_id: u64,
     signer_id: usize,
     nonce: PublicNonce,
-    message: String,
+    message: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignatureShareResponse {
+    dkg_id: u64,
+    correlation_id: u64,
     signer_id: usize,
     signature_share: frost::v1::SignatureShare,
 }
@@ -127,7 +149,7 @@ impl SigningRound {
         }
     }
 
-    pub fn key_share(&self, party_id: usize) -> KeyShare {
+    pub fn key_share(&self, party_id: usize) -> KeyShares {
         self.signer.parties[party_id].get_shares()
     }
 
@@ -148,7 +170,7 @@ impl SigningRound {
         for (idx, party) in self.signer.parties.iter().enumerate() {
             info!("creating signature share for party #{}", idx);
             let msg_share = MessageTypes::DkgPublicShares(DkgShares {
-                shares: party.get_shares(),
+                public_shares: party.get_shares(),
             });
             msgs.push(msg_share);
         }

@@ -78,7 +78,7 @@ fn main_loop(config: &Config, rx: Receiver<Message>) {
 
 fn start_round(config: &Config) {
     info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin(DkgBegin { id: [0; 32] });
+    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id: [0; 32] });
     let msg = Message {
         msg: dkg_start,
         sig: net::id_to_sig_bytes(config.signer.frost_id),
