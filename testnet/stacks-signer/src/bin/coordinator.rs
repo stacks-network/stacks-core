@@ -5,7 +5,7 @@ use slog::{slog_debug, slog_info};
 use stacks_common::{debug, info};
 
 use stacks_signer::config::Config;
-use stacks_signer::net::{self, HttpNet, HttpNetError, Message, Net};
+use stacks_signer::net::{self, HttpNet, HttpNetError, HttpNetListen, Message, Net, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, NonceRequest};
 
 const DEVNET_COORDINATOR_ID: usize = 0;
@@ -15,13 +15,14 @@ fn main() {
     let cli = Cli::parse();
     let config = Config::from_file("conf/stacker.toml").unwrap();
 
-    let net: HttpNet = HttpNet::new(config.common.stacks_node_url.clone(), vec![]);
+    let net: HttpNet = HttpNet::new(config.common.stacks_node_url.clone());
+    let net_listen : HttpNetListen = HttpNetListen::new(net, vec![]);
     let mut coordinator = Coordinator::new(
         DEVNET_COORDINATOR_ID,
         DEVNET_COORDINATOR_DKG_ID,
         config.common.total_signers,
         config.common.minimum_signers,
-        net,
+        net_listen,
     );
 
     coordinator
@@ -44,7 +45,7 @@ enum Command {
 }
 
 #[derive(Debug)]
-struct Coordinator<Network: Net> {
+struct Coordinator<Network: NetListen> {
     id: usize, // Used for relay coordination
     current_dkg_id: u64,
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
@@ -52,7 +53,7 @@ struct Coordinator<Network: Net> {
     network: Network,
 }
 
-impl<Network: Net> Coordinator<Network> {
+impl<Network: NetListen> Coordinator<Network> {
     fn new(
         id: usize,
         dkg_id: u64,
@@ -70,7 +71,7 @@ impl<Network: Net> Coordinator<Network> {
     }
 }
 
-impl<Network: Net> Coordinator<Network>
+impl<Network: NetListen> Coordinator<Network>
 where
     Error: From<Network::Error>,
 {

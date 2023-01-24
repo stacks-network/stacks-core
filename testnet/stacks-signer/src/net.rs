@@ -14,14 +14,14 @@ pub struct Message {
     pub sig: [u8; 32],
 }
 
-pub struct HttpNetQueue {
+pub struct HttpNetListen {
     pub net: HttpNet,
     in_queue: Vec<Message>,
 }
 
-impl HttpNetQueue {
+impl HttpNetListen {
     pub fn new(net: HttpNet, in_queue: Vec<Message>) -> Self {
-        HttpNetQueue {
+        HttpNetListen {
             net,
             in_queue,
         }
@@ -40,12 +40,17 @@ impl HttpNet {
 }
 
 pub trait NetListen {
+    type Error: Debug;
+
     fn listen(&self);
     fn poll(&mut self, id: usize);
     fn next_message(&mut self) -> Option<Message>;
+    fn send_message(&self, msg: Message) -> Result<(), Self::Error>;
 }
 
-impl NetListen for HttpNetQueue {
+impl NetListen for HttpNetListen {
+    type Error = HttpNetError;
+
     fn listen(&self) {}
 
     fn poll(&mut self, id: usize) {
@@ -73,6 +78,9 @@ impl NetListen for HttpNetQueue {
     }
     fn next_message(&mut self) -> Option<Message> {
         self.in_queue.pop()
+    }
+    fn send_message(&self, msg: Message) -> Result<(), Self::Error> {
+        self.net.send_message(msg)
     }
 }
 

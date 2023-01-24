@@ -9,7 +9,7 @@ use slog::slog_info;
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net;
-use stacks_signer::net::{HttpNet, HttpNetQueue, Message, Net, NetListen};
+use stacks_signer::net::{HttpNet, HttpNetListen, Message, Net, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, SigningRound};
 
 fn main() {
@@ -29,7 +29,7 @@ fn main() {
 
     // start p2p sync
     let id = config.signer.frost_id;
-    let net_queue = HttpNetQueue::new(net.clone(), vec![]);
+    let net_queue = HttpNetListen::new(net.clone(), vec![]);
     spawn(move || poll_loop(net_queue, tx, id));
 
     // temporary fill-in for a coordinator
@@ -43,7 +43,7 @@ fn main() {
     main_loop(&config, &net, rx);
 }
 
-fn poll_loop(mut net: HttpNetQueue, tx: Sender<Message>, id: usize) {
+fn poll_loop(mut net: HttpNetListen, tx: Sender<Message>, id: usize) {
     loop {
         net.poll(id);
         match net.next_message() {
