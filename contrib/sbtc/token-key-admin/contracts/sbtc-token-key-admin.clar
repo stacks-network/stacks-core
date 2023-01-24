@@ -16,8 +16,7 @@
 ;;
 (define-constant err-invalid-caller u1)
 (define-constant err-invalid-signer-id u2)
-(define-constant err-owner-only u100)
-(define-constant err-not-token-owner u101)
+(define-constant err-not-token-owner u3)
 
 ;; data vars
 ;;
@@ -26,6 +25,7 @@
 (define-data-var num-keys uint u4000)
 (define-data-var num-parties uint u4000)
 (define-data-var threshold uint u2800)
+(define-data-var bitcoin-payout-address (optional (string-ascii 72)) none)
 
 ;; data maps
 ;;
@@ -84,6 +84,13 @@
     )
 )
 
+(define-public (set-bitcoin-payout-address (addr (string-ascii 72)))
+    (begin
+        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (ok (var-set bitcoin-payout-address (some addr)))
+    )
+)
+
 (define-public (mint! (amount uint))
     (begin
         (asserts! (is-coordinator) (err err-invalid-caller))
@@ -123,6 +130,10 @@
 
 (define-read-only (get-threshold)
     (var-get threshold)
+)
+
+(define-read-only (get-bitcoin-payout-address)
+    (var-get bitcoin-payout-address)
 )
 
 (define-read-only (get-signer-data (signer uint))
