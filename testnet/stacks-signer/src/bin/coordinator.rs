@@ -46,7 +46,7 @@ enum Command {
 
 #[derive(Debug)]
 struct Coordinator<Network: NetListen> {
-    id: usize, // Used for relay coordination
+    id: u64, // Used for relay coordination
     current_dkg_id: u64,
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
     minimum_signers: usize,
@@ -62,7 +62,7 @@ impl<Network: NetListen> Coordinator<Network> {
         network: Network,
     ) -> Self {
         Self {
-            id,
+            id: id as u64,
             current_dkg_id: dkg_id,
             total_signers,
             minimum_signers,

@@ -9,7 +9,7 @@ use slog::slog_info;
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net;
-use stacks_signer::net::{HttpNet, HttpNetListen, Message, Net, NetListen};
+use stacks_signer::net::{sig_bytes_to_id, HttpNet, HttpNetListen, Message, Net, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, SigningRound};
 
 fn main() {
@@ -43,7 +43,7 @@ fn main() {
     main_loop(&config, &net, rx);
 }
 
-fn poll_loop(mut net: HttpNetListen, tx: Sender<Message>, id: usize) {
+fn poll_loop(mut net: HttpNetListen, tx: Sender<Message>, id: u64) {
     loop {
         net.poll(id);
         match net.next_message() {
@@ -58,7 +58,7 @@ fn poll_loop(mut net: HttpNetListen, tx: Sender<Message>, id: usize) {
 
 fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
     let mut signer = SigningRound::new(
-        config.signer.frost_id,
+        config.signer.frost_id as usize,
         config.common.minimum_signers,
         config.common.total_signers,
     );

@@ -18,7 +18,7 @@ pub struct Common {
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct Signer {
-    pub frost_id: usize,
+    pub frost_id: u64,
     pub frost_state_file: String,
 }
 
@@ -35,7 +35,7 @@ pub struct Cli {
 
     /// Turn debugging information on
     #[arg(short, long)]
-    id: Option<usize>,
+    id: Option<u64>,
 }
 
 impl Config {
