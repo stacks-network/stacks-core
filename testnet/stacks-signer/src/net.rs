@@ -7,13 +7,14 @@ use stacks_common::{info, warn};
 
 use crate::signing_round;
 
-// Message is the format over the wire and a place for future metadata such as sender_id
+// Message is the format over the wire
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
     pub msg: signing_round::MessageTypes,
     pub sig: [u8; 32],
 }
 
+// Http listen/poll with queue (requires mutable access, is configured by passing in HttpNet)
 pub struct HttpNetListen {
     pub net: HttpNet,
     in_queue: Vec<Message>,
@@ -28,6 +29,7 @@ impl HttpNetListen {
     }
 }
 
+// Http send (does not require mutable access, can be cloned to pass to threads)
 #[derive(Clone)]
 pub struct HttpNet {
     pub stacks_node_url: String,
@@ -39,6 +41,7 @@ impl HttpNet {
     }
 }
 
+// these functions manipulate the inbound message queue
 pub trait NetListen {
     type Error: Debug;
 
@@ -79,11 +82,14 @@ impl NetListen for HttpNetListen {
     fn next_message(&mut self) -> Option<Message> {
         self.in_queue.pop()
     }
+
+    // pass-thru to immutable net function
     fn send_message(&self, msg: Message) -> Result<(), Self::Error> {
         self.net.send_message(msg)
     }
 }
 
+// for threads that only send data, use immutable Net
 pub trait Net {
     type Error: Debug;
 
