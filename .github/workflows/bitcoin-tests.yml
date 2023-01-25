@@ -47,6 +47,7 @@ jobs:
           - tests::neon_integrations::bitcoind_integration_test
           - tests::neon_integrations::liquid_ustx_integration
           - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::pox_integration_test

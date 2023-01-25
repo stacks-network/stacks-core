@@ -5867,9 +5867,9 @@ impl StacksChainState {
     /// in the block, and a `PreCommitClarityBlock` struct.
     ///
     /// The `StacksEpochReceipts` contains the list of transaction
-    /// receipts for both the preceeding microblock stream that the
-    /// block confirms, as well as the transaction receipts for the
-    /// anchored block's transactions. Finally, it returns the
+    /// receipts for the preceeding microblock stream that the
+    /// block confirms, the anchored block's transactions, and the
+    /// btc wire transactions. Finally, it returns the
     /// execution costs for the microblock stream and for the anchored
     /// block (separately).
     ///
@@ -12132,7 +12132,10 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
-        peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let num_epochs = epochs.len();
+        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
 
         let mut peer = TestPeer::new(peer_config);
