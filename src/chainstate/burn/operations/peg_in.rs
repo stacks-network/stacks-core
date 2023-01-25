@@ -32,7 +32,7 @@ impl PegInOp {
                 return Err(OpError::InvalidInput);
             };
 
-        let recipient = Self::parse_data(&tx.data())?;
+        let parsed_data = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -40,9 +40,10 @@ impl PegInOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            recipient,
+            recipient: parsed_data.recipient,
             peg_wallet_address,
             amount,
+            memo: parsed_data.memo,
             txid,
             vtxindex,
             block_height,
@@ -50,13 +51,13 @@ impl PegInOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<PrincipalData, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
         /*
             Wire format:
 
-            0      2  3                  24                            64
-            |------|--|------------------|-----------------------------|
-             magic  op   Stacks address      Contract name (optional)
+            0      2  3                  24                            64       80
+            |------|--|------------------|-----------------------------|--------|
+             magic  op   Stacks address      Contract name (optional)     memo
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
@@ -95,7 +96,9 @@ impl PegInOp {
             standard_principal_data.into()
         };
 
-        Ok(recipient)
+        let memo = Vec::new(); // TODO(3481): Parse memo
+
+        Ok(ParsedData { recipient, memo })
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -106,6 +109,11 @@ impl PegInOp {
 
         Ok(())
     }
+}
+
+struct ParsedData {
+    recipient: PrincipalData,
+    memo: Vec<u8>,
 }
 
 enum ParseError {

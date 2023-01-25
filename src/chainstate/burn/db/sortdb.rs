@@ -422,6 +422,10 @@ impl FromRow<PegInOp> for PegInOp {
             .parse()
             .map_err(|_| db_error::ParseError)?;
 
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
+        let memo = memo_bytes.to_vec();
+
         Ok(Self {
             txid,
             vtxindex,
@@ -430,6 +434,7 @@ impl FromRow<PegInOp> for PegInOp {
             recipient,
             peg_wallet_address,
             amount,
+            memo,
         })
     }
 }
@@ -742,6 +747,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
         recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
         peg_wallet_address TEXT NOT NULL,
         amount TEXT NOT NULL,
+        memo TEXT,
 
         PRIMARY KEY(txid)
     );"#];
@@ -4898,9 +4904,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.recipient.to_string(),
             &op.peg_wallet_address.to_string(),
             &op.amount.to_string(),
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -6332,11 +6339,13 @@ pub mod tests {
         let peg_wallet_address =
             PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
         let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+        let memo = vec![1, 3, 3, 7];
 
         let peg_in = PegInOp {
             recipient,
             peg_wallet_address,
             amount,
+            memo,
 
             txid,
             vtxindex,

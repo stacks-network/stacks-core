@@ -320,7 +320,8 @@ pub struct DelegateStxOp {
 pub struct PegInOp {
     pub recipient: PrincipalData,
     pub peg_wallet_address: PoxAddress,
-    pub amount: u64, // BTC amount to peg in, in satoshis
+    pub amount: u64,   // BTC amount to peg in, in satoshis
+    pub memo: Vec<u8>, // extra unused byte
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
