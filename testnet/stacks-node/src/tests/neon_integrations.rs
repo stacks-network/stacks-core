@@ -1701,6 +1701,8 @@ fn stx_transfer_btc_integration_test() {
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
+                let dbg = format!("{:#}", tx);
+                info!("TX-BTC {}",  dbg);
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
                 if !burnchain_op.contains_key("TransferStx") {
                     panic!("unexpected btc transaction type");
@@ -1710,6 +1712,7 @@ fn stx_transfer_btc_integration_test() {
         }
     }
     assert!(found_btc_tx);
+    assert!(false);
 
     channel.stop_chains_coordinator();
 }
