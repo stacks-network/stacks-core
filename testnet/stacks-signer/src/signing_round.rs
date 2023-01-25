@@ -159,20 +159,17 @@ impl SigningRound {
         self.reset();
         let _party_state = self.signer.parties[self.id].save();
         let mut rng = OsRng::default();
-        self.commitments = self
-            .signer
-            .parties
-            .iter()
-            .map(|p| p.get_poly_commitment(&mut rng))
-            .collect();
-
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
-            info!("creating signature share for party #{}", idx);
-            let msg_share = MessageTypes::DkgPrivateShares(DkgPrivateShares {
+            info!("creating dkg private share for party #{}", idx);
+            let private_shares = MessageTypes::DkgPrivateShares(DkgPrivateShares {
                 private_shares: party.get_shares(),
             });
-            msgs.push(msg_share);
+            msgs.push(private_shares);
+            let public_share = MessageTypes::DkgPublicShares(DkgPublicShare {
+                public_share: party.get_poly_commitment(&mut rng),
+            });
+            msgs.push(public_share);
         }
         Ok(msgs)
     }
