@@ -81,22 +81,17 @@ impl PegInOp {
 
         let standard_principal_data = StandardPrincipalData(version, address_data);
 
-        let maybe_contract_name: Option<ContractName> = data
-            .get(21..)
-            .filter(|bytes| !bytes.is_empty())
-            .map(std::str::from_utf8)
-            .transpose()?
-            .map(ToOwned::to_owned)
-            .map(TryInto::try_into)
-            .transpose()?;
+        let memo = data.get(61..).unwrap_or(&[]).to_vec();
 
-        let recipient: PrincipalData = if let Some(contract_name) = maybe_contract_name {
-            QualifiedContractIdentifier::new(standard_principal_data, contract_name).into()
-        } else {
-            standard_principal_data.into()
-        };
+        let recipient: PrincipalData =
+            if let Some(contract_bytes) = Self::leading_non_zero_bytes(data, 21, 61) {
+                let contract_name: String = std::str::from_utf8(contract_bytes)?.to_owned();
 
-        let memo = Vec::new(); // TODO(3481): Parse memo
+                QualifiedContractIdentifier::new(standard_principal_data, contract_name.try_into()?)
+                    .into()
+            } else {
+                standard_principal_data.into()
+            };
 
         Ok(ParsedData { recipient, memo })
     }
@@ -108,6 +103,25 @@ impl PegInOp {
         }
 
         Ok(())
+    }
+
+    fn leading_non_zero_bytes(data: &[u8], from: usize, to: usize) -> Option<&[u8]> {
+        let end_of_non_zero_slice = {
+            let mut end = to.min(data.len());
+            for i in 21..end {
+                if data[i] == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            end
+        };
+
+        if from == end_of_non_zero_slice {
+            return None;
+        }
+
+        data.get(from..end_of_non_zero_slice)
     }
 }
 
