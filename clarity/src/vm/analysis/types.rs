@@ -190,14 +190,14 @@ impl ContractAnalysis {
     /// Canonicalize all outward-facing types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
         for (_, function_type) in self.public_function_types.iter_mut() {
-            function_type.canonicalize(epoch);
+            *function_type = function_type.canonicalize(epoch);
         }
         for (_, function_type) in self.read_only_function_types.iter_mut() {
-            function_type.canonicalize(epoch);
+            *function_type = function_type.canonicalize(epoch);
         }
         for (_, trait_definition) in self.defined_traits.iter_mut() {
             for (_, function_signature) in trait_definition.iter_mut() {
-                function_signature.canonicalize(epoch);
+                *function_signature = function_signature.canonicalize(epoch);
             }
         }
     }
