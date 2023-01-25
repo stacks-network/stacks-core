@@ -428,9 +428,9 @@ fn trait_invocation_cross_epoch() {
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
-        publish_contract(conn, &trait_contract_id, trait_contract, clarity_version);
-        publish_contract(conn, &impl_contract_id, impl_contract, clarity_version);
-        publish_contract(conn, &use_contract_id, use_contract, clarity_version);
+        publish_contract(conn, &trait_contract_id, trait_contract, clarity_version).unwrap();
+        publish_contract(conn, &impl_contract_id, impl_contract, clarity_version).unwrap();
+        publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
     });
     // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
     sim.execute_next_block(|_| {});
@@ -439,7 +439,7 @@ fn trait_invocation_cross_epoch() {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
         assert_eq!(clarity_version, ClarityVersion::Clarity2);
-        publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version);
+        publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version).unwrap();
     });
 
     sim.execute_next_block_as_conn(|conn| {
