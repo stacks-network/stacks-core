@@ -103,7 +103,8 @@ impl Net for HttpNet {
         match result {
             Ok(response) => {
                 info!(
-                    "sent {} bytes {:?} to {}",
+                    "sent {:?} {} bytes {:?} to {}",
+                    &msg.msg,
                     bytes.len(),
                     &response,
                     self.stacks_node_url
