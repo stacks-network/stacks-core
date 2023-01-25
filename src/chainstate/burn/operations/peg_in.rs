@@ -1,9 +1,4 @@
-use clarity::codec::StacksMessageCodec;
-use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::ContractName;
+use stacks_common::codec::StacksMessageCodec;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -13,6 +8,12 @@ use crate::types::Address;
 
 use crate::chainstate::burn::operations::Error as OpError;
 use crate::chainstate::burn::operations::PegInOp;
+
+use crate::vm::errors::RuntimeErrorType as ClarityRuntimeError;
+use crate::vm::types::PrincipalData;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::StandardPrincipalData;
+use crate::vm::ContractName;
 
 impl PegInOp {
     pub fn from_tx(

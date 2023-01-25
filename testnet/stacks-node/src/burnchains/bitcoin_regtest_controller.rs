@@ -50,6 +50,7 @@ use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::vm::types::PrincipalData;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
@@ -1167,9 +1168,13 @@ impl BitcoinRegtestController {
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             bytes.push(Opcodes::PegIn as u8);
-            let recipient_address: StacksAddress = payload.recipient.into();
+            let (recipient_address, contract_name): (StacksAddress, String) = match payload.recipient {
+                PrincipalData::Standard(standard_principal) => (standard_principal.into(), String::new()),
+                PrincipalData::Contract(contract_identifier) => (contract_identifier.issuer.into(), contract_identifier.name.into()),
+            };
             bytes.push(recipient_address.version);
             bytes.extend_from_slice(recipient_address.bytes.as_bytes());
+            bytes.extend_from_slice(contract_name.as_bytes());
             bytes
         };
 
