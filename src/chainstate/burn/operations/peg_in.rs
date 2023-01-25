@@ -89,8 +89,6 @@ impl PegInOp {
             .map(TryInto::try_into)
             .transpose()?;
 
-        println!("Contract name: {:?}", maybe_contract_name);
-
         let recipient: PrincipalData = if let Some(contract_name) = maybe_contract_name {
             QualifiedContractIdentifier::new(standard_principal_data, contract_name).into()
         } else {
