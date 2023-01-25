@@ -211,6 +211,23 @@ impl DefinedFunction {
                             },
                         );
                     }
+                    // Since this Clarity 1 contract may be called from a Clarity 2 contract,
+                    // we need to handle Clarity 2 values as well.
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                        Value::CallableContract(CallableData {
+                            contract_identifier,
+                            trait_identifier,
+                        }),
+                    ) => {
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: contract_identifier.clone(),
+                                trait_identifier: trait_identifier.clone(),
+                            },
+                        );
+                    }
                     _ => {
                         if !type_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
