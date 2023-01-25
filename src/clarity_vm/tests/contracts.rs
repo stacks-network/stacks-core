@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -322,5 +323,174 @@ fn test_get_block_info_eval_v210() {
             tx.eval_read_only(&contract_identifier, "(test-func-3 block-height)")
                 .unwrap()
         );
+    });
+}
+
+#[test]
+fn trait_invocation_cross_epoch() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3, 5];
+
+    // Advance two blocks so we get to Stacks 2.05.
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    let trait_contract = "(define-trait simple-method ((foo (uint) (response uint uint)) ))";
+    let impl_contract =
+        "(impl-trait .simple-trait.simple-method) (define-read-only (foo (x uint)) (ok x))";
+    let use_contract = "(use-trait simple .simple-trait.simple-method)
+                        (define-public (call-simple (s <simple>)) (contract-call? s foo u0))";
+    let invoke_contract = "
+        (use-trait simple .simple-trait.simple-method)
+        (define-public (invocation-1)
+          (contract-call? .use-simple call-simple .impl-simple))
+        (define-public (invocation-2 (st <simple>))
+          (contract-call? .use-simple call-simple st))
+    ";
+
+    let trait_contract_id = QualifiedContractIdentifier::local("simple-trait").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("impl-simple").unwrap();
+    let use_contract_id = QualifiedContractIdentifier::local("use-simple").unwrap();
+    let invoke_contract_id = QualifiedContractIdentifier::local("invoke-simple").unwrap();
+
+    let sender = StacksAddress::burn_address(false).into();
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    clarity_version,
+                    trait_contract,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &trait_contract_id,
+                    clarity_version,
+                    &ast,
+                    trait_contract,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&trait_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &impl_contract_id,
+                    clarity_version,
+                    impl_contract,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &impl_contract_id,
+                    clarity_version,
+                    &ast,
+                    impl_contract,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&impl_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &use_contract_id,
+                    clarity_version,
+                    use_contract,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &use_contract_id,
+                    clarity_version,
+                    &ast,
+                    use_contract,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&use_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+    });
+    // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
+    sim.execute_next_block(|_| {});
+    // now in Stacks 2.1
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            assert_eq!(clarity_version, ClarityVersion::Clarity2);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &invoke_contract_id,
+                    clarity_version,
+                    invoke_contract,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &invoke_contract_id,
+                    clarity_version,
+                    &ast,
+                    invoke_contract,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&invoke_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &invoke_contract_id,
+                    "invocation-1",
+                    &[],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &invoke_contract_id,
+                    "invocation-2",
+                    &[Value::Principal(impl_contract_id.into())],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
     });
 }
