@@ -62,7 +62,6 @@ impl NetListen for HttpNetListen {
                     200 => {
                         match bincode::deserialize_from::<_, Message>(response.into_reader()) {
                             Ok(msg) => {
-                                info!("received {:?}", &msg);
                                 self.in_queue.push(msg);
                             }
                             Err(_e) => {}

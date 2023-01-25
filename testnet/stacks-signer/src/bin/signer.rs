@@ -34,9 +34,8 @@ fn main() {
 
     // temporary fill-in for a coordinator
     if cli.start {
-        let config2 = config.clone();
         let net2 = net.clone();
-        spawn(move || start_round(&config2, &net2));
+        spawn(move || start_round(55, 0, &net2));
     }
 
     // listen to p2p messages
@@ -67,8 +66,9 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
     loop {
         let inbound = rx.recv().unwrap(); // blocking
         let from_id = sig_bytes_to_id(inbound.sig);
-        info!("received from #{} {:?}", from_id, inbound);
-        if from_id != config.signer.frost_id {
+        let drop = from_id == config.signer.frost_id;
+        info!("received from #{} {} {:?}", from_id, if drop { "DROPPED" } else { "" }, inbound);
+        if !drop {
             let outbounds = signer.process(inbound.msg).unwrap();
             for out in outbounds {
                 let msg = Message {
@@ -81,12 +81,12 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
     }
 }
 
-fn start_round(config: &Config, net: &HttpNet) {
+fn start_round(from_id: u64, dkg_id: u64, net: &HttpNet) {
     info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id: 0 });
+    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id });
     let msg = Message {
         msg: dkg_start,
-        sig: net::id_to_sig_bytes(config.signer.frost_id),
+        sig: net::id_to_sig_bytes(from_id),
     };
     net.send_message(msg).unwrap();
 }
