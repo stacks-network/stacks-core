@@ -474,3 +474,348 @@ fn trait_invocation_cross_epoch() {
         });
     });
 }
+
+#[test]
+fn trait_with_trait_invocation_cross_epoch() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3, 5];
+
+    // Advance two blocks so we get to Stacks 2.05.
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    let math_trait = "
+        (define-trait math (
+            (add (uint uint) (response uint uint))
+            (sub (uint uint) (response uint uint))
+        ))
+    ";
+    let compute_trait = "
+        (use-trait math-trait .math-trait.math)
+        (define-trait compute-trait (
+            (compute (<math-trait> uint) (response uint uint))
+        ))
+    ";
+    let impl_compute = "
+        (impl-trait .compute.compute-trait)
+        (use-trait math-trait .math-trait.math)
+        (define-public (compute (m <math-trait>) (arg uint))
+            (contract-call? m add arg u1)
+        )
+    ";
+    let impl_math = "
+    (impl-trait .math-trait.math)
+    (define-read-only (add (x uint) (y uint)) (ok (+ x y)) )
+    (define-read-only (sub (x uint) (y uint)) (ok (- x y)) )
+    ";
+    let use_compute = "
+        (use-trait compute-trait .compute.compute-trait)
+        (use-trait math-trait .math-trait.math)
+        (define-public (do-it-static)
+            (contract-call? .impl-compute compute .impl-math-trait u3)
+        )
+        (define-public (do-it-dyn (computer <compute-trait>) (math-contract <math-trait>) (x uint))
+            (contract-call? computer compute math-contract x)
+        )
+    ";
+
+    let math_contract_id = QualifiedContractIdentifier::local("math-trait").unwrap();
+    let compute_contract_id = QualifiedContractIdentifier::local("compute").unwrap();
+    let impl_math_id = QualifiedContractIdentifier::local("impl-math-trait").unwrap();
+    let impl_compute_id = QualifiedContractIdentifier::local("impl-compute").unwrap();
+    let use_compute_20_id = QualifiedContractIdentifier::local("use-compute-2-0").unwrap();
+    let use_compute_21_c1_id = QualifiedContractIdentifier::local("use-compute-2-1-c1").unwrap();
+    let use_compute_21_c2_id = QualifiedContractIdentifier::local("use-compute-2-1-c2").unwrap();
+
+    let sender = StacksAddress::burn_address(false).into();
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &math_contract_id,
+                    clarity_version,
+                    math_trait,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &math_contract_id,
+                    clarity_version,
+                    &ast,
+                    math_trait,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&math_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &compute_contract_id,
+                    clarity_version,
+                    compute_trait,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &compute_contract_id,
+                    clarity_version,
+                    &ast,
+                    compute_trait,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&compute_contract_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &impl_compute_id,
+                    clarity_version,
+                    impl_compute,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &impl_compute_id,
+                    clarity_version,
+                    &ast,
+                    impl_compute,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&impl_compute_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &impl_math_id,
+                    clarity_version,
+                    impl_math,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &impl_math_id,
+                    clarity_version,
+                    &ast,
+                    impl_math,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&impl_math_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &use_compute_20_id,
+                    clarity_version,
+                    use_compute,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &use_compute_20_id,
+                    clarity_version,
+                    &ast,
+                    use_compute,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&use_compute_20_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+    });
+    // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
+    sim.execute_next_block(|_| {});
+    // now in Stacks 2.1
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        // Publish the contract that uses the trait in both Clarity 1 and Clarity 2
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::Clarity1;
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &use_compute_21_c1_id,
+                    clarity_version,
+                    use_compute,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &use_compute_21_c1_id,
+                    clarity_version,
+                    &ast,
+                    use_compute,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&use_compute_21_c1_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::Clarity2;
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &use_compute_21_c2_id,
+                    clarity_version,
+                    use_compute,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &use_compute_21_c2_id,
+                    clarity_version,
+                    &ast,
+                    use_compute,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity_db
+                .save_analysis(&use_compute_21_c2_id, &analysis)
+                .expect("FATAL: failed to store contract analysis");
+        });
+    });
+
+    // Call both functions in the 2.05 version
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_20_id,
+                    "do-it-static",
+                    &[],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_20_id,
+                    "do-it-dyn",
+                    &[
+                        Value::Principal(impl_compute_id.clone().into()),
+                        Value::Principal(impl_math_id.clone().into()),
+                        Value::UInt(1),
+                    ],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    // Call both functions in the 2.1 Clarity 1 version
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_21_c1_id,
+                    "do-it-static",
+                    &[],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_21_c1_id,
+                    "do-it-dyn",
+                    &[
+                        Value::Principal(impl_compute_id.clone().into()),
+                        Value::Principal(impl_math_id.clone().into()),
+                        Value::UInt(1),
+                    ],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    // Call both functions in the 2.1 Clarity 2 version
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_21_c2_id,
+                    "do-it-static",
+                    &[],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &use_compute_21_c2_id,
+                    "do-it-dyn",
+                    &[
+                        Value::Principal(impl_compute_id.into()),
+                        Value::Principal(impl_math_id.into()),
+                        Value::UInt(1),
+                    ],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+}
