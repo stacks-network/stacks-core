@@ -114,13 +114,14 @@ where
     fn wait_for_dkg_end(&mut self) -> Result<(), Error> {
         let mut ids_to_await: HashSet<usize> = (1..=self.total_signers).collect();
         loop {
-            debug!(
+            info!(
                 "Awaiting DkgEnd messages from the following ID:s {:?}",
                 ids_to_await
             );
             match (ids_to_await.len(), self.wait_for_next_message()?.msg) {
                 (0, _) => return Ok(()),
                 (_, MessageTypes::DkgEnd(dkg_end_msg)) => {
+                    info!("DKG_End round #{} from id #{}", dkg_end_msg.dkg_id, dkg_end_msg.signer_id);
                     ids_to_await.remove(&dkg_end_msg.signer_id);
                 }
                 (_, _) => (),
