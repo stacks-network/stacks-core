@@ -66,14 +66,17 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
 
     loop {
         let inbound = rx.recv().unwrap(); // blocking
-        info!("received {:?}", inbound);
-        let outbounds = signer.process(inbound.msg).unwrap();
-        for out in outbounds {
-            let msg = Message {
-                msg: out,
-                sig: net::id_to_sig_bytes(config.signer.frost_id),
-            };
-            net.send_message(msg).unwrap();
+        let from_id = sig_bytes_to_id(inbound.sig);
+        info!("received from #{} {:?}", from_id, inbound);
+        if from_id != config.signer.frost_id {
+            let outbounds = signer.process(inbound.msg).unwrap();
+            for out in outbounds {
+                let msg = Message {
+                    msg: out,
+                    sig: net::id_to_sig_bytes(config.signer.frost_id),
+                };
+                net.send_message(msg).unwrap();
+            }
         }
     }
 }
