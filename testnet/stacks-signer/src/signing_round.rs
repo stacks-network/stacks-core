@@ -32,7 +32,7 @@ impl StateMachine for SigningRound {
     fn can_move_to(&self, state: &States) -> Result<(), String> {
         let accepted = match state {
             States::Init => false,
-            States::DkgDistribute => self.state == States::Init,
+            States::DkgDistribute => self.state == States::Init || self.state == States::DkgDistribute,
             States::DkgGather => self.state == States::DkgDistribute,
             States::SignGather => self.state == States::DkgGather,
             States::Signed => self.state == States::SignGather,
@@ -157,7 +157,7 @@ impl SigningRound {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();
-        let _party_state = self.signer.parties[self.id].save();
+        let _party_state = self.signer.parties[self.id-1].save();
         let mut rng = OsRng::default();
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
