@@ -46,6 +46,12 @@ Each Rust file should contain a `mod test {}` definition, in which unit tests
 should be supplied for the file's methods.  Unit tests should cover a maximal
 amount of code paths.
 
+### GitHub Workflows and Actions 
+We run our CI pipeline using GitHub workflows. The main workflows are CI (at `.github/workflows/ci.yml`), 
+and stacks-bitcoin-integration-tests (at `.github/workflows/bitcoin-tests.yml`). These 
+workflows can be manually triggered on the Actions tab in the GitHub UI on any branch. 
+
+
 ## Contributing Conventions
 
 ### Simplicity of implementation
