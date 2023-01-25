@@ -73,7 +73,7 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
                 msg: out,
                 sig: net::id_to_sig_bytes(config.signer.frost_id),
             };
-            net.send_message( msg).unwrap();
+            net.send_message(msg).unwrap();
         }
     }
 }

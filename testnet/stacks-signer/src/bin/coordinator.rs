@@ -5,7 +5,7 @@ use slog::{slog_debug, slog_info};
 use stacks_common::{debug, info};
 
 use stacks_signer::config::Config;
-use stacks_signer::net::{self, HttpNet, HttpNetError, HttpNetListen, Message, Net, NetListen};
+use stacks_signer::net::{self, HttpNet, HttpNetError, HttpNetListen, Message, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, NonceRequest};
 
 const DEVNET_COORDINATOR_ID: usize = 0;
@@ -16,7 +16,7 @@ fn main() {
     let config = Config::from_file("conf/stacker.toml").unwrap();
 
     let net: HttpNet = HttpNet::new(config.common.stacks_node_url.clone());
-    let net_listen : HttpNetListen = HttpNetListen::new(net, vec![]);
+    let net_listen: HttpNetListen = HttpNetListen::new(net, vec![]);
     let mut coordinator = Coordinator::new(
         DEVNET_COORDINATOR_ID,
         DEVNET_COORDINATOR_DKG_ID,

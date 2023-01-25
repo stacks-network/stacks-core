@@ -22,10 +22,7 @@ pub struct HttpNetListen {
 
 impl HttpNetListen {
     pub fn new(net: HttpNet, in_queue: Vec<Message>) -> Self {
-        HttpNetListen {
-            net,
-            in_queue,
-        }
+        HttpNetListen { net, in_queue }
     }
 }
 
