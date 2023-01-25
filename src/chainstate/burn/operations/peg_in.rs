@@ -393,8 +393,6 @@ mod tests {
             .expect("Any strictly positive amounts should be ok");
     }
 
-    // TODO: Invalid contract name test
-
     fn seeded_rng() -> StdRng {
         SeedableRng::from_seed([0; 32])
     }
