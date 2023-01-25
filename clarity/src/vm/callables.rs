@@ -212,7 +212,8 @@ impl DefinedFunction {
                         );
                     }
                     // Since this Clarity 1 contract may be called from a Clarity 2 contract,
-                    // we need to handle Clarity 2 values as well.
+                    // we need to handle Clarity 2 values as well. Clarity 2 contracts can only
+                    // be executed in epoch 2.1, so we only need to handle `CallableType` here.
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(_)),
                         Value::CallableContract(CallableData {

@@ -1838,6 +1838,9 @@ impl ContractContext {
         &self.clarity_version
     }
 
+    /// Canonicalize the types for the specified epoch. Only functions and
+    /// defined traits are exposed externally, so other types are not
+    /// canonicalized.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
         for (_, function) in self.functions.iter_mut() {
             function.canonicalize_types(epoch);

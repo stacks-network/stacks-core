@@ -4878,7 +4878,6 @@ fn trait_invocation_cross_epoch() {
                     parsed.txid(),
                     tx.get("raw_result").unwrap().as_str().unwrap()
                 );
-                //   eprintln!("{}", tx);
             }
         }
     }

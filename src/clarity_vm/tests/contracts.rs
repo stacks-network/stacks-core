@@ -396,6 +396,7 @@ fn trait_invocation_205_with_stored_principal() {
     });
 }
 
+/// Publish a trait in epoch 2.05 and then invoke it in epoch 2.1.
 #[test]
 fn trait_invocation_cross_epoch() {
     let mut sim = ClarityTestSim::new();
@@ -475,6 +476,9 @@ fn trait_invocation_cross_epoch() {
     });
 }
 
+/// Publish a trait that includes another trait in one of its functions in
+/// epoch 2.05 and then invoke it in epoch 2.1. Test variations of epoch and
+/// Clarity versions for the contract that uses the trait.
 #[test]
 fn trait_with_trait_invocation_cross_epoch() {
     let mut sim = ClarityTestSim::new();
