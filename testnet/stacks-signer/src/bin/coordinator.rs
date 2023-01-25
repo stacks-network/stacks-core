@@ -138,7 +138,7 @@ where
         };
 
         let notify = |_err, dur| {
-            info!("No message at {:?}, retrying again soon", dur);
+            info!("No message. Next poll in {:?}", dur);
         };
 
         backoff::retry_notify(
