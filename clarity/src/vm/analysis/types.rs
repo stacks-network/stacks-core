@@ -246,3 +246,110 @@ impl ContractAnalysis {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::vm::{
+        analysis::ContractAnalysis,
+        costs::LimitedCostTracker,
+        types::{
+            signatures::CallableSubtype, FixedFunction, FunctionArg, QualifiedContractIdentifier,
+            StandardPrincipalData,
+        },
+    };
+
+    #[test]
+    fn test_canonicalize_contract_analysis() {
+        let mut contract_analysis = ContractAnalysis::new(
+            QualifiedContractIdentifier::local("foo").unwrap(),
+            vec![],
+            LimitedCostTracker::new_free(),
+            ClarityVersion::Clarity1,
+        );
+        let trait_id = TraitIdentifier::new(
+            StandardPrincipalData::transient(),
+            "my-contract".into(),
+            "my-trait".into(),
+        );
+        let mut trait_functions = BTreeMap::new();
+        trait_functions.insert(
+            "alpha".into(),
+            FunctionSignature {
+                args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
+                returns: TypeSignature::ResponseType(Box::new((
+                    TypeSignature::UIntType,
+                    TypeSignature::UIntType,
+                ))),
+            },
+        );
+        contract_analysis.add_defined_trait("foo".into(), trait_functions);
+
+        contract_analysis.add_public_function(
+            "bar".into(),
+            FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg {
+                    signature: TypeSignature::TraitReferenceType(trait_id.clone()),
+                    name: "t".into(),
+                }],
+                returns: TypeSignature::new_response(
+                    TypeSignature::BoolType,
+                    TypeSignature::UIntType,
+                )
+                .unwrap(),
+            }),
+        );
+
+        contract_analysis.add_read_only_function(
+            "baz".into(),
+            FunctionType::Fixed(FixedFunction {
+                args: vec![
+                    FunctionArg {
+                        signature: TypeSignature::UIntType,
+                        name: "u".into(),
+                    },
+                    FunctionArg {
+                        signature: TypeSignature::TraitReferenceType(trait_id.clone()),
+                        name: "t".into(),
+                    },
+                ],
+                returns: TypeSignature::BoolType,
+            }),
+        );
+
+        contract_analysis.canonicalize_types(&StacksEpochId::Epoch21);
+
+        let trait_type = contract_analysis
+            .get_defined_trait("foo")
+            .unwrap()
+            .get("alpha")
+            .unwrap();
+        assert_eq!(
+            trait_type.args[0],
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+        );
+
+        if let FunctionType::Fixed(fixed) =
+            contract_analysis.get_public_function_type("bar").unwrap()
+        {
+            assert_eq!(
+                fixed.args[0].signature,
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            );
+        } else {
+            panic!("Expected fixed function type");
+        }
+
+        if let FunctionType::Fixed(fixed) = contract_analysis
+            .get_read_only_function_type("baz")
+            .unwrap()
+        {
+            assert_eq!(
+                fixed.args[1].signature,
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            );
+        } else {
+            panic!("Expected fixed function type");
+        }
+    }
+}
