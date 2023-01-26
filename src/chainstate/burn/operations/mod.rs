@@ -382,7 +382,7 @@ pub struct PegInOp {
 pub struct PegOutRequestOp {
     pub amount: u64,                 // sBTC amount to peg out, in satoshis
     pub recipient: PoxAddress,       // Address to receive the BTC when the request is fulfilled
-    pub signature: MessageSignature, // Signature from sBTC owner's private key(s)
+    pub signature: MessageSignature, // Signature from sBTC owner as per SIP-021
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
