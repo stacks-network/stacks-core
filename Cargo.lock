@@ -1614,6 +1614,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-test"
+version = "0.1.0"
+dependencies = [
+ "relay-server",
+ "stacks-signer",
+]
+
+[[package]]
 name = "io-lifetimes"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

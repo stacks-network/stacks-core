@@ -33,10 +33,6 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
-[[bin]]
-name = "relay-server"
-path = "contrib/tools/relay-server/src/main.rs"
-
 [[bench]]
 name = "marf_bench"
 harness = false
@@ -149,4 +145,5 @@ members = [
     "stx-genesis",
     "testnet/stacks-node",
     "testnet/stacks-signer",
-    "contrib/tools/relay-server"]
+    "contrib/tools/relay-server",
+    "testnet/stacks-signer/integration-test"]

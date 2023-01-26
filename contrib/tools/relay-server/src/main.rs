@@ -1,14 +1,6 @@
 use std::net::TcpListener;
 
-use server::ServerEx;
-
-use crate::state::State;
-
-mod http;
-mod server;
-mod state;
-mod to_io_result;
-mod url;
+use relay_server_lib::{State, ServerEx};
 
 fn main() {
     let mut state = State::default();
