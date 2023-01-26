@@ -130,6 +130,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_peg_out_fulfill_should_succeed_given_a_conforming_transaction_with_extra_memo_bytes(
+    ) {
+        let mut rng = test::seeded_rng();
+        let opcode = Opcodes::PegOutFulfill;
+
+        let amount = 1;
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
+        data.extend_from_slice(&chain_tip_bytes);
+        let memo_bytes: [u8; 17] = test::random_bytes(&mut rng);
+        data.extend_from_slice(&memo_bytes);
+
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
+
+        let op =
+            PegOutFulfillOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
+
+        assert_eq!(op.recipient.bytes(), recipient_address_bytes);
+        assert_eq!(op.chain_tip.as_bytes(), &chain_tip_bytes);
+        assert_eq!(&op.memo, &memo_bytes);
+        assert_eq!(op.amount, amount);
+    }
+
+    #[test]
     fn test_parse_peg_out_fulfill_should_return_error_given_wrong_opcode() {
         let mut rng = test::seeded_rng();
         let opcode = Opcodes::LeaderKeyRegister;
