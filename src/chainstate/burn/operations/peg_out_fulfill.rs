@@ -27,7 +27,7 @@ impl PegOutFulfillOp {
             return Err(OpError::InvalidInput);
         };
 
-        let chain_tip = Self::parse_data(&tx.data())?;
+        let ParsedData { chain_tip, memo } = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -38,6 +38,7 @@ impl PegOutFulfillOp {
             chain_tip,
             amount,
             recipient,
+            memo,
             txid,
             vtxindex,
             block_height,
@@ -45,13 +46,13 @@ impl PegOutFulfillOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<StacksBlockId, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
         /*
             Wire format:
 
-            0      2  3                     35
-            |------|--|---------------------|
-             magic  op       Chain tip
+            0      2  3                     35                       80
+            |------|--|---------------------|------------------------|
+             magic  op       Chain tip                  Memo
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
@@ -67,7 +68,10 @@ impl PegOutFulfillOp {
             return Err(ParseError::MalformedData);
         }
 
-        StacksBlockId::from_bytes(data).ok_or(ParseError::MalformedData)
+        let chain_tip = StacksBlockId::from_bytes(&data[..32]).unwrap();
+        let memo = data.get(32..).unwrap_or(&[]).to_vec();
+
+        Ok(ParsedData { chain_tip, memo })
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -78,6 +82,11 @@ impl PegOutFulfillOp {
 
         Ok(())
     }
+}
+
+struct ParsedData {
+    chain_tip: StacksBlockId,
+    memo: Vec<u8>,
 }
 
 enum ParseError {

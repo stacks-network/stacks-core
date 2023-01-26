@@ -454,6 +454,10 @@ impl FromRow<PegOutRequestOp> for PegOutRequestOp {
 
         let signature = MessageSignature::from_column(row, "signature")?;
 
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
+        let memo = memo_bytes.to_vec();
+
         Ok(Self {
             txid,
             vtxindex,
@@ -462,6 +466,7 @@ impl FromRow<PegOutRequestOp> for PegOutRequestOp {
             recipient,
             amount,
             signature,
+            memo,
         })
     }
 }
@@ -481,6 +486,10 @@ impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
 
         let chain_tip = StacksBlockId::from_column(row, "chain_tip")?;
 
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
+        let memo = memo_bytes.to_vec();
+
         Ok(Self {
             txid,
             vtxindex,
@@ -489,6 +498,7 @@ impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
             chain_tip,
             recipient,
             amount,
+            memo,
         })
     }
 }
@@ -816,6 +826,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         amount TEXT NOT NULL,
         recipient TEXT NOT NULL,
         signature TEXT NOT NULL,
+        memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
@@ -829,6 +840,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         chain_tip TEXT NOT NULL,
         amount TEXT NOT NULL,
         recipient TEXT NOT NULL,
+        memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
@@ -5048,9 +5060,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.amount.to_string(),
             &op.recipient.to_string(),
             &op.signature,
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_out_requests (txid, vtxindex, block_height, burn_header_hash, amount, recipient, signature) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+        self.execute("REPLACE INTO peg_out_requests (txid, vtxindex, block_height, burn_header_hash, amount, recipient, signature, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -5065,9 +5078,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.chain_tip,
             &op.amount.to_string(),
             &op.recipient.to_string(),
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -6564,11 +6578,13 @@ pub mod tests {
             let amount = 1337;
             let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
             let signature = MessageSignature([0; 65]);
+            let memo = vec![1, 3, 3, 7];
 
             PegOutRequestOp {
                 recipient,
                 amount,
                 signature,
+                memo,
 
                 txid,
                 vtxindex,
@@ -6632,11 +6648,13 @@ pub mod tests {
             let vtxindex = 456;
             let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
             let chain_tip = StacksBlockId([0; 32]);
+            let memo = vec![1, 3, 3, 7];
 
             PegOutFulfillOp {
                 recipient,
                 amount,
                 chain_tip,
+                memo,
 
                 txid,
                 vtxindex,
