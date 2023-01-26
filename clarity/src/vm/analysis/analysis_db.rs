@@ -217,24 +217,6 @@ impl<'a> AnalysisDatabase<'a> {
         Ok(contract.implemented_traits)
     }
 
-    pub fn get_map_type(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        map_name: &str,
-        epoch: &StacksEpochId,
-    ) -> CheckResult<(TypeSignature, TypeSignature)> {
-        let contract = self
-            .load_contract_non_canonical(contract_identifier)
-            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        let map_type = contract
-            .get_map_type(map_name)
-            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-        Ok((
-            map_type.0.canonicalize(epoch),
-            map_type.1.canonicalize(epoch),
-        ))
-    }
-
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
     }
