@@ -108,27 +108,27 @@ impl From<std::array::TryFromSliceError> for ParseError {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::test_helpers;
+    use crate::chainstate::burn::operations::test;
 
     use super::*;
 
     #[test]
     fn test_parse_peg_out_request_should_succeed_given_a_conforming_transaction() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutRequest;
 
         let dust_amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
 
         let mut data = vec![];
         let amount: u64 = 10;
-        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        let signature: [u8; 65] = test::random_bytes(&mut rng);
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op =
             PegOutRequestOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
@@ -140,21 +140,21 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_request_should_return_error_given_wrong_opcode() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::LeaderKeyRegister;
 
         let dust_amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
 
         let mut data = vec![];
         let amount: u64 = 10;
-        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        let signature: [u8; 65] = test::random_bytes(&mut rng);
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
 
@@ -166,19 +166,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_request_should_return_error_given_no_second_output() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutRequest;
 
         let output2 = None;
 
         let mut data = vec![];
         let amount: u64 = 10;
-        let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+        let signature: [u8; 65] = test::random_bytes(&mut rng);
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
 
@@ -190,21 +190,21 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_request_should_return_error_given_no_signature() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutRequest;
 
         let dust_amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
 
         let mut data = vec![];
         let amount: u64 = 10;
-        let signature: [u8; 0] = test_helpers::random_bytes(&mut rng);
+        let signature: [u8; 0] = test::random_bytes(&mut rng);
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
 
@@ -216,22 +216,22 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_request_should_return_error_on_zero_amount_and_ok_on_any_other_values() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
 
         let dust_amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
 
         let mut create_op = move |amount: u64| {
             let opcode = Opcodes::PegOutRequest;
 
             let mut data = vec![];
-            let signature: [u8; 65] = test_helpers::random_bytes(&mut rng);
+            let signature: [u8; 65] = test::random_bytes(&mut rng);
             data.extend_from_slice(&amount.to_be_bytes());
             data.extend_from_slice(&signature);
 
-            let tx = test_helpers::burnchain_transaction(data, output2.clone(), opcode);
-            let header = test_helpers::burnchain_block_header();
+            let tx = test::burnchain_transaction(data, output2.clone(), opcode);
+            let header = test::burnchain_block_header();
 
             PegOutRequestOp::from_tx(&header, &tx)
                 .expect("Failed to construct peg-out request operation")
