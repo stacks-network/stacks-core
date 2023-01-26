@@ -86,7 +86,7 @@
 
 (define-public (set-bitcoin-wallet-address (addr (string-ascii 72)))
     (begin
-        (asserts! (is-contract-owner) (err err-invalid-caller))
+        (asserts! (is-coordinator) (err err-invalid-caller))
         (ok (var-set bitcoin-wallet-address (some addr)))
     )
 )

@@ -95,10 +95,18 @@ Clarinet.test({
         let deployer = accounts.get("deployer")!;
 
         let block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "set-bitcoin-wallet-address", [types.ascii("123456780abcdefghijklmnopqrstuvwxyz")], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
         ]);
 
         let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-bitcoin-wallet-address", [types.ascii("123456780abcdefghijklmnopqrstuvwxyz")], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
 
         receipt.result.expectOk();
 
