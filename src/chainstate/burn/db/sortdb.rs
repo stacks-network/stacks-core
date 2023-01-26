@@ -6556,25 +6556,32 @@ pub mod tests {
 
     #[test]
     fn test_insert_peg_out_request() {
-        // TODO(3481): Add test paths with multiple burn blocks
-        let txid = Txid([0; 32]);
         let block_height = 123;
-        let vtxindex = 456;
-        let amount = 1337;
-        let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-        let signature = MessageSignature([0; 65]);
-        let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
-        let peg_out_request = PegOutRequestOp {
-            recipient,
-            amount,
-            signature,
+        let peg_out_request_op = |burn_header_hash, amount| {
+            let txid = Txid([0; 32]);
+            let vtxindex = 456;
+            let amount = 1337;
+            let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+            let signature = MessageSignature([0; 65]);
 
-            txid,
-            vtxindex,
-            block_height,
-            burn_header_hash,
+            PegOutRequestOp {
+                recipient,
+                amount,
+                signature,
+
+                txid,
+                vtxindex,
+                block_height,
+                burn_header_hash,
+            }
         };
+
+        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
+        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
+
+        let peg_out_request_1 = peg_out_request_op(burn_header_hash_1, 1337);
+        let peg_out_request_2 = peg_out_request_op(burn_header_hash_2, 42);
 
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -6585,42 +6592,70 @@ pub mod tests {
         let mut db =
             SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
 
-        let snapshot = test_append_snapshot(
+        let snapshot_1 = test_append_snapshot(
             &mut db,
-            BurnchainHeaderHash([0x01; 32]),
+            burn_header_hash_1,
             &vec![BlockstackOperationType::PegOutRequest(
-                peg_out_request.clone(),
+                peg_out_request_1.clone(),
             )],
         );
 
-        let res_peg_out_requests =
-            SortitionDB::get_peg_out_request_ops(db.conn(), &burn_header_hash)
-                .expect("Failed to get peg-in ops from sortition DB");
+        let snapshot_2 = test_append_snapshot(
+            &mut db,
+            burn_header_hash_2,
+            &vec![BlockstackOperationType::PegOutRequest(
+                peg_out_request_2.clone(),
+            )],
+        );
 
-        assert_eq!(res_peg_out_requests.len(), 1);
-        assert_eq!(res_peg_out_requests[0], peg_out_request);
+        let res_peg_out_requests_1 =
+            SortitionDB::get_peg_out_request_ops(db.conn(), &burn_header_hash_1)
+                .expect("Failed to get peg-out request ops from sortition DB");
+
+        assert_eq!(res_peg_out_requests_1.len(), 1);
+        assert_eq!(res_peg_out_requests_1[0], peg_out_request_1);
+
+        let res_peg_out_requests_2 =
+            SortitionDB::get_peg_out_request_ops(db.conn(), &burn_header_hash_2)
+                .expect("Failed to get peg-out request ops from sortition DB");
+
+        assert_eq!(res_peg_out_requests_2.len(), 1);
+        assert_eq!(res_peg_out_requests_2[0], peg_out_request_2);
     }
 
     #[test]
     fn test_insert_peg_out_fulfill() {
         let txid = Txid([0; 32]);
+
+        let peg_out_fulfill_op = |burn_header_hash, amount| {
+            let block_height = 123;
+            let vtxindex = 456;
+            let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+            let chain_tip = StacksBlockId([0; 32]);
+
+            PegOutFulfillOp {
+                recipient,
+                amount,
+                chain_tip,
+
+                txid,
+                vtxindex,
+                block_height,
+                burn_header_hash,
+            }
+        };
+
         let block_height = 123;
         let vtxindex = 456;
-        let amount = 1337;
         let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
         let chain_tip = StacksBlockId([0; 32]);
         let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
-        let peg_out_fulfill = PegOutFulfillOp {
-            recipient,
-            amount,
-            chain_tip,
+        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
+        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
 
-            txid,
-            vtxindex,
-            block_height,
-            burn_header_hash,
-        };
+        let peg_out_fulfill_1 = peg_out_fulfill_op(burn_header_hash_1, 1337);
+        let peg_out_fulfill_2 = peg_out_fulfill_op(burn_header_hash_2, 42);
 
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -6631,20 +6666,35 @@ pub mod tests {
         let mut db =
             SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
 
-        let snapshot = test_append_snapshot(
+        let snapshot_1 = test_append_snapshot(
             &mut db,
-            BurnchainHeaderHash([0x01; 32]),
+            burn_header_hash_1,
             &vec![BlockstackOperationType::PegOutFulfill(
-                peg_out_fulfill.clone(),
+                peg_out_fulfill_1.clone(),
             )],
         );
 
-        let res_peg_out_fulfillments =
-            SortitionDB::get_peg_out_fulfill_ops(db.conn(), &burn_header_hash)
-                .expect("Failed to get peg-in ops from sortition DB");
+        let snapshot_2 = test_append_snapshot(
+            &mut db,
+            burn_header_hash_2,
+            &vec![BlockstackOperationType::PegOutFulfill(
+                peg_out_fulfill_2.clone(),
+            )],
+        );
 
-        assert_eq!(res_peg_out_fulfillments.len(), 1);
-        assert_eq!(res_peg_out_fulfillments[0], peg_out_fulfill);
+        let res_peg_out_fulfillments_1 =
+            SortitionDB::get_peg_out_fulfill_ops(db.conn(), &burn_header_hash_1)
+                .expect("Failed to get peg-out fulfill ops from sortition DB");
+
+        assert_eq!(res_peg_out_fulfillments_1.len(), 1);
+        assert_eq!(res_peg_out_fulfillments_1[0], peg_out_fulfill_1);
+
+        let res_peg_out_fulfillments_2 =
+            SortitionDB::get_peg_out_fulfill_ops(db.conn(), &burn_header_hash_2)
+                .expect("Failed to get peg-out fulfill ops from sortition DB");
+
+        assert_eq!(res_peg_out_fulfillments_2.len(), 1);
+        assert_eq!(res_peg_out_fulfillments_2[0], peg_out_fulfill_2);
     }
 
     #[test]
