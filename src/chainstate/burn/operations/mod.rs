@@ -66,7 +66,7 @@ pub mod transfer_stx;
 pub mod user_burn_support;
 
 #[cfg(test)]
-mod test_helpers;
+mod test;
 
 #[derive(Debug)]
 pub enum Error {
