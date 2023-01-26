@@ -10749,6 +10749,7 @@ fn test_submit_and_observe_sbtc_ops() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+
     let recipient_stx_addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0; 20]));
     let receiver_contract_name = ContractName::from("awesome_contract");
@@ -10825,6 +10826,7 @@ fn test_submit_and_observe_sbtc_ops() {
         recipient: recipient_btc_addr.clone(),
         signature: MessageSignature([0; 65]),
         amount: 1337,
+        memo: Vec::new(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -10835,6 +10837,7 @@ fn test_submit_and_observe_sbtc_ops() {
         chain_tip: StacksBlockId([0; 32]),
         recipient: recipient_btc_addr,
         amount: 1337,
+        memo: Vec::new(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
