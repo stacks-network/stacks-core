@@ -90,19 +90,19 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure that bitcoin-payout-address can be written then read",
+    name: "Ensure that bitcoin-wallet-address can be written then read",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         let deployer = accounts.get("deployer")!;
 
         let block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "set-bitcoin-payout-address", [types.ascii("123456780abcdefghijklmnopqrstuvwxyz")], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-bitcoin-wallet-address", [types.ascii("123456780abcdefghijklmnopqrstuvwxyz")], deployer.address),
         ]);
 
         let [receipt] = block.receipts;
 
         receipt.result.expectOk();
 
-        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-bitcoin-payout-address", [], deployer.address);
+        let coordinator = chain.callReadOnlyFn("sbtc-token-key-admin", "get-bitcoin-wallet-address", [], deployer.address);
 
         coordinator.result.expectSome().expectAscii("123456780abcdefghijklmnopqrstuvwxyz");
     },

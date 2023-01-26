@@ -25,7 +25,7 @@
 (define-data-var num-keys uint u4000)
 (define-data-var num-parties uint u4000)
 (define-data-var threshold uint u2800)
-(define-data-var bitcoin-payout-address (optional (string-ascii 72)) none)
+(define-data-var bitcoin-wallet-address (optional (string-ascii 72)) none)
 
 ;; data maps
 ;;
@@ -84,10 +84,10 @@
     )
 )
 
-(define-public (set-bitcoin-payout-address (addr (string-ascii 72)))
+(define-public (set-bitcoin-wallet-address (addr (string-ascii 72)))
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
-        (ok (var-set bitcoin-payout-address (some addr)))
+        (ok (var-set bitcoin-wallet-address (some addr)))
     )
 )
 
@@ -132,8 +132,8 @@
     (var-get threshold)
 )
 
-(define-read-only (get-bitcoin-payout-address)
-    (var-get bitcoin-payout-address)
+(define-read-only (get-bitcoin-wallet-address)
+    (var-get bitcoin-wallet-address)
 )
 
 (define-read-only (get-signer-data (signer uint))
