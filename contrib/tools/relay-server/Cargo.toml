@@ -9,8 +9,4 @@ edition = "2021"
 name = "relay_server_lib"
 path = "src/lib.rs"
 
-[[bin]]
-name = "relay_server"
-path = "src/main.rs"
-
 [dependencies]
