@@ -789,7 +789,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_in_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
 
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
     r#"
