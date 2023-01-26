@@ -38,6 +38,7 @@ impl PegOutRequestOp {
             amount: parsed_data.amount,
             signature: parsed_data.signature,
             recipient,
+            memo: parsed_data.memo,
             txid,
             vtxindex,
             block_height,
@@ -49,9 +50,9 @@ impl PegOutRequestOp {
         /*
             Wire format:
 
-            0      2  3         11                76
-            |------|--|---------|-----------------|
-             magic  op   amount      signature
+            0      2  3         11                76   80
+            |------|--|---------|-----------------|----|
+             magic  op   amount      signature     memo
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
@@ -68,10 +69,15 @@ impl PegOutRequestOp {
             return Err(ParseError::MalformedPayload);
         }
 
-        let amount = u64::from_be_bytes(data[0..8].try_into()?);
-        let signature = MessageSignature(data[8..73].try_into()?);
+        let amount = u64::from_be_bytes(data[0..8].try_into().unwrap());
+        let signature = MessageSignature::from_bytes(&data[8..73]).unwrap();
+        let memo = data.get(73..).unwrap_or(&[]).to_vec();
 
-        Ok(ParsedData { amount, signature })
+        Ok(ParsedData {
+            amount,
+            signature,
+            memo,
+        })
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -87,6 +93,7 @@ impl PegOutRequestOp {
 struct ParsedData {
     amount: u64,
     signature: MessageSignature,
+    memo: Vec<u8>,
 }
 
 enum ParseError {
