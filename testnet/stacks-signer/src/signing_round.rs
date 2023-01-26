@@ -52,7 +52,7 @@ pub enum MessageTypes {
     DkgEnd(DkgEnd),
     DkgQuery,
     DkgQueryResponse(DkgQueryResponse),
-    DkgPublicShares(DkgPublicShare),
+    DkgPublicShare(DkgPublicShare),
     DkgPrivateShares(DkgPrivateShares),
     NonceRequest(NonceRequest),
     NonceResponse(NonceResponse),
@@ -145,6 +145,8 @@ impl SigningRound {
     pub fn process(&mut self, message: MessageTypes) -> Result<Vec<MessageTypes>, String> {
         match message {
             MessageTypes::DkgBegin(dkg_begin) => self.dkg_begin(dkg_begin),
+            MessageTypes::DkgPublicShare(dkg_public_shares) => self.dkg_public_share(dkg_public_shares),
+            MessageTypes::DkgPrivateShares(dkg_private_shares) => self.dkg_private_shares(dkg_private_shares),
             _ => Ok(vec![]), // TODO
         }
     }
@@ -166,7 +168,7 @@ impl SigningRound {
                 private_shares: party.get_shares(),
             });
             msgs.push(private_shares);
-            let public_share = MessageTypes::DkgPublicShares(DkgPublicShare {
+            let public_share = MessageTypes::DkgPublicShare(DkgPublicShare {
                 public_share: party.get_poly_commitment(&mut rng),
             });
             msgs.push(public_share);
@@ -174,5 +176,13 @@ impl SigningRound {
         let dkg_end = MessageTypes::DkgEnd(DkgEnd{ dkg_id: dkg_begin.dkg_id, signer_id: self.id });
         msgs.push(dkg_end);
         Ok(msgs)
+    }
+
+    pub fn dkg_public_share(&mut self, dkg_public_share: DkgPublicShare) -> Result<Vec<MessageTypes>, String> {
+        Err("todo".to_string())
+    }
+
+    pub fn dkg_private_shares(&mut self, dkg_private_shares: DkgPrivateShares) -> Result<Vec<MessageTypes>, String> {
+        Err("todo".to_string())
     }
 }

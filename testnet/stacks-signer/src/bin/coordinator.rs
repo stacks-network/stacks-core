@@ -1,9 +1,8 @@
 use clap::Parser;
 use hashbrown::HashSet;
+use slog::slog_info;
 
-use slog::{slog_debug, slog_info};
-use stacks_common::{debug, info};
-
+use stacks_common::info;
 use stacks_signer::config::Config;
 use stacks_signer::net::{self, HttpNet, HttpNetError, HttpNetListen, Message, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, NonceRequest};
