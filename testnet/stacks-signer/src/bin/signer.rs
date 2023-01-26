@@ -66,22 +66,18 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
     loop {
         let inbound = rx.recv().unwrap(); // blocking
         let from_id = sig_bytes_to_id(inbound.sig);
-        let drop = from_id == config.signer.frost_id;
         info!(
-            "received from #{} {} {:?}",
+            "received from #{} {:?}",
             from_id,
-            if drop { "DROPPED" } else { "" },
             inbound
         );
-        if !drop {
-            let outbounds = signer.process(inbound.msg).unwrap();
-            for out in outbounds {
-                let msg = Message {
-                    msg: out,
-                    sig: net::id_to_sig_bytes(config.signer.frost_id),
-                };
-                net.send_message(msg).unwrap();
-            }
+        let outbounds = signer.process(inbound.msg).unwrap();
+        for out in outbounds {
+            let msg = Message {
+                msg: out,
+                sig: net::id_to_sig_bytes(config.signer.frost_id),
+            };
+            net.send_message(msg).unwrap();
         }
     }
 }

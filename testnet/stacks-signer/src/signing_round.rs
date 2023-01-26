@@ -32,7 +32,9 @@ impl StateMachine for SigningRound {
     fn can_move_to(&self, state: &States) -> Result<(), String> {
         let accepted = match state {
             States::Init => false,
-            States::DkgDistribute => self.state == States::Init || self.state == States::DkgDistribute,
+            States::DkgDistribute => {
+                self.state == States::Init || self.state == States::DkgDistribute
+            }
             States::DkgGather => self.state == States::DkgDistribute,
             States::SignGather => self.state == States::DkgGather,
             States::Signed => self.state == States::SignGather,
@@ -145,13 +147,17 @@ impl SigningRound {
     pub fn process(&mut self, message: MessageTypes) -> Result<Vec<MessageTypes>, String> {
         match message {
             MessageTypes::DkgBegin(dkg_begin) => self.dkg_begin(dkg_begin),
-            MessageTypes::DkgPublicShare(dkg_public_shares) => self.dkg_public_share(dkg_public_shares),
-            MessageTypes::DkgPrivateShares(dkg_private_shares) => self.dkg_private_shares(dkg_private_shares),
+            MessageTypes::DkgPublicShare(dkg_public_shares) => {
+                self.dkg_public_share(dkg_public_shares)
+            }
+            MessageTypes::DkgPrivateShares(dkg_private_shares) => {
+                self.dkg_private_shares(dkg_private_shares)
+            }
             _ => Ok(vec![]), // TODO
         }
     }
 
-    pub fn key_share(&self, party_id: usize) -> KeyShares {
+    pub fn key_share_for_party(&self, party_id: usize) -> KeyShares {
         self.signer.parties[party_id].get_shares()
     }
 
@@ -159,7 +165,7 @@ impl SigningRound {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();
-        let _party_state = self.signer.parties[self.id-1].save();
+        let _party_state = self.signer.parties[self.id - 1].save();
         let mut rng = OsRng::default();
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
@@ -173,16 +179,25 @@ impl SigningRound {
             });
             msgs.push(public_share);
         }
-        let dkg_end = MessageTypes::DkgEnd(DkgEnd{ dkg_id: dkg_begin.dkg_id, signer_id: self.id });
+        let dkg_end = MessageTypes::DkgEnd(DkgEnd {
+            dkg_id: dkg_begin.dkg_id,
+            signer_id: self.id,
+        });
         msgs.push(dkg_end);
         Ok(msgs)
     }
 
-    pub fn dkg_public_share(&mut self, dkg_public_share: DkgPublicShare) -> Result<Vec<MessageTypes>, String> {
+    pub fn dkg_public_share(
+        &mut self,
+        dkg_public_share: DkgPublicShare,
+    ) -> Result<Vec<MessageTypes>, String> {
         Err("todo".to_string())
     }
 
-    pub fn dkg_private_shares(&mut self, dkg_private_shares: DkgPrivateShares) -> Result<Vec<MessageTypes>, String> {
+    pub fn dkg_private_shares(
+        &mut self,
+        dkg_private_shares: DkgPrivateShares,
+    ) -> Result<Vec<MessageTypes>, String> {
         Err("todo".to_string())
     }
 }

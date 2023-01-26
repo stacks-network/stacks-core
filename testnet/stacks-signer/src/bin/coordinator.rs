@@ -120,7 +120,10 @@ where
             match (ids_to_await.len(), self.wait_for_next_message()?.msg) {
                 (0, _) => return Ok(()),
                 (_, MessageTypes::DkgEnd(dkg_end_msg)) => {
-                    info!("DKG_End round #{} from id #{}", dkg_end_msg.dkg_id, dkg_end_msg.signer_id);
+                    info!(
+                        "DKG_End round #{} from id #{}",
+                        dkg_end_msg.dkg_id, dkg_end_msg.signer_id
+                    );
                     ids_to_await.remove(&dkg_end_msg.signer_id);
                 }
                 (_, _) => (),
