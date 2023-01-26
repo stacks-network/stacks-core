@@ -92,25 +92,25 @@ impl From<ParseError> for OpError {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::test_helpers;
+    use crate::chainstate::burn::operations::test;
 
     use super::*;
 
     #[test]
     fn test_parse_peg_out_fulfill_should_succeed_given_a_conforming_transaction() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutFulfill;
 
         let amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op =
             PegOutFulfillOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
@@ -122,19 +122,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_fulfill_should_return_error_given_wrong_opcode() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::LeaderKeyRegister;
 
         let amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutFulfillOp::from_tx(&header, &tx);
 
@@ -146,17 +146,17 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_fulfill_should_return_error_given_no_second_output() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutFulfill;
 
         let output2 = None;
 
         let mut data = vec![];
-        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutFulfillOp::from_tx(&header, &tx);
 
@@ -168,19 +168,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_fulfill_should_return_error_given_too_small_header_hash() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutFulfill;
 
         let amount = 1;
-        let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-        let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
 
         let mut data = vec![];
-        let chain_tip_bytes: [u8; 31] = test_helpers::random_bytes(&mut rng);
+        let chain_tip_bytes: [u8; 31] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test_helpers::burnchain_transaction(data, output2, opcode);
-        let header = test_helpers::burnchain_block_header();
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegOutFulfillOp::from_tx(&header, &tx);
 
@@ -192,19 +192,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_out_fulfill_should_return_error_on_zero_amount_and_ok_on_any_other_values() {
-        let mut rng = test_helpers::seeded_rng();
+        let mut rng = test::seeded_rng();
 
         let mut data = vec![];
-        let chain_tip_bytes: [u8; 32] = test_helpers::random_bytes(&mut rng);
+        let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
         let mut create_op = move |amount| {
             let opcode = Opcodes::PegOutFulfill;
-            let recipient_address_bytes = test_helpers::random_bytes(&mut rng);
-            let output2 = test_helpers::Output::new_as_option(amount, recipient_address_bytes);
+            let recipient_address_bytes = test::random_bytes(&mut rng);
+            let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
 
-            let tx = test_helpers::burnchain_transaction(data.clone(), output2, opcode);
-            let header = test_helpers::burnchain_block_header();
+            let tx = test::burnchain_transaction(data.clone(), output2, opcode);
+            let header = test::burnchain_block_header();
 
             PegOutFulfillOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation")
         };
