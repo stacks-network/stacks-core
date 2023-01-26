@@ -146,6 +146,36 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_peg_out_request_should_succeed_given_a_conforming_transaction_with_extra_memo_bytes(
+    ) {
+        let mut rng = test::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 65] = test::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+        let memo_bytes: [u8; 4] = test::random_bytes(&mut rng);
+        data.extend_from_slice(&memo_bytes);
+
+        let tx = test::burnchain_transaction(data, output2, opcode);
+        let header = test::burnchain_block_header();
+
+        let op =
+            PegOutRequestOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
+
+        assert_eq!(op.recipient.bytes(), recipient_address_bytes);
+        assert_eq!(op.signature.as_bytes(), &signature);
+        assert_eq!(&op.memo, &memo_bytes);
+        assert_eq!(op.amount, amount);
+    }
+
+    #[test]
     fn test_parse_peg_out_request_should_return_error_given_wrong_opcode() {
         let mut rng = test::seeded_rng();
         let opcode = Opcodes::LeaderKeyRegister;
