@@ -42,7 +42,9 @@ use serde_json::Error as serde_error;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::Address;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -184,6 +186,13 @@ impl FromRow<u64> for u64 {
     }
 }
 
+impl FromRow<u32> for u32 {
+    fn from_row<'a>(row: &'a Row) -> Result<u32, Error> {
+        let x: u32 = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 impl FromRow<String> for String {
     fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
         let x: String = row.get_unwrap(0);
@@ -263,6 +272,14 @@ impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
         let privkey =
             Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(privkey)
+    }
+}
+
+impl FromRow<StacksAddress> for StacksAddress {
+    fn from_row<'a>(row: &'a Row) -> Result<StacksAddress, Error> {
+        let addr_str: String = row.get_unwrap(0);
+        let addr = StacksAddress::from_string(&addr_str).ok_or(Error::ParseError)?;
+        Ok(addr)
     }
 }
 
