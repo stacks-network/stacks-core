@@ -145,7 +145,7 @@ impl SigningRound {
     pub fn reset(&mut self) {
         let mut rng = OsRng::default();
 
-        self.signer.parties = (0..self.total)
+        self.signer.parties = (0..2)
             .map(|i| Party::new(i, self.total, self.threshold, &mut rng))
             .collect();
     }
