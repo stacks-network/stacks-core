@@ -337,7 +337,7 @@ impl EventObserver {
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
@@ -451,10 +451,10 @@ impl BlockEventDispatcher for EventDispatcher {
         &self,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: &Vec<MinerReward>,
+        mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
@@ -652,10 +652,10 @@ impl EventDispatcher {
         &self,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: &Vec<MinerReward>,
+        mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
@@ -664,7 +664,7 @@ impl EventDispatcher {
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
     ) {
-        let all_receipts = receipts.clone();
+        let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
         if dispatch_matrix.len() > 0 {
