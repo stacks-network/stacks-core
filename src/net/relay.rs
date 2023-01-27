@@ -47,6 +47,7 @@ use crate::net::http::*;
 use crate::net::p2p::*;
 use crate::net::poll::*;
 use crate::net::rpc::*;
+use crate::net::stackerdb::{StackerDB, StackerDBSyncResult};
 use crate::net::Error as net_error;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
@@ -77,6 +78,8 @@ pub const RELAY_DUPLICATE_INFERENCE_WARMUP: usize = 128;
 pub struct Relayer {
     /// Connection to the p2p thread
     p2p: NetworkHandle,
+    /// StackerDB connection
+    stacker_db: StackerDB,
 }
 
 #[derive(Debug)]
@@ -450,13 +453,16 @@ impl RelayerStats {
 }
 
 impl Relayer {
-    pub fn new(handle: NetworkHandle) -> Relayer {
-        Relayer { p2p: handle }
+    pub fn new(handle: NetworkHandle, stacker_db: StackerDB) -> Relayer {
+        Relayer {
+            p2p: handle,
+            stacker_db,
+        }
     }
 
-    pub fn from_p2p(network: &mut PeerNetwork) -> Relayer {
+    pub fn from_p2p(network: &mut PeerNetwork, stacker_db: StackerDB) -> Relayer {
         let handle = network.new_handle(1024);
-        Relayer::new(handle)
+        Relayer::new(handle, stacker_db)
     }
 
     /// Given blocks pushed to us, verify that they correspond to expected block data.
@@ -1698,6 +1704,72 @@ impl Relayer {
         }
     }
 
+    /// Process newly-arrived chunks obtained from a peer stackerdb replica.
+    pub fn process_stacker_db_chunks(
+        stackerdb: &mut StackerDB,
+        stackerdb_configs: &HashMap<(StacksAddress, ContractName), StackerDBConfig>,
+        rc_consensus_hash: &ConsensusHash,
+        sync_results: &[StackerDBSyncResult],
+    ) -> Result<(), Error> {
+        // sort stacker results by contract, so as to minimize the number of transactions.
+        let mut sync_results_map: HashMap<
+            (&StacksAddress, &ContractName),
+            Vec<&StackerDBSyncResult>,
+        > = HashMap::new();
+        for sync_result in sync_results {
+            let sc = (
+                &sync_result.smart_contract_addr,
+                &sync_result.smart_contract_name,
+            );
+            if let Some(result_list) = sync_results_map.get_mut(&sc) {
+                result_list.push(sync_result);
+            } else {
+                sync_results_map.insert(sc, vec![sync_result]);
+            }
+        }
+
+        for (sc, sync_results) in sync_results_map.iter() {
+            if let Some(config) = stackerdb_configs.get(&(sc.0.clone(), sc.1.clone())) {
+                let tx = stackerdb.tx_begin(config.clone())?;
+                for sync_result in sync_results {
+                    debug!(
+                        "Will store {} chunks for {}.{}",
+                        &sync_result.chunks_to_store.len(),
+                        &sc.0,
+                        &sc.1
+                    );
+                    for chunk in sync_result.chunks_to_store.iter() {
+                        let md = chunk.get_chunk_metadata(rc_consensus_hash.clone());
+                        if let Err(e) = tx.try_replace_chunk((&sc.0, &sc.1), &md, &chunk.data) {
+                            warn!(
+                                "Failed to store chunk {}.{} ({} bytes) for {}.{}: {:?}",
+                                &md.chunk_id,
+                                md.chunk_version,
+                                chunk.data.len(),
+                                &sc.0,
+                                &sc.1,
+                                &e
+                            );
+                        } else {
+                            debug!(
+                                "Stored chunk {}.{}/{}.{}",
+                                &sc.0, &sc.1, md.chunk_id, md.chunk_version
+                            );
+                        }
+                    }
+                }
+                tx.commit()?;
+            } else {
+                info!(
+                    "Got chunks for unconfigured smart contract {}.{}",
+                    &sc.0, &sc.1
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
     /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks
@@ -1845,6 +1917,14 @@ impl Relayer {
         if network_result.has_microblocks() && !ibd {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
+
+        // store stacker DB chunks
+        Relayer::process_stacker_db_chunks(
+            &mut self.stacker_db,
+            &network_result.stacker_db_configs,
+            &network_result.rc_consensus_hash,
+            &network_result.stacker_db_sync_results,
+        )?;
 
         let receipts = ProcessedNetReceipts {
             mempool_txs_added,
@@ -5264,7 +5344,8 @@ pub mod test {
         let mut unsolicited = HashMap::new();
         unsolicited.insert(nk.clone(), bad_msgs.clone());
 
-        let mut network_result = NetworkResult::new(0, 0, 0, 0);
+        let mut network_result =
+            NetworkResult::new(0, 0, 0, 0, ConsensusHash([0x01; 20]), HashMap::new());
         network_result.consume_unsolicited(unsolicited);
 
         assert!(network_result.has_blocks());
