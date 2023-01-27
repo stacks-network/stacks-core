@@ -498,12 +498,12 @@ impl BitcoinTxInputRaw {
 
     pub fn from_bitcoin_witness_script_sig(
         script_sig: &Script,
-        witness: &Vec<Vec<u8>>,
+        witness: &[Vec<u8>],
         input_txid: (Txid, u32),
     ) -> BitcoinTxInputRaw {
         BitcoinTxInputRaw {
             scriptSig: script_sig.clone().into_bytes(),
-            witness: witness.clone(),
+            witness: witness.to_owned(),
             tx_ref: input_txid,
         }
     }

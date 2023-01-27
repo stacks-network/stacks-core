@@ -2563,10 +2563,10 @@ pub mod test {
             &self,
             block: &StacksBlock,
             metadata: &StacksHeaderInfo,
-            receipts: &Vec<events::StacksTransactionReceipt>,
+            receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
             winner_txid: Txid,
-            matured_rewards: &Vec<accounts::MinerReward>,
+            matured_rewards: &[accounts::MinerReward],
             matured_rewards_info: Option<&MinerRewardInfo>,
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
@@ -2578,10 +2578,10 @@ pub mod test {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
                 metadata: metadata.clone(),
-                receipts: receipts.clone(),
+                receipts: receipts.to_owned(),
                 parent: parent.clone(),
                 winner_txid,
-                matured_rewards: matured_rewards.clone(),
+                matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
             })
         }
