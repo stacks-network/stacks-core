@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use lazy_static::lazy_static;
 use reqwest;
+use serde_json::json;
 
 use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{

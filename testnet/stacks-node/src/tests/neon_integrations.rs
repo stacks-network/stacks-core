@@ -13,6 +13,7 @@ use std::{env, thread};
 
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
+use serde_json::json;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;

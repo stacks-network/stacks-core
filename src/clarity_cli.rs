@@ -24,6 +24,8 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
+use clarity::util::get_epoch_time_ms;
+use clarity::vm::coverage::CoverageReporter;
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -38,7 +40,6 @@ use stacks_common::address::c32::c32_address;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{
-    util::get_epoch_time_ms,
     vm::analysis,
     vm::analysis::contract_interface_builder::build_contract_interface,
     vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis},
@@ -49,7 +50,6 @@ use crate::clarity::{
     vm::contexts::{AssetMap, OwnedEnvironment},
     vm::costs::ExecutionCost,
     vm::costs::LimitedCostTracker,
-    vm::coverage::CoverageReporter,
     vm::database::{
         BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
     },

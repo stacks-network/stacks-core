@@ -29,6 +29,7 @@ use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use clarity::vm::representations::MAX_STRING_LEN;
 use lazy_static::lazy_static;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
@@ -39,14 +40,8 @@ use url::{form_urlencoded, Url};
 
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
-use crate::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
-    MAX_PAYLOAD_LEN,
 };
 use crate::deps::httparse;
 use crate::net::atlas::Attachment;
@@ -79,9 +74,7 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX_STRING;
-use clarity::vm::representations::MAX_STRING_LEN;
 use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
 use clarity::vm::{
     representations::{
@@ -96,6 +89,14 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::retry::RetryReader;
+
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
+};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 use super::FeeRateEstimateRequestBody;
 
