@@ -4,7 +4,7 @@ use slog::slog_info;
 
 use stacks_common::info;
 use stacks_signer::config::Config;
-use stacks_signer::net::{self, HttpNet, HttpNetError, HttpNetListen, Message, NetListen};
+use stacks_signer::net::{HttpNet, HttpNetError, HttpNetListen, Message, NetListen};
 use stacks_signer::signing_round::{DkgBegin, MessageTypes, NonceRequest};
 
 const DEVNET_COORDINATOR_ID: usize = 0;
@@ -87,7 +87,7 @@ where
             msg: MessageTypes::DkgBegin(DkgBegin {
                 dkg_id: self.current_dkg_id,
             }),
-            sig: net::id_to_sig_bytes(self.id),
+            sig: [0; 32],
         };
 
         self.network.send_message(dkg_begin_message)?;
@@ -98,7 +98,7 @@ where
     pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
         let nonce_request_message = Message {
             msg: MessageTypes::NonceRequest(NonceRequest { dkg_id: 0 }),
-            sig: net::id_to_sig_bytes(self.id),
+            sig: [0; 32],
         };
 
         self.network.send_message(nonce_request_message)?;
@@ -114,8 +114,8 @@ where
         let mut ids_to_await: HashSet<usize> = (1..=self.total_signers).collect();
         loop {
             info!(
-                "Awaiting DkgEnd messages from the following ID:s {:?}",
-                ids_to_await
+                "DKG round #{} waiting for DkgEnd from signers {:?}",
+                self.current_dkg_id, ids_to_await
             );
             match (ids_to_await.len(), self.wait_for_next_message()?.msg) {
                 (0, _) => return Ok(()),
