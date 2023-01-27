@@ -173,6 +173,7 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(ChunkMetadata, Vec<u8>)> 
 #[test]
 fn test_stackerdb_replica_2_neighbors_1_chunk() {
     with_timeout(600, || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT);
         let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 2);
 
@@ -257,6 +258,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 #[test]
 fn test_stackerdb_replica_2_neighbors_10_chunks() {
     with_timeout(600, || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 4);
         let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 6);
 
@@ -350,6 +352,7 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
 #[test]
 fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
     with_timeout(600, || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let num_peers: usize = 10;
         let mut peer_configs = vec![];
         let mut peer_db_idxs = vec![];
@@ -466,6 +469,7 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
 #[test]
 fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
     with_timeout(600, || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let num_peers: usize = 10;
         let num_dbs: usize = 10;
         let mut peer_configs = vec![];
