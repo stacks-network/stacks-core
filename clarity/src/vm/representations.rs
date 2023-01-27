@@ -30,8 +30,6 @@ use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessa
 use crate::vm::errors::RuntimeErrorType;
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
 
-
-
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;

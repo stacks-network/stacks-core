@@ -25,6 +25,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 use rusqlite::Error as RusqliteError;
+use serde_json::json;
 use sha2::{Digest, Sha512_256};
 
 use crate::burnchains::Txid;

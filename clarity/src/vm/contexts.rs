@@ -19,6 +19,11 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
+use serde::Serialize;
+use serde_json::json;
+
+use stacks_common::consts::CHAIN_ID_TESTNET;
+
 use crate::vm::ast;
 use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
@@ -45,13 +50,8 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, is_reserved};
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::version::ClarityVersion;
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
-
-use serde::Serialize;
 
 use super::EvalHook;
 

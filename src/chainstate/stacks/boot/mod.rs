@@ -19,6 +19,8 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use lazy_static::lazy_static;
+
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::Burnchain;
 use crate::burnchains::{Address, PoxConstants};

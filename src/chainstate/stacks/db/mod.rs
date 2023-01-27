@@ -23,6 +23,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
 use clarity::vm::ast::ASTRules;
+use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;

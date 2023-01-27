@@ -11,13 +11,13 @@ use stacks::util::vrf::VRFPublicKey;
 
 use stacks::vm::database::BurnStateDB;
 
-use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::EventDispatcher;
 use clarity::vm::costs::ExecutionCost;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
+use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::chainstate::stacks::StacksBlock;
 use stacks_common::types::chainstate::StacksBlockId;
 

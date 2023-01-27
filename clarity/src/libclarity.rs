@@ -26,8 +26,6 @@ extern crate slog;
 
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -37,12 +35,9 @@ extern crate rstest;
 #[macro_use]
 extern crate rstest_reuse;
 
-#[cfg(feature = "monitoring_prom")]
 #[macro_use]
-pub extern crate prometheus;
+extern crate stacks_common;
 
-#[macro_use]
-pub extern crate stacks_common;
 pub use stacks_common::{
     impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_serde,

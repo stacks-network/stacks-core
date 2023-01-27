@@ -14,8 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use lazy_static::lazy_static;
 use prometheus::{
     Gauge, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+};
+use prometheus::{
+    histogram_opts,
+    labels,
+    opts,
+    register_int_counter,
+    register_int_counter_vec,
+    register_histogram_vec,
+    register_gauge,
+    register_int_gauge,
+    register_histogram,
 };
 
 lazy_static! {

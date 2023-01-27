@@ -340,7 +340,6 @@ enum Stream {
 
 #[cfg(all(unix))]
 fn isatty(stream: Stream) -> bool {
-    extern crate libc;
     let fd = match stream {
         Stream::Stdout => libc::STDOUT_FILENO,
         Stream::Stderr => libc::STDERR_FILENO,

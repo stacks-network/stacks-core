@@ -21,31 +21,13 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-#[macro_use]
-extern crate lazy_static;
-
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
-#[cfg(feature = "slog_json")]
-extern crate slog_json;
-
-#[cfg(unix)]
-extern crate libc;
-
-#[cfg(unix)]
-extern crate nix;
-
-#[cfg(windows)]
-extern crate winapi;
 
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
-
-#[cfg(test)]
-#[macro_use]
-extern crate assert_json_diff;
 
 #[cfg(test)]
 #[macro_use]
@@ -55,12 +37,11 @@ extern crate rstest;
 #[macro_use]
 extern crate rstest_reuse;
 
-#[cfg(feature = "monitoring_prom")]
-#[macro_use]
-pub extern crate prometheus;
-
 #[macro_use]
 extern crate stacks_common;
+
+#[macro_use]
+pub extern crate clarity;
 
 pub use stacks_common::address;
 pub use stacks_common::codec;
@@ -72,9 +53,6 @@ pub mod util_lib;
 
 #[macro_use]
 pub mod net;
-
-#[macro_use]
-pub extern crate clarity;
 
 pub use clarity::vm;
 
