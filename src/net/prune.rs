@@ -96,21 +96,23 @@ impl PeerNetwork {
             };
         }
 
-        test_debug!(
-            "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
-            &self.local_peer
-        );
-        for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
-            let _neighbors: Vec<NeighborKey> =
-                neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+        if cfg!(test) {
             test_debug!(
-                "Org {}: {} neighbors: {:?}",
-                _org,
-                _neighbors.len(),
-                &_neighbors
+                "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
+                &self.local_peer
             );
+            for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+                let _neighbors: Vec<NeighborKey> =
+                    neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+                test_debug!(
+                    "Org {}: {} neighbors: {:?}",
+                    _org,
+                    _neighbors.len(),
+                    &_neighbors
+                );
+            }
+            test_debug!("===============================================================");
         }
-        test_debug!("===============================================================");
 
         Ok(org_neighbor)
     }
@@ -179,7 +181,8 @@ impl PeerNetwork {
         unreachable!();
     }
 
-    /// If we have an overabundance of outbound connections, then remove ones from overrepresented
+    /// If we have an overabundance of outbound connections established through a neighbor walk
+    /// (but not stacker dbs), then remove ones from overrepresented
     /// organizations that are unhealthy or very-recently discovered.
     /// Returns the list of neighbor keys to remove.
     fn prune_frontier_outbound_orgs(
