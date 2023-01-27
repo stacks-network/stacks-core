@@ -20,6 +20,7 @@ pub struct SigningRound {
     pub signer: Signer,
     pub state: States,
     pub commitments: HashMap<u32, PolyCommitment>,
+    pub shares: HashMap<u32, Scalar>,
 }
 
 impl StateMachine for SigningRound {
@@ -137,6 +138,7 @@ impl SigningRound {
             },
             state: States::Init,
             commitments: HashMap::new(),
+            shares: HashMap::new(),
         }
     }
 
@@ -200,13 +202,16 @@ impl SigningRound {
         dkg_public_share: DkgPublicShare,
     ) -> Result<Vec<MessageTypes>, String> {
         self.commitments.insert(dkg_public_share.party_id, dkg_public_share.public_share);
-        Err("todo".to_string())
+        Ok(vec![])
     }
 
     pub fn dkg_private_shares(
         &mut self,
         dkg_private_shares: DkgPrivateShares,
     ) -> Result<Vec<MessageTypes>, String> {
-        Err("todo".to_string())
+        for (party_id, private_share)  in dkg_private_shares.private_shares {
+            self.shares.insert(party_id as u32,private_share);
+        }
+        Ok(vec![])
     }
 }
