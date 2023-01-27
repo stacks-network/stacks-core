@@ -8,9 +8,8 @@ use slog::slog_info;
 
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
-use stacks_signer::net;
-use stacks_signer::net::{sig_bytes_to_id, HttpNet, HttpNetListen, Message, Net, NetListen};
-use stacks_signer::signing_round::{DkgBegin, MessageTypes, SigningRound};
+use stacks_signer::net::{HttpNet, HttpNetListen, Message, Net, NetListen};
+use stacks_signer::signing_round::SigningRound;
 
 fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
@@ -31,12 +30,6 @@ fn main() {
     let id = config.signer.frost_id;
     let net_queue = HttpNetListen::new(net.clone(), vec![]);
     spawn(move || poll_loop(net_queue, tx, id));
-
-    // temporary fill-in for a coordinator
-    if cli.start {
-        let net2 = net.clone();
-        spawn(move || start_round(55, 0, &net2));
-    }
 
     // listen to p2p messages
     main_loop(&config, &net, rx);
@@ -65,29 +58,14 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
 
     loop {
         let inbound = rx.recv().unwrap(); // blocking
-        let from_id = sig_bytes_to_id(inbound.sig);
-        info!(
-            "received from #{} {:?}",
-            from_id,
-            inbound
-        );
+        info!("received {:?}", inbound);
         let outbounds = signer.process(inbound.msg).unwrap();
         for out in outbounds {
             let msg = Message {
                 msg: out,
-                sig: net::id_to_sig_bytes(config.signer.frost_id),
+                sig: [0; 32],
             };
             net.send_message(msg).unwrap();
         }
     }
-}
-
-fn start_round(from_id: u64, dkg_id: u64, net: &HttpNet) {
-    info!("Starting signature round (--start)");
-    let dkg_start = MessageTypes::DkgBegin(DkgBegin { dkg_id });
-    let msg = Message {
-        msg: dkg_start,
-        sig: net::id_to_sig_bytes(from_id),
-    };
-    net.send_message(msg).unwrap();
 }

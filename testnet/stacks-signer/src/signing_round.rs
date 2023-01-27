@@ -201,7 +201,8 @@ impl SigningRound {
         &mut self,
         dkg_public_share: DkgPublicShare,
     ) -> Result<Vec<MessageTypes>, String> {
-        self.commitments.insert(dkg_public_share.party_id, dkg_public_share.public_share);
+        self.commitments
+            .insert(dkg_public_share.party_id, dkg_public_share.public_share);
         Ok(vec![])
     }
 
@@ -209,8 +210,8 @@ impl SigningRound {
         &mut self,
         dkg_private_shares: DkgPrivateShares,
     ) -> Result<Vec<MessageTypes>, String> {
-        for (party_id, private_share)  in dkg_private_shares.private_shares {
-            self.shares.insert(party_id as u32,private_share);
+        for (party_id, private_share) in dkg_private_shares.private_shares {
+            self.shares.insert(party_id as u32, private_share);
         }
         Ok(vec![])
     }

@@ -134,14 +134,3 @@ fn url_with_id(base: &str, id: u64) -> String {
     url.push_str(&format!("?id={}", id));
     url
 }
-
-// put the frost id into bytes as a placeholder until signatures are real
-pub fn id_to_sig_bytes(id: u64) -> [u8; 32] {
-    let mut bytes = id.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&[0; 32 - 8]);
-    bytes.try_into().unwrap()
-}
-
-pub fn sig_bytes_to_id(id: [u8; 32]) -> u64 {
-    u64::from_le_bytes(id[0..8].try_into().unwrap())
-}
