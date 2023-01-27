@@ -83,6 +83,8 @@ where
     }
 
     pub fn run_distributed_key_generation(&mut self) -> Result<(), Error> {
+        self.current_dkg_id += 1;
+        info!("Starting DKG round #{}", self.current_dkg_id);
         let dkg_begin_message = Message {
             msg: MessageTypes::DkgBegin(DkgBegin {
                 dkg_id: self.current_dkg_id,
@@ -112,19 +114,19 @@ where
 
     fn wait_for_dkg_end(&mut self) -> Result<(), Error> {
         let mut ids_to_await: HashSet<usize> = (1..=self.total_signers).collect();
+        info!(
+            "DKG round #{} started. Waiting for DkgEnd from signers {:?}",
+            self.current_dkg_id, ids_to_await
+        );
         loop {
-            info!(
-                "DKG round #{} waiting for DkgEnd from signers {:?}",
-                self.current_dkg_id, ids_to_await
-            );
             match (ids_to_await.len(), self.wait_for_next_message()?.msg) {
                 (0, _) => return Ok(()),
                 (_, MessageTypes::DkgEnd(dkg_end_msg)) => {
-                    info!(
-                        "DKG_End round #{} from id #{}",
-                        dkg_end_msg.dkg_id, dkg_end_msg.signer_id
-                    );
                     ids_to_await.remove(&dkg_end_msg.signer_id);
+                    info!(
+                        "DKG_End round #{} from signer #{}. Waiting on {:?}",
+                        dkg_end_msg.dkg_id, dkg_end_msg.signer_id, ids_to_await
+                    );
                 }
                 (_, _) => (),
             }

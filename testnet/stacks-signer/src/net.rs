@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use slog::{slog_info, slog_warn};
+use slog::{slog_debug, slog_info, slog_warn};
 
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 
 use crate::signing_round;
 
@@ -55,13 +55,14 @@ impl NetListen for HttpNetListen {
 
     fn poll(&mut self, id: u64) {
         let url = url_with_id(&self.net.stacks_node_url, id);
-        info!("poll {}", url);
+        debug!("poll {}", url);
         match ureq::get(&url).call() {
             Ok(response) => {
                 match response.status() {
                     200 => {
                         match bincode::deserialize_from::<_, Message>(response.into_reader()) {
                             Ok(msg) => {
+                                debug!("received {:?}", msg);
                                 self.in_queue.push(msg);
                             }
                             Err(_e) => {}
@@ -102,7 +103,7 @@ impl Net for HttpNet {
 
         match result {
             Ok(response) => {
-                info!(
+                debug!(
                     "sent {:?} {} bytes {:?} to {}",
                     &msg.msg,
                     bytes.len(),

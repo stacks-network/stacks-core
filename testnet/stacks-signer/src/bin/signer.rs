@@ -58,7 +58,6 @@ fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
 
     loop {
         let inbound = rx.recv().unwrap(); // blocking
-        info!("received {:?}", inbound);
         let outbounds = signer.process(inbound.msg).unwrap();
         for out in outbounds {
             let msg = Message {
