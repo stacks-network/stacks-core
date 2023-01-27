@@ -229,7 +229,7 @@ pub struct ContractInterfaceFunctionArg {
 }
 
 impl ContractInterfaceFunctionArg {
-    pub fn from_function_args(fnArgs: &Vec<FunctionArg>) -> Vec<ContractInterfaceFunctionArg> {
+    pub fn from_function_args(fnArgs: &[FunctionArg]) -> Vec<ContractInterfaceFunctionArg> {
         let mut args: Vec<ContractInterfaceFunctionArg> = Vec::new();
         for ref fnArg in fnArgs.iter() {
             args.push(ContractInterfaceFunctionArg {

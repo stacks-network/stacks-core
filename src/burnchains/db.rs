@@ -1284,7 +1284,7 @@ impl BurnchainDB {
         burnchain: &Burnchain,
         indexer: &B,
         block_header: &BurnchainBlockHeader,
-        blockstack_ops: &Vec<BlockstackOperationType>,
+        blockstack_ops: &[BlockstackOperationType],
     ) -> Result<(), BurnchainError> {
         let db_tx = self.tx_begin()?;
 

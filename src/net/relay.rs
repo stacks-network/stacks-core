@@ -294,7 +294,7 @@ impl RelayerStats {
     /// Map neighbors to the frequency of their AS numbers in the given neighbors list
     fn count_ASNs(
         conn: &DBConn,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         // look up ASNs
         let mut asns = HashMap::new();
@@ -338,7 +338,7 @@ impl RelayerStats {
     /// to some other peer that's already forwarding it data.  Thus, we don't need to do so.
     pub fn get_inbound_relay_rankings<R: RelayPayload>(
         &self,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
         msg: &R,
         warmup_threshold: usize,
     ) -> HashMap<NeighborKey, usize> {
@@ -374,7 +374,7 @@ impl RelayerStats {
     pub fn get_outbound_relay_rankings(
         &self,
         peerdb: &PeerDB,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
         let asn_total = asn_counts.values().fold(0, |t, s| t + s);
