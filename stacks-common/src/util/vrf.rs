@@ -556,11 +556,7 @@ impl VRF {
     /// Return Ok(false) if not
     /// Return Err(Error) if the public key is invalid, or we are unable to do one of the
     /// necessary internal data conversions.
-    pub fn verify(
-        Y_point: &VRFPublicKey,
-        proof: &VRFProof,
-        alpha: &[u8],
-    ) -> Result<bool, Error> {
+    pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &[u8]) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);
         let s_reduced = proof.s().reduce();
         let Y_point_ed = CompressedEdwardsY(Y_point.to_bytes())
