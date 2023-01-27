@@ -9,6 +9,7 @@ use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOri
 use crate::chainstate::stacks::{StacksBlock, TransactionPayload};
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::Error as SqliteError;
+use serde_json::json;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksEpochReceipt;
