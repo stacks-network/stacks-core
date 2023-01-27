@@ -4,12 +4,14 @@ use std::thread::spawn;
 use std::{thread, time};
 
 use clap::Parser;
+use rand_core::OsRng;
 use slog::slog_info;
 
 use stacks_common::info;
 use stacks_signer::config::{Cli, Config};
 use stacks_signer::net::{HttpNet, HttpNetListen, Message, Net, NetListen};
 use stacks_signer::signing_round::SigningRound;
+use stacks_signer::signing_round::Signer;
 
 fn main() {
     let mut config = Config::from_file("conf/stacker.toml").unwrap();
@@ -49,16 +51,18 @@ fn poll_loop(mut net: HttpNetListen, tx: Sender<Message>, id: u64) {
 }
 
 fn main_loop(config: &Config, net: &HttpNet, rx: Receiver<Message>) {
-    let mut signer = SigningRound::new(
-        config.signer.frost_id as usize,
-        config.common.minimum_signers,
-        config.common.total_signers,
+    let signer_id = config.signer.frost_id;
+    let party_ids = vec![(signer_id*2-1) as usize, (signer_id*2) as usize]; // take two party/reward slots based on id
+    let mut round = SigningRound::new(
+        config.common.minimum_parties,
+        config.common.total_parties,
+        signer_id,
+        party_ids
     );
-    signer.reset();
 
     loop {
         let inbound = rx.recv().unwrap(); // blocking
-        let outbounds = signer.process(inbound.msg).unwrap();
+        let outbounds = round.process(inbound.msg).unwrap();
         for out in outbounds {
             let msg = Message {
                 msg: out,

@@ -20,7 +20,6 @@ fn main() {
         DEVNET_COORDINATOR_ID,
         DEVNET_COORDINATOR_DKG_ID,
         config.common.total_signers,
-        config.common.minimum_signers,
         net_listen,
     );
 
@@ -48,7 +47,6 @@ struct Coordinator<Network: NetListen> {
     id: u64, // Used for relay coordination
     current_dkg_id: u64,
     total_signers: usize, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
-    minimum_signers: usize,
     network: Network,
 }
 
@@ -57,14 +55,12 @@ impl<Network: NetListen> Coordinator<Network> {
         id: usize,
         dkg_id: u64,
         total_signers: usize,
-        minimum_signers: usize,
         network: Network,
     ) -> Self {
         Self {
             id: id as u64,
             current_dkg_id: dkg_id,
             total_signers,
-            minimum_signers,
             network,
         }
     }

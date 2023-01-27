@@ -13,9 +13,11 @@ pub struct Config {
 pub struct Common {
     pub stacks_node_url: String,
     pub total_signers: usize,
-    pub minimum_signers: usize,
+    pub total_parties: usize,
+    pub minimum_parties: usize,
 }
 
+// on-disk format for frost save data
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct Signer {
     pub frost_id: u64,
