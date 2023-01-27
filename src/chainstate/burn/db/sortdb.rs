@@ -3661,7 +3661,7 @@ impl SortitionDB {
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
     pub fn get_burnchain_view(
-        conn: &DBConn,
+        conn: &SortitionDBConn,
         burnchain: &Burnchain,
         chain_tip: &BlockSnapshot,
     ) -> Result<BurnchainView, db_error> {
@@ -3733,12 +3733,26 @@ impl SortitionDB {
             .unwrap_or(&burnchain.first_block_hash)
             .clone();
 
+        let rc = burnchain
+            .block_height_to_reward_cycle(chain_tip.block_height)
+            .expect("FATAL: block height does not have a reward cycle");
+
+        let rc_height = burnchain.reward_cycle_to_block_height(rc);
+        let rc_consensus_hash = SortitionDB::get_ancestor_snapshot(
+            conn,
+            cmp::min(chain_tip.block_height, rc_height),
+            &chain_tip.sortition_id,
+        )?
+        .map(|sn| sn.consensus_hash)
+        .ok_or(db_error::NotFoundError)?;
+
         test_debug!(
-            "Chain view: {},{}-{},{}",
+            "Chain view: {},{}-{},{},{}",
             chain_tip.block_height,
             chain_tip.burn_header_hash,
             stable_block_height,
-            &burn_stable_block_hash
+            &burn_stable_block_hash,
+            &rc_consensus_hash,
         );
         Ok(BurnchainView {
             burn_block_height: chain_tip.block_height,
@@ -3746,6 +3760,7 @@ impl SortitionDB {
             burn_stable_block_height: stable_block_height,
             burn_stable_block_hash: burn_stable_block_hash,
             last_burn_block_hashes: last_burn_block_hashes,
+            rc_consensus_hash,
         })
     }
 }
