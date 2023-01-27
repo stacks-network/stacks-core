@@ -135,6 +135,9 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod stackerdb;
+
+use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult};
 
 #[derive(Debug)]
 pub enum Error {
@@ -246,6 +249,16 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// chunk is stale
+    StaleChunk(u32, u32),
+    /// no such chunk
+    NoSuchChunk(StacksAddress, u32),
+    /// chunk signer is wrong
+    BadChunkSigner(StacksAddress, u32),
+    /// too many writes to a chunk
+    TooManyChunkWrites(u32, u32),
+    /// too frequent writes to a chunk
+    TooFrequentChunkWrites(u64),
 }
 
 impl From<codec_error> for Error {
@@ -347,6 +360,21 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StaleChunk(ref current, ref given) => {
+                write!(f, "Stale DB chunk (cur={},given={})", current, given)
+            }
+            Error::NoSuchChunk(ref addr, ref chunk_id) => {
+                write!(f, "No such DB chunk ({},{})", addr, chunk_id)
+            }
+            Error::BadChunkSigner(ref addr, ref chunk_id) => {
+                write!(f, "Bad DB chunk signer ({},{})", addr, chunk_id)
+            }
+            Error::TooManyChunkWrites(ref max, ref given) => {
+                write!(f, "Too many chunk writes (max={},given={})", max, given)
+            }
+            Error::TooFrequentChunkWrites(ref deadline) => {
+                write!(f, "Too frequent chunk writes (deadline={})", deadline)
+            }
         }
     }
 }
@@ -408,6 +436,11 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StaleChunk(..) => None,
+            Error::NoSuchChunk(..) => None,
+            Error::BadChunkSigner(..) => None,
+            Error::TooManyChunkWrites(..) => None,
+            Error::TooFrequentChunkWrites(..) => None,
         }
     }
 }
@@ -856,6 +889,7 @@ pub struct HandshakeData {
 pub enum ServiceFlags {
     RELAY = 0x01,
     RPC = 0x02,
+    STACKERDB = 0x04,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -874,6 +908,8 @@ pub mod NackErrorCodes {
     pub const Throttled: u32 = 3;
     pub const InvalidPoxFork: u32 = 4;
     pub const InvalidMessage: u32 = 5;
+    pub const NoSuchDB: u32 = 6;
+    pub const StaleVersion: u32 = 7;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -898,10 +934,66 @@ define_u8_enum!(MemPoolSyncDataID {
     TxTags = 0x02
 });
 
+/// NOTE: this is sent over the HTTP interface due to its variable length
 #[derive(Debug, Clone, PartialEq)]
 pub enum MemPoolSyncData {
     BloomFilter(BloomFilter<BloomNodeHasher>),
     TxTags([u8; 32], Vec<TxTag>),
+}
+
+/// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBHandshakeData {
+    /// current reward cycle ID
+    pub rc_consensus_hash: ConsensusHash,
+    /// list of smart contracts that we index.
+    /// there can be as many as 256 entries.
+    pub smart_contracts: Vec<(StacksAddress, ContractName)>,
+}
+
+/// Request for a chunk inventory
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBGetChunkInvData {
+    /// smart contract being used to determine chunk quantity and order
+    pub smart_contract_addr: StacksAddress,
+    pub smart_contract_name: ContractName,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+}
+
+/// Inventory bitvector for chunks this node contains
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBChunkInvData {
+    /// version vector of chunks available.
+    /// The max-length is a protocol constant.
+    pub chunk_versions: Vec<u32>,
+}
+
+/// Request for a stacker DB chunk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBGetChunkData {
+    /// smart contract being used to determine chunk quantity and order
+    pub smart_contract_addr: StacksAddress,
+    pub smart_contract_name: ContractName,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+    /// chunk ID (i.e. the ith bit)
+    pub chunk_id: u32,
+    /// last-seen chunk version
+    pub chunk_version: u32,
+}
+
+/// Stacker DB chunk
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBChunkData {
+    /// chunk ID (i.e. the ith bit)
+    pub chunk_id: u32,
+    /// chunk version (a lamport clock)
+    pub chunk_version: u32,
+    /// signature from the stacker over (reward cycle consensus hash, chunk id, chunk version, chunk sha512/256)
+    pub sig: MessageSignature,
+    /// the chunk data
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -932,6 +1024,12 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
+    // stacker DB
+    StackerDBHandshakeAccept(HandshakeAcceptData, StackerDBHandshakeData),
+    StackerDBGetChunkInv(StackerDBGetChunkInvData),
+    StackerDBChunkInv(StackerDBChunkInvData),
+    StackerDBGetChunk(StackerDBGetChunkData),
+    StackerDBChunk(StackerDBChunkData),
 }
 
 /// Peer address variants
@@ -1684,6 +1782,11 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    StackerDBHandshakeAccept = 19,
+    StackerDBGetChunkInv = 21,
+    StackerDBChunkInv = 22,
+    StackerDBGetChunk = 23,
+    StackerDBChunk = 24,
     // reserved
     Reserved = 255,
 }
@@ -1948,10 +2051,13 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
+    pub stacker_db_sync_results: Vec<StackerDBSyncResult>, // chunks for stacker DBs we downloaded
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
     pub burn_height: u64,
+    pub rc_consensus_hash: ConsensusHash,
+    pub stacker_db_configs: HashMap<(StacksAddress, ContractName), StackerDBConfig>,
 }
 
 impl NetworkResult {
@@ -1960,6 +2066,8 @@ impl NetworkResult {
         num_inv_sync_passes: u64,
         num_download_passes: u64,
         burn_height: u64,
+        rc_consensus_hash: ConsensusHash,
+        stacker_db_configs: HashMap<(StacksAddress, ContractName), StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
@@ -1974,10 +2082,13 @@ impl NetworkResult {
             uploaded_microblocks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
+            stacker_db_sync_results: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
             burn_height,
+            rc_consensus_hash,
+            stacker_db_configs,
         }
     }
 
@@ -2083,6 +2194,10 @@ impl NetworkResult {
             }
         }
     }
+
+    pub fn consume_stacker_db_sync_results(&mut self, mut msgs: Vec<StackerDBSyncResult>) {
+        self.stacker_db_sync_results.append(&mut msgs);
+    }
 }
 
 pub trait Requestable: std::fmt::Display {
@@ -2147,6 +2262,7 @@ pub mod test {
     use crate::net::poll::*;
     use crate::net::relay::*;
     use crate::net::rpc::RPCHandlerArgs;
+    use crate::net::stackerdb::{StackerDB, StackerDBConfig, StackerDBSync};
     use crate::net::Error as net_error;
     use crate::util_lib::strings::*;
     use clarity::vm::costs::ExecutionCost;
@@ -2464,6 +2580,13 @@ pub mod test {
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
+        /// Stacker DB replicas this node tracks
+        pub stacker_dbs: Vec<(StacksAddress, ContractName)>,
+        /// Stacker DB configurations for each stacker_dbs entry above, if different from
+        /// StackerDBConfig::noop()
+        pub stacker_db_configs: Vec<Option<StackerDBConfig>>,
+        /// services this peer supports
+        pub services: u16,
     }
 
     impl TestPeerConfig {
@@ -2514,10 +2637,15 @@ pub mod test {
                 test_name: "".into(),
                 initial_balances: vec![],
                 initial_lockups: vec![],
+                stacker_db_configs: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
+                stacker_dbs: vec![],
+                services: (ServiceFlags::RELAY as u16)
+                    | (ServiceFlags::RPC as u16)
+                    | (ServiceFlags::STACKERDB as u16),
             }
         }
 
@@ -2580,6 +2708,22 @@ pub mod test {
                 self.http_port,
             )
         }
+
+        pub fn get_stacker_db_configs(
+            &self,
+        ) -> HashMap<(StacksAddress, ContractName), StackerDBConfig> {
+            let mut ret = HashMap::new();
+            for ((addr, name), config_opt) in
+                self.stacker_dbs.iter().zip(self.stacker_db_configs.iter())
+            {
+                if let Some(config) = config_opt {
+                    ret.insert((addr.clone(), name.clone()), config.clone());
+                } else {
+                    ret.insert((addr.clone(), name.clone()), StackerDBConfig::noop());
+                }
+            }
+            ret
+        }
     }
 
     pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
@@ -2619,6 +2763,10 @@ pub mod test {
             )
         }
 
+        pub fn stackerdb_path(config: &TestPeerConfig) -> String {
+            format!("{}/stacker_db.sqlite", &Self::test_path(config))
+        }
+
         pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
@@ -2630,6 +2778,37 @@ pub mod test {
 
             fs::create_dir_all(&test_path).unwrap();
             test_path
+        }
+
+        fn init_stacker_dbs(
+            root_path: &str,
+            peerdb: &PeerDB,
+            stacker_dbs: &[(StacksAddress, ContractName)],
+            stacker_db_configs: &[Option<StackerDBConfig>],
+        ) -> Vec<StackerDBSync> {
+            let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
+            let mut stacker_db_syncs = vec![];
+            for (i, (smart_contract_addr, smart_contract_name)) in stacker_dbs.iter().enumerate() {
+                let db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
+                    if let Some(db_config) = config_opt.as_ref() {
+                        db_config.clone()
+                    } else {
+                        StackerDBConfig::noop()
+                    }
+                } else {
+                    StackerDBConfig::noop()
+                };
+
+                let stacker_db_sync = StackerDBSync::new(
+                    &peerdb,
+                    (smart_contract_addr.clone(), smart_contract_name.clone()),
+                    &db_config,
+                    &stackerdb_path,
+                )
+                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                stacker_db_syncs.push(stacker_db_sync);
+            }
+            stacker_db_syncs
         }
 
         pub fn new_with_observer(
@@ -2686,6 +2865,7 @@ pub mod test {
                 config.data_url.clone(),
                 &config.asn4_entries,
                 Some(&config.initial_neighbors),
+                &config.stacker_dbs,
             )
             .unwrap();
             {
@@ -2701,6 +2881,7 @@ pub mod test {
                     )
                     .unwrap();
                 }
+                PeerDB::set_local_services(&mut tx, config.services).unwrap();
                 tx.commit().unwrap();
             }
 
@@ -2845,22 +3026,36 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
                 let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &config.burnchain, &chaintip)
+                SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
+            let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
+            let stacker_db = StackerDB::connect(&stackerdb_path, true).unwrap();
+            let stacker_dbs = Self::init_stacker_dbs(
+                &test_path,
+                &peerdb,
+                &config.stacker_dbs,
+                &config.stacker_db_configs,
+            );
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
+                stacker_db,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                stacker_dbs,
                 epochs.clone(),
             );
+            peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
-            let relayer = Relayer::from_p2p(&mut peer_network);
+            let relayer = Relayer::from_p2p(
+                &mut peer_network,
+                StackerDB::connect(&stackerdb_path, true).unwrap(),
+            );
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
@@ -2883,7 +3078,7 @@ pub mod test {
                     let chaintip =
                         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                     SortitionDB::get_burnchain_view(
-                        &sortdb.conn(),
+                        &sortdb.index_conn(),
                         &self.config.burnchain,
                         &chaintip,
                     )
@@ -3846,7 +4041,11 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
                 let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.config.burnchain, &chaintip)
+                SortitionDB::get_burnchain_view(
+                    &sortdb.index_conn(),
+                    &self.config.burnchain,
+                    &chaintip,
+                )
             };
             self.sortdb = Some(sortdb);
             view_res
