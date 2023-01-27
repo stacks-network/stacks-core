@@ -3901,7 +3901,8 @@ mod test {
 
             // received a valid HandshakeAccept from peer 2
             match reply_handshake_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
+                StacksMessageType::HandshakeAccept(ref data)
+                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
                     assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
                     assert_eq!(data.handshake.port, local_peer_2.port);
                     assert_eq!(data.handshake.services, local_peer_2.services);
@@ -4242,7 +4243,8 @@ mod test {
 
             // received a valid HandshakeAccept from peer 2
             match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
+                StacksMessageType::HandshakeAccept(ref data)
+                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
                     assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
                     assert_eq!(data.handshake.port, local_peer_2.port);
                     assert_eq!(data.handshake.services, local_peer_2.services);
