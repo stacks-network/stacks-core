@@ -54,6 +54,7 @@ pub struct ContractAnalysis {
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     pub is_cost_contract_eligible: bool,
+    pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
@@ -68,6 +69,7 @@ impl ContractAnalysis {
         contract_identifier: QualifiedContractIdentifier,
         expressions: Vec<SymbolicExpression>,
         cost_track: LimitedCostTracker,
+        epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> ContractAnalysis {
         ContractAnalysis {
@@ -87,6 +89,7 @@ impl ContractAnalysis {
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
             is_cost_contract_eligible: false,
+            epoch,
             clarity_version,
         }
     }
