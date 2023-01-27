@@ -74,6 +74,8 @@ use crate::net::relay::*;
 use crate::net::relay::*;
 use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
+use crate::net::stackerdb::StackerDB;
+use crate::net::stackerdb::StackerDBSync;
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
@@ -92,6 +94,9 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::{PoxId, SortitionId};
 
 use clarity::vm::ast::ASTRules;
+
+use clarity::vm::ContractName;
+use stacks_common::types::chainstate::StacksAddress;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -230,7 +235,6 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-#[derive(Debug)]
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -316,6 +320,13 @@ pub struct PeerNetwork {
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
+    // peer stacker DB state machines
+    pub stacker_db_syncs: Option<HashMap<(StacksAddress, ContractName), StackerDBSync>>,
+    // configuration state for stacker DBs (loaded at runtime from smart contracts)
+    pub stacker_db_configs: HashMap<(StacksAddress, ContractName), StackerDBConfig>,
+    // handle to the stacker DB
+    pub stacker_db: StackerDB,
+
     // outstanding request to perform a mempool sync
     // * mempool_sync_deadline is when the next mempool sync must start
     // * mempool_sync_timeout is when the current mempool sync must stop
@@ -373,11 +384,13 @@ impl PeerNetwork {
     pub fn new(
         peerdb: PeerDB,
         atlasdb: AtlasDB,
+        stacker_db: StackerDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
+        stacker_db_syncs: Vec<StackerDBSync>,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
@@ -395,6 +408,17 @@ impl PeerNetwork {
         let first_block_height = burnchain.first_block_height;
         let first_burn_header_hash = burnchain.first_block_hash.clone();
         let first_burn_header_ts = burnchain.first_block_timestamp;
+
+        let mut stacker_db_sync_map = HashMap::new();
+        for stacker_db_sync in stacker_db_syncs.into_iter() {
+            stacker_db_sync_map.insert(
+                (
+                    stacker_db_sync.smart_contract_addr.clone(),
+                    stacker_db_sync.smart_contract_name.clone(),
+                ),
+                stacker_db_sync,
+            );
+        }
 
         let mut network = PeerNetwork {
             peer_version: peer_version,
@@ -456,6 +480,10 @@ impl PeerNetwork {
 
             block_downloader: None,
             attachments_downloader: None,
+
+            stacker_db_syncs: Some(stacker_db_sync_map),
+            stacker_db_configs: HashMap::new(),
+            stacker_db: stacker_db,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
@@ -1687,8 +1715,10 @@ impl PeerNetwork {
     /// Returns list of unhandled messages, and whether or not the convo is still alive.
     fn process_p2p_conversation(
         local_peer: &LocalPeer,
+        burnchain: &Burnchain,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stacker_db: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -1710,6 +1740,13 @@ impl PeerNetwork {
                             local_peer, event_id, &client_sock
                         );
                     }
+                    net_error::InboxOverflow => {
+                        // too many pending messages; proceed to consume them
+                        debug!(
+                            "{:?}: Remote peer has too many pending messages; will consume them (event {}, socket {:?})",
+                            local_peer, event_id, &client_sock
+                        );
+                    }
                     _ => {
                         debug!(
                             "{:?}: Failed to receive data on event {} (socket {:?}): {:?}",
@@ -1727,8 +1764,10 @@ impl PeerNetwork {
         // least drain the conversation inbox.
         let chat_res = convo.chat(
             local_peer,
+            burnchain,
             peerdb,
             sortdb,
+            stacker_db,
             pox_id,
             chainstate,
             header_cache,
@@ -1820,8 +1859,10 @@ impl PeerNetwork {
                     debug!("{:?}: process p2p data from {:?}", &self.local_peer, convo);
                     let mut convo_unhandled = match PeerNetwork::process_p2p_conversation(
                         &self.local_peer,
+                        &self.burnchain,
                         &mut self.peerdb,
                         sortdb,
+                        &self.stacker_db,
                         &self.pox_id,
                         chainstate,
                         &mut self.header_cache,
@@ -2031,18 +2072,27 @@ impl PeerNetwork {
                 );
                 safe.insert(*event_id);
             }
-        }
 
-        // if we're in the middle of a peer walk, then don't prune any outbound connections it established
-        // (yet)
-        match self.walk {
-            Some(ref walk) => {
-                for event_id in walk.events.iter() {
+            // if we're in the middle of a peer walk, then don't prune any outbound connections it established
+            // (yet)
+            if let Some(walk) = self.walk.as_ref() {
+                if walk.is_pinned(*event_id) {
                     safe.insert(*event_id);
                 }
             }
-            None => {}
-        };
+
+            // if we're running stacker DBs, then don't prune any outbound connections it
+            // established
+            if let Some(stacker_db_syncs) = self.stacker_db_syncs.as_ref() {
+                for (_, stacker_db_sync) in stacker_db_syncs.iter() {
+                    if let Some(ns) = stacker_db_sync.neighbor_set() {
+                        if ns.is_pinned(*event_id) {
+                            safe.insert(*event_id);
+                        }
+                    }
+                }
+            }
+        }
 
         self.prune_frontier(&safe);
     }
@@ -4928,6 +4978,21 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Set the stacker DB configs
+    pub fn set_stacker_db_configs(
+        &mut self,
+        configs: HashMap<(StacksAddress, ContractName), StackerDBConfig>,
+    ) {
+        self.stacker_db_configs = configs;
+    }
+
+    /// Obtain a copy of the stacker DB configs
+    pub fn get_stacker_db_configs(
+        &self,
+    ) -> HashMap<(StacksAddress, ContractName), StackerDBConfig> {
+        self.stacker_db_configs.clone()
+    }
+
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -4950,7 +5015,7 @@ impl PeerNetwork {
                 &self.local_peer, sn.block_height
             );
             let new_chain_view =
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.burnchain, &sn)?;
+                SortitionDB::get_burnchain_view(&sortdb.index_conn(), &self.burnchain, &sn)?;
 
             let new_chain_view_stable_consensus_hash = {
                 let ic = sortdb.index_conn();
@@ -5041,7 +5106,6 @@ impl PeerNetwork {
         }
 
         // can't fail after this point
-
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
@@ -5142,6 +5206,16 @@ impl PeerNetwork {
 
         // download attachments
         self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
+
+        // synchronize stacker DBs
+        match self.run_stacker_db_sync() {
+            Ok(stacker_db_sync_results) => {
+                network_result.consume_stacker_db_sync_results(stacker_db_sync_results);
+            }
+            Err(e) => {
+                warn!("Failed to run Stacker DB sync: {:?}", &e);
+            }
+        }
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -5375,6 +5449,8 @@ impl PeerNetwork {
             self.num_inv_sync_passes,
             self.num_downloader_passes,
             self.chain_view.burn_block_height,
+            self.chain_view.rc_consensus_hash.clone(),
+            self.get_stacker_db_configs(),
         );
 
         network_result.consume_unsolicited(unsolicited_buffered_messages);
@@ -5445,6 +5521,7 @@ mod test {
     use crate::net::codec::*;
     use crate::net::db::*;
     use crate::net::relay::test::make_contract_tx;
+    use crate::net::stackerdb::{StackerDB, StackerDBConfig};
     use crate::net::test::*;
     use crate::net::*;
     use crate::types::chainstate::BurnchainHeaderHash;
@@ -5523,6 +5600,7 @@ mod test {
             burn_stable_block_height: 12339,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         burnchain_view.make_test_data();
 
@@ -5537,16 +5615,19 @@ mod test {
         .unwrap();
         let atlas_config = AtlasConfig::default(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
+        let stacker_db = StackerDB::connect_memory();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
             atlasdb,
+            stacker_db,
             local_peer,
             0x12345678,
             burnchain,
             burnchain_view,
             conn_opts,
+            vec![],
             StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
