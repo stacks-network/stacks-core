@@ -14,12 +14,12 @@ use crate::state_machine::{StateMachine, States};
 type KeyShares = HashMap<usize, Scalar>;
 
 pub struct SigningRound {
-    pub id: usize,
+    pub dkg_id: usize,
     pub threshold: usize,
     pub total: usize,
     pub signer: Signer,
     pub state: States,
-    pub commitments: Vec<PolyCommitment>,
+    pub commitments: HashMap<u32, PolyCommitment>,
 }
 
 impl StateMachine for SigningRound {
@@ -64,11 +64,15 @@ pub enum MessageTypes {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgPublicShare {
+    pub dkg_id: u64,
+    pub party_id: u32,
     pub public_share: PolyCommitment,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DkgPrivateShares {
+    pub dkg_id: u64,
+    pub party_id: u32,
     pub private_shares: KeyShares,
 }
 
@@ -123,7 +127,7 @@ impl SigningRound {
         assert!(threshold <= total);
         assert!(id <= total);
         SigningRound {
-            id: id,
+            dkg_id: id,
             threshold: threshold,
             total: total,
             signer: Signer {
@@ -132,7 +136,7 @@ impl SigningRound {
                 parties: vec![],
             },
             state: States::Init,
-            commitments: vec![],
+            commitments: HashMap::new(),
         }
     }
 
@@ -165,23 +169,27 @@ impl SigningRound {
         self.move_to(States::DkgDistribute).unwrap();
 
         self.reset();
-        let _party_state = self.signer.parties[self.id - 1].save();
+        let _party_state = self.signer.save();
         let mut rng = OsRng::default();
         let mut msgs = vec![];
         for (idx, party) in self.signer.parties.iter().enumerate() {
             info!("creating dkg private share for party #{}", idx);
             let private_shares = MessageTypes::DkgPrivateShares(DkgPrivateShares {
+                dkg_id: self.dkg_id as u64,
+                party_id: idx as u32,
                 private_shares: party.get_shares(),
             });
             msgs.push(private_shares);
             let public_share = MessageTypes::DkgPublicShare(DkgPublicShare {
+                dkg_id: self.dkg_id as u64,
+                party_id: idx as u32,
                 public_share: party.get_poly_commitment(&mut rng),
             });
             msgs.push(public_share);
         }
         let dkg_end = MessageTypes::DkgEnd(DkgEnd {
             dkg_id: dkg_begin.dkg_id,
-            signer_id: self.id,
+            signer_id: self.signer.n,
         });
         msgs.push(dkg_end);
         Ok(msgs)
@@ -191,6 +199,7 @@ impl SigningRound {
         &mut self,
         dkg_public_share: DkgPublicShare,
     ) -> Result<Vec<MessageTypes>, String> {
+        self.commitments.insert(dkg_public_share.party_id, dkg_public_share.public_share);
         Err("todo".to_string())
     }
 
