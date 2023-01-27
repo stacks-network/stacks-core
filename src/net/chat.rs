@@ -45,6 +45,7 @@ use crate::net::db::PeerDB;
 use crate::net::db::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::relay::*;
+use crate::net::stackerdb::StackerDB;
 use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
 use crate::net::GetPoxInv;
@@ -66,6 +67,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::core::StacksEpoch;
 use crate::types::chainstate::PoxId;
 use crate::types::StacksPublicKeyBuffer;
+
+use clarity::vm::ContractName;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -139,6 +142,7 @@ pub struct NeighborStats {
     pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -162,6 +166,7 @@ impl NeighborStats {
             block_push_rx_counts: VecDeque::new(),
             microblocks_push_rx_counts: VecDeque::new(),
             transaction_push_rx_counts: VecDeque::new(),
+            stackerdb_push_rx_counts: VecDeque::new(),
             relayed_messages: HashMap::new(),
         }
     }
@@ -198,6 +203,14 @@ impl NeighborStats {
             .push_back((get_epoch_time_secs(), message_size));
         while self.transaction_push_rx_counts.len() > NUM_BLOCK_POINTS {
             self.transaction_push_rx_counts.pop_front();
+        }
+    }
+
+    pub fn add_stackerdb_push(&mut self, message_size: u64) -> () {
+        self.stackerdb_push_rx_counts
+            .push_back((get_epoch_time_secs(), message_size));
+        while self.stackerdb_push_rx_counts.len() > NUM_BLOCK_POINTS {
+            self.stackerdb_push_rx_counts.pop_front();
         }
     }
 
@@ -280,6 +293,11 @@ impl NeighborStats {
         NeighborStats::get_bandwidth(&self.transaction_push_rx_counts, BLOCK_POINT_LIFETIME)
     }
 
+    /// Get a peer's total stackerdb-push bandwidth usage
+    pub fn get_stackerdb_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(&self.stackerdb_push_rx_counts, BLOCK_POINT_LIFETIME)
+    }
+
     /// Determine how many of a particular message this peer has received
     pub fn get_message_recv_count(&self, msg_id: StacksMessageID) -> u64 {
         *(self.msg_rx_counts.get(&msg_id).unwrap_or(&0))
@@ -295,8 +313,8 @@ pub struct ConversationP2P {
     pub connection: ConnectionP2P,
     pub conn_id: usize,
 
-    pub burnchain: Burnchain, // copy of our burnchain config
-    pub heartbeat: u32,       // how often do we send heartbeats?
+    pub stable_burnchain_height: u32,
+    pub heartbeat: u32, // how often do we send heartbeats?
 
     pub peer_network_id: u32,
     pub peer_version: u32,
@@ -309,6 +327,8 @@ pub struct ConversationP2P {
     pub peer_expire_block_height: u64,    // when does the peer's key expire?
 
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
+
+    pub db_smart_contracts: Vec<(StacksAddress, ContractName)>, // list of stacker DBs this peer replicates
 
     // highest burnchain block height and burnchain block hash this peer has seen
     pub burnchain_tip_height: u64,
@@ -500,7 +520,7 @@ impl ConversationP2P {
             connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
             conn_id: conn_id,
             heartbeat: conn_opts.heartbeat,
-            burnchain: burnchain.clone(),
+            stable_burnchain_height: burnchain.stable_confirmations,
 
             peer_network_id: 0,
             peer_version: 0,
@@ -521,6 +541,8 @@ impl ConversationP2P {
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
+
+            db_smart_contracts: vec![],
 
             epochs: epochs,
         }
@@ -633,6 +655,21 @@ impl ConversationP2P {
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
+    }
+
+    /// Does this remote neighbor support stacker DBs?  It will if it has the STACKERDB bit set
+    pub fn supports_stackerdb(peer_services: u16) -> bool {
+        (peer_services & (ServiceFlags::STACKERDB as u16)) != 0
+    }
+
+    /// Does this remote neighbor support a particular StackerDB?
+    pub fn replicates_stackerdb(&self, db: (&StacksAddress, &ContractName)) -> bool {
+        for (addr, name) in self.db_smart_contracts.iter() {
+            if addr == db.0 && name == db.1 {
+                return true;
+            }
+        }
+        false
     }
 
     /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
@@ -753,7 +790,7 @@ impl ConversationP2P {
         if msg
             .preamble
             .burn_stable_block_height
-            .checked_add(self.burnchain.stable_confirmations as u64)
+            .checked_add(self.stable_burnchain_height as u64)
             != Some(msg.preamble.burn_block_height)
         {
             // invalid message
@@ -762,7 +799,7 @@ impl ConversationP2P {
                 &self,
                 msg.preamble
                     .burn_stable_block_height
-                    .checked_add(self.burnchain.stable_confirmations as u64),
+                    .checked_add(self.stable_burnchain_height as u64),
                 msg.preamble.burn_block_height
             );
             return Err(net_error::InvalidMessage);
@@ -860,12 +897,20 @@ impl ConversationP2P {
             reply_message,
             request_preamble.seq,
         )?;
+        test_debug!(
+            "{:?}: sign and reply {} ({} bytes)",
+            local_peer,
+            &reply.payload.get_message_name(),
+            reply.preamble.payload_len
+        );
+
         let reply_handle = self.relay_signed_message(reply).map_err(|e| {
             debug!("Unable to reply a {}: {:?}", _msgtype, &e);
             e
         })?;
 
         self.stats.msgs_tx += 1;
+
         Ok(reply_handle)
     }
 
@@ -1068,8 +1113,22 @@ impl ConversationP2P {
         }
 
         self.connection.set_public_key(Some(pubk.clone()));
-
         Ok(updated)
+    }
+
+    /// Update connection state from stacker DB handshake data
+    pub fn update_from_stacker_db_handshake_data(
+        &mut self,
+        stacker_db_data: &StackerDBHandshakeData,
+    ) -> Result<(), net_error> {
+        self.db_smart_contracts = stacker_db_data.smart_contracts.clone();
+        Ok(())
+    }
+
+    /// Update connection state from stacker DB handshake data
+    pub fn clear_stacker_db_handshake_data(&mut self) -> Result<(), net_error> {
+        self.db_smart_contracts.clear();
+        Ok(())
     }
 
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
@@ -1130,7 +1189,7 @@ impl ConversationP2P {
         };
 
         let handshake_data = match message.payload {
-            StacksMessageType::Handshake(ref mut data) => data.clone(),
+            StacksMessageType::Handshake(ref data) => data.clone(),
             _ => panic!("Message is not a handshake"),
         };
 
@@ -1144,7 +1203,7 @@ impl ConversationP2P {
             "upgraded"
         };
 
-        debug!("Handling handshake";
+        debug!("Handling Handshake";
              "neighbor" => ?self,
              "authentic_msg" => &_authentic_msg,
              "public_key" => &to_hex(
@@ -1168,7 +1227,7 @@ impl ConversationP2P {
                 message.preamble.network_id,
                 &handshake_data,
             )?;
-            neighbor.save_update(&mut tx)?;
+            neighbor.save_update(&mut tx, None)?;
             tx.commit()
                 .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
@@ -1182,11 +1241,25 @@ impl ConversationP2P {
         }
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
+        let stacks_message = if ConversationP2P::supports_stackerdb(local_peer.services)
+            && ConversationP2P::supports_stackerdb(self.peer_services)
+        {
+            StacksMessageType::StackerDBHandshakeAccept(
+                accept_data,
+                StackerDBHandshakeData {
+                    rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
+                    smart_contracts: local_peer.stacker_dbs.clone(),
+                },
+            )
+        } else {
+            StacksMessageType::HandshakeAccept(accept_data)
+        };
+
         let accept = StacksMessage::from_chain_view(
             self.version,
             self.network_id,
             chain_view,
-            StacksMessageType::HandshakeAccept(accept_data),
+            stacks_message,
         );
 
         // update stats
@@ -1203,8 +1276,10 @@ impl ConversationP2P {
     /// Called from the p2p network thread.
     fn handle_handshake_accept(
         &mut self,
+        burnchain_view: &BurnchainView,
         preamble: &Preamble,
         handshake_accept: &HandshakeAcceptData,
+        stackerdb_accept: Option<&StackerDBHandshakeData>,
     ) -> Result<(), net_error> {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat =
@@ -1219,6 +1294,16 @@ impl ConversationP2P {
             };
 
         self.stats.last_handshake_time = get_epoch_time_secs();
+
+        if let Some(stackerdb_accept) = stackerdb_accept {
+            if stackerdb_accept.rc_consensus_hash == burnchain_view.rc_consensus_hash {
+                // remote peer is in the same reward cycle as us.
+                self.update_from_stacker_db_handshake_data(stackerdb_accept)?;
+            }
+        } else {
+            // no longer replicating
+            self.clear_stacker_db_handshake_data()?;
+        }
 
         debug!(
             "HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s",
@@ -1268,7 +1353,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_neighbors_received_counter();
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
         let epoch = self.get_current_epoch(chain_view.burn_block_height);
@@ -1470,6 +1554,7 @@ impl ConversationP2P {
     fn handle_getblocksinv(
         &mut self,
         local_peer: &LocalPeer,
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -1482,7 +1567,7 @@ impl ConversationP2P {
 
         let mut response = ConversationP2P::make_getblocksinv_response(
             local_peer,
-            &self.burnchain,
+            burnchain,
             sortdb,
             chainstate,
             header_cache,
@@ -1611,6 +1696,7 @@ impl ConversationP2P {
     fn handle_getpoxinv(
         &mut self,
         local_peer: &LocalPeer,
+        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         pox_id: &PoxId,
         burnchain_view: &BurnchainView,
@@ -1618,11 +1704,147 @@ impl ConversationP2P {
         getpoxinv: &GetPoxInv,
     ) -> Result<ReplyHandleP2P, net_error> {
         let response = ConversationP2P::make_getpoxinv_response(
+            local_peer, burnchain, sortdb, pox_id, getpoxinv,
+        )?;
+        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
+    }
+
+    /// Handle an inbound StackerDBGetChunkInv request.
+    /// Generates a StackerDBChunkInv response from the target database table, if we have it.
+    /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
+    fn make_stacker_db_getchunkinv_response(
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        getchunkinv: &StackerDBGetChunkInvData,
+    ) -> Result<StacksMessageType, net_error> {
+        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
+            debug!(
+                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
+                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
+            );
+            return Ok(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            )));
+        }
+
+        let chunk_versions = match stacker_db.get_chunk_versions(
+            (
+                &getchunkinv.smart_contract_addr,
+                &getchunkinv.smart_contract_name,
+            ),
+            &getchunkinv.rc_consensus_hash,
+        ) {
+            Ok(versions) => versions,
+            Err(e) => {
+                debug!(
+                    "{:?}: failed to get chunk versions for {}.{}: {:?}",
+                    local_peer,
+                    &getchunkinv.smart_contract_addr,
+                    &getchunkinv.smart_contract_name,
+                    &e
+                );
+
+                // most likely indicates that this DB doesn't exist
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::NoSuchDB,
+                )));
+            }
+        };
+
+        Ok(StacksMessageType::StackerDBChunkInv(
+            StackerDBChunkInvData { chunk_versions },
+        ))
+    }
+
+    /// Handle an inbound StackerDBGetChunkInv request.
+    /// Retrns a reply handle to the generated message (possibly a nack)
+    fn handle_stacker_db_getchunkinv(
+        &mut self,
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        preamble: &Preamble,
+        getchunkinv: &StackerDBGetChunkInvData,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
             local_peer,
-            &self.burnchain,
-            sortdb,
-            pox_id,
-            getpoxinv,
+            burnchain_view,
+            stacker_db,
+            getchunkinv,
+        )?;
+        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
+    }
+
+    /// Handle an inbound StackerDBGetChunk request.
+    /// Generates a StackerDBChunk response from the target database table, if we have it.
+    /// Generates a NACK if we don't have this DB, or if the request's consensus hash or version
+    /// are stale or invalid.
+    fn make_stacker_db_getchunk_response(
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        getchunk: &StackerDBGetChunkData,
+    ) -> Result<StacksMessageType, net_error> {
+        if burnchain_view.rc_consensus_hash != getchunk.rc_consensus_hash {
+            debug!(
+                "{:?}: NACK StackerDBGetChunk; {} != {}",
+                local_peer, &burnchain_view.rc_consensus_hash, &getchunk.rc_consensus_hash
+            );
+            return Ok(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            )));
+        }
+
+        let chunk = match stacker_db.get_chunk(
+            (&getchunk.smart_contract_addr, &getchunk.smart_contract_name),
+            &getchunk.rc_consensus_hash,
+            getchunk.chunk_id,
+            getchunk.chunk_version,
+        ) {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => {
+                // request for a stale chunk
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::StaleVersion,
+                )));
+            }
+            Err(e) => {
+                debug!(
+                    "{:?}: failed to get chunk {}.{} for {}.{}: {:?}",
+                    local_peer,
+                    getchunk.chunk_id,
+                    getchunk.chunk_version,
+                    &getchunk.smart_contract_addr,
+                    &getchunk.smart_contract_name,
+                    &e
+                );
+
+                // most likely indicates that this DB doesn't exist
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::NoSuchDB,
+                )));
+            }
+        };
+
+        Ok(StacksMessageType::StackerDBChunk(chunk))
+    }
+
+    /// Handle an inbound StackerDBGetChunk request
+    /// Returns a reply handle to the generated message (possibly a nack)
+    fn handle_stacker_db_getchunk(
+        &mut self,
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        preamble: &Preamble,
+        getchunk: &StackerDBGetChunkData,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        let response = ConversationP2P::make_stacker_db_getchunk_response(
+            local_peer,
+            burnchain_view,
+            stacker_db,
+            getchunk,
         )?;
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
@@ -1759,6 +1981,7 @@ impl ConversationP2P {
 
     /// Validate a pushed transaction.
     /// Update bandwidth accounting, but forward the transaction along.
+    /// Possibly return a reply handle for a NACK if we throttle the remote sender
     fn validate_transaction_push(
         &mut self,
         local_peer: &LocalPeer,
@@ -1792,13 +2015,51 @@ impl ConversationP2P {
         Ok(None)
     }
 
+    /// Validate a pushed stackerdb chunk
+    /// Update bandwidth accounting, but forward the stackerdb chunk along.
+    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    fn validate_stackerdb_push(
+        &mut self,
+        local_peer: &LocalPeer,
+        chain_view: &BurnchainView,
+        preamble: &Preamble,
+        relayers: Vec<RelayData>,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
+
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            debug!(
+                "Drop pushed stackerdb chunk -- invalid relayers {:?}",
+                &relayers
+            );
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats
+            .add_stackerdb_push((preamble.payload_len as u64) - 1);
+
+        if self.connection.options.max_stackerdb_push_bandwidth > 0
+            && self.stats.get_stackerdb_push_bandwidth()
+                > (self.connection.options.max_stackerdb_push_bandwidth as f64)
+        {
+            debug!("Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
+            return self
+                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+        Ok(None)
+    }
+
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
     fn handle_data_message(
         &mut self,
         local_peer: &LocalPeer,
+        burnchain: &Burnchain,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stacker_db: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -1811,6 +2072,7 @@ impl ConversationP2P {
             }
             StacksMessageType::GetPoxInv(ref getpoxinv) => self.handle_getpoxinv(
                 local_peer,
+                burnchain,
                 sortdb,
                 pox_id,
                 chain_view,
@@ -1819,12 +2081,28 @@ impl ConversationP2P {
             ),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(
                 local_peer,
+                burnchain,
                 sortdb,
                 chainstate,
                 header_cache,
                 chain_view,
                 &msg.preamble,
                 get_blocks_inv,
+            ),
+            StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => self
+                .handle_stacker_db_getchunkinv(
+                    local_peer,
+                    chain_view,
+                    stacker_db,
+                    &msg.preamble,
+                    getchunkinv,
+                ),
+            StacksMessageType::StackerDBGetChunk(ref getchunk) => self.handle_stacker_db_getchunk(
+                local_peer,
+                chain_view,
+                stacker_db,
+                &msg.preamble,
+                getchunk,
             ),
             StacksMessageType::Blocks(_) => {
                 monitoring::increment_stx_blocks_received_counter();
@@ -1868,6 +2146,22 @@ impl ConversationP2P {
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed transactions per second
                 match self.validate_transaction_push(
+                    local_peer,
+                    chain_view,
+                    &msg.preamble,
+                    msg.relayers.clone(),
+                )? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg));
+                    }
+                }
+            }
+            StacksMessageType::StackerDBChunk(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // stackerdb chunks per second
+                match self.validate_stackerdb_push(
                     local_peer,
                     chain_view,
                     &msg.preamble,
@@ -2040,8 +2334,7 @@ impl ConversationP2P {
 
         // already have public key; match payload
         let reply_opt = match msg.payload {
-            StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
+            StacksMessageType::Handshake(..) => {
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
@@ -2052,7 +2345,12 @@ impl ConversationP2P {
             }
             StacksMessageType::HandshakeAccept(ref data) => {
                 test_debug!("{:?}: Got HandshakeAccept", &self);
-                self.handle_handshake_accept(&msg.preamble, data)
+                self.handle_handshake_accept(burnchain_view, &msg.preamble, data, None)
+                    .and_then(|_| Ok(None))
+            }
+            StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                test_debug!("{:?}: Got StackerDBHandshakeAccept", &self);
+                self.handle_handshake_accept(burnchain_view, &msg.preamble, data, Some(db_data))
                     .and_then(|_| Ok(None))
             }
             StacksMessageType::Ping(_) => {
@@ -2112,8 +2410,7 @@ impl ConversationP2P {
         let mut consume = false;
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
-            StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
+            StacksMessageType::Handshake(..) => {
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
@@ -2124,10 +2421,26 @@ impl ConversationP2P {
             StacksMessageType::HandshakeAccept(ref data) => {
                 if solicited {
                     test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
-                    self.handle_handshake_accept(&msg.preamble, data)
+                    self.handle_handshake_accept(burnchain_view, &msg.preamble, data, None)
                         .and_then(|_| Ok(None))
                 } else {
                     test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
+
+                    // don't update stats or state, and don't pass back
+                    consume = true;
+                    Ok(None)
+                }
+            }
+            StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                if solicited {
+                    test_debug!("{:?}: Got unauthenticated StackerDBHandshakeAccept", &self);
+                    self.handle_handshake_accept(burnchain_view, &msg.preamble, data, Some(db_data))
+                        .and_then(|_| Ok(None))
+                } else {
+                    test_debug!(
+                        "{:?}: Unsolicited unauthenticated StackerDBHandshakeAccept",
+                        &self
+                    );
 
                     // don't update stats or state, and don't pass back
                     consume = true;
@@ -2208,8 +2521,10 @@ impl ConversationP2P {
     pub fn chat(
         &mut self,
         local_peer: &LocalPeer,
+        burnchain: &Burnchain,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stacker_db: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -2350,8 +2665,10 @@ impl ConversationP2P {
                         );
                         let msg_opt = self.handle_data_message(
                             local_peer,
+                            burnchain,
                             peerdb,
                             sortdb,
+                            stacker_db,
                             pox_id,
                             chainstate,
                             header_cache,
@@ -2434,7 +2751,7 @@ mod test {
         data_url: UrlString,
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
-    ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
+    ) -> (PeerDB, SortitionDB, StackerDB, PoxId, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -2447,6 +2764,7 @@ mod test {
 
         let sortdb_path = format!("{}/burn", &test_path);
         let peerdb_path = format!("{}/peers.sqlite", &test_path);
+        let stackerdb_path = format!("{}/stackerdb.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let peerdb = PeerDB::connect(
@@ -2461,6 +2779,7 @@ mod test {
             data_url.clone(),
             &asn4_entries,
             Some(&initial_neighbors),
+            &[],
         )
         .unwrap();
         let sortdb = SortitionDB::connect(
@@ -2473,6 +2792,7 @@ mod test {
             true,
         )
         .unwrap();
+        let stackerdb = StackerDB::connect(&stackerdb_path, true).unwrap();
 
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
@@ -2495,7 +2815,7 @@ mod test {
             sortdb_reader.get_pox_id().unwrap()
         };
 
-        (peerdb, sortdb, pox_id, chainstate)
+        (peerdb, sortdb, stackerdb, pox_id, chainstate)
     }
 
     fn convo_send_recv(
@@ -2656,27 +2976,30 @@ mod test {
                 burn_stable_block_height: 12341,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-                "convo_handshake_accept_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-                "convo_handshake_accept_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+            let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    "convo_handshake_accept_1",
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    "convo_handshake_accept_2",
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
+                );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -2727,8 +3050,10 @@ mod test {
             let unhandled_2 = convo_2
                 .chat(
                     &local_peer_2,
+                    &burnchain,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -2742,8 +3067,10 @@ mod test {
             let unhandled_1 = convo_1
                 .chat(
                     &local_peer_1,
+                    &burnchain,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -2827,27 +3154,30 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_reject_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_reject_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_reject_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_reject_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -2898,8 +3228,10 @@ mod test {
         let unhandled_2 = convo_2
             .chat(
                 &local_peer_2,
+                &burnchain,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -2912,8 +3244,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -2958,6 +3292,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -2966,24 +3301,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_badsignature_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_badsignature_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_badsignature_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_badsignature_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3038,8 +3375,10 @@ mod test {
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2_err = convo_2.chat(
             &local_peer_2,
+            &burnchain,
             &mut peerdb_2,
             &sortdb_2,
+            &stackerdb_2,
             &pox_id_2,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
@@ -3051,8 +3390,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3092,6 +3433,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3100,24 +3442,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_self_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_self_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_self_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_self_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3166,8 +3510,10 @@ mod test {
         let unhandled_2 = convo_2
             .chat(
                 &local_peer_2,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3180,8 +3526,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3227,6 +3575,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3235,24 +3584,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_ping_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_ping_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_ping_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_ping_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3319,8 +3670,10 @@ mod test {
         let unhandled_2 = convo_2
             .chat(
                 &local_peer_2,
+                &burnchain,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3339,8 +3692,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3394,6 +3749,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3402,24 +3758,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_ping_loop_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_ping_loop_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_ping_loop_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_ping_loop_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3484,8 +3842,10 @@ mod test {
             let unhandled_2 = convo_2
                 .chat(
                     &local_peer_2,
+                    &burnchain,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3502,8 +3862,10 @@ mod test {
             let unhandled_1 = convo_1
                 .chat(
                     &local_peer_1,
+                    &burnchain,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3611,6 +3973,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3619,24 +3982,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_nack_unsolicited_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_nack_unsolicited_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_nack_unsolicited_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_nack_unsolicited_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3685,8 +4050,10 @@ mod test {
         let unhandled_2 = convo_2
             .chat(
                 &local_peer_2,
+                &burnchain,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3699,8 +4066,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3754,27 +4123,30 @@ mod test {
                 burn_stable_block_height: 12331 - 7, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12341 - 8).unwrap() - 1),
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-                "convo_handshake_getblocksinv_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-                "convo_handshake_getblocksinv_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+            let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    "convo_handshake_getblocksinv_1",
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    "convo_handshake_getblocksinv_2",
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
+                );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3825,8 +4197,10 @@ mod test {
             let unhandled_2 = convo_2
                 .chat(
                     &local_peer_2,
+                    &burnchain,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3840,8 +4214,10 @@ mod test {
             let unhandled_1 = convo_1
                 .chat(
                     &local_peer_1,
+                    &burnchain,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3923,8 +4299,10 @@ mod test {
             let unhandled_2 = convo_2
                 .chat(
                     &local_peer_2,
+                    &burnchain,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3938,8 +4316,10 @@ mod test {
             let unhandled_1 = convo_1
                 .chat(
                     &local_peer_1,
+                    &burnchain,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3992,8 +4372,10 @@ mod test {
             let unhandled_2 = convo_2
                 .chat(
                     &local_peer_2,
+                    &burnchain,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4007,8 +4389,10 @@ mod test {
             let unhandled_1 = convo_1
                 .chat(
                     &local_peer_1,
+                    &burnchain,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4053,6 +4437,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4061,24 +4446,26 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_natpunch_1",
-            &burnchain,
-            0x9abcdef0,
-            12352,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_natpunch_2",
-            &burnchain,
-            0x9abcdef0,
-            12353,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_natpunch_1",
+                &burnchain,
+                0x9abcdef0,
+                12352,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_natpunch_2",
+                &burnchain,
+                0x9abcdef0,
+                12353,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -4125,8 +4512,10 @@ mod test {
         let unhandled_2 = convo_2
             .chat(
                 &local_peer_2,
+                &burnchain,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4140,8 +4529,10 @@ mod test {
         let unhandled_1 = convo_1
             .chat(
                 &local_peer_1,
+                &burnchain,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -4187,6 +4578,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4458,6 +4850,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4469,6 +4862,7 @@ mod test {
             None,
             get_epoch_time_secs() + 123456,
             UrlString::try_from("http://foo.com").unwrap(),
+            vec![],
         );
         let mut convo = ConversationP2P::new(
             123,
