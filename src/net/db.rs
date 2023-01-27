@@ -16,7 +16,10 @@
 
 use std::fmt;
 
+use std::collections::HashSet;
+
 use rusqlite::types::ToSql;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
@@ -64,7 +67,10 @@ use crate::core::NETWORK_P2P_PORT;
 
 use crate::util_lib::strings::UrlString;
 
-pub const PEERDB_VERSION: &'static str = "1";
+use clarity::vm::ContractName;
+use stacks_common::types::chainstate::StacksAddress;
+
+pub const PEERDB_VERSION: &'static str = "2";
 
 const NUM_SLOTS: usize = 8;
 
@@ -98,6 +104,16 @@ impl FromColumn<PeerAddress> for PeerAddress {
     }
 }
 
+impl FromRow<(StacksAddress, ContractName)> for (StacksAddress, ContractName) {
+    fn from_row<'a>(row: &'a Row) -> Result<(StacksAddress, ContractName), db_error> {
+        let addr = StacksAddress::from_column(row, "smart_contract_addr")?;
+        let name_str: String = row.get_unwrap("smart_contract_name");
+        let name = ContractName::try_from(name_str).map_err(|_| db_error::ParseError)?;
+
+        Ok((addr, name))
+    }
+}
+
 #[derive(PartialEq, Clone)]
 pub struct LocalPeer {
     pub network_id: u32,
@@ -110,6 +126,7 @@ pub struct LocalPeer {
     pub port: u16,
     pub services: u16,
     pub data_url: UrlString,
+    pub stacker_dbs: Vec<(StacksAddress, ContractName)>,
 
     // filled in and curated at runtime
     pub public_ip_address: Option<(PeerAddress, u16)>,
@@ -152,6 +169,7 @@ impl LocalPeer {
         privkey: Option<Secp256k1PrivateKey>,
         key_expire: u64,
         data_url: UrlString,
+        stacker_dbs: Vec<(StacksAddress, ContractName)>,
     ) -> LocalPeer {
         let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
         pkey.set_compress_public(true);
@@ -163,12 +181,15 @@ impl LocalPeer {
 
         let addr = addrbytes;
         let port = port;
-        let services = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+        let services = (ServiceFlags::RELAY as u16)
+            | (ServiceFlags::RPC as u16)
+            | (ServiceFlags::STACKERDB as u16);
 
         info!(
             "Will be authenticating p2p messages with the following";
             "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
-            "services" => &to_hex(&(services as u16).to_be_bytes())
+            "services" => &to_hex(&(services as u16).to_be_bytes()),
+            "Stacker DBs" => stacker_dbs.iter().map(|(addr, name)| format!("{}.{}", &addr, &name)).collect::<Vec<String>>().join(",")
         );
 
         LocalPeer {
@@ -182,6 +203,7 @@ impl LocalPeer {
             services: services as u16,
             data_url: data_url,
             public_ip_address: None,
+            stacker_dbs,
         }
     }
 
@@ -207,6 +229,7 @@ impl FromRow<LocalPeer> for LocalPeer {
         let port: u16 = row.get_unwrap("port");
         let services: u16 = row.get_unwrap("services");
         let data_url_str: String = row.get_unwrap("data_url");
+        let stackerdbs_json: Option<String> = row.get_unwrap("stacker_dbs");
 
         let nonce_bytes = hex_bytes(&nonce_hex).map_err(|_e| {
             error!("Unparseable local peer nonce {}", &nonce_hex);
@@ -222,6 +245,12 @@ impl FromRow<LocalPeer> for LocalPeer {
         nonce_buf.copy_from_slice(&nonce_bytes[0..32]);
 
         let data_url = UrlString::try_from(data_url_str).map_err(|_e| db_error::ParseError)?;
+        let stacker_dbs: Vec<(StacksAddress, ContractName)> =
+            if let Some(stackerdbs_json) = stackerdbs_json {
+                serde_json::from_str(&stackerdbs_json).map_err(|_| db_error::ParseError)?
+            } else {
+                vec![]
+            };
 
         Ok(LocalPeer {
             network_id: network_id,
@@ -234,6 +263,7 @@ impl FromRow<LocalPeer> for LocalPeer {
             services: services,
             data_url: data_url,
             public_ip_address: None,
+            stacker_dbs,
         })
     }
 }
@@ -363,6 +393,29 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 const PEERDB_INDEXES: &'static [&'static str] =
     &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
 
+const PEERDB_SCHEMA_2: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE stackerdb_peers(
+        smart_contract_addr TEXT NOT NULL,
+        smart_contract_name TEXT NOT NULL,
+        peer_slot INTEGER NOT NULL,
+        PRIMARY KEY(smart_contract_addr,smart_contract_name,peer_slot)
+    );
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS index_stackedb_peers_by_contract ON stackerdb_peers(smart_contract_addr,smart_contract_name);
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS index_stackedb_peers_by_slot ON stackerdb_peers(peer_slot);
+    "#,
+    r#"
+    ALTER TABLE local_peer ADD COLUMN stacker_dbs TEXT
+    "#,
+    r#"
+    UPDATE db_config SET version = 2;
+    "#,
+];
+
 #[derive(Debug)]
 pub struct PeerDB {
     pub conn: Connection,
@@ -379,8 +432,9 @@ impl PeerDB {
         data_url: UrlString,
         p2p_addr: PeerAddress,
         p2p_port: u16,
-        asn4_entries: &Vec<ASEntry4>,
-        initial_neighbors: &Vec<Neighbor>,
+        asn4_entries: &[ASEntry4],
+        initial_neighbors: &[Neighbor],
+        stacker_dbs: &[(StacksAddress, ContractName)],
     ) -> Result<(), db_error> {
         let localpeer = LocalPeer::new(
             network_id,
@@ -390,6 +444,7 @@ impl PeerDB {
             privkey_opt,
             key_expires,
             data_url,
+            vec![],
         );
 
         let mut tx = self.tx_begin()?;
@@ -400,9 +455,11 @@ impl PeerDB {
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&PEERDB_VERSION],
+            &[&"1".to_string()],
         )
         .map_err(db_error::SqliteError)?;
+
+        PeerDB::apply_schema_migrations(&tx)?;
 
         let local_peer_args: &[&dyn ToSql] = &[
             &network_id,
@@ -414,15 +471,17 @@ impl PeerDB {
             &localpeer.port,
             &localpeer.services,
             &localpeer.data_url.as_str(),
+            &serde_json::to_string(stacker_dbs)
+                .expect("FATAL: failed to serialize stacker db contract addresses"),
         ];
 
-        tx.execute("INSERT INTO local_peer (network_id, parent_network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", local_peer_args)
+        tx.execute("INSERT INTO local_peer (network_id, parent_network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url, stacker_dbs) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", local_peer_args)
             .map_err(db_error::SqliteError)?;
 
         for neighbor in initial_neighbors {
             // do we have this neighbor already?
             test_debug!("Add initial neighbor {:?}", &neighbor);
-            let res = PeerDB::try_insert_peer(&mut tx, &neighbor)?;
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &[])?;
             if !res {
                 warn!("Failed to insert neighbor {:?}", &neighbor);
             }
@@ -448,6 +507,7 @@ impl PeerDB {
     }
 
     fn add_indexes(&mut self) -> Result<(), db_error> {
+        debug!("Add indexes to peer DB");
         let tx = self.tx_begin()?;
         for row_text in PEERDB_INDEXES {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
@@ -456,21 +516,67 @@ impl PeerDB {
         Ok(())
     }
 
+    fn get_schema_version(conn: &Connection) -> Result<String, db_error> {
+        let version = conn
+            .query_row(
+                "SELECT MAX(version) from db_config",
+                rusqlite::NO_PARAMS,
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or("1".to_string());
+        Ok(version)
+    }
+
+    fn apply_schema_2<'a>(tx: &Transaction<'a>) -> Result<(), db_error> {
+        debug!("Apply schema 2 to peer DB");
+        for row_text in PEERDB_SCHEMA_2 {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        Ok(())
+    }
+
+    fn apply_schema_migrations<'a>(tx: &Transaction<'a>) -> Result<String, db_error> {
+        debug!("Apply any schema migrations");
+        let expected_version = PEERDB_VERSION.to_string();
+        let mut ret = None;
+        loop {
+            match PeerDB::get_schema_version(tx) {
+                Ok(version) => {
+                    if ret.is_none() {
+                        ret = Some(version.clone());
+                    }
+                    if version == "1" {
+                        PeerDB::apply_schema_2(tx)?;
+                    } else if version == expected_version {
+                        return Ok(ret.expect("unreachable"));
+                    } else {
+                        panic!("The schema version of the peer DB is invalid.")
+                    }
+                }
+                Err(e) => panic!("Error obtaining the version of the peer DB: {:?}", e),
+            }
+        }
+    }
+
     fn update_local_peer(
         &mut self,
         network_id: u32,
         parent_network_id: u32,
         data_url: UrlString,
         p2p_port: u16,
+        stacker_dbs: &[(StacksAddress, ContractName)],
     ) -> Result<(), db_error> {
         let local_peer_args: &[&dyn ToSql] = &[
             &p2p_port,
             &data_url.as_str(),
+            &serde_json::to_string(stacker_dbs)
+                .expect("FATAL: unable to serialize (StacksAddress, ContractName)"),
             &network_id,
             &parent_network_id,
         ];
 
-        match self.conn.execute("UPDATE local_peer SET port = ?, data_url = ? WHERE network_id = ? AND parent_network_id = ?",
+        match self.conn.execute("UPDATE local_peer SET port = ?1, data_url = ?2, stacker_dbs = ?3 WHERE network_id = ?4 AND parent_network_id = ?5",
                                 local_peer_args) {
             Ok(_) => Ok(()),
             Err(e) => Err(db_error::SqliteError(e))
@@ -521,8 +627,9 @@ impl PeerDB {
         p2p_addr: PeerAddress,
         p2p_port: u16,
         data_url: UrlString,
-        asn4_recs: &Vec<ASEntry4>,
-        initial_neighbors: Option<&Vec<Neighbor>>,
+        asn4_recs: &[ASEntry4],
+        initial_neighbors: Option<&[Neighbor]>,
+        stacker_dbs: &[(StacksAddress, ContractName)],
     ) -> Result<PeerDB, db_error> {
         let mut create_flag = false;
         let open_flags = if fs::metadata(path).is_err() {
@@ -535,11 +642,8 @@ impl PeerDB {
             }
         } else {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            // NOTE: we may need to apply some migrations, so always open read-write at this point.
+            OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
         let conn = sqlite_open(path, open_flags, false)?;
@@ -563,6 +667,7 @@ impl PeerDB {
                         p2p_port,
                         asn4_recs,
                         neighbors,
+                        stacker_dbs,
                     )?;
                 }
                 None => {
@@ -575,39 +680,60 @@ impl PeerDB {
                         p2p_addr,
                         p2p_port,
                         asn4_recs,
-                        &vec![],
+                        &[],
+                        stacker_dbs,
                     )?;
                 }
             }
         } else {
-            db.update_local_peer(network_id, parent_network_id, data_url, p2p_port)?;
+            let tx = db.tx_begin()?;
+            PeerDB::apply_schema_migrations(&tx)?;
+            tx.commit()?;
 
-            {
-                let mut tx = db.tx_begin()?;
-                PeerDB::refresh_allows(&mut tx)?;
-                PeerDB::refresh_denies(&mut tx)?;
-                PeerDB::clear_initial_peers(&mut tx)?;
-                if let Some(privkey) = privkey_opt {
-                    PeerDB::set_local_private_key(&mut tx, &privkey, key_expires)?;
-                }
+            db.update_local_peer(
+                network_id,
+                parent_network_id,
+                data_url,
+                p2p_port,
+                stacker_dbs,
+            )?;
 
-                if let Some(neighbors) = initial_neighbors {
-                    for neighbor in neighbors {
-                        PeerDB::set_initial_peer(
-                            &mut tx,
-                            neighbor.addr.network_id,
-                            &neighbor.addr.addrbytes,
-                            neighbor.addr.port,
-                        )?;
-                    }
-                }
-
-                tx.commit()?;
+            let mut tx = db.tx_begin()?;
+            PeerDB::refresh_allows(&mut tx)?;
+            PeerDB::refresh_denies(&mut tx)?;
+            PeerDB::clear_initial_peers(&mut tx)?;
+            if let Some(privkey) = privkey_opt {
+                PeerDB::set_local_private_key(&mut tx, &privkey, key_expires)?;
             }
+
+            if let Some(neighbors) = initial_neighbors {
+                for neighbor in neighbors {
+                    PeerDB::set_initial_peer(
+                        &mut tx,
+                        neighbor.addr.network_id,
+                        &neighbor.addr.addrbytes,
+                        neighbor.addr.port,
+                    )?;
+                }
+            }
+
+            tx.commit()?;
         }
-        if readwrite {
-            db.add_indexes()?;
-        }
+        debug!("Opened PeerDB {} readwrite={}", &path, readwrite);
+
+        // *now* instantiate the DB with the appropriate sql flags
+        let open_flags = if readwrite {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        };
+
+        let conn = sqlite_open(path, open_flags, false)?;
+
+        let db = PeerDB {
+            conn: conn,
+            readwrite: readwrite,
+        };
         Ok(db)
     }
 
@@ -618,8 +744,8 @@ impl PeerDB {
         parent_network_id: u32,
         key_expires: u64,
         data_url: UrlString,
-        asn4_entries: &Vec<ASEntry4>,
-        initial_neighbors: &Vec<Neighbor>,
+        asn4_entries: &[ASEntry4],
+        initial_neighbors: &[Neighbor],
     ) -> Result<PeerDB, db_error> {
         let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
 
@@ -638,7 +764,12 @@ impl PeerDB {
             NETWORK_P2P_PORT,
             asn4_entries,
             initial_neighbors,
+            &[],
         )?;
+
+        let tx = db.tx_begin()?;
+        PeerDB::apply_schema_migrations(&tx)?;
+        tx.commit()?;
         Ok(db)
     }
 
@@ -743,12 +874,9 @@ impl PeerDB {
             // pack peer address, port, and index.
             // Randomize with local nonce
             let mut bytes = vec![];
-            bytes.append(&mut local_peer.nonce.to_vec().clone());
+            bytes.extend_from_slice(&local_peer.nonce);
             bytes.push(i as u8);
-
-            for i in 0..16 {
-                bytes.push(peer_addr.as_bytes()[i]);
-            }
+            bytes.extend_from_slice(peer_addr.as_bytes());
 
             bytes.push((peer_port & 0xff) as u8);
             bytes.push((peer_port >> 8) as u8);
@@ -768,7 +896,7 @@ impl PeerDB {
         Ok(ret)
     }
 
-    /// Do we have this neighbor already?  If so, look it up.
+    /// Get a peer from the DB.
     /// Panics if the peer was inserted twice -- this shouldn't happen.
     pub fn get_peer(
         conn: &DBConn,
@@ -776,14 +904,26 @@ impl PeerDB {
         peer_addr: &PeerAddress,
         peer_port: u16,
     ) -> Result<Option<Neighbor>, db_error> {
-        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3"
-            .to_string();
+        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
         let args = [
             &network_id as &dyn ToSql,
             &peer_addr.to_bin() as &dyn ToSql,
             &peer_port as &dyn ToSql,
         ];
-        query_row::<Neighbor, _>(conn, &qry, &args)
+        query_row::<Neighbor, _>(conn, qry, &args)
+    }
+
+    pub fn has_peer(
+        conn: &DBConn,
+        network_id: u32,
+        peer_addr: &PeerAddress,
+        peer_port: u16,
+    ) -> Result<bool, db_error> {
+        let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
+        let args: &[&dyn ToSql] = &[&network_id, &peer_addr.to_bin(), &peer_port];
+        Ok(query_row::<i64, _>(conn, &qry, args)?
+            .map(|x| x == 1)
+            .unwrap_or(false))
     }
 
     /// Get peer by port (used in tests where the IP address doesn't really matter)
@@ -807,6 +947,15 @@ impl PeerDB {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
         let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
         query_row::<Neighbor, _>(conn, &qry, &args)
+    }
+
+    /// Is there a peer at a particular slot?
+    pub fn has_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<bool, db_error> {
+        let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
+        let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
+        Ok(query_row::<i64, _>(conn, &qry, &args)?
+            .map(|x| x == 1)
+            .unwrap_or(false))
     }
 
     /// Is a peer denied?
@@ -872,12 +1021,36 @@ impl PeerDB {
         Ok(allow_rows)
     }
 
+    /// Insert or replace stacker DBs for a peer, given its slot
+    pub fn insert_or_replace_stacker_dbs<'a>(
+        tx: &mut Transaction<'a>,
+        slot: u32,
+        smart_contracts: &[(StacksAddress, ContractName)],
+    ) -> Result<(), db_error> {
+        for (addr, name) in smart_contracts {
+            debug!("Add Stacker DB to slot {}: {}.{}", slot, addr, name);
+            let args: &[&dyn ToSql] = &[&addr.to_string(), &name.as_str(), &slot];
+            tx.execute("INSERT OR REPLACE INTO stackerdb_peers (smart_contract_addr,smart_contract_name,peer_slot) VALUES (?1,?2,?3)", args)
+                .map_err(db_error::SqliteError)?;
+        }
+        Ok(())
+    }
+
+    /// Drop all stacker DBs for a peer, given its slot
+    pub fn drop_stacker_dbs<'a>(tx: &mut Transaction<'a>, slot: u32) -> Result<(), db_error> {
+        tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", &[&slot])
+            .map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
     /// Insert or replace a neighbor into a given slot
     pub fn insert_or_replace_peer<'a>(
         tx: &mut Transaction<'a>,
         neighbor: &Neighbor,
         slot: u32,
     ) -> Result<(), db_error> {
+        let old_peer_opt = PeerDB::get_peer_at(tx, neighbor.addr.network_id, slot)?;
+
         let neighbor_args: &[&dyn ToSql] = &[
             &neighbor.addr.peer_version,
             &neighbor.addr.network_id,
@@ -900,16 +1073,28 @@ impl PeerDB {
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", neighbor_args)
             .map_err(db_error::SqliteError)?;
 
+        if let Some(old_peer) = old_peer_opt {
+            if old_peer.addr != neighbor.addr
+                || old_peer.public_key.to_bytes_compressed()
+                    != neighbor.public_key.to_bytes_compressed()
+            {
+                // the peer for this slot changed. Drop the associated stacker DB records
+                debug!("Peer at slot {} changed; dropping its DBs", slot);
+                PeerDB::drop_stacker_dbs(tx, slot)?;
+            }
+        }
+
         Ok(())
     }
 
-    /// Remove a peer from the peer database
+    /// Remove a peer from the peer database, as well as its stacker DBs
     pub fn drop_peer<'a>(
         tx: &mut Transaction<'a>,
         network_id: u32,
         peer_addr: &PeerAddress,
         peer_port: u16,
     ) -> Result<(), db_error> {
+        let slots = Self::find_peer_slots(tx, network_id, peer_addr, peer_port)?;
         tx.execute(
             "DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
             &[
@@ -920,6 +1105,9 @@ impl PeerDB {
         )
         .map_err(db_error::SqliteError)?;
 
+        for slot in slots {
+            Self::drop_stacker_dbs(tx, slot)?;
+        }
         Ok(())
     }
 
@@ -991,7 +1179,7 @@ impl PeerDB {
             empty_neighbor.allowed = allow_deadline as i64;
 
             debug!("Preemptively allow peer {:?}", &nk);
-            if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
+            if !PeerDB::try_insert_peer(tx, &empty_neighbor, &[])? {
                 let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
                 let slot = slots.pop().expect("BUG: no slots");
                 warn!(
@@ -1037,7 +1225,7 @@ impl PeerDB {
             empty_neighbor.denied = deny_deadline as i64;
 
             debug!("Preemptively deny peer {:?}", &nk);
-            if !PeerDB::try_insert_peer(tx, &empty_neighbor)? {
+            if !PeerDB::try_insert_peer(tx, &empty_neighbor, &[])? {
                 let mut slots = PeerDB::peer_slots(tx, network_id, peer_addr, peer_port)?;
                 let slot = slots.pop().expect("BUG: no slots");
                 warn!(
@@ -1053,6 +1241,13 @@ impl PeerDB {
 
     /// Update an existing peer's entries.  Does nothing if the peer is not present.
     pub fn update_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor) -> Result<(), db_error> {
+        let old_peer_opt = PeerDB::get_peer(
+            tx,
+            neighbor.addr.network_id,
+            &neighbor.addr.addrbytes,
+            neighbor.addr.port,
+        )?;
+
         let args: &[&dyn ToSql] = &[
             &neighbor.addr.peer_version,
             &to_hex(&neighbor.public_key.to_bytes_compressed()),
@@ -1073,6 +1268,161 @@ impl PeerDB {
                     WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13", args)
             .map_err(db_error::SqliteError)?;
 
+        if let Some(old_peer) = old_peer_opt {
+            let slots = Self::find_peer_slots(
+                tx,
+                neighbor.addr.network_id,
+                &neighbor.addr.addrbytes,
+                neighbor.addr.port,
+            )?;
+            if old_peer.public_key.to_bytes_compressed()
+                != neighbor.public_key.to_bytes_compressed()
+            {
+                // this peer has re-keyed, so it might be a new peer altogether.
+                // require it to re-announce its DBs
+                for slot in slots {
+                    debug!("Peer at slot {} changed; dropping its DBs", slot);
+                    PeerDB::drop_stacker_dbs(tx, slot)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Find a peer's slots
+    fn find_peer_slots(
+        conn: &Connection,
+        network_id: u32,
+        addrbytes: &PeerAddress,
+        port: u16,
+    ) -> Result<Vec<u32>, db_error> {
+        let slots = PeerDB::peer_slots(conn, network_id, addrbytes, port)?;
+        let mut ret = vec![];
+        for slot in &slots {
+            let used_slot = PeerDB::has_peer_at(conn, network_id, *slot)?;
+            if used_slot {
+                ret.push(*slot);
+            }
+        }
+        Ok(ret)
+    }
+
+    /// Get stacker DBs for a slot
+    fn get_stacker_dbs_by_slots(
+        conn: &Connection,
+        used_slots: &[u32],
+    ) -> Result<Vec<(StacksAddress, ContractName)>, db_error> {
+        let mut db_set = HashSet::new();
+        let qry = "SELECT smart_contract_addr,smart_contract_name FROM stackerdb_peers WHERE peer_slot = ?1";
+        for slot in used_slots {
+            let dbs = query_rows(conn, qry, &[slot])?;
+            for (addr, name) in dbs.into_iter() {
+                db_set.insert((addr, name));
+            }
+        }
+
+        Ok(db_set.into_iter().collect())
+    }
+
+    /// Get the slots for a Stacker DB
+    fn get_stacker_db_slots(
+        conn: &Connection,
+        smart_contract: &(StacksAddress, ContractName),
+    ) -> Result<Vec<u32>, db_error> {
+        let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_addr = ?1 AND smart_contract_name = ?2";
+        let args: &[&dyn ToSql] = &[&smart_contract.0.to_string(), &smart_contract.1.to_string()];
+        query_rows(conn, qry, args)
+    }
+
+    /// Get a peer's advertized stacker DBs
+    fn static_get_peer_stacker_dbs(
+        conn: &Connection,
+        neighbor: &Neighbor,
+    ) -> Result<Vec<(StacksAddress, ContractName)>, db_error> {
+        let used_slots = PeerDB::find_peer_slots(
+            conn,
+            neighbor.addr.network_id,
+            &neighbor.addr.addrbytes,
+            neighbor.addr.port,
+        )?;
+        Self::get_stacker_dbs_by_slots(conn, &used_slots)
+    }
+
+    /// Get a peer's advertized stacker DBs
+    pub fn get_peer_stacker_dbs(
+        &self,
+        neighbor: &Neighbor,
+    ) -> Result<Vec<(StacksAddress, ContractName)>, db_error> {
+        PeerDB::static_get_peer_stacker_dbs(&self.conn, neighbor)
+    }
+
+    /// Update an existing peer's stacker DBs.
+    /// Calculates the delta between what's in the DB now, and what's in `dbs`, and deletes the
+    /// records absent from `dbs` and adds records not present in the DB.
+    /// Does nothing if the peer is not present.
+    pub fn update_peer_stacker_dbs<'a>(
+        tx: &mut Transaction<'a>,
+        neighbor: &Neighbor,
+        dbs: &[(StacksAddress, ContractName)],
+    ) -> Result<(), db_error> {
+        let cur_slots = PeerDB::find_peer_slots(
+            tx,
+            neighbor.addr.network_id,
+            &neighbor.addr.addrbytes,
+            neighbor.addr.port,
+        )?;
+        let cur_dbs = PeerDB::static_get_peer_stacker_dbs(tx, neighbor)?;
+
+        test_debug!("Stacker DBs for {:?}: {:?}", &neighbor.addr, &cur_dbs);
+        let mut cur_dbs_table = HashSet::new();
+        for (addr, name) in cur_dbs.iter() {
+            cur_dbs_table.insert((addr, name));
+        }
+
+        let mut new_dbs_table = HashSet::new();
+        for (addr, name) in dbs.iter() {
+            new_dbs_table.insert((addr, name));
+        }
+
+        let mut to_insert = vec![];
+        let mut to_delete = vec![];
+        for (addr, name) in dbs.iter() {
+            if !cur_dbs_table.contains(&(addr, name)) {
+                to_insert.push((addr, name));
+            }
+        }
+        for (addr, name) in cur_dbs_table.iter() {
+            if !new_dbs_table.contains(&(addr, name)) {
+                to_delete.push((addr, name));
+            }
+        }
+
+        let sql = "DELETE FROM stackerdb_peers WHERE smart_contract_addr = ?1 AND smart_contract_name = ?2";
+        for (addr, name) in to_delete.into_iter() {
+            test_debug!(
+                "Delete Stacker DB for {:?}: {}.{}",
+                &neighbor.addr,
+                &addr,
+                &name
+            );
+            let args: &[&dyn ToSql] = &[&addr.to_string(), &name.as_str()];
+            tx.execute(sql, args).map_err(db_error::SqliteError)?;
+        }
+
+        let sql = "INSERT OR REPLACE INTO stackerdb_peers (smart_contract_addr,smart_contract_name,peer_slot) VALUES (?1,?2,?3)";
+        for slot in cur_slots {
+            for (addr, name) in to_insert.iter() {
+                test_debug!(
+                    "Add Stacker DB for {:?}: {}.{}",
+                    &neighbor.addr,
+                    &addr,
+                    &name
+                );
+                let args: &[&dyn ToSql] = &[&addr.to_string(), &name.as_str(), &slot];
+                tx.execute(sql, args).map_err(db_error::SqliteError)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -1084,16 +1434,18 @@ impl PeerDB {
     pub fn try_insert_peer<'a>(
         tx: &mut Transaction<'a>,
         neighbor: &Neighbor,
+        stacker_dbs: &[(StacksAddress, ContractName)],
     ) -> Result<bool, db_error> {
-        let present = PeerDB::get_peer(
+        let present = PeerDB::has_peer(
             tx,
             neighbor.addr.network_id,
             &neighbor.addr.addrbytes,
             neighbor.addr.port,
         )?;
-        if present.is_some() {
+        if present {
             // already here
             PeerDB::update_peer(tx, neighbor)?;
+            PeerDB::update_peer_stacker_dbs(tx, neighbor, stacker_dbs)?;
             return Ok(false);
         }
 
@@ -1104,10 +1456,12 @@ impl PeerDB {
             neighbor.addr.port,
         )?;
         for slot in &slots {
-            let peer_opt = PeerDB::get_peer_at(tx, neighbor.addr.network_id, *slot)?;
-            if peer_opt.is_none() {
+            let used_slot = PeerDB::has_peer_at(tx, neighbor.addr.network_id, *slot)?;
+            if !used_slot {
                 // have a spare slot!
+                debug!("Insert {:?} at slot {}", &neighbor.addr, *slot);
                 PeerDB::insert_or_replace_peer(tx, neighbor, *slot)?;
+                PeerDB::insert_or_replace_stacker_dbs(tx, *slot, stacker_dbs)?;
                 return Ok(true);
             }
         }
@@ -1413,6 +1767,32 @@ impl PeerDB {
         let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
         Ok(rows)
     }
+
+    /// Find out which peers replicate a particular stacker DB.
+    /// Return a randomized list of up to the given size.
+    pub fn find_stacker_db_replicas(
+        conn: &DBConn,
+        network_id: u32,
+        smart_contract: &(StacksAddress, ContractName),
+        max_count: usize,
+    ) -> Result<Vec<Neighbor>, db_error> {
+        if max_count == 0 {
+            return Ok(vec![]);
+        }
+        let mut slots = PeerDB::get_stacker_db_slots(conn, smart_contract)?;
+        slots.shuffle(&mut thread_rng());
+
+        let mut ret = vec![];
+        for slot in slots {
+            if let Some(neighbor) = PeerDB::get_peer_at(conn, network_id, slot)? {
+                ret.push(neighbor);
+                if ret.len() >= max_count {
+                    break;
+                }
+            }
+        }
+        Ok(ret)
+    }
 }
 
 #[cfg(test)]
@@ -1422,17 +1802,13 @@ mod test {
     use crate::net::NeighborKey;
     use crate::net::PeerAddress;
 
+    use stacks_common::util::hash::Hash160;
+
     #[test]
     fn test_local_peer() {
-        let db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
 
         assert_eq!(local_peer.network_id, 0x9abcdef0);
@@ -1446,8 +1822,48 @@ mod test {
         assert_eq!(local_peer.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
         assert_eq!(
             local_peer.services,
-            (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16)
+            (ServiceFlags::RELAY as u16)
+                | (ServiceFlags::RPC as u16)
+                | (ServiceFlags::STACKERDB as u16)
         );
+        assert_eq!(local_peer.stacker_dbs, vec![]);
+
+        let mut stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x02,
+                    bytes: Hash160([0x03; 20]),
+                },
+                "db-2".into(),
+            ),
+        ];
+        stackerdbs.sort();
+
+        db.update_local_peer(
+            0x9abcdef0,
+            12345,
+            UrlString::try_from("http://bar.com".to_string()).unwrap(),
+            4567,
+            &stackerdbs,
+        )
+        .unwrap();
+
+        let mut local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        local_peer.stacker_dbs.sort();
+
+        assert_eq!(
+            local_peer.data_url,
+            UrlString::try_from("http://bar.com".to_string()).unwrap()
+        );
+        assert_eq!(local_peer.port, 4567);
+        assert_eq!(local_peer.stacker_dbs, stackerdbs);
     }
 
     #[test]
@@ -1533,6 +1949,103 @@ mod test {
     }
 
     #[test]
+    fn test_insert_or_replace_stacker_dbs() {
+        let mut db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            "http://foo.com".into(),
+            &vec![],
+            &vec![],
+        )
+        .unwrap();
+
+        // basic storage and retrieval
+        let mut stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x02,
+                    bytes: Hash160([0x03; 20]),
+                },
+                "db-2".into(),
+            ),
+        ];
+        stackerdbs.sort();
+
+        let mut tx = db.tx_begin().unwrap();
+        PeerDB::insert_or_replace_stacker_dbs(&mut tx, 1, &stackerdbs).unwrap();
+        tx.commit().unwrap();
+
+        let mut fetched_stackerdbs = PeerDB::get_stacker_dbs_by_slots(&db.conn, &[1]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(stackerdbs, fetched_stackerdbs);
+
+        // can add the same DBs to a different slot
+        let mut tx = db.tx_begin().unwrap();
+        PeerDB::insert_or_replace_stacker_dbs(&mut tx, 2, &stackerdbs).unwrap();
+        tx.commit().unwrap();
+
+        let mut fetched_stackerdbs = PeerDB::get_stacker_dbs_by_slots(&db.conn, &[2]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(stackerdbs, fetched_stackerdbs);
+
+        // no duplicates between multiple slots are returned
+        let mut fetched_stackerdbs = PeerDB::get_stacker_dbs_by_slots(&db.conn, &[1, 2]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(stackerdbs, fetched_stackerdbs);
+
+        // a slot can have nothing
+        let mut fetched_stackerdbs =
+            PeerDB::get_stacker_dbs_by_slots(&db.conn, &[0, 1, 2, 3]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(stackerdbs, fetched_stackerdbs);
+
+        // adding DBs to the same slot just grows the total list
+        let mut new_stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x03,
+                    bytes: Hash160([0x04; 20]),
+                },
+                "db-3".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x04,
+                    bytes: Hash160([0x05; 20]),
+                },
+                "db-5".into(),
+            ),
+        ];
+        new_stackerdbs.sort();
+
+        let mut all_stackerdbs = stackerdbs.clone();
+        all_stackerdbs.extend_from_slice(&new_stackerdbs);
+        all_stackerdbs.sort();
+
+        let mut tx = db.tx_begin().unwrap();
+        PeerDB::insert_or_replace_stacker_dbs(&mut tx, 1, &new_stackerdbs).unwrap();
+        tx.commit().unwrap();
+
+        let mut fetched_stackerdbs = PeerDB::get_stacker_dbs_by_slots(&db.conn, &[1]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(fetched_stackerdbs, all_stackerdbs);
+
+        // continues to apply even if we have lots of slots
+        let mut fetched_stackerdbs =
+            PeerDB::get_stacker_dbs_by_slots(&db.conn, &[0, 1, 2, 3]).unwrap();
+        fetched_stackerdbs.sort();
+        assert_eq!(fetched_stackerdbs, all_stackerdbs);
+    }
+
+    #[test]
     fn test_try_insert_peer() {
         let neighbor = Neighbor {
             addr: NeighborKey {
@@ -1570,7 +2083,7 @@ mod test {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            let res = PeerDB::try_insert_peer(&mut tx, &neighbor).unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
             assert_eq!(res, true);
@@ -1590,11 +2103,501 @@ mod test {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            let res = PeerDB::try_insert_peer(&mut tx, &neighbor).unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
             assert_eq!(res, false);
         }
+    }
+
+    #[test]
+    fn test_try_insert_peer_with_stackerdbs() {
+        let neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+                    0x0d, 0x0e, 0x0f,
+                ]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex(
+                "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
+            )
+            .unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: -1,
+            denied: -1,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1,
+        };
+
+        let key1 = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-peerdb-try_insert_peer_with_stackerdbs.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+        let mut db = PeerDB::connect(
+            &path,
+            true,
+            0x9abcdef0,
+            12345,
+            Some(key1.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let mut stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x02,
+                    bytes: Hash160([0x03; 20]),
+                },
+                "db-2".into(),
+            ),
+        ];
+        stackerdbs.sort();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &stackerdbs).unwrap();
+            tx.commit().unwrap();
+
+            assert_eq!(res, true);
+        }
+
+        let neighbor_opt = PeerDB::get_peer(
+            db.conn(),
+            0x9abcdef0,
+            &PeerAddress([
+                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+                0x0e, 0x0f,
+            ]),
+            12345,
+        )
+        .unwrap();
+        assert_eq!(neighbor_opt, Some(neighbor.clone()));
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, stackerdbs);
+
+        // insert new stacker DBs -- keep one the same, and add a different one
+        let mut changed_stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x03,
+                    bytes: Hash160([0x04; 20]),
+                },
+                "db-3".into(),
+            ),
+        ];
+        changed_stackerdbs.sort();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &changed_stackerdbs).unwrap();
+            tx.commit().unwrap();
+
+            // peer already present
+            assert_eq!(res, false);
+        }
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, changed_stackerdbs);
+
+        // clear stacker DBs
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &[]).unwrap();
+            tx.commit().unwrap();
+
+            // peer already present
+            assert_eq!(res, false);
+        }
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, []);
+
+        // add back stacker DBs
+        let mut new_stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x04,
+                    bytes: Hash160([0x05; 20]),
+                },
+                "db-4".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x05,
+                    bytes: Hash160([0x06; 20]),
+                },
+                "db-5".into(),
+            ),
+        ];
+        new_stackerdbs.sort();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &new_stackerdbs).unwrap();
+            tx.commit().unwrap();
+
+            // peer already present
+            assert_eq!(res, false);
+        }
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, new_stackerdbs);
+
+        // replace all stacker DBs.
+        // Do it twice -- it should be idempotent
+        for _ in 0..2 {
+            let mut replace_stackerdbs = vec![
+                (
+                    StacksAddress {
+                        version: 0x06,
+                        bytes: Hash160([0x07; 20]),
+                    },
+                    "db-6".into(),
+                ),
+                (
+                    StacksAddress {
+                        version: 0x07,
+                        bytes: Hash160([0x08; 20]),
+                    },
+                    "db-7".into(),
+                ),
+            ];
+            replace_stackerdbs.sort();
+
+            {
+                let mut tx = db.tx_begin().unwrap();
+                let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &replace_stackerdbs).unwrap();
+                tx.commit().unwrap();
+
+                // peer already present
+                assert_eq!(res, false);
+            }
+
+            let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+            neighbor_stackerdbs.sort();
+            assert_eq!(neighbor_stackerdbs, replace_stackerdbs);
+        }
+
+        // a peer re-keying will drop its stacker DBs
+        let new_neighbor = neighbor.clone();
+
+        // drop the peer.  the stacker DBs should disappear as well
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::drop_peer(
+                &mut tx,
+                neighbor.addr.network_id,
+                &neighbor.addr.addrbytes,
+                neighbor.addr.port,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let deleted_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        assert_eq!(deleted_stackerdbs.len(), 0);
+    }
+
+    #[test]
+    fn test_find_stacker_db_replicas() {
+        let neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+                    0x0d, 0x0e, 0x0f,
+                ]),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex(
+                "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
+            )
+            .unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: -1,
+            denied: -1,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1,
+        };
+
+        let key1 = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-peerdb-find_stacker_db_replicas.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+        let mut db = PeerDB::connect(
+            &path,
+            true,
+            0x9abcdef0,
+            12345,
+            Some(key1.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let mut stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x02,
+                    bytes: Hash160([0x03; 20]),
+                },
+                "db-2".into(),
+            ),
+        ];
+        stackerdbs.sort();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &stackerdbs).unwrap();
+            tx.commit().unwrap();
+
+            assert_eq!(res, true);
+        }
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 1).unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 2).unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0).unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef1, &stackerdbs[0], 1).unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        // insert new stacker DBs -- keep one the same, and add a different one
+        let mut changed_stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x02; 20]),
+                },
+                "db-1".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x03,
+                    bytes: Hash160([0x04; 20]),
+                },
+                "db-3".into(),
+            ),
+        ];
+        changed_stackerdbs.sort();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &changed_stackerdbs).unwrap();
+            tx.commit().unwrap();
+
+            // peer already present
+            assert_eq!(res, false);
+        }
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, changed_stackerdbs);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        // clear stacker DBs
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &[]).unwrap();
+            tx.commit().unwrap();
+
+            // peer already present
+            assert_eq!(res, false);
+        }
+
+        let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+        neighbor_stackerdbs.sort();
+        assert_eq!(neighbor_stackerdbs, []);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let mut replace_stackerdbs = vec![
+            (
+                StacksAddress {
+                    version: 0x06,
+                    bytes: Hash160([0x07; 20]),
+                },
+                "db-6".into(),
+            ),
+            (
+                StacksAddress {
+                    version: 0x07,
+                    bytes: Hash160([0x08; 20]),
+                },
+                "db-7".into(),
+            ),
+        ];
+        replace_stackerdbs.sort();
+
+        // replace all stacker DBs.
+        // Do it twice -- it should be idempotent
+        for _ in 0..2 {
+            {
+                let mut tx = db.tx_begin().unwrap();
+                let res = PeerDB::try_insert_peer(&mut tx, &neighbor, &replace_stackerdbs).unwrap();
+                tx.commit().unwrap();
+
+                // peer already present
+                assert_eq!(res, false);
+            }
+
+            let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
+            neighbor_stackerdbs.sort();
+            assert_eq!(neighbor_stackerdbs, replace_stackerdbs);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[0], 1).unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[1], 1).unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+                    .unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+                    .unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 1)
+                    .unwrap();
+            assert_eq!(replicas.len(), 1);
+            assert_eq!(replicas[0], neighbor);
+
+            let replicas =
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 1)
+                    .unwrap();
+            assert_eq!(replicas.len(), 1);
+            assert_eq!(replicas[0], neighbor);
+        }
+
+        // drop the peer.  the stacker DBs should disappear as well
+        {
+            let mut tx = db.tx_begin().unwrap();
+            PeerDB::drop_peer(
+                &mut tx,
+                neighbor.addr.network_id,
+                &neighbor.addr.addrbytes,
+                neighbor.addr.port,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 1).unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[1], 1).unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
+
+        let replicas =
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 1)
+                .unwrap();
+        assert_eq!(replicas.len(), 0);
     }
 
     #[test]
@@ -2351,6 +3354,7 @@ mod test {
             UrlString::try_from("http://foo.com").unwrap(),
             &vec![],
             None,
+            &[],
         )
         .unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
@@ -2370,6 +3374,7 @@ mod test {
             UrlString::try_from("http://foo.com").unwrap(),
             &vec![],
             None,
+            &[],
         )
         .unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
@@ -2387,9 +3392,36 @@ mod test {
             UrlString::try_from("http://foo.com").unwrap(),
             &vec![],
             None,
+            &[],
         )
         .unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         assert_eq!(local_peer.private_key, key2);
+    }
+
+    #[test]
+    fn test_db_instantiation() {
+        let key1 = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-peerdb-instantiation.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key1.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+            &[],
+        )
+        .unwrap();
     }
 }
