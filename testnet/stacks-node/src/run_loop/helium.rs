@@ -6,6 +6,7 @@ use crate::{
 use stacks::chainstate::stacks::db::ClarityTx;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::sleep_ms;
 use std::collections::HashSet;
 use std::sync::mpsc::{sync_channel, Receiver};
 
@@ -156,6 +157,8 @@ impl RunLoop {
                 return Ok(());
             }
 
+            info!("L1 starts tenure");
+
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
@@ -225,6 +228,13 @@ impl RunLoop {
             if won_sortition {
                 leader_tenure = self.node.initiate_new_tenure();
             }
+
+            let sleep_time_ms = self.config.burnchain.wait_before_simulated_block;
+            info!(
+                "L1 starts sleeping for ms: wait_before_simulated_block {}",
+                &sleep_time_ms
+            );
+            sleep_ms(sleep_time_ms);
 
             round_index += 1;
         }

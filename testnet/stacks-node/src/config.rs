@@ -817,6 +817,10 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
+                    wait_before_simulated_block: match burnchain.wait_before_simulated_block {
+                        Some(wait_time) => wait_time,
+                        None => 30_000,
+                    },
                     // will be overwritten below
                     epochs: default_burnchain_config.epochs,
                     ast_precheck_size_height: burnchain.ast_precheck_size_height,
@@ -1321,6 +1325,8 @@ pub struct BurnchainConfig {
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
+    /// The number of ms to wait in between simulated blocks in mocknet mode.
+    pub wait_before_simulated_block: u64,
     pub pox_2_activation: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
@@ -1354,6 +1360,7 @@ impl BurnchainConfig {
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
+            wait_before_simulated_block: 30_000u64,
             pox_2_activation: None,
             sunset_start: None,
             sunset_end: None,
@@ -1432,6 +1439,7 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
+    pub wait_before_simulated_block: Option<u64>,
     pub pox_2_activation: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
