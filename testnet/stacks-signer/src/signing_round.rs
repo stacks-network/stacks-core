@@ -4,9 +4,9 @@ use hashbrown::HashMap;
 use p256k1::scalar::Scalar;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use slog::slog_info;
+use slog::{slog_debug, slog_info};
 
-use stacks_common::info;
+use stacks_common::{debug, info};
 
 use crate::state_machine::{StateMachine, States};
 
@@ -128,11 +128,16 @@ pub struct SignatureShareResponse {
 }
 
 impl SigningRound {
-    pub fn new(threshold: usize, total: usize, signer_id: u64, party_ids: Vec<usize>) -> SigningRound {
+    pub fn new(
+        threshold: usize,
+        total: usize,
+        signer_id: u64,
+        party_ids: Vec<usize>,
+    ) -> SigningRound {
         assert!(threshold <= total);
         let mut rng = OsRng::default();
         let frost_signer = frost::v1::Signer::new(&party_ids, total, threshold, &mut rng);
-        let signer = Signer{
+        let signer = Signer {
             frost_signer,
             signer_id: signer_id,
         };
@@ -168,6 +173,7 @@ impl SigningRound {
                         signer_id: self.signer.signer_id as usize,
                     });
                     out.push(dkg_end);
+                    self.move_to(States::SignGather).unwrap();
                 }
                 Ok(out)
             }
@@ -176,7 +182,15 @@ impl SigningRound {
     }
 
     pub fn can_dkg_end(&self) -> bool {
-        self.state == States::DkgGather && self.commitments.len() == self.total && self.shares.len() == self.total
+        debug!(
+            "can_dkg_end state {:?} commitments {} shares {}",
+            self.state,
+            self.commitments.len(),
+            self.shares.len()
+        );
+        self.state == States::DkgGather
+            && self.commitments.len() == self.total
+            && self.shares.len() == self.total
     }
 
     pub fn key_share_for_party(&self, party_id: usize) -> KeyShares {
@@ -189,21 +203,22 @@ impl SigningRound {
         let _party_state = self.signer.frost_signer.save();
         let mut rng = OsRng::default();
         let mut msgs = vec![];
-        for (idx, party) in self.signer.frost_signer.parties.iter().enumerate() {
-            info!("creating dkg private share for party #{}", idx);
+        for (_idx, party) in self.signer.frost_signer.parties.iter().enumerate() {
+            info!("creating dkg private share for party #{}", party.id);
             let private_shares = MessageTypes::DkgPrivateShares(DkgPrivateShares {
                 dkg_id: self.dkg_id.unwrap() as u64,
-                party_id: idx as u32,
+                party_id: party.id as u32,
                 private_shares: party.get_shares(),
             });
             msgs.push(private_shares);
             let public_share = MessageTypes::DkgPublicShare(DkgPublicShare {
                 dkg_id: self.dkg_id.unwrap() as u64,
-                party_id: idx as u32,
+                party_id: party.id as u32,
                 public_share: party.get_poly_commitment(&mut rng),
             });
             msgs.push(public_share);
         }
+        self.move_to(States::DkgGather).unwrap();
         Ok(msgs)
     }
 
@@ -213,7 +228,12 @@ impl SigningRound {
     ) -> Result<Vec<MessageTypes>, String> {
         self.commitments
             .insert(dkg_public_share.party_id, dkg_public_share.public_share);
-        info!("public share received for party #{}. commitments {}/{}", dkg_public_share.party_id, self.commitments.len(), self.total);
+        info!(
+            "public share received for party #{}. commitments {}/{}",
+            dkg_public_share.party_id,
+            self.commitments.len(),
+            self.total
+        );
         Ok(vec![])
     }
 
@@ -223,7 +243,12 @@ impl SigningRound {
     ) -> Result<Vec<MessageTypes>, String> {
         for (party_id, private_share) in dkg_private_shares.private_shares {
             self.shares.insert(party_id as u32, private_share);
-            info!("private share received for party #{}. shares {}/{}", party_id, self.shares.len(), self.total);
+            info!(
+                "private share received for party #{}. shares {}/{}",
+                party_id,
+                self.shares.len(),
+                self.total
+            );
         }
         Ok(vec![])
     }

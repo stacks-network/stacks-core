@@ -51,12 +51,7 @@ struct Coordinator<Network: NetListen> {
 }
 
 impl<Network: NetListen> Coordinator<Network> {
-    fn new(
-        id: usize,
-        dkg_id: u64,
-        total_signers: usize,
-        network: Network,
-    ) -> Self {
+    fn new(id: usize, dkg_id: u64, total_signers: usize, network: Network) -> Self {
         Self {
             id: id as u64,
             current_dkg_id: dkg_id,
