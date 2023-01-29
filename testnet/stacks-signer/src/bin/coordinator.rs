@@ -85,7 +85,9 @@ where
 
         self.network.send_message(dkg_begin_message)?;
 
-        self.wait_for_dkg_end()
+        let result = self.wait_for_dkg_end();
+        info!("DKG round #{} finished", self.current_dkg_id);
+        result
     }
 
     pub fn sign_message(&mut self, _msg: &str) -> Result<(), Error> {
@@ -119,8 +121,11 @@ where
                         dkg_end_msg.dkg_id, dkg_end_msg.signer_id, ids_to_await
                     );
                 }
-                (_, _) => (),
+                (_, _) => {
+                    info!("wait for dkg catchall");
+                    ()},
             }
+            info!("wait for dkg bottom loop")
         }
     }
 

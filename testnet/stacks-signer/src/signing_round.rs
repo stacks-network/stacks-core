@@ -19,7 +19,7 @@ pub struct SigningRound {
     pub signer: Signer,
     pub state: States,
     pub commitments: HashMap<u32, PolyCommitment>,
-    pub shares: HashMap<u32, Scalar>,
+    pub shares: HashMap<u32, HashMap<usize, Scalar>>,
 }
 
 pub struct Signer {
@@ -241,15 +241,14 @@ impl SigningRound {
         &mut self,
         dkg_private_shares: DkgPrivateShares,
     ) -> Result<Vec<MessageTypes>, String> {
-        for (party_id, private_share) in dkg_private_shares.private_shares {
-            self.shares.insert(party_id as u32, private_share);
-            info!(
-                "private share received for party #{}. shares {}/{}",
-                party_id,
+        info!(
+                "{} private shares received for party #{}. shares {}/{}",
+                dkg_private_shares.private_shares.len(),
+                dkg_private_shares.party_id,
                 self.shares.len(),
                 self.total
             );
-        }
+        self.shares.insert(dkg_private_shares.party_id, dkg_private_shares.private_shares);
         Ok(vec![])
     }
 }
