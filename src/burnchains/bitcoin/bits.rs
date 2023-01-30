@@ -498,12 +498,12 @@ impl BitcoinTxInputRaw {
 
     pub fn from_bitcoin_witness_script_sig(
         script_sig: &Script,
-        witness: &[Vec<u8>],
+        witness: Vec<Vec<u8>>,
         input_txid: (Txid, u32),
     ) -> BitcoinTxInputRaw {
         BitcoinTxInputRaw {
             scriptSig: script_sig.clone().into_bytes(),
-            witness: witness.to_owned(),
+            witness: witness,
             tx_ref: input_txid,
         }
     }
@@ -1116,7 +1116,7 @@ mod tests {
         for script_fixture in tx_fixtures_strange_scriptsig {
             let tx_input = BitcoinTxInputRaw::from_bitcoin_witness_script_sig(
                 &script_fixture.script,
-                &vec![],
+                vec![],
                 (Txid([0; 32]), 0),
             );
             assert_eq!(Some(tx_input), script_fixture.result);
@@ -1283,7 +1283,7 @@ mod tests {
             for (i, txin) in tx.input.iter().enumerate() {
                 let raw_in = BitcoinTxInputRaw::from_bitcoin_witness_script_sig(
                     &txin.script_sig,
-                    &txin.witness,
+                    txin.witness.clone(),
                     to_txid(&txin),
                 );
                 assert_eq!(raw_in, inputs[i]);

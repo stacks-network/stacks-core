@@ -234,14 +234,14 @@ impl BitcoinBlock {
         height: u64,
         hash: &BurnchainHeaderHash,
         parent: &BurnchainHeaderHash,
-        txs: &[BitcoinTransaction],
+        txs: Vec<BitcoinTransaction>,
         timestamp: u64,
     ) -> BitcoinBlock {
         BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
-            txs: txs.to_owned(),
+            txs: txs,
             timestamp: timestamp,
         }
     }

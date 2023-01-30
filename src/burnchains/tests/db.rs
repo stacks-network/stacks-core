@@ -104,7 +104,7 @@ fn test_store_and_fetch() {
         500,
         &canon_hash,
         &first_bhh,
-        &vec![],
+        vec![],
         485,
     ));
     let ops = burnchain_db
@@ -148,7 +148,7 @@ fn test_store_and_fetch() {
         400,
         &non_canon_hash,
         &first_bhh,
-        &broadcast_ops,
+        broadcast_ops,
         350,
     ));
 
@@ -226,7 +226,7 @@ fn test_classify_stack_stx() {
         500,
         &canon_hash,
         &first_bhh,
-        &vec![],
+        vec![],
         485,
     ));
     let ops = burnchain_db
@@ -374,11 +374,12 @@ fn test_classify_stack_stx() {
     let block_height_1 = 502;
     let block_hash_1 = BurnchainHeaderHash([3; 32]);
 
+    let num_txs_ops_0: u64 = ops_0.len() as u64;
     let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_0,
         &block_hash_0,
         &first_bhh,
-        &ops_0,
+        ops_0,
         350,
     ));
 
@@ -386,15 +387,16 @@ fn test_classify_stack_stx() {
         block_height: first_block_header.block_height + 1,
         block_hash: block_hash_0.clone(),
         parent_block_hash: first_bhh.clone(),
-        num_txs: ops_0.len() as u64,
+        num_txs: num_txs_ops_0,
         timestamp: first_block_header.timestamp + 1,
     });
 
+    let num_txs_ops_1: u64 = ops_1.len() as u64;
     let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_1,
         &block_hash_1,
         &block_hash_0,
-        &ops_1,
+        ops_1,
         360,
     ));
 
@@ -402,7 +404,7 @@ fn test_classify_stack_stx() {
         block_height: first_block_header.block_height + 2,
         block_hash: block_hash_1.clone(),
         parent_block_hash: block_hash_0.clone(),
-        num_txs: ops_1.len() as u64,
+        num_txs: num_txs_ops_1,
         timestamp: first_block_header.timestamp + 2,
     });
 
@@ -1036,7 +1038,7 @@ fn test_classify_delegate_stx() {
         500,
         &canon_hash,
         &first_bhh,
-        &vec![],
+        vec![],
         485,
     ));
     let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
@@ -1218,7 +1220,7 @@ fn test_classify_delegate_stx() {
         block_height_0,
         &block_hash_0,
         &first_bhh,
-        &ops_0,
+        ops_0,
         350,
     ));
 
@@ -1226,7 +1228,7 @@ fn test_classify_delegate_stx() {
         block_height_1,
         &block_hash_1,
         &block_hash_0,
-        &ops_1,
+        ops_1,
         360,
     ));
 
