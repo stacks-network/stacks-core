@@ -509,7 +509,7 @@ impl TestBurnchainBlock {
             self.block_height,
             &block_hash,
             &self.parent_snapshot.burn_header_hash,
-            &vec![],
+            vec![],
             get_epoch_time_secs(),
         );
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
@@ -581,7 +581,7 @@ impl TestBurnchainBlock {
             self.block_height,
             &block_hash,
             &self.parent_snapshot.burn_header_hash,
-            &vec![],
+            vec![],
             now,
         );
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
