@@ -625,9 +625,10 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        sortition_id TEXT NOT NULL,
-
-        PRIMARY KEY(txid,sortition_id)
+        -- The primary key here is (txid, burn_header_hash) because 
+        -- this transaction will be accepted regardless of which sortition
+        -- history it is in.
+        PRIMARY KEY(txid,burn_header_hash)
     );"#,
     r#"
     CREATE TABLE transfer_stx (
@@ -641,9 +642,10 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         transfered_ustx TEXT NOT NULL,
         memo TEXT NOT NULL,
 
-        sortition_id TEXT NOT NULL,
-
-        PRIMARY KEY(txid,sortition_id)
+        -- The primary key here is (txid, burn_header_hash) because 
+        -- this transaction will be accepted regardless of which sortition
+        -- history it is in.
+        PRIMARY KEY(txid,burn_header_hash)
     );"#,
     r#"
     CREATE TABLE missed_commits (
@@ -691,9 +693,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegated_ustx TEXT NOT NULL,
         until_burn_height INTEGER,
 
-        sortition_id TEXT NOT NULL,
-
-        PRIMARY KEY(txid,sortition_id)
+        PRIMARY KEY(txid,burn_header_Hash)
     );"#,
     r#"
     CREATE TABLE ast_rule_heights (
@@ -703,7 +703,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_burn_header_hash_pox_valid";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -727,6 +727,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_parent_burn_header_hash ON snapshots(parent_burn_header_hash,burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
+    "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -3861,7 +3862,7 @@ impl SortitionDB {
     ) -> Result<Vec<StackStxOp>, db_error> {
         query_rows(
             conn,
-            "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            "SELECT * FROM stack_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
             &[burn_header_hash],
         )
     }
@@ -3875,7 +3876,7 @@ impl SortitionDB {
     ) -> Result<Vec<DelegateStxOp>, db_error> {
         query_rows(
             conn,
-            "SELECT * FROM delegate_stx WHERE burn_header_hash = ?",
+            "SELECT * FROM delegate_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
             &[burn_header_hash],
         )
     }
@@ -3889,7 +3890,7 @@ impl SortitionDB {
     ) -> Result<Vec<TransferStxOp>, db_error> {
         query_rows(
             conn,
-            "SELECT * FROM transfer_stx WHERE burn_header_hash = ?",
+            "SELECT * FROM transfer_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
             &[burn_header_hash],
         )
     }
@@ -4716,14 +4717,14 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) stack stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_stack_stx(op, sort_id)
+                self.insert_stack_stx(op)
             }
             BlockstackOperationType::TransferStx(ref op) => {
                 info!(
                     "ACCEPTED({}) transfer stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_transfer_stx(op, sort_id)
+                self.insert_transfer_stx(op)
             }
             BlockstackOperationType::PreStx(ref op) => {
                 info!(
@@ -4738,7 +4739,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) delegate stx opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_delegate_stx(op, sort_id)
+                self.insert_delegate_stx(op)
             }
         }
     }
@@ -4771,7 +4772,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Insert a stack-stx op
-    fn insert_stack_stx(&mut self, op: &StackStxOp, sort_id: &SortitionId) -> Result<(), db_error> {
+    fn insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4781,20 +4782,15 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
-            sort_id,
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
 
     /// Insert a delegate-stx op
-    fn insert_delegate_stx(
-        &mut self,
-        op: &DelegateStxOp,
-        sort_id: &SortitionId,
-    ) -> Result<(), db_error> {
+    fn insert_delegate_stx(&mut self, op: &DelegateStxOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4805,20 +4801,15 @@ impl<'a> SortitionHandleTx<'a> {
             &serde_json::to_string(&op.reward_addr).unwrap(),
             &op.delegated_ustx.to_string(),
             &opt_u64_to_sql(op.until_burn_height)?,
-            sort_id,
         ];
 
-        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
+        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
 
     /// Insert a transfer-stx op
-    fn insert_transfer_stx(
-        &mut self,
-        op: &TransferStxOp,
-        sort_id: &SortitionId,
-    ) -> Result<(), db_error> {
+    fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4828,10 +4819,9 @@ impl<'a> SortitionHandleTx<'a> {
             &op.recipient.to_string(),
             &op.transfered_ustx.to_string(),
             &to_hex(&op.memo),
-            sort_id,
         ];
 
-        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -9569,5 +9559,179 @@ pub mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn test_load_store_burnchain_ops() {
+        let block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let fork_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000001",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+
+        let good_ops = vec![
+            BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: StacksAddress::new(1, Hash160([1u8; 20])),
+                recipient: StacksAddress::new(2, Hash160([2u8; 20])),
+                transfered_ustx: 123,
+                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+
+                txid: Txid([0x01; 32]),
+                vtxindex: 1,
+                block_height,
+                burn_header_hash: first_burn_hash.clone(),
+            }),
+            BlockstackOperationType::StackStx(StackStxOp {
+                sender: StacksAddress::new(3, Hash160([3u8; 20])),
+                reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
+                stacked_ustx: 456,
+                num_cycles: 6,
+
+                txid: Txid([0x02; 32]),
+                vtxindex: 2,
+                block_height,
+                burn_header_hash: first_burn_hash.clone(),
+            }),
+            BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
+                reward_addr: Some((
+                    123,
+                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])), None),
+                )),
+                delegated_ustx: 789,
+                until_burn_height: Some(1000),
+
+                txid: Txid([0x04; 32]),
+                vtxindex: 3,
+                block_height,
+                burn_header_hash: first_burn_hash.clone(),
+            }),
+        ];
+
+        let mut tx = db.tx_begin_at_tip();
+        for op in good_ops.iter() {
+            tx.store_burnchain_transaction(op, &SortitionId::stubbed(&first_burn_hash))
+                .unwrap();
+        }
+        tx.commit().unwrap();
+
+        let ops = SortitionDB::get_transfer_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::TransferStx(ops[0].clone()),
+            good_ops[0]
+        );
+
+        let ops = SortitionDB::get_stack_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::StackStx(ops[0].clone()),
+            good_ops[1]
+        );
+
+        let ops = SortitionDB::get_delegate_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::DelegateStx(ops[0].clone()),
+            good_ops[2]
+        );
+
+        // if the same ops get mined in a different burnchain block, they will still be available
+        let good_ops_2 = vec![
+            BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: StacksAddress::new(1, Hash160([1u8; 20])),
+                recipient: StacksAddress::new(2, Hash160([2u8; 20])),
+                transfered_ustx: 123,
+                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+
+                txid: Txid([0x01; 32]),
+                vtxindex: 1,
+                block_height,
+                burn_header_hash: fork_burn_hash.clone(),
+            }),
+            BlockstackOperationType::StackStx(StackStxOp {
+                sender: StacksAddress::new(3, Hash160([3u8; 20])),
+                reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
+                stacked_ustx: 456,
+                num_cycles: 6,
+
+                txid: Txid([0x02; 32]),
+                vtxindex: 2,
+                block_height,
+                burn_header_hash: fork_burn_hash.clone(),
+            }),
+            BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
+                reward_addr: Some((
+                    123,
+                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])), None),
+                )),
+                delegated_ustx: 789,
+                until_burn_height: Some(1000),
+
+                txid: Txid([0x04; 32]),
+                vtxindex: 3,
+                block_height,
+                burn_header_hash: fork_burn_hash.clone(),
+            }),
+        ];
+
+        let mut tx = db.tx_begin_at_tip();
+        for op in good_ops_2.iter() {
+            tx.store_burnchain_transaction(op, &SortitionId::stubbed(&fork_burn_hash))
+                .unwrap();
+        }
+        tx.commit().unwrap();
+
+        // old ones are still there
+        let ops = SortitionDB::get_transfer_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::TransferStx(ops[0].clone()),
+            good_ops[0]
+        );
+
+        let ops = SortitionDB::get_stack_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::StackStx(ops[0].clone()),
+            good_ops[1]
+        );
+
+        let ops = SortitionDB::get_delegate_stx_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::DelegateStx(ops[0].clone()),
+            good_ops[2]
+        );
+
+        // and so are the new ones
+        let ops = SortitionDB::get_transfer_stx_ops(db.conn(), &fork_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::TransferStx(ops[0].clone()),
+            good_ops_2[0]
+        );
+
+        let ops = SortitionDB::get_stack_stx_ops(db.conn(), &fork_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::StackStx(ops[0].clone()),
+            good_ops_2[1]
+        );
+
+        let ops = SortitionDB::get_delegate_stx_ops(db.conn(), &fork_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::DelegateStx(ops[0].clone()),
+            good_ops_2[2]
+        );
     }
 }
