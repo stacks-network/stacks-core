@@ -261,10 +261,16 @@ impl FunctionType {
                     Value::Principal(PrincipalData::Contract(contract)),
                 ) => {
                     let contract_to_check = db
-                        .load_contract(contract)
-                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
+                        .load_contract(contract, &StacksEpochId::Epoch2_05)
+                        .ok_or_else(|| {
+                        CheckErrors::NoSuchContract(contract.name.to_string())
+                    })?;
                     let trait_definition = db
-                        .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
+                        .get_defined_trait(
+                            &trait_id.contract_identifier,
+                            &trait_id.name,
+                            &StacksEpochId::Epoch2_05,
+                        )
                         .map_err(|_| {
                             CheckErrors::NoSuchContract(trait_id.contract_identifier.to_string())
                         })?
@@ -431,12 +437,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             ) => {
                 let contract_to_check = self
                     .db
-                    .load_contract(&contract_identifier)
+                    .load_contract(&contract_identifier, &StacksEpochId::Epoch2_05)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 let contract_defining_trait = self
                     .db
-                    .load_contract(&trait_identifier.contract_identifier)
+                    .load_contract(
+                        &trait_identifier.contract_identifier,
+                        &StacksEpochId::Epoch2_05,
+                    )
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
                     ))?;
@@ -928,6 +937,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
+                        &StacksEpochId::Epoch2_05,
                     )?;
                     match result {
                         Some(trait_sig) => {

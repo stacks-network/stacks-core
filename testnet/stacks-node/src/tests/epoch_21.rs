@@ -4679,6 +4679,221 @@ fn test_sortition_divergence_pre_21() {
     }
 }
 
+#[test]
+#[ignore]
+/// test to verify that a 2.05 contract which use a pre-2.1 trait
+///  can be invoked by a post-2.1 contract through *static* and *dynamic* invocation
+fn trait_invocation_cross_epoch() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = PrincipalData::from(to_addr(&spender_sk));
+    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+
+    let trait_contract = "(define-trait simple-method ((foo (uint) (response uint uint)) ))";
+    let impl_contract =
+        "(impl-trait .simple-trait.simple-method) (define-read-only (foo (x uint)) (ok x))";
+    let use_contract = "(use-trait simple .simple-trait.simple-method)
+                        (define-public (call-simple (s <simple>)) (contract-call? s foo u0))";
+    let invoke_contract = "
+        (use-trait simple .simple-trait.simple-method)
+        (define-public (invocation-1)
+          (contract-call? .use-simple call-simple .impl-simple))
+        (define-public (invocation-2 (st <simple>))
+          (contract-call? .use-simple call-simple st))
+    ";
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    test_observer::spawn();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    let mut initial_balances = vec![InitialBalance {
+        address: spender_addr.clone(),
+        amount: 200_000_000,
+    }];
+    conf.initial_balances.append(&mut initial_balances);
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+    conf.burnchain.epochs = Some(epochs);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let reward_cycle_len = 2000;
+    let prepare_phase_len = 100;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+        u32::max_value(),
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    // bitcoin chain starts at epoch 2.05 boundary
+    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 5);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let runloop_burnchain = burnchain_config.clone();
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // cross the epoch 2.05 boundary
+    for _i in 0..3 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_05 + 1);
+
+    let tx = make_contract_publish(&spender_sk, 0, 10_000, "simple-trait", trait_contract);
+    let trait_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_publish(&spender_sk, 1, 10_000, "impl-simple", impl_contract);
+    let impl_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_publish(&spender_sk, 2, 10_000, "use-simple", use_contract);
+    let use_txid = submit_tx(&http_origin, &tx);
+
+    // mine the transactions and advance to epoch 2.1
+    for _ in 0..5 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_1 + 1);
+
+    let tx = make_contract_publish(&spender_sk, 3, 10_000, "invoke-simple", invoke_contract);
+    let invoke_txid = submit_tx(&http_origin, &tx);
+
+    for _ in 0..2 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tx = make_contract_call(
+        &spender_sk,
+        4,
+        10_000,
+        &spender_addr_c32,
+        "invoke-simple",
+        "invocation-1",
+        &[],
+    );
+    let invoke_1_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        5,
+        10_000,
+        &spender_addr_c32,
+        "invoke-simple",
+        "invocation-2",
+        &[Value::Principal(PrincipalData::Contract(
+            QualifiedContractIdentifier::parse(&format!("{}.{}", &spender_addr_c32, "impl-simple"))
+                .unwrap(),
+        ))],
+    );
+    let invoke_2_txid = submit_tx(&http_origin, &tx);
+
+    for _ in 0..2 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let interesting_txids = vec![
+        invoke_txid.clone(),
+        invoke_1_txid.clone(),
+        invoke_2_txid.clone(),
+        use_txid.clone(),
+        impl_txid.clone(),
+        trait_txid.clone(),
+    ];
+
+    let blocks = test_observer::get_blocks();
+    let mut results = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if interesting_txids.contains(&parsed.txid().to_string()) {
+                eprintln!(
+                    "{} => {}",
+                    parsed.txid(),
+                    tx.get("status").unwrap().as_str().unwrap()
+                );
+                results.push(tx.get("status").unwrap().as_str().unwrap().to_string());
+                eprintln!(
+                    "{} => {}",
+                    parsed.txid(),
+                    tx.get("raw_result").unwrap().as_str().unwrap()
+                );
+            }
+        }
+    }
+
+    assert_eq!(results.len(), 6);
+
+    for result in results.iter() {
+        assert_eq!(result, "success");
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
 /*
 #[test]
 #[ignore]
