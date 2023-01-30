@@ -196,7 +196,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Returns Some(node) if the open node is finished and should be popped from the stack
+    /// Process a new child node for an AST expression that is open and waiting for children nodes. For example,
+    ///  a list or tuple expression that is waiting for child expressions.
+    ///
+    /// Returns Some(node) if the open node is finished and should be popped from the stack.
+    /// Returns None if the open node is not finished and should remain on the parser stack.
     fn handle_open_node(
         &mut self,
         open_node: &mut ParserStackElement,
@@ -796,8 +800,11 @@ impl<'a> Parser<'a> {
     /// Returns some valid expression. When None is returned, check the current
     /// token from the caller.
     pub fn parse_node(&mut self) -> ParseResult<Option<PreSymbolicExpression>> {
+        // `parse_stack` stores information about any nodes which may contain interior AST nodes.
+        // because even though this function only returns a single node, that single node may contain others.
         let mut parse_stack = vec![];
         let mut first_run = true;
+        // do-while loop until there are no more nodes waiting for children nodes
         while first_run || !parse_stack.is_empty() {
             first_run = false;
 
@@ -819,13 +826,12 @@ impl<'a> Parser<'a> {
                                 self.skip_to_end();
                                 return Ok(None);
                             }
+                            // open the list on the parse_stack, and then continue to the next token
                             parse_stack.push(ParserStackElement::OpenList {
                                 nodes: vec![],
                                 span: token.span.clone(),
                                 whitespace: true,
                             });
-                            //                let list = self.parse_list(token)?;
-                            // open the list on the parse_stack, and then continue to the next token
                             continue;
                         }
                         Token::Lbrace => {
@@ -1012,6 +1018,10 @@ impl<'a> Parser<'a> {
                 }
             };
 
+            // Here we check if we have any open nodes (tuples or lists) that `node`
+            //  should be a component of. If so, add `node` to the open one and then iterate
+            // If there are no open nodes, then return `node` immediately.
+
             let mut new_node_received = true;
             while new_node_received {
                 new_node_received = false;
@@ -1038,6 +1048,9 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // This should be unreachable -- the loop only exits if there are no open tuples or lists,
+        //  but the last line of the loop also checks if there are no open tuples or lists and if not,
+        //  returns the node.
         Ok(None)
     }
 
