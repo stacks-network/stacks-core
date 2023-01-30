@@ -751,4 +751,33 @@ mod tests {
         assert_eq!(&init.to_hex_be(), hex_init);
         assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);
     }
+
+    #[test]
+    pub fn uint_increment_test() {
+        let mut value = Uint256([0xffffffffffffffff, 0, 0, 0]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 1, 0, 0]));
+
+        value = Uint256([0xffffffffffffffff, 0xffffffffffffffff, 0, 0]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 1, 0]));
+
+        value = Uint256([
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0,
+        ]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 0, 1]));
+
+        value = Uint256([
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+        ]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 0, 0]));
+    }
 }
