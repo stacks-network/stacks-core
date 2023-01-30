@@ -10731,8 +10731,10 @@ fn microblock_miner_multiple_attempts() {
 fn test_submit_and_observe_peg_in_request() {
     let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
     let receiver_contract_name = ContractName::from("awesome_contract");
-    let receiver_contract_principal: PrincipalData = QualifiedContractIdentifier::new(receiver_stx_addr.into(), receiver_contract_name).into();
-    let receiver_standard_principal: PrincipalData = StandardPrincipalData::from(receiver_stx_addr).into();
+    let receiver_contract_principal: PrincipalData =
+        QualifiedContractIdentifier::new(receiver_stx_addr.into(), receiver_contract_name).into();
+    let receiver_standard_principal: PrincipalData =
+        StandardPrincipalData::from(receiver_stx_addr).into();
 
     let peg_wallet_address =
         address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
@@ -10799,7 +10801,6 @@ fn test_submit_and_observe_peg_in_request() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     assert!(
         btc_regtest_controller
@@ -10850,14 +10851,20 @@ fn test_submit_and_observe_peg_in_request() {
         ops.into_iter().next().unwrap()
     };
 
-    assert_eq!(parsed_peg_in_op_standard.recipient, peg_in_op_standard.recipient);
+    assert_eq!(
+        parsed_peg_in_op_standard.recipient,
+        peg_in_op_standard.recipient
+    );
     assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
     assert_eq!(
         parsed_peg_in_op_standard.peg_wallet_address,
         peg_in_op_standard.peg_wallet_address
     );
 
-    assert_eq!(parsed_peg_in_op_contract.recipient, peg_in_op_contract.recipient);
+    assert_eq!(
+        parsed_peg_in_op_contract.recipient,
+        peg_in_op_contract.recipient
+    );
     assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
     assert_eq!(
         parsed_peg_in_op_contract.peg_wallet_address,
