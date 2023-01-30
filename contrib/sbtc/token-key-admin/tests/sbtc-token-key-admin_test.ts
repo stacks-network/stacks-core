@@ -433,6 +433,10 @@ Clarinet.test({
 
         balance.result.expectOk().expectUint(1230);
 
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
+
+        balance.result.expectOk().expectUint(4);
+
         block = chain.mineBlock([
             Tx.contractCall("sbtc-token-key-admin", "set-trading-halted", [types.bool(true)], deployer.address),
         ]);
@@ -449,5 +453,9 @@ Clarinet.test({
         balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
 
         balance.result.expectOk().expectUint(1230);
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
+
+        balance.result.expectOk().expectUint(4);
     },
 });
