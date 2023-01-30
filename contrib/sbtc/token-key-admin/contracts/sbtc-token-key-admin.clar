@@ -100,16 +100,18 @@
     )
 )
 
-(define-public (mint! (amount uint) (memo (string-ascii 72)))
+(define-public (mint! (amount uint) (peg-in-txid (string-ascii 72)))
     (begin
         (asserts! (is-coordinator) (err err-invalid-caller))
+        (print peg-in-txid)
         (ft-mint? sbtc amount tx-sender)
     )
 )
 
-(define-public (burn! (amount uint) (memo (string-ascii 72)))
+(define-public (burn! (amount uint) (peg-out-txid (string-ascii 72)))
     (begin
         (asserts! (is-coordinator) (err err-invalid-caller))
+        (print peg-out-txid)
         (ft-burn? sbtc amount tx-sender)
     )
 )
