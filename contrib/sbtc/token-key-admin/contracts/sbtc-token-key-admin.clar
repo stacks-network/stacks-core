@@ -121,7 +121,7 @@
 		(asserts! (is-eq tx-sender sender) (err err-not-token-owner))
 		(asserts! (is-eq (var-get trading-halted) false) (err err-trading-halted))
 		(try! (ft-transfer? sbtc amount sender recipient))
-;;		(match memo to-print (print to-print) 0x)
+		(match memo to-print (print to-print) 0x)
 		(ok true)
 	)
 )
