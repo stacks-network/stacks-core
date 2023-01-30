@@ -55,7 +55,7 @@ struct OpenTuple {
     /// Is the next node is expected to be a key or value? All of the preparatory work is done _before_ the parse loop tries to digest the next
     /// node (i.e., whitespace ingestion and checking for commas)
     expects: OpenTupleStatus,
-    /// This is the last peaked token before trying to parse a key or value node, used for
+    /// This is the last peeked token before trying to parse a key or value node, used for
     ///  diagnostic reporting
     diagnostic_token: PlacedToken,
 }
