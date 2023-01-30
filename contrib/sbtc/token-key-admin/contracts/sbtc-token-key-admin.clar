@@ -17,6 +17,7 @@
 (define-constant err-invalid-caller u1)
 (define-constant err-invalid-signer-id u2)
 (define-constant err-not-token-owner u3)
+(define-constant err-trading-halted u4)
 
 ;; data vars
 ;;
@@ -26,6 +27,7 @@
 (define-data-var num-parties uint u4000)
 (define-data-var threshold uint u2800)
 (define-data-var bitcoin-wallet-address (optional (string-ascii 72)) none)
+(define-data-var trading-halted bool false)
 
 ;; data maps
 ;;
@@ -68,6 +70,13 @@
     )
 )
 
+(define-public (set-trading-halted (b bool))
+    (begin
+        (asserts! (is-coordinator) (err err-invalid-caller))
+        (ok (var-set trading-halted b))
+    )
+)
+
 (define-public (set-signer-data (id uint) (data {addr: principal, key: (buff 33)}))
     (begin
         (asserts! (is-contract-owner) (err err-invalid-caller))
@@ -91,14 +100,14 @@
     )
 )
 
-(define-public (mint! (amount uint))
+(define-public (mint! (amount uint) (memo (string-ascii 72)))
     (begin
         (asserts! (is-coordinator) (err err-invalid-caller))
         (ft-mint? sbtc amount tx-sender)
     )
 )
 
-(define-public (burn! (amount uint))
+(define-public (burn! (amount uint) (memo (string-ascii 72)))
     (begin
         (asserts! (is-coordinator) (err err-invalid-caller))
         (ft-burn? sbtc amount tx-sender)
@@ -108,8 +117,9 @@
 (define-public (transfer (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))))
 	(begin
 		(asserts! (is-eq tx-sender sender) (err err-not-token-owner))
+		(asserts! (is-eq (var-get trading-halted) false) (err err-trading-halted))
 		(try! (ft-transfer? sbtc amount sender recipient))
-		(match memo to-print (print to-print) 0x)
+;;		(match memo to-print (print to-print) 0x)
 		(ok true)
 	)
 )
@@ -130,6 +140,10 @@
 
 (define-read-only (get-threshold)
     (var-get threshold)
+)
+
+(define-read-only (get-trading-halted)
+    (var-get trading-halted)
 )
 
 (define-read-only (get-bitcoin-wallet-address)
