@@ -37,6 +37,38 @@ pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
 pub const MAX_NESTING_DEPTH: u64 = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1;
 
+enum OpenTupleStatus {
+    /// The next thing to parse is a key
+    ParseKey,
+    /// The next thing to parse is a value
+    ParseValue,
+}
+
+enum SetupTupleResult {
+    OpenTuple(OpenTuple),
+    Closed(PreSymbolicExpression),
+}
+
+struct OpenTuple {
+    nodes: Vec<PreSymbolicExpression>,
+    span: Span,
+    /// Is the next node is expected to be a key or value? All of the preparatory work is done _before_ the parse loop tries to digest the next
+    /// node (i.e., whitespace ingestion and checking for commas)
+    expects: OpenTupleStatus,
+    /// This is the last peaked token before trying to parse a key or value node, used for
+    ///  diagnostic reporting
+    diagnostic_token: PlacedToken,
+}
+
+enum ParserStackElement {
+    OpenList {
+        nodes: Vec<PreSymbolicExpression>,
+        span: Span,
+        whitespace: bool,
+    },
+    OpenTuple(OpenTuple),
+}
+
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrors> {
         let lexer = match Lexer::new(input, fail_fast) {
@@ -164,189 +196,313 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_list(&mut self, lparen: PlacedToken) -> ParseResult<PreSymbolicExpression> {
-        let mut nodes = vec![];
-        let mut span = lparen.span.clone();
-        let mut whitespace = true;
-        loop {
-            if let Some(node) = self.parse_node()? {
-                if !whitespace && !node.match_comment().is_some() {
-                    self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span.clone())?;
+    /// Returns Some(node) if the open node is finished and should be popped from the stack
+    fn handle_open_node(
+        &mut self,
+        open_node: &mut ParserStackElement,
+        node_opt: Option<PreSymbolicExpression>,
+    ) -> ParseResult<Option<PreSymbolicExpression>> {
+        match open_node {
+            ParserStackElement::OpenList {
+                ref mut nodes,
+                ref mut span,
+                ref mut whitespace,
+            } => {
+                if let Some(node) = node_opt {
+                    if !*whitespace && !node.match_comment().is_some() {
+                        self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span.clone())?;
+                    }
+                    nodes.push(node);
+                    *whitespace = self.ignore_whitespace();
+                    Ok(None)
+                } else {
+                    let token = self.tokens[self.next_token - 1].clone();
+                    match token.token {
+                        Token::Rparen => {
+                            span.end_line = token.span.end_line;
+                            span.end_column = token.span.end_column;
+                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
+                            e.span = span.clone();
+                            Ok(Some(e))
+                        }
+                        Token::Eof => {
+                            // Report an error, but return the list and attempt to continue parsing
+                            self.add_diagnostic(
+                                ParseErrors::ExpectedClosing(Token::Rparen),
+                                token.span.clone(),
+                            )?;
+                            self.add_diagnostic(
+                                ParseErrors::NoteToMatchThis(Token::Lparen),
+                                span.clone(),
+                            )?;
+                            span.end_line = token.span.end_line;
+                            span.end_column = token.span.end_column;
+                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
+                            e.span = span.clone();
+                            Ok(Some(e))
+                        }
+                        _ => {
+                            // Report an error, then skip this token
+                            self.add_diagnostic(
+                                ParseErrors::UnexpectedToken(token.token.clone()),
+                                token.span.clone(),
+                            )?;
+                            *whitespace = self.ignore_whitespace();
+                            Ok(None)
+                        }
+                    }
                 }
-                nodes.push(node);
-                whitespace = self.ignore_whitespace();
-            } else {
-                let token = self.tokens[self.next_token - 1].clone();
-                match token.token {
-                    Token::Rparen => {
-                        span.end_line = token.span.end_line;
-                        span.end_column = token.span.end_column;
-                        let mut e = PreSymbolicExpression::list(nodes.into_boxed_slice());
-                        e.span = span;
-                        return Ok(e);
-                    }
-                    Token::Eof => {
-                        // Report an error, but return the list and attempt to continue parsing
-                        self.add_diagnostic(
-                            ParseErrors::ExpectedClosing(Token::Rparen),
-                            token.span.clone(),
-                        )?;
-                        self.add_diagnostic(
-                            ParseErrors::NoteToMatchThis(lparen.token),
-                            lparen.span.clone(),
-                        )?;
-                        span.end_line = token.span.end_line;
-                        span.end_column = token.span.end_column;
-                        let mut e = PreSymbolicExpression::list(nodes.into_boxed_slice());
-                        e.span = span;
-                        return Ok(e);
-                    }
-                    _ => {
-                        // Report an error, then skip this token
-                        self.add_diagnostic(
-                            ParseErrors::UnexpectedToken(token.token.clone()),
-                            token.span.clone(),
-                        )?;
-                        whitespace = self.ignore_whitespace();
-                    }
-                };
+            }
+            ParserStackElement::OpenTuple(ref mut open_tuple) => {
+                self.handle_open_tuple(open_tuple, node_opt)
             }
         }
     }
 
-    fn parse_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<PreSymbolicExpression> {
-        let mut nodes = vec![];
-        let mut span = lbrace.span.clone();
-        let mut first = true;
-
-        loop {
-            let mut comments = self.ignore_whitespace_and_comments();
-            nodes.append(&mut comments);
-
-            let token = self.peek_next_token();
-            match token.token {
-                Token::Comma => {
-                    if first {
-                        self.add_diagnostic(
-                            ParseErrors::UnexpectedToken(token.token),
-                            token.span.clone(),
-                        )?;
+    fn handle_open_tuple(
+        &mut self,
+        open_tuple: &mut OpenTuple,
+        node_opt: Option<PreSymbolicExpression>,
+    ) -> ParseResult<Option<PreSymbolicExpression>> {
+        match &open_tuple.expects {
+            OpenTupleStatus::ParseKey => {
+                // expecting to parse a key
+                let node = match node_opt {
+                    Some(node) => node,
+                    None => {
+                        // mimic parse_node_or_eof() behavior
+                        //  if last token was an EOF, error out the tuple
+                        //  if the last token was something else, just yield back to the parse loop
+                        let last_token = self.tokens[self.next_token - 1].clone();
+                        match last_token.token {
+                            Token::Eof => {
+                                self.add_diagnostic(
+                                    ParseErrors::ExpectedClosing(Token::Rbrace),
+                                    open_tuple.diagnostic_token.span.clone(),
+                                )?;
+                                self.add_diagnostic(
+                                    ParseErrors::NoteToMatchThis(Token::Lbrace),
+                                    open_tuple.span.clone(),
+                                )?;
+                                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                                let mut e =
+                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
+                                open_tuple.span.end_line = span_before_eof.end_line;
+                                open_tuple.span.end_column = span_before_eof.end_column;
+                                e.span = open_tuple.span.clone();
+                                return Ok(Some(e));
+                            }
+                            _ => {
+                                // Report an error, then skip this token
+                                self.add_diagnostic(
+                                    ParseErrors::UnexpectedToken(last_token.token),
+                                    last_token.span,
+                                )?;
+                                return Ok(None); // Ok(None) yields to the parse loop
+                            }
+                        }
                     }
-                    self.next_token();
+                };
+                open_tuple.nodes.push(node);
+                // added key to the nodes list, now do all preprocessing to prepare to parse
+                // the value node
+                let mut comments = self.ignore_whitespace_and_comments();
+                open_tuple.nodes.append(&mut comments);
+
+                // Look for ':'
+                let token = self.peek_next_token();
+                match token.token {
+                    Token::Colon => {
+                        self.next_token();
+                    }
+                    Token::Eof => {
+                        // This indicates we have reached the end of the input.
+                        // Create a placeholder value so that parsing can continue,
+                        // then return.
+                        self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
+                        let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
+                        placeholder.span = token.span.clone();
+                        open_tuple.nodes.push(placeholder); // Placeholder value
+                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
+                        open_tuple.span.end_line = span_before_eof.end_line;
+                        open_tuple.span.end_column = span_before_eof.end_column;
+                        e.span = open_tuple.span.clone();
+                        return Ok(Some(e));
+                    }
+                    _ => {
+                        // Record an error, then continue to parse
+                        self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
+                    }
                 }
-                Token::Rbrace => {
-                    span.end_line = token.span.end_line;
-                    span.end_column = token.span.end_column;
-                    self.next_token();
-                    let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
-                    e.span = span;
-                    return Ok(e);
-                }
-                Token::Eof => (),
-                _ if !first => {
-                    self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span.clone())?
-                }
-                _ => (),
+                open_tuple.diagnostic_token = token;
+
+                let mut comments = self.ignore_whitespace_and_comments();
+                open_tuple.nodes.append(&mut comments);
+
+                open_tuple.expects = OpenTupleStatus::ParseValue;
+                Ok(None)
             }
+            OpenTupleStatus::ParseValue => {
+                // expecting to parse a value
+                let node = match node_opt {
+                    Some(node) => node,
+                    None => {
+                        // mimic parse_node_or_eof() behavior
+                        //  if last token was an EOF, error out the tuple
+                        //  if the last token was something else, just yield back to the parse loop
+                        let last_token = self.tokens[self.next_token - 1].clone();
+                        match last_token.token {
+                            Token::Eof => {
+                                // This indicates we have reached the end of the input.
+                                // Create a placeholder value so that parsing can continue,
+                                // then return.
+                                let eof_span = last_token.span.clone();
 
-            let mut comments = self.ignore_whitespace_and_comments();
-            nodes.append(&mut comments);
+                                self.add_diagnostic(
+                                    ParseErrors::TupleValueExpected,
+                                    open_tuple.diagnostic_token.span.clone(),
+                                )?;
+                                let mut placeholder =
+                                    PreSymbolicExpression::placeholder("".to_string());
+                                placeholder.span = eof_span;
+                                open_tuple.nodes.push(placeholder); // Placeholder value
+                                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                                let mut e =
+                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                open_tuple.span.end_line =
+                                    open_tuple.diagnostic_token.span.end_line;
+                                open_tuple.span.end_column =
+                                    open_tuple.diagnostic_token.span.end_column;
+                                e.span = open_tuple.span.clone();
+                                return Ok(Some(e));
+                            }
+                            _ => {
+                                // Report an error, then skip this token
+                                self.add_diagnostic(
+                                    ParseErrors::UnexpectedToken(last_token.token),
+                                    last_token.span,
+                                )?;
+                                return Ok(None); // Ok(None) yields to the parse loop
+                            }
+                        }
+                    }
+                };
+                open_tuple.nodes.push(node);
 
-            // A comma is allowed after the last pair in the tuple -- check for this case.
-            let token = self.peek_next_token();
-            match token.token {
-                Token::Rbrace => {
-                    span.end_line = token.span.end_line;
-                    span.end_column = token.span.end_column;
-                    self.next_token();
-                    let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
-                    e.span = span;
-                    return Ok(e);
+                // now do all preprocessing to prepare to parse a key node
+                let mut comments = self.ignore_whitespace_and_comments();
+                open_tuple.nodes.append(&mut comments);
+
+                let token = self.peek_next_token();
+                match token.token {
+                    Token::Comma => {
+                        self.next_token();
+                    }
+                    Token::Rbrace => {
+                        open_tuple.span.end_line = token.span.end_line;
+                        open_tuple.span.end_column = token.span.end_column;
+                        self.next_token();
+                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        e.span = open_tuple.span.clone();
+                        return Ok(Some(e));
+                    }
+                    Token::Eof => (),
+                    _ => {
+                        self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span.clone())?
+                    }
                 }
-                _ => (),
+
+                let mut comments = self.ignore_whitespace_and_comments();
+                open_tuple.nodes.append(&mut comments);
+
+                // A comma is allowed after the last pair in the tuple -- check for this case.
+                let token = self.peek_next_token();
+                match token.token {
+                    Token::Rbrace => {
+                        open_tuple.span.end_line = token.span.end_line;
+                        open_tuple.span.end_column = token.span.end_column;
+                        self.next_token();
+                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        e.span = open_tuple.span.clone();
+                        return Ok(Some(e));
+                    }
+                    _ => (),
+                }
+                open_tuple.diagnostic_token = token;
+
+                let mut comments = self.ignore_whitespace_and_comments();
+                open_tuple.nodes.append(&mut comments);
+
+                open_tuple.expects = OpenTupleStatus::ParseKey;
+                Ok(None)
             }
-
-            let mut comments = self.ignore_whitespace_and_comments();
-            nodes.append(&mut comments);
-
-            // Parse key
-            let node = match self.parse_node_or_eof()? {
-                Some(node) => node,
-                None => {
-                    self.add_diagnostic(
-                        ParseErrors::ExpectedClosing(Token::Rbrace),
-                        token.span.clone(),
-                    )?;
-                    self.add_diagnostic(
-                        ParseErrors::NoteToMatchThis(lbrace.token),
-                        lbrace.span.clone(),
-                    )?;
-                    let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
-                    let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
-                    span.end_line = span_before_eof.end_line;
-                    span.end_column = span_before_eof.end_column;
-                    e.span = span;
-                    return Ok(e);
-                }
-            };
-            nodes.push(node);
-
-            let mut comments = self.ignore_whitespace_and_comments();
-            nodes.append(&mut comments);
-
-            // Look for ':'
-            let token = self.peek_next_token();
-            match token.token {
-                Token::Colon => {
-                    self.next_token();
-                }
-                Token::Eof => {
-                    // This indicates we have reached the end of the input.
-                    // Create a placeholder value so that parsing can continue,
-                    // then return.
-                    self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
-                    let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
-                    placeholder.span = token.span.clone();
-                    nodes.push(placeholder); // Placeholder value
-                    let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
-                    let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
-                    span.end_line = span_before_eof.end_line;
-                    span.end_column = span_before_eof.end_column;
-                    e.span = span;
-                    return Ok(e);
-                }
-                _ => {
-                    // Record an error, then continue to parse
-                    self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
-                }
-            }
-
-            let mut comments = self.ignore_whitespace_and_comments();
-            nodes.append(&mut comments);
-
-            // Parse value
-            let node = match self.parse_node_or_eof()? {
-                Some(node) => node,
-                None => {
-                    // This indicates we have reached the end of the input.
-                    // Create a placeholder value so that parsing can continue,
-                    // then return.
-                    let eof_span = self.tokens[self.next_token - 1].span.clone();
-                    self.add_diagnostic(ParseErrors::TupleValueExpected, token.span.clone())?;
-                    let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
-                    placeholder.span = eof_span;
-                    nodes.push(placeholder); // Placeholder value
-                    let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
-                    span.end_line = token.span.end_line;
-                    span.end_column = token.span.end_column;
-                    e.span = span;
-                    return Ok(e);
-                }
-            };
-            nodes.push(node);
-
-            first = false;
         }
+    }
+
+    /// Do all the preprocessing required to setup tuple parsing. If the tuple immediately
+    /// closes, return the final expression here, otherwise, return OpenTuple.
+    fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
+        let mut open_tuple = OpenTuple {
+            nodes: vec![],
+            span: lbrace.span.clone(),
+            expects: OpenTupleStatus::ParseKey,
+            diagnostic_token: self.peek_next_token(),
+        };
+
+        // do all the preprocessing required before the first key node
+        let mut comments = self.ignore_whitespace_and_comments();
+        open_tuple.nodes.append(&mut comments);
+        let token = self.peek_next_token();
+        match token.token {
+            Token::Comma => {
+                self.add_diagnostic(
+                    ParseErrors::UnexpectedToken(token.token),
+                    token.span.clone(),
+                )?;
+                self.next_token();
+            }
+            Token::Rbrace => {
+                open_tuple.span.end_line = token.span.end_line;
+                open_tuple.span.end_column = token.span.end_column;
+                self.next_token();
+                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                e.span = open_tuple.span.clone();
+                return Ok(SetupTupleResult::Closed(e));
+            }
+            _ => (),
+        };
+
+        let mut comments = self.ignore_whitespace_and_comments();
+        open_tuple.nodes.append(&mut comments);
+
+        // A comma is allowed after the last pair in the tuple -- check for this case.
+        let token = self.peek_next_token();
+        match token.token {
+            Token::Rbrace => {
+                open_tuple.span.end_line = token.span.end_line;
+                open_tuple.span.end_column = token.span.end_column;
+                self.next_token();
+                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                e.span = open_tuple.span.clone();
+                return Ok(SetupTupleResult::Closed(e));
+            }
+            _ => (),
+        }
+        open_tuple.diagnostic_token = token;
+
+        let mut comments = self.ignore_whitespace_and_comments();
+        open_tuple.nodes.append(&mut comments);
+
+        Ok(SetupTupleResult::OpenTuple(open_tuple))
     }
 
     fn read_principal(
@@ -640,195 +796,249 @@ impl<'a> Parser<'a> {
     /// Returns some valid expression. When None is returned, check the current
     /// token from the caller.
     pub fn parse_node(&mut self) -> ParseResult<Option<PreSymbolicExpression>> {
-        self.ignore_whitespace();
-        let token = self.next_token();
-        if token.is_none() {
-            return Ok(None);
-        }
-        let token = token.unwrap();
-        let node = match &token.token {
-            Token::Lparen => {
-                self.nesting_depth += 1;
-                if self.nesting_depth > MAX_NESTING_DEPTH {
-                    self.add_diagnostic(
-                        ParseErrors::ExpressionStackDepthTooDeep,
-                        token.span.clone(),
-                    )?;
-                    // Do not try to continue, exit cleanly now to avoid a stack overflow.
-                    self.skip_to_end();
-                    return Ok(None);
-                }
-                let list = self.parse_list(token)?;
-                self.nesting_depth -= 1;
-                Some(list)
-            }
-            Token::Lbrace => {
-                // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
-                self.nesting_depth += 2;
-                if self.nesting_depth > MAX_NESTING_DEPTH {
-                    self.add_diagnostic(
-                        ParseErrors::ExpressionStackDepthTooDeep,
-                        token.span.clone(),
-                    )?;
-                    // Do not try to continue, exit cleanly now to avoid a stack overflow.
-                    self.skip_to_end();
-                    return Ok(None);
-                }
-                let tuple = self.parse_tuple(token)?;
-                self.nesting_depth -= 2;
-                Some(tuple)
-            }
-            Token::Int(val_string) => {
-                let mut expr = match val_string.parse::<i128>() {
-                    Ok(val) => PreSymbolicExpression::atom_value(Value::Int(val)),
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::FailedParsingIntValue(val_string.clone()),
-                            token.span.clone(),
-                        )?;
-                        PreSymbolicExpression::placeholder(token.token.reproduce())
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::Uint(val_string) => {
-                let mut expr = match val_string.parse::<u128>() {
-                    Ok(val) => PreSymbolicExpression::atom_value(Value::UInt(val)),
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::FailedParsingUIntValue(val_string.clone()),
-                            token.span.clone(),
-                        )?;
-                        PreSymbolicExpression::placeholder(token.token.reproduce())
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::AsciiString(val) => {
-                let mut expr = match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
-                    Ok(s) => PreSymbolicExpression::atom_value(s),
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::IllegalASCIIString(val.clone()),
-                            token.span.clone(),
-                        )?;
-                        PreSymbolicExpression::placeholder(token.token.reproduce())
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::Utf8String(s) => {
-                let mut data: Vec<Vec<u8>> = Vec::new();
-                for ch in s.chars() {
-                    let mut bytes = vec![0; ch.len_utf8()];
-                    ch.encode_utf8(&mut bytes);
-                    data.push(bytes);
-                }
-                let val = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data })));
-                let mut expr = PreSymbolicExpression::atom_value(val);
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::Ident(name) => {
-                let mut expr = if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(
-                        ParseErrors::NameTooLong(name.clone()),
-                        token.span.clone(),
-                    )?;
-                    PreSymbolicExpression::placeholder(token.token.reproduce())
-                } else {
-                    match ClarityName::try_from(name.clone()) {
-                        Ok(name) => PreSymbolicExpression::atom(name),
-                        Err(_) => {
-                            self.add_diagnostic(
-                                ParseErrors::IllegalClarityName(name.clone()),
-                                token.span.clone(),
-                            )?;
-                            PreSymbolicExpression::placeholder(token.token.reproduce())
-                        }
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::TraitIdent(name) => {
-                let mut expr = if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(
-                        ParseErrors::NameTooLong(name.clone()),
-                        token.span.clone(),
-                    )?;
-                    PreSymbolicExpression::placeholder(token.token.reproduce())
-                } else {
-                    match ClarityName::try_from(name.clone()) {
-                        Ok(name) => PreSymbolicExpression::trait_reference(name),
-                        Err(_) => {
-                            self.add_diagnostic(
-                                ParseErrors::IllegalTraitName(name.clone()),
-                                token.span.clone(),
-                            )?;
-                            PreSymbolicExpression::placeholder(token.token.reproduce())
-                        }
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::Bytes(data) => {
-                let mut expr = match hex_bytes(data) {
-                    Ok(bytes) => match Value::buff_from(bytes) {
-                        Ok(value) => PreSymbolicExpression::atom_value(value),
-                        _ => {
-                            self.add_diagnostic(ParseErrors::InvalidBuffer, token.span.clone())?;
-                            PreSymbolicExpression::placeholder(token.token.reproduce())
-                        }
-                    },
-                    Err(_) => {
-                        self.add_diagnostic(ParseErrors::InvalidBuffer, token.span.clone())?;
-                        PreSymbolicExpression::placeholder(token.token.reproduce())
-                    }
-                };
-                expr.span = token.span;
-                Some(expr)
-            }
-            Token::Principal(addr) => {
-                let expr = self.read_principal(addr.clone(), token.span.clone())?;
-                Some(expr)
-            }
-            Token::Dot => {
-                let expr = self.read_sugared_principal(token.span.clone())?;
-                Some(expr)
-            }
-            Token::Plus
-            | Token::Minus
-            | Token::Multiply
-            | Token::Divide
-            | Token::Less
-            | Token::LessEqual
-            | Token::Greater
-            | Token::GreaterEqual => {
-                let name = ClarityName::try_from(token.token.to_string()).unwrap();
-                let mut e = PreSymbolicExpression::atom(name);
-                e.span = token.span;
-                Some(e)
-            }
-            Token::Placeholder(s) => {
-                let mut e = PreSymbolicExpression::placeholder(s.to_string());
-                e.span = token.span;
-                Some(e)
-            }
-            Token::Comment(comment) => {
-                let mut e = PreSymbolicExpression::comment(comment.to_string());
-                e.span = token.span;
-                Some(e)
-            }
-            Token::Eof => None,
-            _ => None, // Other tokens should be dealt with by the caller
-        };
+        let mut parse_stack = vec![];
+        let mut first_run = true;
+        while first_run || !parse_stack.is_empty() {
+            first_run = false;
 
-        Ok(node)
+            self.ignore_whitespace();
+            let token_opt = self.next_token();
+
+            let mut node = match token_opt {
+                None => None,
+                Some(token) => {
+                    match &token.token {
+                        Token::Lparen => {
+                            self.nesting_depth += 1;
+                            if self.nesting_depth > MAX_NESTING_DEPTH {
+                                self.add_diagnostic(
+                                    ParseErrors::ExpressionStackDepthTooDeep,
+                                    token.span.clone(),
+                                )?;
+                                // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                                self.skip_to_end();
+                                return Ok(None);
+                            }
+                            parse_stack.push(ParserStackElement::OpenList {
+                                nodes: vec![],
+                                span: token.span.clone(),
+                                whitespace: true,
+                            });
+                            //                let list = self.parse_list(token)?;
+                            // open the list on the parse_stack, and then continue to the next token
+                            continue;
+                        }
+                        Token::Lbrace => {
+                            // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
+                            if self.nesting_depth + 2 > MAX_NESTING_DEPTH {
+                                self.add_diagnostic(
+                                    ParseErrors::ExpressionStackDepthTooDeep,
+                                    token.span.clone(),
+                                )?;
+                                // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                                self.skip_to_end();
+                                return Ok(None);
+                            }
+
+                            match self.open_tuple(token)? {
+                                SetupTupleResult::OpenTuple(open_tuple) => {
+                                    self.nesting_depth += 2;
+                                    parse_stack.push(ParserStackElement::OpenTuple(open_tuple));
+                                    // open the tuple on the parse_stack, and then continue to the next token
+                                    continue;
+                                }
+                                SetupTupleResult::Closed(closed_tuple) => Some(closed_tuple),
+                            }
+                        }
+                        Token::Int(val_string) => {
+                            let mut expr = match val_string.parse::<i128>() {
+                                Ok(val) => PreSymbolicExpression::atom_value(Value::Int(val)),
+                                Err(_) => {
+                                    self.add_diagnostic(
+                                        ParseErrors::FailedParsingIntValue(val_string.clone()),
+                                        token.span.clone(),
+                                    )?;
+                                    PreSymbolicExpression::placeholder(token.token.reproduce())
+                                }
+                            };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::Uint(val_string) => {
+                            let mut expr = match val_string.parse::<u128>() {
+                                Ok(val) => PreSymbolicExpression::atom_value(Value::UInt(val)),
+                                Err(_) => {
+                                    self.add_diagnostic(
+                                        ParseErrors::FailedParsingUIntValue(val_string.clone()),
+                                        token.span.clone(),
+                                    )?;
+                                    PreSymbolicExpression::placeholder(token.token.reproduce())
+                                }
+                            };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::AsciiString(val) => {
+                            let mut expr =
+                                match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
+                                    Ok(s) => PreSymbolicExpression::atom_value(s),
+                                    Err(_) => {
+                                        self.add_diagnostic(
+                                            ParseErrors::IllegalASCIIString(val.clone()),
+                                            token.span.clone(),
+                                        )?;
+                                        PreSymbolicExpression::placeholder(token.token.reproduce())
+                                    }
+                                };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::Utf8String(s) => {
+                            let mut data: Vec<Vec<u8>> = Vec::new();
+                            for ch in s.chars() {
+                                let mut bytes = vec![0; ch.len_utf8()];
+                                ch.encode_utf8(&mut bytes);
+                                data.push(bytes);
+                            }
+                            let val =
+                                Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+                                    data,
+                                })));
+                            let mut expr = PreSymbolicExpression::atom_value(val);
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::Ident(name) => {
+                            let mut expr = if name.len() > MAX_STRING_LEN {
+                                self.add_diagnostic(
+                                    ParseErrors::NameTooLong(name.clone()),
+                                    token.span.clone(),
+                                )?;
+                                PreSymbolicExpression::placeholder(token.token.reproduce())
+                            } else {
+                                match ClarityName::try_from(name.clone()) {
+                                    Ok(name) => PreSymbolicExpression::atom(name),
+                                    Err(_) => {
+                                        self.add_diagnostic(
+                                            ParseErrors::IllegalClarityName(name.clone()),
+                                            token.span.clone(),
+                                        )?;
+                                        PreSymbolicExpression::placeholder(token.token.reproduce())
+                                    }
+                                }
+                            };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::TraitIdent(name) => {
+                            let mut expr = if name.len() > MAX_STRING_LEN {
+                                self.add_diagnostic(
+                                    ParseErrors::NameTooLong(name.clone()),
+                                    token.span.clone(),
+                                )?;
+                                PreSymbolicExpression::placeholder(token.token.reproduce())
+                            } else {
+                                match ClarityName::try_from(name.clone()) {
+                                    Ok(name) => PreSymbolicExpression::trait_reference(name),
+                                    Err(_) => {
+                                        self.add_diagnostic(
+                                            ParseErrors::IllegalTraitName(name.clone()),
+                                            token.span.clone(),
+                                        )?;
+                                        PreSymbolicExpression::placeholder(token.token.reproduce())
+                                    }
+                                }
+                            };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::Bytes(data) => {
+                            let mut expr = match hex_bytes(data) {
+                                Ok(bytes) => match Value::buff_from(bytes) {
+                                    Ok(value) => PreSymbolicExpression::atom_value(value),
+                                    _ => {
+                                        self.add_diagnostic(
+                                            ParseErrors::InvalidBuffer,
+                                            token.span.clone(),
+                                        )?;
+                                        PreSymbolicExpression::placeholder(token.token.reproduce())
+                                    }
+                                },
+                                Err(_) => {
+                                    self.add_diagnostic(
+                                        ParseErrors::InvalidBuffer,
+                                        token.span.clone(),
+                                    )?;
+                                    PreSymbolicExpression::placeholder(token.token.reproduce())
+                                }
+                            };
+                            expr.span = token.span;
+                            Some(expr)
+                        }
+                        Token::Principal(addr) => {
+                            let expr = self.read_principal(addr.clone(), token.span.clone())?;
+                            Some(expr)
+                        }
+                        Token::Dot => {
+                            let expr = self.read_sugared_principal(token.span.clone())?;
+                            Some(expr)
+                        }
+                        Token::Plus
+                        | Token::Minus
+                        | Token::Multiply
+                        | Token::Divide
+                        | Token::Less
+                        | Token::LessEqual
+                        | Token::Greater
+                        | Token::GreaterEqual => {
+                            let name = ClarityName::try_from(token.token.to_string()).unwrap();
+                            let mut e = PreSymbolicExpression::atom(name);
+                            e.span = token.span;
+                            Some(e)
+                        }
+                        Token::Placeholder(s) => {
+                            let mut e = PreSymbolicExpression::placeholder(s.to_string());
+                            e.span = token.span;
+                            Some(e)
+                        }
+                        Token::Comment(comment) => {
+                            let mut e = PreSymbolicExpression::comment(comment.to_string());
+                            e.span = token.span;
+                            Some(e)
+                        }
+                        Token::Eof => None,
+                        _ => None, // Other tokens should be dealt with by the caller
+                    }
+                }
+            };
+
+            let mut new_node_received = true;
+            while new_node_received {
+                new_node_received = false;
+
+                match parse_stack.as_mut_slice().last_mut() {
+                    Some(ref mut open_list) => {
+                        let nesting_adjustment = match open_list {
+                            ParserStackElement::OpenList { .. } => 1,
+                            ParserStackElement::OpenTuple(_) => 2,
+                        };
+                        if let Some(finished_list) =
+                            self.handle_open_node(open_list, node.take())?
+                        {
+                            new_node_received = true;
+                            node.replace(finished_list);
+                            parse_stack.pop();
+                            self.nesting_depth -= nesting_adjustment;
+                        }
+                    }
+                    None => {
+                        return Ok(node);
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn parse_node_or_eof(&mut self) -> ParseResult<Option<PreSymbolicExpression>> {
