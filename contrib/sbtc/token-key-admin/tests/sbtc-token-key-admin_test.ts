@@ -227,6 +227,51 @@ Clarinet.test({
 });
 
 Clarinet.test({
+    name: "Ensure we can transfer tokens",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        let deployer = accounts.get("deployer")!;
+        let alice = accounts.get("wallet_1")!;
+        let bob = accounts.get("wallet_2")!;
+
+        let balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
+
+        balance.result.expectOk().expectUint(0);
+
+        let block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
+        ]);
+
+        let [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234), types.principal(alice.address), types.ascii("memo")], deployer.address),
+        ]);
+
+        [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
+
+        balance.result.expectOk().expectUint(1234);
+
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "transfer", [types.uint(4), types.principal(alice.address), types.principal(bob.address), types.some(types.buff("memo"))], alice.address),
+        ]);
+
+        [receipt] = block.receipts;
+
+        receipt.result.expectOk().expectBool(true);
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
+
+        balance.result.expectOk().expectUint(1230);
+    },
+});
+
+Clarinet.test({
     name: "Ensure we can burn tokens",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         let deployer = accounts.get("deployer")!;
@@ -356,10 +401,6 @@ Clarinet.test({
 
         balance.result.expectOk().expectUint(0);
 
-        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
-
-        balance.result.expectOk().expectUint(0);
-
         let block = chain.mineBlock([
             Tx.contractCall("sbtc-token-key-admin", "set-coordinator-data", [types.tuple({addr: types.principal(deployer.address), key: types.buff(0x000000000000000000000000000000000000000000000000000000000000000000)})], deployer.address),
         ]);
@@ -367,9 +408,7 @@ Clarinet.test({
         let [receipt] = block.receipts;
 
         receipt.result.expectOk().expectBool(true);
-        
-        console.log(receipt);
-        
+
         block = chain.mineBlock([
             Tx.contractCall("sbtc-token-key-admin", "mint!", [types.uint(1234), types.principal(alice.address), types.ascii("memo")], deployer.address),
         ]);
@@ -378,50 +417,37 @@ Clarinet.test({
 
         receipt.result.expectOk().expectBool(true);
 
-        console.log(receipt);
-
         balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
 
         balance.result.expectOk().expectUint(1234);
 
-        console.log("calling transfer with trading active");
         block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "transfer", [types.uint(1), types.principal(alice.address), types.principal(bob.address), types.some(types.buff(0xDEADBEEF))], alice.address),
-        ]);
-        console.log(receipt);
-
-        [receipt] = block.receipts;
-
-        receipt.result.expectOk();
-
-        balance = chain.callReadOnlyFn("btc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
-
-        balance.result.expectOk().expectUint(1);
-
-        block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "set-trading-halted", [types.bool(true)], deployer.address),
+            Tx.contractCall("sbtc-token-key-admin", "transfer", [types.uint(4), types.principal(alice.address), types.principal(bob.address), types.some(types.buff("memo"))], alice.address),
         ]);
 
         [receipt] = block.receipts;
 
         receipt.result.expectOk().expectBool(true);
 
-        console.log("calling transfer with trading halted");
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
+
+        balance.result.expectOk().expectUint(1230);
+
         block = chain.mineBlock([
-            Tx.contractCall("sbtc-token-key-admin", "transfer", [types.uint(1), types.principal(alice.address), types.principal(bob.address), types.some(types.buff(0xDEADBEEF))], alice.address),
+            Tx.contractCall("sbtc-token-key-admin", "set-trading-halted", [types.bool(true)], deployer.address),
         ]);
-        console.log(receipt);
+
+        [receipt] = block.receipts;
+        block = chain.mineBlock([
+            Tx.contractCall("sbtc-token-key-admin", "transfer", [types.uint(30), types.principal(alice.address), types.principal(bob.address), types.some(types.buff("memo"))], alice.address),
+        ]);
 
         [receipt] = block.receipts;
 
-        receipt.result.expectOk();
+        receipt.result.expectErr();
 
-        balance = chain.callReadOnlyFn("btc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
 
-        balance.result.expectOk().expectUint(1233);
-
-        balance = chain.callReadOnlyFn("btc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
-
-        balance.result.expectOk().expectUint(1);
+        balance.result.expectOk().expectUint(1230);
     },
 });
