@@ -268,6 +268,10 @@ Clarinet.test({
         balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(alice.address)], alice.address);
 
         balance.result.expectOk().expectUint(1230);
+
+        balance = chain.callReadOnlyFn("sbtc-token-key-admin", "get-balance", [types.principal(bob.address)], bob.address);
+
+        balance.result.expectOk().expectUint(4);
     },
 });
 
