@@ -160,7 +160,7 @@ rejected.
 
 ### Import Ordering 
 
-Try to split imports into at least three groups: 
+Try to split imports into at least three groups, in this order: 
 - std, core, alloc 
 - external crates
 - imports from within crate (self, super, crate)
