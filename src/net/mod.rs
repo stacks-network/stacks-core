@@ -2604,7 +2604,15 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider,
+            (),
+            (),
+            BitcoinIndexer,
+        >,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2782,6 +2790,7 @@ pub mod test {
 
             let (tx, _) = sync_channel(100000);
 
+            let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
             let mut coord = ChainsCoordinator::test_new_with_observer(
                 &config.burnchain,
                 config.network_id,
@@ -2789,6 +2798,7 @@ pub mod test {
                 OnChainRewardSetProvider(),
                 tx,
                 observer,
+                indexer,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -2946,8 +2956,10 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
+                &indexer,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
@@ -2970,6 +2982,7 @@ pub mod test {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -2985,8 +2998,10 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
+                &indexer,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
