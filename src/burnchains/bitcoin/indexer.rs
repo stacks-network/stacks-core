@@ -1161,8 +1161,27 @@ impl BurnchainHeaderReader for BitcoinIndexer {
             })
             .collect())
     }
+
     fn get_burnchain_headers_height(&self) -> Result<u64, DBError> {
         self.get_headers_height()
+            .map_err(|e| DBError::Other(format!("Burnchain error: {:?}", &e)))
+    }
+
+    fn find_burnchain_header_height(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError> {
+        let spv_client = SpvClient::new(
+            &self.config.spv_headers_path,
+            0,
+            None,
+            self.runtime.network_id,
+            false,
+            false,
+        )
+        .map_err(|e| DBError::Other(format!("Burnchain error: {:?}", &e)))?;
+        spv_client
+            .find_block_header_height(burn_header_hash)
             .map_err(|e| DBError::Other(format!("Burnchain error: {:?}", &e)))
     }
 }
