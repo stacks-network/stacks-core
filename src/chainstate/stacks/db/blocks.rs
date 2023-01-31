@@ -35,6 +35,7 @@ use rusqlite::{Error as sqlite_error, OptionalExtension};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
@@ -2523,14 +2524,16 @@ impl StacksChainState {
 
     /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
     /// have the block data for it or not.
-    pub fn find_canonical_affirmation_map(
+    pub fn find_canonical_affirmation_map<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
+        indexer: &B,
         burnchain_db: &BurnchainDB,
         chainstate: &StacksChainState,
     ) -> Result<AffirmationMap, Error> {
         BurnchainDB::get_canonical_affirmation_map(
             burnchain_db.conn(),
             burnchain,
+            indexer,
             |anchor_block_commit, _anchor_block_metadata| {
                 // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
                 // download, then assume that it's absent.  Otherwise, if we are in the initial block

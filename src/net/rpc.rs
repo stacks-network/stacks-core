@@ -3597,6 +3597,7 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
     use crate::burnchains::*;
@@ -3721,6 +3722,9 @@ mod test {
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
+        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
 
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
@@ -4046,7 +4050,12 @@ mod test {
         let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -4055,7 +4064,12 @@ mod test {
         let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -4130,7 +4144,12 @@ mod test {
 
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
@@ -4178,7 +4197,12 @@ mod test {
 
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
