@@ -187,13 +187,29 @@ impl ContractAnalysis {
         self.defined_traits.get(name)
     }
 
-    /// Canonicalize all outward-facing types in the contract analysis.
+    /// Canonicalize all types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for (_, function_type) in self.private_function_types.iter_mut() {
+            *function_type = function_type.canonicalize(epoch);
+        }
+        for (_, variable_type) in self.variable_types.iter_mut() {
+            *variable_type = variable_type.canonicalize(epoch);
+        }
         for (_, function_type) in self.public_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
         }
         for (_, function_type) in self.read_only_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
+        }
+        for (_, (key_type, value_type)) in self.map_types.iter_mut() {
+            *key_type = key_type.canonicalize(epoch);
+            *value_type = value_type.canonicalize(epoch);
+        }
+        for (_, var_type) in self.persisted_variable_types.iter_mut() {
+            *var_type = var_type.canonicalize(epoch);
+        }
+        for (_, nft_type) in self.non_fungible_tokens.iter_mut() {
+            *nft_type = nft_type.canonicalize(epoch);
         }
         for (_, trait_definition) in self.defined_traits.iter_mut() {
             for (_, function_signature) in trait_definition.iter_mut() {
