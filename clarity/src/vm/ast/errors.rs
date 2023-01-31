@@ -88,6 +88,9 @@ pub enum ParseErrors {
     ExpectedWhitespace,
     // Notes
     NoteToMatchThis(Token),
+
+    /// Should be an unreachable error
+    UnexpectedParserFailure,
 }
 
 #[derive(Debug, PartialEq)]
@@ -294,6 +297,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::IllegalUtf8String(s) => format!("illegal UTF8 string \"{}\"", s),
             ParseErrors::ExpectedWhitespace => "expected whitespace before expression".to_string(),
             ParseErrors::NoteToMatchThis(token) => format!("to match this '{}'", token),
+            ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
         }
     }
 
