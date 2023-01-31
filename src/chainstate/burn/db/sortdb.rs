@@ -743,15 +743,13 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
         vtxindex INTEGER NOT NULL,
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
-        sortition_id TEXT NOT NULL,
 
         recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
         peg_wallet_address TEXT NOT NULL,
         amount TEXT NOT NULL,
         memo TEXT,
 
-        PRIMARY KEY(txid, sortition_id)
-        FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+        PRIMARY KEY(txid, burn_header_hash)
     );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
@@ -4827,7 +4825,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "ACCEPTED({}) sBTC peg in opt {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex
                 );
-                self.insert_peg_in_sbtc(op, sort_id)
+                self.insert_peg_in_sbtc(op)
             }
         }
     }
@@ -4897,7 +4895,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Insert a peg-in op
-    fn insert_peg_in_sbtc(&mut self, op: &PegInOp, sort_id: &SortitionId) -> Result<(), db_error> {
+    fn insert_peg_in_sbtc(&mut self, op: &PegInOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
             &op.vtxindex,
@@ -4907,10 +4905,9 @@ impl<'a> SortitionHandleTx<'a> {
             &op.peg_wallet_address.to_string(),
             &op.amount.to_string(),
             &to_hex(&op.memo),
-            sort_id,
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
