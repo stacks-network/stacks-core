@@ -153,6 +153,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Get a reference to the last processed token. If there is no last token,
+    ///  raises an UnexpectedParserFailure.
+    fn peek_last_token(&self) -> ParseResult<&PlacedToken> {
+        if self.next_token == 0 {
+            return Err(ParseError::new(ParseErrors::UnexpectedParserFailure));
+        }
+        self.tokens
+            .get(self.next_token - 1)
+            .ok_or_else(|| ParseError::new(ParseErrors::UnexpectedParserFailure))
+    }
+
     fn skip_to_end(&mut self) {
         self.next_token = self.tokens.len();
     }
@@ -220,7 +231,7 @@ impl<'a> Parser<'a> {
                     *whitespace = self.ignore_whitespace();
                     Ok(None)
                 } else {
-                    let token = self.tokens[self.next_token - 1].clone();
+                    let token = self.peek_last_token()?.clone();
                     match token.token {
                         Token::Rparen => {
                             span.end_line = token.span.end_line;
@@ -279,7 +290,7 @@ impl<'a> Parser<'a> {
                         // mimic parse_node_or_eof() behavior
                         //  if last token was an EOF, error out the tuple
                         //  if the last token was something else, just yield back to the parse loop
-                        let last_token = self.tokens[self.next_token - 1].clone();
+                        let last_token = self.peek_last_token()?.clone();
                         match last_token.token {
                             Token::Eof => {
                                 self.add_diagnostic(
@@ -359,7 +370,7 @@ impl<'a> Parser<'a> {
                         // mimic parse_node_or_eof() behavior
                         //  if last token was an EOF, error out the tuple
                         //  if the last token was something else, just yield back to the parse loop
-                        let last_token = self.tokens[self.next_token - 1].clone();
+                        let last_token = self.peek_last_token()?.clone();
                         match last_token.token {
                             Token::Eof => {
                                 // This indicates we have reached the end of the input.
