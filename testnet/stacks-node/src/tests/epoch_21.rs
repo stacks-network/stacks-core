@@ -44,6 +44,7 @@ use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
@@ -60,6 +61,7 @@ use stacks::clarity_cli::vm_execute as execute;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ClarityVersion;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
+use stacks::net::RPCPoxInfoData;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::neon_node::StacksNode;
@@ -4674,6 +4676,131 @@ fn test_sortition_divergence_pre_21() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(&c);
         info!("Final tip for miner {}: {:?}", i, &tip_info);
+    }
+}
+
+#[test]
+#[ignore]
+fn test_v1_pox_default_contract() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let reward_cycle_len = 5;
+    let prepare_phase_len = 3;
+    let epoch_2_05 = 205;
+    let epoch_2_1 = 212;
+    let v1_unlock_height = 213;
+
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        1,
+        1,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
+        v1_unlock_height,
+    );
+
+    let (mut conf, _) = neon_integration_test_conf();
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+    conf.burnchain.epochs = Some(epochs);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+
+    btc_regtest_controller.bootstrap_chain(epoch_2_1 - 3);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let runloop_burnchain = burnchain_config.clone();
+
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+    info!("wait_for_runloop over");
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let (sort_db, _burn_db) = btc_regtest_controller
+        .get_burnchain()
+        .open_db(false)
+        .unwrap();
+
+    info!(
+        "advance to epoch_2_1 {} finished. btc height {}",
+        epoch_2_1,
+        _burn_db.get_canonical_chain_tip().unwrap().block_height
+    );
+    let (tip_consensus_hash, tip_block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let tip = StacksBlockId::new(&tip_consensus_hash, &tip_block_bhh);
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    // pre-v1_unlock_height means POX-1
+    match RPCPoxInfoData::from_db(&sort_db, &mut chainstate, &tip, &burnchain_config) {
+        Ok(pox_info) => {
+            let mut parts = pox_info.contract_id.split('.');
+            parts.next();
+            assert_eq!("pox", parts.next().unwrap())
+        }
+        Err(_e) => {
+            assert!(false)
+        }
+    }
+
+    // advance the chain to v1_unlock_height
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // advance the chain to v1_unlock_height+1
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // post-v1_unlock_height means POX-2
+    match RPCPoxInfoData::from_db(&sort_db, &mut chainstate, &tip, &burnchain_config) {
+        Ok(pox_info) => {
+            let mut parts = pox_info.contract_id.split('.');
+            parts.next();
+            assert_eq!("pox-2", parts.next().unwrap())
+        }
+        Err(_e) => {
+            assert!(false)
+        }
     }
 }
 
