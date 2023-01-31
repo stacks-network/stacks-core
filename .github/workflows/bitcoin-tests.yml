@@ -95,6 +95,7 @@ jobs:
           - tests::epoch_21::test_pox_reorg_flap_reward_cycles
           - tests::epoch_21::test_pox_missing_five_anchor_blocks
           - tests::epoch_21::test_sortition_divergence_pre_21
+          - tests::epoch_21::test_v1_unlock_height_with_current_stackers
           - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
