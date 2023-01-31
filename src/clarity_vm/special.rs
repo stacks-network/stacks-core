@@ -253,16 +253,19 @@ fn handle_pox_v1_api_contract_call(
 }
 
 /// Determine who the stacker is for a given function.
-/// - for non-delegate functions, it's tx-sender
-/// - for delegate functions, it's the first argument
+/// - for non-delegate stacking functions, it's tx-sender
+/// - for delegate stacking functions, it's the first argument
 fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> Value {
     match function_name {
-        "stack-stx" | "stack-increase" | "stack-extend" => Value::Principal(sender.clone()),
+        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => {
+            Value::Principal(sender.clone())
+        }
         _ => args[0].clone(),
     }
 }
 
-/// Craft the code snippet to evaluate an event-info for a stack-* or a delegate-stack-* function
+/// Craft the code snippet to evaluate an event-info for a stack-* function,
+/// a delegate-stack-* function, or for delegate-stx
 fn create_event_info_stack_or_delegate_code(
     sender: &PrincipalData,
     function_name: &str,
@@ -532,6 +535,32 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                 reward_cycle = &args[1]
             )
         }
+        "delegate-stx" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; amount of ustx to delegate.
+                        ;; equal to args[0]
+                        amount-ustx: {amount_ustx},
+                        ;; address of delegatee.
+                        ;; equal to args[1]
+                        delegate-to: '{delegate_to},
+                        ;; optional burnchain height when the delegation finishes.
+                        ;; derived from args[2]
+                        unlock-burn-height: {until_burn_height},
+                        ;; optional PoX address tuple.
+                        ;; equal to args[3].
+                        pox-addr: {pox_addr}
+                    }}
+                }}
+                "#,
+                amount_ustx = &args[0],
+                delegate_to = &args[1],
+                until_burn_height = &args[2],
+                pox_addr = &args[3],
+            )
+        }
         _ => format!("{{ data: {{ unimplemented: true }} }}"),
     }
 }
@@ -558,7 +587,8 @@ fn synthesize_pox_2_event_info(
         | "stack-extend"
         | "delegate-stack-extend"
         | "stack-increase"
-        | "delegate-stack-increase" => Some(create_event_info_stack_or_delegate_code(
+        | "delegate-stack-increase"
+        | "delegate-stx" => Some(create_event_info_stack_or_delegate_code(
             sender,
             function_name,
             args,

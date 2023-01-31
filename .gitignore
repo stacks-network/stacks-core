@@ -91,3 +91,5 @@ lcov.info
 
 # codecov
 coverage.lcov
+
+.idea

@@ -943,7 +943,8 @@ simulating a miner.
         let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
 
-        let marf_opts = MARFOpenOpts::default();
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {

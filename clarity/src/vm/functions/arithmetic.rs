@@ -389,9 +389,9 @@ fn special_geq_v1(
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Geq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Geq, env, args.len())?;
     type_force_binary_comparison_v1!(geq, a, b)
 }
 
@@ -432,9 +432,9 @@ fn special_leq_v1(
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Leq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Leq, env, args.len())?;
     type_force_binary_comparison_v1!(leq, a, b)
 }
 
@@ -474,9 +474,9 @@ fn special_greater_v1(
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Ge, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Ge, env, args.len())?;
     type_force_binary_comparison_v1!(greater, a, b)
 }
 
@@ -516,9 +516,9 @@ fn special_less_v1(
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Le, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Le, env, args.len())?;
     type_force_binary_comparison_v1!(less, a, b)
 }
 
