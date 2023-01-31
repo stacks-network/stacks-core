@@ -3429,6 +3429,7 @@ mod test {
     fn test_sync_inv_make_inv_messages() {
         let peer_1_config = TestPeerConfig::new(function_name!(), 31985, 41986);
 
+        let indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
         let reward_cycle_length = peer_1_config.burnchain.pox_constants.reward_cycle_length;
         let num_blocks = peer_1_config.burnchain.pox_constants.reward_cycle_length * 2;
 
@@ -3462,7 +3463,7 @@ mod test {
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 network.refresh_local_peer().unwrap();
                 network
-                    .refresh_burnchain_view(sortdb, chainstate, false)
+                    .refresh_burnchain_view(&indexer, sortdb, chainstate, false)
                     .unwrap();
                 network.refresh_sortition_view(sortdb).unwrap();
                 Ok(())
