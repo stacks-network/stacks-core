@@ -436,6 +436,7 @@ fn test_names_tokens_contracts_interface() {
         ],
         "fungible_tokens": [],
         "non_fungible_tokens": [],
+        "epoch": "Epoch21",
         "clarity_version": "Clarity2"
     }"#).unwrap();
 
