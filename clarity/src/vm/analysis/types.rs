@@ -284,6 +284,7 @@ mod test {
             QualifiedContractIdentifier::local("foo").unwrap(),
             vec![],
             LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch20,
             ClarityVersion::Clarity1,
         );
         let trait_id = TraitIdentifier::new(
