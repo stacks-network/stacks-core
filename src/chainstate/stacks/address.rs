@@ -18,6 +18,8 @@ use std::cmp::{Ord, Ordering};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
+use serde::{Deserialize, Deserializer, Serializer};
+use serde::ser::SerializeSeq;
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -90,6 +92,44 @@ pub enum PoxAddress {
     /// representation.  This includes Bitcoin p2wsh and p2tr.
     /// Fields are (mainnet, address type ID, bytes)
     Addr32(bool, PoxAddressType32, [u8; 32]),
+}
+
+/// Serializes a PoxAddress as a B58 check encoded address or a bech32 address
+pub fn pox_addr_b58_serialize<S: Serializer>(
+    input: &PoxAddress,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(&input.clone().to_b58())
+}
+
+/// Deserializes a PoxAddress from a B58 check encoded address or a bech32 address
+pub fn pox_addr_b58_deser<'de, D: Deserializer<'de>>(deser: D) -> Result<PoxAddress, D::Error> {
+    let string_repr = String::deserialize(deser)?;
+    PoxAddress::from_b58(&string_repr)
+        .ok_or_else(|| serde::de::Error::custom("Failed to decode PoxAddress from string"))
+}
+
+/// Serializes each PoxAddress in a vector as a B58 check encoded address or a bech32 address
+pub fn pox_addr_vec_b58_serialize<S: Serializer>(
+    input: &Vec<PoxAddress>,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    let mut seq = ser.serialize_seq(Some(input.len()))?;
+    for element in input {
+        seq.serialize_element(&element.clone().to_b58())?;
+    }
+    seq.end()
+}
+
+/// Deserializes each PoxAddress in a vector from a B58 check encoded address or a bech32 address
+pub fn pox_addr_vec_b58_deser<'de, D: Deserializer<'de>>(deser: D) -> Result<Vec<PoxAddress>, D::Error> {
+    let mut pox_vec = vec![];
+    let pox_vec_ser: Vec<String> = Vec::deserialize(deser)?;
+    for elem in pox_vec_ser {
+        pox_vec.push(PoxAddress::from_b58(&elem)
+            .ok_or_else(|| serde::de::Error::custom("Failed to decode PoxAddress from string"))?);
+    }
+    Ok(pox_vec)
 }
 
 impl std::fmt::Display for PoxAddress {
@@ -406,6 +446,16 @@ impl PoxAddress {
             },
         }
     }
+
+    // Convert from a B58 encoded bitcoin address
+    pub fn from_b58(input: &str) -> Option<Self> {
+        let btc_addr = BitcoinAddress::from_string(input)?;
+        PoxAddress::try_from_bitcoin_output(&BitcoinTxOutput {
+            address: btc_addr,
+            units: 0,
+        })
+    }
+
 
     /// Convert this PoxAddress into a Bitcoin tx output
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {

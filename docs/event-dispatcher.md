@@ -35,6 +35,7 @@ that it is a burnchain operation. A burnchain operation is a transaction that
 is executed on the Stacks network, but was sent through the Bitcoin network.
 The Stacks network supports a few specific burnchain operations. You can read 
 more about them [here](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md#stx-operations-on-bitcoin).
+The section below has example json encodings for each of the burnchain operations.
 
 Example:
 
@@ -88,22 +89,22 @@ Example:
     {
       "burnchain_op": {
         "TransferStx": {
-          "block_height": 208,
-          "burn_header_hash": [
-            55, 174,104,155,73,251,142,121,133,74,19,169,209,44,210,112,95,13,83,91,39,16,212,142,211,91,
-            234,92,56,7,85,250],
-          "memo": [],
+          "block_height": 10,
+          "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
+          "memo": "0x000102030405",
           "recipient": {
-            "bytes": "455e5d8c309ff012c55882cf7f50a4b542739b9c",
-            "version": 26
+            "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+            "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+            "address_version": 22
           },
           "sender": {
-            "bytes": "9ffdc100acf4d475b71a042b76fb4447966102ab",
-            "version": 26
+            "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+            "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+            "address_version": 26
           },
-          "transfered_ustx": 100000,
+          "transfered_ustx": 10,
           "txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
-          "vtxindex": 2
+          "vtxindex": 10
         }
       },
       "contract_abi": null,
@@ -120,7 +121,7 @@ Example:
       "raw_result": "0x0703",
       "raw_tx": "0x00",
       "status": "success",
-      "tx_index": 0,
+      "tx_index": 2,
       "txid": "0x85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6"
     }
   ],
@@ -148,6 +149,68 @@ Example:
     "read_length": 150,
     "write_length": 75
    }
+}
+```
+
+#### Example json values for burnchain operations 
+- TransferStx 
+```json
+{
+  "TransferStx": {
+    "block_height": 10,
+    "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
+    "memo": "0x000102030405",
+    "recipient": {
+      "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+      "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+      "address_version": 22
+    },
+    "sender": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "transfered_ustx": 10,
+    "txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
+    "vtxindex": 10
+  }
+}
+```
+
+- StackStx
+```json
+{
+  "StackStx": {
+    "block_height": 10,
+    "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+    "num_cycles": 10,
+    "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
+    "sender": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "stacked_ustx": 10,
+    "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "vtxindex": 10
+  }
+}
+```
+
+- DelegateStx
+```json
+{
+  "DelegateStx": {
+    "block_height": 10,
+    "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+    "output": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "vtxindex": 10
+  }
 }
 ```
 
