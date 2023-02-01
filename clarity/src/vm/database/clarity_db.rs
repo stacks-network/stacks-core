@@ -654,9 +654,10 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        let data = self.fetch_metadata(contract_identifier, &key)?.expect(
+        let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?.expect(
             "Failed to read non-consensus contract metadata, even though contract exists in MARF.",
         );
+        data.canonicalize_types(&self.get_clarity_epoch_version());
         Ok(data)
     }
 

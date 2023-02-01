@@ -1673,8 +1673,9 @@ impl ConversationHttp {
 
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 clarity_tx.with_analysis_db_readonly(|db| {
-                    let contract = db.load_contract(&contract_identifier)?;
+                    let contract = db.load_contract(&contract_identifier, &epoch)?;
                     contract.contract_interface
                 })
             }) {
