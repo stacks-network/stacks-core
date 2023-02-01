@@ -665,7 +665,7 @@ mod test {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 bytes: Hash160([0x01; 20])
             },
-            Some(AddressHashMode::SerializeP2PKH)
+            None
         );
 
         let op = StackStxOp {
@@ -738,7 +738,7 @@ mod test {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 bytes: Hash160([0x01; 20])
             },
-            Some(AddressHashMode::SerializeP2PKH)
+            None
         );
 
         let op = LeaderBlockCommitOp {
@@ -827,7 +827,7 @@ mod test {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 bytes: Hash160([0x01; 20])
             },
-            Some(AddressHashMode::SerializeP2PKH),
+            None
         );
         let op = DelegateStxOp {
             sender,
