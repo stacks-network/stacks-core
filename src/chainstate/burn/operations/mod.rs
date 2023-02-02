@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::types::PrincipalData;
+use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::convert::TryInto;
 use std::error;
 use std::fmt;
 use std::fs;
 use std::io;
-use serde::{Deserialize, Serialize};
-use clarity::vm::types::PrincipalData;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
@@ -44,8 +44,8 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
@@ -182,25 +182,40 @@ impl From<db_error> for Error {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct TransferStxOp {
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub sender: StacksAddress,
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub recipient: StacksAddress,
     pub transfered_ustx: u128,
-    #[serde(deserialize_with = "memo_deserialize", serialize_with = "memo_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::memo_deserialize",
+        serialize_with = "stacks_common::codec::serde::memo_serialize"
+    )]
     pub memo: Vec<u8>,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct StackStxOp {
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub sender: StacksAddress,
     /// the PoX reward address.
     /// NOTE: the address in .pox will be tagged as either p2pkh or p2sh; it's impossible to tell
@@ -213,10 +228,13 @@ pub struct StackStxOp {
     pub num_cycles: u8,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -224,30 +242,45 @@ pub struct StackStxOp {
 pub struct PreStxOp {
     /// the output address
     /// (must be a legacy Bitcoin address)
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub output: StacksAddress,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderBlockCommitOp {
-    #[serde(deserialize_with = "block_hh_deserialize", serialize_with = "block_hh_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::block_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::block_hh_serialize"
+    )]
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (sha512/256)
 
-    #[serde(deserialize_with = "vrf_seed_deserialize", serialize_with = "vrf_seed_serialize")]
-    pub new_seed: VRFSeed,     // new seed for this block
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::vrf_seed_deserialize",
+        serialize_with = "stacks_common::codec::serde::vrf_seed_serialize"
+    )]
+    pub new_seed: VRFSeed, // new seed for this block
     pub parent_block_ptr: u32, // block height of the block that contains the parent block hash
     pub parent_vtxindex: u16, // offset in the parent block where the parent block hash can be found
     pub key_block_ptr: u32,   // pointer to the block that contains the leader key registration
     pub key_vtxindex: u16,    // offset in the block where the leader key can be found
-    #[serde(deserialize_with = "memo_deserialize", serialize_with = "memo_serialize")]
-    pub memo: Vec<u8>,        // extra unused byte
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::memo_deserialize",
+        serialize_with = "stacks_common::codec::serde::memo_serialize"
+    )]
+    pub memo: Vec<u8>, // extra unused byte
 
     /// how many burn tokens (e.g. satoshis) were committed to produce this block
     pub burn_fee: u64,
@@ -269,26 +302,38 @@ pub struct LeaderBlockCommitOp {
     pub sunset_burn: u64,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderKeyRegisterOp {
-    #[serde(deserialize_with = "consensus_hash_deserialize", serialize_with = "consensus_hash_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::consensus_hash_deserialize",
+        serialize_with = "stacks_common::codec::serde::consensus_hash_serialize"
+    )]
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
-    pub public_key: VRFPublicKey,      // EdDSA public key
-    #[serde(deserialize_with = "memo_deserialize", serialize_with = "memo_serialize")]
-    pub memo: Vec<u8>,                 // extra bytes in the op-return
+    pub public_key: VRFPublicKey, // EdDSA public key
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::memo_deserialize",
+        serialize_with = "stacks_common::codec::serde::memo_serialize"
+    )]
+    pub memo: Vec<u8>, // extra bytes in the op-return
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
@@ -312,24 +357,36 @@ pub struct UserBurnSupportOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct DelegateStxOp {
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub sender: StacksAddress,
-    #[serde(deserialize_with = "stacks_addr_deserialize", serialize_with = "stacks_addr_serialize")]
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::stacks_addr_deserialize",
+        serialize_with = "stacks_common::codec::serde::stacks_addr_serialize"
+    )]
     pub delegate_to: StacksAddress,
     /// a tuple representing the output index of the reward address in the BTC transaction,
     //  and the actual  PoX reward address.
     /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
-    #[serde(deserialize_with = "reward_addr_deserialize", serialize_with = "reward_addr_serialize")]
+    #[serde(
+        deserialize_with = "reward_addr_deserialize",
+        serialize_with = "reward_addr_serialize"
+    )]
     pub reward_addr: Option<(u32, PoxAddress)>,
     pub delegated_ustx: u128,
     pub until_burn_height: Option<u64>,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(
+        deserialize_with = "stacks_common::codec::serde::burn_hh_deserialize",
+        serialize_with = "stacks_common::codec::serde::burn_hh_serialize"
+    )]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -473,113 +530,12 @@ pub fn parse_u16_from_be(bytes: &[u8]) -> Option<u16> {
     bytes.try_into().ok().map(u16::from_be_bytes)
 }
 
-// serialization functions
-fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
-    let inst = bhh.to_hex();
-    s.serialize_str(inst.as_str())
-}
-
-fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<BurnchainHeaderHash, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    BurnchainHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn block_hh_serialize<S: serde::Serializer>(bhh: &BlockHeaderHash, s: S) -> Result<S::Ok, S::Error> {
-    let inst = bhh.to_hex();
-    s.serialize_str(inst.as_str())
-}
-
-fn block_hh_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<BlockHeaderHash, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    BlockHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn vrf_seed_serialize<S: serde::Serializer>(seed: &VRFSeed, s: S) -> Result<S::Ok, S::Error> {
-    let inst = seed.to_hex();
-    s.serialize_str(inst.as_str())
-}
-
-fn vrf_seed_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<VRFSeed, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    VRFSeed::from_hex(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn consensus_hash_serialize<S: serde::Serializer>(ch: &ConsensusHash, s: S) -> Result<S::Ok, S::Error> {
-    let inst = ch.to_hex();
-    s.serialize_str(inst.as_str())
-}
-
-fn consensus_hash_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<ConsensusHash, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    ConsensusHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn memo_serialize<S: serde::Serializer>(memo: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
-    let hex_inst = to_hex(memo);
-    let byte_str = format!("0x{}", hex_inst);
-    s.serialize_str(byte_str.as_str())
-}
-
-fn memo_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<u8>, D::Error> {
-    let bytes_str = String::deserialize(d)?;
-    let hex_inst = &bytes_str[2..];
-
-    hex_bytes(&hex_inst).map_err(serde::de::Error::custom)
-}
-
-#[derive(Serialize, Deserialize)]
-struct StacksAddrJsonDisplay {
-    address: String,
-    #[serde(deserialize_with = "hash_160_deserialize", serialize_with = "hash_160_serialize")]
-    address_hash_bytes: Hash160,
-    address_version: u8,
-}
-
-fn hash_160_serialize<S: serde::Serializer>(hash: &Hash160, s: S) -> Result<S::Ok, S::Error> {
-    let hex_inst = to_hex(&hash.0);
-    let byte_str = format!("0x{}", hex_inst);
-    s.serialize_str(byte_str.as_str())
-}
-
-fn hash_160_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Hash160, D::Error> {
-    let bytes_str = String::deserialize(d)?;
-    let hex_inst = &bytes_str[2..];
-    Hash160::from_hex(&hex_inst).map_err(serde::de::Error::custom)
-}
-
-fn stacks_addr_serialize<S: serde::Serializer>(addr: &StacksAddress, s: S) -> Result<S::Ok, S::Error> {
-    let addr_str = addr.to_string();
-    let addr_display = StacksAddrJsonDisplay {
-        address: addr_str,
-        address_hash_bytes: addr.bytes,
-        address_version: addr.version,
-    };
-    addr_display.serialize(s)
-}
-
-fn stacks_addr_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<StacksAddress, D::Error> {
-    let addr_display = StacksAddrJsonDisplay::deserialize(d)?;
-    Ok(StacksAddress {
-        version: addr_display.address_version,
-        bytes: addr_display.address_hash_bytes,
-    })
-}
-
-fn reward_addr_serialize<S: serde::Serializer>(addr: &Option<(u32, PoxAddress)>, s: S) -> Result<S::Ok, S::Error> {
+// these serialization functions should be moved to stacks_common/src/codec/serde.rs
+// once PoxAddress is moved to stacks_common.
+fn reward_addr_serialize<S: serde::Serializer>(
+    addr: &Option<(u32, PoxAddress)>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
     match addr {
         None => s.serialize_none(),
         Some((index, pox_addr)) => {
@@ -596,23 +552,30 @@ fn reward_addr_deserialize<'de, D: serde::Deserializer<'de>>(
     match reward_addr {
         None => Ok(None),
         Some((input, pox_add_str)) => {
-            let pox_addr = PoxAddress::from_b58(&pox_add_str).ok_or_else(|| serde::de::Error::custom("Failed to decode PoxAddress from string"))?;
+            let pox_addr = PoxAddress::from_b58(&pox_add_str).ok_or_else(|| {
+                serde::de::Error::custom("Failed to decode PoxAddress from string")
+            })?;
             Ok(Some((input, pox_addr)))
         }
     }
 }
 
 mod test {
+    use crate::burnchains::{BurnchainSigner, Txid};
+    use crate::chainstate::burn::operations::{
+        DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
+        TransferStxOp, UserBurnSupportOp,
+    };
+    use crate::chainstate::stacks::address::PoxAddress;
     use serde::{Deserialize, Serialize};
     use serde_json::Serializer;
     use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed,
+    };
     use stacks_common::types::Address;
-    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::Hash160;
     use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey};
-    use crate::burnchains::{BurnchainSigner, Txid};
-    use crate::chainstate::burn::operations::{DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp};
-    use crate::chainstate::stacks::address::PoxAddress;
 
     #[test]
     fn test_serialization_transfer_stx_op() {
@@ -663,9 +626,9 @@ mod test {
         let reward_addr = PoxAddress::Standard(
             StacksAddress {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20])
+                bytes: Hash160([0x01; 20]),
             },
-            None
+            None,
         );
 
         let op = StackStxOp {
@@ -736,9 +699,9 @@ mod test {
         let pox_addr = PoxAddress::Standard(
             StacksAddress {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20])
+                bytes: Hash160([0x01; 20]),
             },
-            None
+            None,
         );
 
         let op = LeaderBlockCommitOp {
@@ -825,9 +788,9 @@ mod test {
         let pox_addr = PoxAddress::Standard(
             StacksAddress {
                 version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20])
+                bytes: Hash160([0x01; 20]),
             },
-            None
+            None,
         );
         let op = DelegateStxOp {
             sender,

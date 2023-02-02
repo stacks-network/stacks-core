@@ -203,12 +203,20 @@ Example:
   "DelegateStx": {
     "block_height": 10,
     "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
-    "output": {
+    "delegate_to": {
+      "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+      "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+      "address_version": 22
+    },
+    "delegated_ustx": 10,
+    "sender": {
       "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
       "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
       "address_version": 26
     },
+    "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
     "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "until_burn_height": null,
     "vtxindex": 10
   }
 }

@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serializer};
 use std::cmp::{Ord, Ordering};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
-use serde::{Deserialize, Deserializer, Serializer};
-use serde::ser::SerializeSeq;
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -122,12 +122,17 @@ pub fn pox_addr_vec_b58_serialize<S: Serializer>(
 }
 
 /// Deserializes each PoxAddress in a vector from a B58 check encoded address or a bech32 address
-pub fn pox_addr_vec_b58_deser<'de, D: Deserializer<'de>>(deser: D) -> Result<Vec<PoxAddress>, D::Error> {
+pub fn pox_addr_vec_b58_deser<'de, D: Deserializer<'de>>(
+    deser: D,
+) -> Result<Vec<PoxAddress>, D::Error> {
     let mut pox_vec = vec![];
     let pox_vec_ser: Vec<String> = Vec::deserialize(deser)?;
     for elem in pox_vec_ser {
-        pox_vec.push(PoxAddress::from_b58(&elem)
-            .ok_or_else(|| serde::de::Error::custom("Failed to decode PoxAddress from string"))?);
+        pox_vec.push(
+            PoxAddress::from_b58(&elem).ok_or_else(|| {
+                serde::de::Error::custom("Failed to decode PoxAddress from string")
+            })?,
+        );
     }
     Ok(pox_vec)
 }
@@ -455,7 +460,6 @@ impl PoxAddress {
             units: 0,
         })
     }
-
 
     /// Convert this PoxAddress into a Bitcoin tx output
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {

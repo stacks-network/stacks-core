@@ -8,6 +8,7 @@ use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[macro_use]
 pub mod macros;
+pub mod serde;
 
 #[derive(Debug)]
 pub enum Error {
