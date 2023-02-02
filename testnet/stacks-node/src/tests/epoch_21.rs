@@ -1639,7 +1639,7 @@ fn transition_removes_pox_sunset() {
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(
         &pox_info.contract_id,
-        &format!("ST000000000000000000002AMW42H.pox")
+        &format!("ST000000000000000000002AMW42H.pox-2")
     );
 
     // re-stack

@@ -423,6 +423,7 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
+        let cur_block_pox_contract = pox_consts.active_pox_contract(burnchain_tip.block_height);
         let cur_cycle_pox_contract =
             pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
         let next_cycle_pox_contract = pox_consts
@@ -475,7 +476,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             current_burnchain_block_height: burnchain_tip.block_height,
