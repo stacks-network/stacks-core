@@ -254,8 +254,7 @@ impl EventObserver {
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
     ) -> serde_json::Value {
-        let receipt_payloa
-        d_info = EventObserver::generate_payload_info_for_receipt(receipt);
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
 
         json!({
             "txid": format!("0x{}", &receipt_payload_info.txid),

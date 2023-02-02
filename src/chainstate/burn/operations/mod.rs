@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::types::PrincipalData;
-use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::convert::TryInto;
 use std::error;
