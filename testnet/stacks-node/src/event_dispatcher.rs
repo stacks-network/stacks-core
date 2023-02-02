@@ -30,6 +30,7 @@ use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
+use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
@@ -216,9 +217,11 @@ impl EventObserver {
         };
 
         let (txid, raw_tx, burnchain_op_json) = match tx {
-            TransactionOrigin::Burn(op) => {
-                (op.txid().to_string(), "00".to_string(), json!(op.clone()))
-            }
+            TransactionOrigin::Burn(op) => (
+                op.txid().to_string(),
+                "00".to_string(),
+                BlockstackOperationType::blockstack_op_to_json(&op),
+            ),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
                 let bytes = tx.serialize_to_vec();
@@ -251,7 +254,8 @@ impl EventObserver {
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
     ) -> serde_json::Value {
-        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
+        let receipt_payloa
+        d_info = EventObserver::generate_payload_info_for_receipt(receipt);
 
         json!({
             "txid": format!("0x{}", &receipt_payload_info.txid),
