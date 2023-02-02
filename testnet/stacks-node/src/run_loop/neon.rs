@@ -33,6 +33,7 @@ use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
+use crate::burnchains::make_bitcoin_indexer;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::Globals;
 use crate::neon_node::StacksNode;
@@ -521,6 +522,7 @@ impl RunLoop {
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
         let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
+        let coordinator_indexer = make_bitcoin_indexer(&self.config);
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -554,6 +556,7 @@ impl RunLoop {
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
                     miner_status,
+                    coordinator_indexer,
                 );
             })
             .expect("FATAL: failed to start chains coordinator thread");
@@ -646,8 +649,11 @@ impl RunLoop {
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
 
+        let indexer = make_bitcoin_indexer(config);
+
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
+            &indexer,
             &burnchain_db,
             sortdb,
             &sn.sortition_id,
@@ -788,8 +794,11 @@ impl RunLoop {
                 }
             };
 
+        let indexer = make_bitcoin_indexer(config);
+
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
+            &indexer,
             &burnchain_db,
             sortdb,
             &sn.sortition_id,
@@ -803,6 +812,7 @@ impl RunLoop {
 
         let canonical_affirmation_map = match static_get_canonical_affirmation_map(
             &burnchain,
+            &indexer,
             &burnchain_db,
             sortdb,
             &chain_state_db,

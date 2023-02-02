@@ -194,6 +194,7 @@ pub struct ChainsCoordinator<
     R: RewardSetProvider,
     CE: CostEstimator + ?Sized,
     FE: FeeEstimator + ?Sized,
+    B: BurnchainHeaderReader,
 > {
     canonical_sortition_tip: Option<SortitionId>,
     burnchain_blocks_db: BurnchainDB,
@@ -208,6 +209,7 @@ pub struct ChainsCoordinator<
     notifier: N,
     atlas_config: AtlasConfig,
     config: ChainsCoordinatorConfig,
+    burnchain_indexer: B,
 }
 
 #[derive(Debug)]
@@ -305,8 +307,13 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     }
 }
 
-impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
-    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE>
+impl<
+        'a,
+        T: BlockEventDispatcher,
+        CE: CostEstimator + ?Sized,
+        FE: FeeEstimator + ?Sized,
+        B: BurnchainHeaderReader,
+    > ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE, B>
 {
     pub fn run(
         config: ChainsCoordinatorConfig,
@@ -319,6 +326,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
         cost_estimator: Option<&mut CE>,
         fee_estimator: Option<&mut FE>,
         miner_status: Arc<Mutex<MinerStatus>>,
+        burnchain_indexer: B,
     ) where
         T: BlockEventDispatcher,
     {
@@ -356,6 +364,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             fee_estimator,
             atlas_config,
             config,
+            burnchain_indexer,
         };
 
         loop {
@@ -407,7 +416,9 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T, (), U, (), ()> {
+impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'a, T, (), U, (), (), B>
+{
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
@@ -415,7 +426,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         path: &str,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
+        indexer: B,
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         ChainsCoordinator::test_new_with_observer(
             burnchain,
             chain_id,
@@ -423,6 +435,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             reward_set_provider,
             attachments_tx,
             None,
+            indexer,
         )
     }
 
@@ -434,7 +447,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
-    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
+        burnchain_indexer: B,
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -472,6 +486,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             attachments_tx,
             atlas_config: AtlasConfig::default(false),
             config: ChainsCoordinatorConfig::new(),
+            burnchain_indexer,
         }
     }
 }
@@ -712,8 +727,9 @@ fn consolidate_affirmation_maps(
 /// Get the heaviest affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_heaviest_affirmation_map(
+pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
+    indexer: &B,
     burnchain_blocks_db: &BurnchainDB,
     sortition_db: &SortitionDB,
     sortition_tip: &SortitionId,
@@ -725,6 +741,7 @@ pub fn static_get_heaviest_affirmation_map(
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_blocks_db.conn(),
         burnchain,
+        indexer,
     )?;
 
     Ok(consolidate_affirmation_maps(
@@ -737,8 +754,9 @@ pub fn static_get_heaviest_affirmation_map(
 /// Get the canonical affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_canonical_affirmation_map(
+pub fn static_get_canonical_affirmation_map<B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
+    indexer: &B,
     burnchain_blocks_db: &BurnchainDB,
     sortition_db: &SortitionDB,
     chain_state_db: &StacksChainState,
@@ -750,6 +768,7 @@ pub fn static_get_canonical_affirmation_map(
 
     let canonical_am = StacksChainState::find_canonical_affirmation_map(
         burnchain,
+        indexer,
         burnchain_blocks_db,
         chain_state_db,
     )?;
@@ -814,7 +833,8 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-    > ChainsCoordinator<'a, T, N, U, CE, FE>
+        B: BurnchainHeaderReader,
+    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
@@ -854,6 +874,7 @@ impl<
     ) -> Result<AffirmationMap, Error> {
         static_get_heaviest_affirmation_map(
             &self.burnchain,
+            &self.burnchain_indexer,
             &self.burnchain_blocks_db,
             &self.sortition_db,
             sortition_tip,
@@ -866,6 +887,7 @@ impl<
     ) -> Result<AffirmationMap, Error> {
         static_get_canonical_affirmation_map(
             &self.burnchain,
+            &self.burnchain_indexer,
             &self.burnchain_blocks_db,
             &self.sortition_db,
             &self.chain_state_db,
@@ -2719,6 +2741,7 @@ impl<
 
             let commit = BurnchainDB::get_block_commit(
                 self.burnchain_blocks_db.conn(),
+                &winner_snapshot.burn_header_hash,
                 &winner_snapshot.winning_block_txid,
             )?
             .expect("BUG: no commit metadata in DB for existing commit");

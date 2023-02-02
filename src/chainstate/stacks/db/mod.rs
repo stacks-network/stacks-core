@@ -840,10 +840,6 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
 
-pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
-
-pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
-
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 

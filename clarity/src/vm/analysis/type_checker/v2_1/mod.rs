@@ -423,18 +423,23 @@ impl FunctionType {
         check_argument_count(expected_args.len(), func_args)?;
 
         if clarity_version < ClarityVersion::Clarity2 {
-            for (expected, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
-                let expected_arg = expected.signature.canonicalize_simple_type_v2_1();
-                match (&expected_arg, arg) {
+            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+                match (&expected_arg.signature, arg) {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_id)),
                         Value::Principal(PrincipalData::Contract(contract)),
                     ) => {
-                        let contract_to_check = db.load_contract(contract).ok_or_else(|| {
-                            CheckErrors::NoSuchContract(contract.name.to_string())
-                        })?;
+                        let contract_to_check = db
+                            .load_contract(contract, &StacksEpochId::Epoch21)
+                            .ok_or_else(|| {
+                                CheckErrors::NoSuchContract(contract.name.to_string())
+                            })?;
                         let trait_definition = db
-                            .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
+                            .get_defined_trait(
+                                &trait_id.contract_identifier,
+                                &trait_id.name,
+                                &StacksEpochId::Epoch21,
+                            )
                             .unwrap()
                             .ok_or(CheckErrors::NoSuchContract(
                                 trait_id.contract_identifier.to_string(),
@@ -603,8 +608,8 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
 fn clarity2_inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
-    actual_in: &TypeSignature,
-    expected_in: &TypeSignature,
+    actual_type: &TypeSignature,
+    expected_type: &TypeSignature,
     depth: u8,
     tracker: &mut T,
 ) -> TypeResult {
@@ -612,12 +617,8 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         return Err(CheckErrors::TypeSignatureTooDeep.into());
     }
 
-    // Canonicalize the types for 2.1
-    let actual_type = actual_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
-    let expected_type = expected_in.canonicalize_simple_type(&StacksEpochId::Epoch21);
-
     // Recurse into values to check embedded traits properly
-    match (&actual_type, &expected_type) {
+    match (actual_type, expected_type) {
         (
             TypeSignature::OptionalType(atom_inner_type),
             TypeSignature::OptionalType(expected_inner_type),
@@ -727,7 +728,9 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
-            let contract_to_check = match db.load_contract(&contract_identifier) {
+            let contract_to_check = match db
+                .load_contract(&contract_identifier, &StacksEpochId::Epoch21)
+            {
                 Some(contract) => {
                     runtime_cost(
                         ClarityCostFunction::AnalysisFetchContractEntry,
@@ -759,7 +762,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     db,
                     contract_context,
                     &TypeSignature::CallableType(subtype.clone()),
-                    &expected_type,
+                    expected_type,
                     depth + 1,
                     tracker,
                 )?;
@@ -799,7 +802,11 @@ fn clarity2_lookup_trait<T: CostTracker>(
         }
     }
 
-    match db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name) {
+    match db.get_defined_trait(
+        &trait_id.contract_identifier,
+        &trait_id.name,
+        &StacksEpochId::Epoch21,
+    ) {
         Ok(Some(trait_sig)) => {
             let type_size = trait_type_size(&trait_sig)?;
             runtime_cost(
@@ -1224,22 +1231,24 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-        expected: &TypeSignature,
+        expected_type: &TypeSignature,
     ) -> TypeResult {
-        let expected_type = expected.canonicalize_simple_type(&StacksEpochId::Epoch21);
-        match (&expr.expr, &expected_type) {
+        match (&expr.expr, expected_type) {
             (
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
             ) => {
                 let contract_to_check = self
                     .db
-                    .load_contract(&contract_identifier)
+                    .load_contract(&contract_identifier, &StacksEpochId::Epoch21)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 let contract_defining_trait = self
                     .db
-                    .load_contract(&trait_identifier.contract_identifier)
+                    .load_contract(
+                        &trait_identifier.contract_identifier,
+                        &StacksEpochId::Epoch21,
+                    )
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
                     ))?;
@@ -1262,10 +1271,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
 
         let actual_type = self.type_check(expr, context)?;
-        analysis_typecheck_cost(self, &expected_type, &actual_type)?;
+        analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
         if !expected_type.admits_type(&StacksEpochId::Epoch21, &actual_type)? {
-            let mut err: CheckError = CheckErrors::TypeError(expected_type, actual_type).into();
+            let mut err: CheckError =
+                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
             err.set_expression(expr);
             Err(err)
         } else {
@@ -1536,6 +1546,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
+                        &StacksEpochId::Epoch21,
                     )?;
                     match result {
                         Some(trait_sig) => {

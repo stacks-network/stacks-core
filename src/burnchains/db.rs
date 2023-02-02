@@ -62,6 +62,10 @@ pub trait BurnchainHeaderReader {
         end_height: u64,
     ) -> Result<Vec<BurnchainBlockHeader>, DBError>;
     fn get_burnchain_headers_height(&self) -> Result<u64, DBError>;
+    fn find_burnchain_header_height(
+        &self,
+        header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError>;
 
     fn read_burnchain_header(&self, height: u64) -> Result<Option<BurnchainBlockHeader>, DBError> {
         let mut hdrs = self.read_burnchain_headers(height, height.saturating_add(1))?;
@@ -145,6 +149,12 @@ fn apply_blockstack_txs_safety_checks(
     block_height: u64,
     blockstack_txs: &mut Vec<BlockstackOperationType>,
 ) -> () {
+    test_debug!(
+        "Apply safety checks on {} txs at burnchain height {}",
+        blockstack_txs.len(),
+        block_height
+    );
+
     // safety -- make sure these are in order
     blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
@@ -288,14 +298,17 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
-const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_block_commit_metadata_burn_block_hash_txid";
+const LAST_BURNCHAIN_DB_INDEX: &'static str =
+    "index_block_commit_metadata_burn_block_hash_anchor_block";
 const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid_block_hash ON burnchain_db_block_ops(txid,block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_block_height_vtxindex_burn_block_hash ON block_commit_metadata(block_height,vtxindex,burn_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_anchor_block_burn_block_hash_txid ON block_commit_metadata(anchor_block,burn_block_hash,txid);",
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_txid ON block_commit_metadata(burn_block_hash,txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_anchor_block ON block_commit_metadata(burn_block_hash,anchor_block);",
 ];
 
 impl<'a> BurnchainDBTransaction<'a> {
@@ -621,8 +634,8 @@ impl<'a> BurnchainDBTransaction<'a> {
             let (mut am, parent_rc_opt) = match parent_metadata.anchor_block_descendant {
                 Some(parent_ab_rc) => {
                     // parent affirmed some past anchor block
-                    let (_, ab_metadata) = BurnchainDB::get_anchor_block_commit(&self.sql_tx, parent_ab_rc)?
-                            .expect(&format!("BUG: parent descends from a reward cycle with an anchor block ({}), but no anchor block found", parent_ab_rc));
+                    let ab_metadata = BurnchainDB::get_canonical_anchor_block_commit_metadata(&self.sql_tx, indexer, parent_ab_rc)?
+                        .expect(&format!("BUG: parent descends from a reward cycle with an anchor block ({}), but no anchor block found", parent_ab_rc));
 
                     let mut am =
                         BurnchainDB::get_affirmation_map(&self.sql_tx, ab_metadata.affirmation_id)?
@@ -1128,38 +1141,62 @@ impl BurnchainDB {
         })
     }
 
-    fn inner_get_burnchain_op(conn: &DBConn, txid: &Txid) -> Option<BlockstackOperationType> {
-        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?";
+    fn inner_get_burnchain_op(
+        conn: &DBConn,
+        burn_header_hash: &BurnchainHeaderHash,
+        txid: &Txid,
+    ) -> Option<BlockstackOperationType> {
+        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
+        let args: &[&dyn ToSql] = &[txid, burn_header_hash];
 
-        match query_row(conn, qry, &[txid]) {
+        match query_row(conn, qry, args) {
             Ok(res) => res,
             Err(e) => {
-                warn!(
+                panic!(
                     "BurnchainDB Error finding burnchain op: {:?}. txid = {}",
                     e, txid
                 );
-                None
             }
         }
     }
 
-    pub fn get_burnchain_op(&self, txid: &Txid) -> Option<BlockstackOperationType> {
-        BurnchainDB::inner_get_burnchain_op(&self.conn, txid)
+    pub fn find_burnchain_op<B: BurnchainHeaderReader>(
+        &self,
+        indexer: &B,
+        txid: &Txid,
+    ) -> Option<BlockstackOperationType> {
+        let qry = "SELECT op FROM burnchain_db_block_ops WHERE txid = ?1";
+        let args: &[&dyn ToSql] = &[txid];
+
+        let ops: Vec<BlockstackOperationType> =
+            query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
+        for op in ops {
+            if let Some(_) = indexer
+                .find_burnchain_header_height(&op.burn_header_hash())
+                .expect("FATAL: burnchain DB query error")
+            {
+                // this is the op on the canonical fork
+                return Some(op);
+            }
+        }
+        None
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
-    fn get_blockstack_transactions(
+    fn get_blockstack_transactions<B: BurnchainHeaderReader>(
         &self,
         burnchain: &Burnchain,
+        indexer: &B,
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
     ) -> Vec<BlockstackOperationType> {
         debug!(
-            "Extract Blockstack transactions from block {} {}",
+            "Extract Blockstack transactions from block {} {} ({} txs)",
             block.block_height(),
-            &block.block_hash()
+            &block.block_hash(),
+            block.txs().len(),
         );
 
         let mut ops = Vec::new();
@@ -1168,6 +1205,7 @@ impl BurnchainDB {
         for tx in block.txs().iter() {
             let result = Burnchain::classify_transaction(
                 burnchain,
+                indexer,
                 self,
                 block_header,
                 epoch_id,
@@ -1258,23 +1296,77 @@ impl BurnchainDB {
         Ok(query_row::<bool, _>(conn, sql, args)?.is_some())
     }
 
-    pub fn get_anchor_block_commit(
+    pub fn get_anchor_block_commit_metadatas(
         conn: &DBConn,
         reward_cycle: u64,
-    ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
+    ) -> Result<Vec<BlockCommitMetadata>, DBError> {
         let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?];
-        let commit_metadata = match query_row::<BlockCommitMetadata, _>(conn, sql, args)? {
-            Some(cmt) => cmt,
-            None => {
-                return Ok(None);
-            }
-        };
 
-        let commit = BurnchainDB::get_block_commit(conn, &commit_metadata.txid)?
+        let metadatas: Vec<BlockCommitMetadata> = query_rows(conn, sql, args)?;
+        Ok(metadatas)
+    }
+
+    pub fn get_canonical_anchor_block_commit_metadata<B: BurnchainHeaderReader>(
+        conn: &DBConn,
+        indexer: &B,
+        reward_cycle: u64,
+    ) -> Result<Option<BlockCommitMetadata>, DBError> {
+        let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?];
+
+        let metadatas: Vec<BlockCommitMetadata> = query_rows(conn, sql, args)?;
+        for metadata in metadatas {
+            if let Some(header) = indexer.read_burnchain_header(metadata.block_height)? {
+                if header.block_hash == metadata.burn_block_hash {
+                    return Ok(Some(metadata));
+                }
+            }
+        }
+        return Ok(None);
+    }
+
+    pub fn get_canonical_anchor_block_commit<B: BurnchainHeaderReader>(
+        conn: &DBConn,
+        indexer: &B,
+        reward_cycle: u64,
+    ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
+        if let Some(commit_metadata) =
+            Self::get_canonical_anchor_block_commit_metadata(conn, indexer, reward_cycle)?
+        {
+            let commit = BurnchainDB::get_block_commit(
+                conn,
+                &commit_metadata.burn_block_hash,
+                &commit_metadata.txid,
+            )?
             .expect("BUG: no block-commit for block-commit metadata");
 
-        Ok(Some((commit, commit_metadata)))
+            Ok(Some((commit, commit_metadata)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_anchor_block_commit(
+        conn: &DBConn,
+        anchor_block_burn_header_hash: &BurnchainHeaderHash,
+        reward_cycle: u64,
+    ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
+        let sql =
+            "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1 AND burn_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?, anchor_block_burn_header_hash];
+        if let Some(commit_metadata) = query_row::<BlockCommitMetadata, _>(conn, sql, args)? {
+            let commit = BurnchainDB::get_block_commit(
+                conn,
+                &commit_metadata.burn_block_hash,
+                &commit_metadata.txid,
+            )?
+            .expect("BUG: no block-commit for block-commit metadata");
+
+            Ok(Some((commit, commit_metadata)))
+        } else {
+            Ok(None)
+        }
     }
 
     // do NOT call directly; only call directly in tests.
@@ -1312,7 +1404,7 @@ impl BurnchainDB {
         debug!("Storing new burnchain block";
               "burn_header_hash" => %header.block_hash.to_string());
         let mut blockstack_ops =
-            self.get_blockstack_transactions(burnchain, block, &header, epoch_id);
+            self.get_blockstack_transactions(burnchain, indexer, block, &header, epoch_id);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         self.store_new_burnchain_block_ops_unchecked(burnchain, indexer, &header, &blockstack_ops)?;
@@ -1349,9 +1441,10 @@ impl BurnchainDB {
 
     pub fn get_block_commit(
         conn: &DBConn,
+        burn_header_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
-        let op = BurnchainDB::inner_get_burnchain_op(conn, txid);
+        let op = BurnchainDB::inner_get_burnchain_op(conn, burn_header_hash, txid);
         if let Some(BlockstackOperationType::LeaderBlockCommit(opdata)) = op {
             Ok(Some(opdata))
         } else {
@@ -1388,7 +1481,7 @@ impl BurnchainDB {
             }
         };
 
-        BurnchainDB::get_block_commit(conn, &txid)
+        BurnchainDB::get_block_commit(conn, header_hash, &txid)
     }
 
     pub fn get_commit_at<B: BurnchainHeaderReader>(
@@ -1429,36 +1522,44 @@ impl BurnchainDB {
 
     /// Get the block-commit and block metadata for the anchor block with the heaviest affirmation
     /// weight.
-    pub fn get_heaviest_anchor_block(
+    pub fn get_heaviest_anchor_block<B: BurnchainHeaderReader>(
         conn: &DBConn,
+        indexer: &B,
     ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
-        match query_row::<BlockCommitMetadata, _>(
-                        conn, "SELECT block_commit_metadata.* \
-                               FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
-                               WHERE block_commit_metadata.anchor_block IS NOT NULL \
-                               ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC \
-                               LIMIT 1",
-                        NO_PARAMS
-        )? {
-            Some(metadata) => {
-                let commit = BurnchainDB::get_block_commit(conn, &metadata.txid)?
-                    .expect("BUG: no block commit for existing metadata");
-                Ok(Some((commit, metadata)))
-            }
-            None => {
-                test_debug!("No anchor block affirmations maps");
-                Ok(None)
+        let sql = "SELECT block_commit_metadata.* \
+                   FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
+                   WHERE block_commit_metadata.anchor_block IS NOT NULL \
+                   ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC";
+
+        let mut stmt = conn.prepare(sql)?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let metadata = BlockCommitMetadata::from_row(row)?;
+
+            if let Some(block_header) = indexer.read_burnchain_header(metadata.block_height)? {
+                if block_header.block_hash != metadata.burn_block_hash {
+                    continue;
+                }
+
+                // this metadata is part of the indexer's burnchain fork
+                let commit =
+                    BurnchainDB::get_block_commit(conn, &metadata.burn_block_hash, &metadata.txid)?
+                        .expect("BUG: no block commit for existing metadata");
+                return Ok(Some((commit, metadata)));
             }
         }
+
+        return Ok(None);
     }
 
     /// Find the affirmation map of the anchor block whose affirmation map is the heaviest.
     /// In the event of a tie, pick the one from the anchor block of the latest reward cycle.
-    pub fn get_heaviest_anchor_block_affirmation_map(
+    pub fn get_heaviest_anchor_block_affirmation_map<B: BurnchainHeaderReader>(
         conn: &DBConn,
         burnchain: &Burnchain,
+        indexer: &B,
     ) -> Result<AffirmationMap, DBError> {
-        match BurnchainDB::get_heaviest_anchor_block(conn)? {
+        match BurnchainDB::get_heaviest_anchor_block(conn, indexer)? {
             Some((_, metadata)) => {
                 let last_reward_cycle = burnchain
                     .block_height_to_reward_cycle(metadata.block_height)
@@ -1530,12 +1631,14 @@ impl BurnchainDB {
     /// Get the canonical affirmation map.  This is the heaviest anchor block affirmation map, but
     /// accounting for any subsequent reward cycles whose anchor blocks either aren't on the
     /// heaviest anchor block affirmation map, or which have no anchor blocks.
-    pub fn get_canonical_affirmation_map<F>(
+    pub fn get_canonical_affirmation_map<F, B>(
         conn: &DBConn,
         burnchain: &Burnchain,
+        indexer: &B,
         mut unconfirmed_oracle: F,
     ) -> Result<AffirmationMap, DBError>
     where
+        B: BurnchainHeaderReader,
         F: FnMut(LeaderBlockCommitOp, BlockCommitMetadata) -> bool,
     {
         let canonical_tip =
@@ -1559,7 +1662,7 @@ impl BurnchainDB {
         }
 
         let mut heaviest_am =
-            BurnchainDB::get_heaviest_anchor_block_affirmation_map(conn, burnchain)?;
+            BurnchainDB::get_heaviest_anchor_block_affirmation_map(conn, burnchain, indexer)?;
         let start_rc = (heaviest_am.len() as u64) + 1;
 
         test_debug!(
@@ -1569,9 +1672,13 @@ impl BurnchainDB {
             &heaviest_am
         );
         for rc in start_rc..last_reward_cycle {
-            if let Some((commit, metadata)) = BurnchainDB::get_anchor_block_commit(conn, rc)? {
-                let bhh = commit.block_header_hash.clone();
+            if let Some(metadata) =
+                BurnchainDB::get_canonical_anchor_block_commit_metadata(conn, indexer, rc)?
+            {
+                let bhh = metadata.burn_block_hash.clone();
                 let txid = metadata.txid.clone();
+                let commit = BurnchainDB::get_block_commit(conn, &bhh, &txid)?
+                    .expect("FATAL: have block-commit metadata but not block-commit");
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
                     debug!(
