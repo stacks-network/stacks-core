@@ -290,7 +290,7 @@ impl AffirmationMapEntry {
 /// list behind accessor and mutator methods.
 #[derive(Clone, PartialEq)]
 pub struct AffirmationMap {
-    affirmations: Vec<AffirmationMapEntry>,
+    pub affirmations: Vec<AffirmationMapEntry>,
 }
 
 impl fmt::Display for AffirmationMapEntry {

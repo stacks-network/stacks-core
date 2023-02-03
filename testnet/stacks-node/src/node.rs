@@ -55,6 +55,8 @@ use stacks::{
 use crate::run_loop;
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
+use crate::burnchains::make_bitcoin_indexer;
+
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::vm::database::BurnStateDB;
@@ -248,8 +250,11 @@ fn spawn_peer(
                 }
             };
 
+            let indexer = make_bitcoin_indexer(&config);
+
             let net_result = this
                 .run(
+                    &indexer,
                     &sortdb,
                     &mut chainstate,
                     &mut mem_pool,

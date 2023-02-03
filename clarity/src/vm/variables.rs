@@ -62,7 +62,9 @@ pub fn lookup_reserved_variable(
     _context: &LocalContext,
     env: &mut Environment,
 ) -> Result<Option<Value>> {
-    if let Some(variable) = NativeVariables::lookup_by_name(name) {
+    if let Some(variable) =
+        NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
+    {
         match variable {
             NativeVariables::TxSender => {
                 let sender = env

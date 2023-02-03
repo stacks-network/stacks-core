@@ -59,6 +59,7 @@ fn arithmetic_check(
         contract_identifier,
         expressions,
         LimitedCostTracker::new_free(),
+        epoch,
         version,
     );
 

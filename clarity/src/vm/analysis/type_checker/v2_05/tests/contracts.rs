@@ -171,6 +171,7 @@ fn test_names_tokens_contracts_interface() {
         serde_json::from_str(&test_contract_json_str).unwrap();
 
     let test_contract_json_expected: serde_json::Value = serde_json::from_str(r#"{
+        "epoch": "Epoch2_05",
         "clarity_version": "Clarity1",
         "functions": [
             { "name": "f00",

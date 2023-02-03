@@ -1832,6 +1832,21 @@ impl ContractContext {
     pub fn get_clarity_version(&self) -> &ClarityVersion {
         &self.clarity_version
     }
+
+    /// Canonicalize the types for the specified epoch. Only functions and
+    /// defined traits are exposed externally, so other types are not
+    /// canonicalized.
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for (_, function) in self.functions.iter_mut() {
+            function.canonicalize_types(epoch);
+        }
+
+        for trait_def in self.defined_traits.values_mut() {
+            for (_, function) in trait_def.iter_mut() {
+                *function = function.canonicalize(epoch);
+            }
+        }
+    }
 }
 
 impl<'a> LocalContext<'a> {
@@ -1956,6 +1971,14 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use crate::vm::{
+        callables::DefineType,
+        types::{
+            signatures::CallableSubtype, FixedFunction, FunctionArg, FunctionType,
+            StandardPrincipalData,
+        },
+    };
+
     use super::*;
 
     #[test]
@@ -2108,5 +2131,63 @@ mod test {
 
         assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
+
+    #[test]
+    fn test_canonicalize_contract_context() {
+        let trait_id = TraitIdentifier::new(
+            StandardPrincipalData::transient(),
+            "my-contract".into(),
+            "my-trait".into(),
+        );
+        let mut contract_context = ContractContext::new(
+            QualifiedContractIdentifier::local("foo").unwrap(),
+            ClarityVersion::Clarity1,
+        );
+        contract_context.functions.insert(
+            "foo".into(),
+            DefinedFunction::new(
+                vec![(
+                    "a".into(),
+                    TypeSignature::TraitReferenceType(trait_id.clone()),
+                )],
+                SymbolicExpression::atom_value(Value::Int(3)),
+                DefineType::Public,
+                &"foo".into(),
+                "testing",
+            ),
+        );
+
+        let mut trait_functions = BTreeMap::new();
+        trait_functions.insert(
+            "alpha".into(),
+            FunctionSignature {
+                args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
+                returns: TypeSignature::ResponseType(Box::new((
+                    TypeSignature::UIntType,
+                    TypeSignature::UIntType,
+                ))),
+            },
+        );
+        contract_context
+            .defined_traits
+            .insert("bar".into(), trait_functions);
+
+        contract_context.canonicalize_types(&StacksEpochId::Epoch21);
+
+        assert_eq!(
+            contract_context.functions["foo"].get_arg_types()[0],
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+        );
+        assert_eq!(
+            contract_context
+                .defined_traits
+                .get("bar")
+                .unwrap()
+                .get("alpha")
+                .unwrap()
+                .args[0],
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+        );
     }
 }

@@ -18,6 +18,8 @@ use stacks::chainstate::burn::BlockSnapshot;
 
 use stacks::core::{StacksEpoch, StacksEpochId};
 
+pub use self::bitcoin_regtest_controller::make_bitcoin_indexer;
+
 #[derive(Debug)]
 pub enum Error {
     CoordinatorClosed,

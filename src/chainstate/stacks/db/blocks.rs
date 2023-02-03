@@ -36,6 +36,7 @@ use rusqlite::{Error as sqlite_error, OptionalExtension};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
@@ -2524,14 +2525,16 @@ impl StacksChainState {
 
     /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
     /// have the block data for it or not.
-    pub fn find_canonical_affirmation_map(
+    pub fn find_canonical_affirmation_map<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
+        indexer: &B,
         burnchain_db: &BurnchainDB,
         chainstate: &StacksChainState,
     ) -> Result<AffirmationMap, Error> {
         BurnchainDB::get_canonical_affirmation_map(
             burnchain_db.conn(),
             burnchain,
+            indexer,
             |anchor_block_commit, _anchor_block_metadata| {
                 // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
                 // download, then assume that it's absent.  Otherwise, if we are in the initial block
@@ -2582,7 +2585,8 @@ impl StacksChainState {
         Ok(AffirmationMap::empty())
     }
 
-    /// Get the affirmation map represented by the Stacks chain tip
+    /// Get the affirmation map represented by the Stacks chain tip.
+    /// This uses the 2.1 rules exclusively (i.e. only block-commits are considered).
     pub fn find_stacks_tip_affirmation_map(
         burnchain_db: &BurnchainDB,
         sort_db_conn: &DBConn,
@@ -5866,9 +5870,9 @@ impl StacksChainState {
     /// in the block, and a `PreCommitClarityBlock` struct.
     ///
     /// The `StacksEpochReceipts` contains the list of transaction
-    /// receipts for both the preceeding microblock stream that the
-    /// block confirms, as well as the transaction receipts for the
-    /// anchored block's transactions. Finally, it returns the
+    /// receipts for the preceeding microblock stream that the
+    /// block confirms, the anchored block's transactions, and the
+    /// btc wire transactions. Finally, it returns the
     /// execution costs for the microblock stream and for the anchored
     /// block (separately).
     ///
@@ -7220,7 +7224,7 @@ impl StacksChainState {
                 let epoch = clarity_connection.get_epoch().clone();
                 clarity_connection.with_analysis_db_readonly(|db| {
                     let function_type = db
-                        .get_public_function_type(&contract_identifier, &function_name)
+                        .get_public_function_type(&contract_identifier, &function_name, &epoch)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
                     let clarity_version = db
@@ -12131,7 +12135,10 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
-        peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let num_epochs = epochs.len();
+        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
 
         let mut peer = TestPeer::new(peer_config);

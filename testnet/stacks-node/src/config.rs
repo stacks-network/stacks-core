@@ -485,19 +485,6 @@ impl Config {
                 "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {:?}",
                 burnchain
             );
-        } else if epoch21_rc == v1_unlock_rc {
-            // if v1_unlock_height and epoch_21 are in the same reward cycle, then epoch_21 must be
-            // instantiated before the prepare phase.  This is because pox-2 must exist in the
-            // PoX anchor block for the subsequent reward cycle.
-            //
-            // Ideally, the epoch_21 start height would be at the very beginning of the reward
-            // cycle, but this is not a hard requirement.  However, it is highly recommended to
-            // de-risk the chance that the anchor block is picked before the block in which pox-2
-            // is instantiated.
-            assert!(!burnchain.is_in_prepare_phase(epoch21.start_height));
-            if !burnchain.is_reward_cycle_start(epoch21.start_height) {
-                warn!("DANGEROUS CONFIG: Epoch 2.1 starts at {}, which is _NOT_ the beginning of the reward cycle.", epoch21.start_height);
-            }
         }
     }
 
@@ -611,6 +598,7 @@ impl Config {
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
+        let mut has_require_affirmed_anchor_blocks = false;
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
                 let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
@@ -669,9 +657,16 @@ impl Config {
                         .unwrap_or(default_node_config.always_use_affirmation_maps),
                     // miners should always try to mine, even if they don't have the anchored
                     // blocks in the canonical affirmation map. Followers, however, can stall.
-                    require_affirmed_anchor_blocks: node
-                        .require_affirmed_anchor_blocks
-                        .unwrap_or(!node.miner.unwrap_or(!default_node_config.miner)),
+                    require_affirmed_anchor_blocks: match node.require_affirmed_anchor_blocks {
+                        Some(x) => {
+                            has_require_affirmed_anchor_blocks = true;
+                            x
+                        }
+                        None => {
+                            has_require_affirmed_anchor_blocks = false;
+                            !node.miner.unwrap_or(!default_node_config.miner)
+                        }
+                    },
                     // chainstate fault_injection activation for hide_blocks.
                     // you can't set this in the config file.
                     fault_injection_hide_blocks: false,
@@ -716,6 +711,14 @@ impl Config {
                                 "Attempted to run mainnet node with specified `initial_balances`"
                             ));
                         }
+                    }
+                } else {
+                    // testnet requires that we use the 2.05 rules for anchor block affirmations,
+                    // because reward cycle 360 (and possibly future ones) has a different anchor
+                    // block choice in 2.05 rules than in 2.1 rules.
+                    if !has_require_affirmed_anchor_blocks {
+                        debug!("Set `require_affirmed_anchor_blocks` to `false` for non-mainnet config");
+                        node.require_affirmed_anchor_blocks = false;
                     }
                 }
 
