@@ -89,7 +89,7 @@ Example:
     {
       "burnchain_op": {
         "TransferStx": {
-          "block_height": 10,
+          "burn_block_height": 10,
           "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
           "memo": "0x000102030405",
           "recipient": {
@@ -103,7 +103,7 @@ Example:
             "address_version": 26
           },
           "transfered_ustx": 10,
-          "txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
+          "burn_txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
           "vtxindex": 10
         }
       },
@@ -157,7 +157,7 @@ Example:
 ```json
 {
   "TransferStx": {
-    "block_height": 10,
+    "burn_block_height": 10,
     "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
     "memo": "0x000102030405",
     "recipient": {
@@ -171,7 +171,7 @@ Example:
       "address_version": 26
     },
     "transfered_ustx": 10,
-    "txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
+    "burn_txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
     "vtxindex": 10
   }
 }
@@ -181,7 +181,7 @@ Example:
 ```json
 {
   "StackStx": {
-    "block_height": 10,
+    "burn_block_height": 10,
     "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
     "num_cycles": 10,
     "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
@@ -191,7 +191,7 @@ Example:
       "address_version": 26
     },
     "stacked_ustx": 10,
-    "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
     "vtxindex": 10
   }
 }
@@ -201,7 +201,7 @@ Example:
 ```json
 {
   "DelegateStx": {
-    "block_height": 10,
+    "burn_block_height": 10,
     "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
     "delegate_to": {
       "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
@@ -215,7 +215,7 @@ Example:
       "address_version": 26
     },
     "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
-    "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
     "until_burn_height": null,
     "vtxindex": 10
   }

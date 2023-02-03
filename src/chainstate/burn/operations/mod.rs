@@ -434,10 +434,10 @@ impl BlockstackOperationType {
     pub fn pre_stx_to_json(op: &PreStxOp) -> serde_json::Value {
         json!({
             "PreStx": {
-                "block_height": op.block_height,
+                "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "output": stacks_addr_serialize(&op.output),
-                "txid": op.txid,
+                "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
             }
         })
@@ -446,13 +446,13 @@ impl BlockstackOperationType {
     pub fn stack_stx_to_json(op: &StackStxOp) -> serde_json::Value {
         json!({
             "StackStx": {
-                "block_height": op.block_height,
+                "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "num_cycles": op.num_cycles,
                 "reward_addr": op.reward_addr.clone().to_b58(),
                 "sender": stacks_addr_serialize(&op.sender),
                 "stacked_ustx": op.stacked_ustx,
-                "txid": op.txid,
+                "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
             }
         })
@@ -461,13 +461,13 @@ impl BlockstackOperationType {
     pub fn transfer_stx_to_json(op: &TransferStxOp) -> serde_json::Value {
         json!({
             "TransferStx": {
-                "block_height": op.block_height,
+                "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "memo": memo_serialize(&op.memo),
                 "recipient": stacks_addr_serialize(&op.recipient),
                 "sender": stacks_addr_serialize(&op.sender),
                 "transfered_ustx": op.transfered_ustx,
-                "txid": op.txid,
+                "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
             }
         })
@@ -476,13 +476,13 @@ impl BlockstackOperationType {
     pub fn delegate_stx_to_json(op: &DelegateStxOp) -> serde_json::Value {
         json!({
             "DelegateStx": {
-                "block_height": op.block_height,
+                "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "delegate_to": stacks_addr_serialize(&op.delegate_to),
                 "delegated_ustx": op.delegated_ustx,
                 "sender": stacks_addr_serialize(&op.sender),
                 "reward_addr": &op.reward_addr.as_ref().map(|(index, addr)| (index, addr.clone().to_b58())),
-                "txid": op.txid,
+                "burn_txid": op.txid,
                 "until_burn_height": op.until_burn_height,
                 "vtxindex": op.vtxindex,
             }
@@ -490,6 +490,11 @@ impl BlockstackOperationType {
         })
     }
 
+    // An explicit JSON serialization function is used (instead of using the default serialization
+    // function) for the Blockstack ops. This is because (a) we wanted the serialization to be
+    // more readable, and (b) the serialization used to display PoxAddress as a string is lossy,
+    // so we wouldn't want to use this serialization by default (because there will be issues with
+    // deserialization).
     pub fn blockstack_op_to_json(&self) -> serde_json::Value {
         match self {
             BlockstackOperationType::PreStx(op) => Self::pre_stx_to_json(op),
@@ -567,7 +572,7 @@ mod test {
         let serialized_json = BlockstackOperationType::transfer_stx_to_json(&op);
         let constructed_json = json!({
             "TransferStx": {
-                "block_height": 10,
+                "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "memo": "0x000102030405",
                 "recipient": {
@@ -581,7 +586,7 @@ mod test {
                     "address_version": 26,
                 },
                 "transfered_ustx": 10,
-                "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
                 "vtxindex": 10,
             }
         });
@@ -614,7 +619,7 @@ mod test {
         let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
         let constructed_json = json!({
             "StackStx": {
-                "block_height": 10,
+                "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "num_cycles": 10,
                 "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
@@ -624,7 +629,7 @@ mod test {
                     "address_version": 26,
                 },
                 "stacked_ustx": 10,
-                "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
                 "vtxindex": 10,
             }
         });
@@ -647,14 +652,14 @@ mod test {
         let serialized_json = BlockstackOperationType::pre_stx_to_json(&op);
         let constructed_json = json!({
             "PreStx": {
-                "block_height": 10,
+                "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "output": {
                     "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
                     "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
                     "address_version": 26,
                 },
-                "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
                 "vtxindex": 10,
             }
         });
@@ -689,7 +694,7 @@ mod test {
         let serialized_json = BlockstackOperationType::delegate_stx_to_json(&op);
         let constructed_json = json!({
             "DelegateStx": {
-                "block_height": 10,
+                "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "delegate_to": {
                     "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
@@ -703,7 +708,7 @@ mod test {
                     "address_version": 26,
                 },
                 "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
-                "txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+                "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
                 "until_burn_height": null,
                 "vtxindex": 10,
             }
