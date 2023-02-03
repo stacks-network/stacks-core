@@ -36,15 +36,15 @@ pub(crate) fn burnchain_block_header() -> BurnchainBlockHeader {
 
 pub(crate) fn burnchain_transaction(
     data: Vec<u8>,
-    output2: Option<Output>,
+    outputs: impl IntoIterator<Item = Output>,
     opcode: Opcodes,
 ) -> BurnchainTransaction {
-    BurnchainTransaction::Bitcoin(bitcoin_transaction(data, output2, opcode))
+    BurnchainTransaction::Bitcoin(bitcoin_transaction(data, outputs, opcode))
 }
 
 fn bitcoin_transaction(
     data: Vec<u8>,
-    output2: Option<Output>,
+    outputs: impl IntoIterator<Item = Output>,
     opcode: Opcodes,
 ) -> BitcoinTransaction {
     BitcoinTransaction {
@@ -60,7 +60,7 @@ fn bitcoin_transaction(
             tx_ref: (Txid([0; 32]), 0),
         }
         .into()],
-        outputs: output2
+        outputs: outputs
             .into_iter()
             .map(|output2data| output2data.as_bitcoin_tx_output())
             .collect(),
@@ -74,11 +74,11 @@ pub(crate) struct Output {
 }
 
 impl Output {
-    pub(crate) fn new_as_option(amount: u64, peg_wallet_address: [u8; 32]) -> Option<Self> {
-        Some(Self {
+    pub(crate) fn new(amount: u64, peg_wallet_address: [u8; 32]) -> Self {
+        Self {
             amount,
             address: peg_wallet_address,
-        })
+        }
     }
     pub(crate) fn as_bitcoin_tx_output(&self) -> BitcoinTxOutput {
         BitcoinTxOutput {

@@ -196,14 +196,14 @@ mod tests {
 
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
 
         let mut data = vec![1];
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
@@ -220,7 +220,7 @@ mod tests {
 
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
         let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
@@ -230,7 +230,7 @@ mod tests {
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
@@ -249,7 +249,7 @@ mod tests {
         let contract_name = "This_is_a_valid_contract_name";
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
         let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
@@ -260,7 +260,7 @@ mod tests {
         data.extend_from_slice(&[0; 11]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
@@ -282,7 +282,7 @@ mod tests {
         let contract_name = "Mårten_is_not_a_valid_contract_name";
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
         let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
@@ -293,7 +293,7 @@ mod tests {
         data.extend_from_slice(&[0; 4]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
@@ -312,7 +312,7 @@ mod tests {
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
 
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
         let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
@@ -321,7 +321,7 @@ mod tests {
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
@@ -341,7 +341,7 @@ mod tests {
 
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
         let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
@@ -351,7 +351,7 @@ mod tests {
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
@@ -393,13 +393,13 @@ mod tests {
 
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = test::Output::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
 
         let mut data = vec![1];
         let addr_bytes: [u8; 19] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
@@ -426,9 +426,9 @@ mod tests {
 
         let create_op = move |amount| {
             let opcode = Opcodes::PegIn;
-            let output2 = test::Output::new_as_option(amount, peg_wallet_address.clone());
+            let output2 = test::Output::new(amount, peg_wallet_address.clone());
 
-            let tx = test::burnchain_transaction(data.clone(), output2, opcode);
+            let tx = test::burnchain_transaction(data.clone(), Some(output2), opcode);
             let header = test::burnchain_block_header();
 
             PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation")

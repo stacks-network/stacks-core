@@ -27,6 +27,14 @@ impl PegOutRequestOp {
             return Err(OpError::InvalidInput);
         };
 
+        let (fulfillment_fee, peg_wallet_address) =
+            if let Some(Some(recipient)) = tx.get_recipients().get(1) {
+                (recipient.amount, recipient.address.clone())
+            } else {
+                warn!("Invalid tx: Output 3 not provided");
+                return Err(OpError::InvalidInput);
+            };
+
         let parsed_data = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
@@ -38,6 +46,8 @@ impl PegOutRequestOp {
             amount: parsed_data.amount,
             signature: parsed_data.signature,
             recipient,
+            peg_wallet_address,
+            fulfillment_fee,
             memo: parsed_data.memo,
             txid,
             vtxindex,
@@ -86,6 +96,11 @@ impl PegOutRequestOp {
             return Err(OpError::AmountMustBePositive);
         }
 
+        if self.fulfillment_fee == 0 {
+            warn!("PEG_OUT_REQUEST Invalid: Fulfillment fee must be positive");
+            return Err(OpError::AmountMustBePositive);
+        }
+
         Ok(())
     }
 }
@@ -126,7 +141,11 @@ mod tests {
 
         let dust_amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let fulfillment_fee = 3;
+        let output3 = test::Output::new(fulfillment_fee, peg_wallet_address);
 
         let mut data = vec![];
         let amount: u64 = 10;
@@ -134,7 +153,7 @@ mod tests {
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, [output2, output3], opcode);
         let header = test::burnchain_block_header();
 
         let op =
@@ -153,7 +172,11 @@ mod tests {
 
         let dust_amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let fulfillment_fee = 3;
+        let output3 = test::Output::new(fulfillment_fee, peg_wallet_address);
 
         let mut data = vec![];
         let amount: u64 = 10;
@@ -163,7 +186,7 @@ mod tests {
         let memo_bytes: [u8; 4] = test::random_bytes(&mut rng);
         data.extend_from_slice(&memo_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, [output2, output3], opcode);
         let header = test::burnchain_block_header();
 
         let op =
@@ -173,6 +196,8 @@ mod tests {
         assert_eq!(op.signature.as_bytes(), &signature);
         assert_eq!(&op.memo, &memo_bytes);
         assert_eq!(op.amount, amount);
+        assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+        assert_eq!(op.fulfillment_fee, fulfillment_fee);
     }
 
     #[test]
@@ -182,7 +207,11 @@ mod tests {
 
         let dust_amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let fulfillment_fee = 3;
+        let output3 = test::Output::new(fulfillment_fee, peg_wallet_address);
 
         let mut data = vec![];
         let amount: u64 = 10;
@@ -190,7 +219,7 @@ mod tests {
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, [output2, output3], opcode);
         let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
@@ -202,11 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_peg_out_request_should_return_error_given_no_second_output() {
+    fn test_parse_peg_out_request_should_return_error_given_no_outputs() {
         let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutRequest;
-
-        let output2 = None;
 
         let mut data = vec![];
         let amount: u64 = 10;
@@ -214,7 +241,33 @@ mod tests {
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, None, opcode);
+        let header = test::burnchain_block_header();
+
+        let op = PegOutRequestOp::from_tx(&header, &tx);
+
+        match op {
+            Err(OpError::InvalidInput) => (),
+            result => panic!("Expected OpError::InvalidInput, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_peg_out_request_should_return_error_given_no_third_output() {
+        let mut rng = test::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+        let signature: [u8; 65] = test::random_bytes(&mut rng);
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(&signature);
+
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
@@ -232,7 +285,11 @@ mod tests {
 
         let dust_amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let fulfillment_fee = 3;
+        let output3 = test::Output::new(fulfillment_fee, peg_wallet_address);
 
         let mut data = vec![];
         let amount: u64 = 10;
@@ -240,7 +297,7 @@ mod tests {
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(&signature);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, [output2, output3], opcode);
         let header = test::burnchain_block_header();
 
         let op = PegOutRequestOp::from_tx(&header, &tx);
@@ -257,9 +314,11 @@ mod tests {
 
         let dust_amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(dust_amount, recipient_address_bytes);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
 
-        let mut create_op = move |amount: u64| {
+        let peg_wallet_address = test::random_bytes(&mut rng);
+
+        let mut create_op = move |amount: u64, fulfillment_fee: u64| {
             let opcode = Opcodes::PegOutRequest;
 
             let mut data = vec![];
@@ -267,14 +326,16 @@ mod tests {
             data.extend_from_slice(&amount.to_be_bytes());
             data.extend_from_slice(&signature);
 
-            let tx = test::burnchain_transaction(data, output2.clone(), opcode);
+            let output3 = test::Output::new(fulfillment_fee, peg_wallet_address.clone());
+
+            let tx = test::burnchain_transaction(data, [output2.clone(), output3.clone()], opcode);
             let header = test::burnchain_block_header();
 
             PegOutRequestOp::from_tx(&header, &tx)
                 .expect("Failed to construct peg-out request operation")
         };
 
-        match create_op(0).check() {
+        match create_op(0, 1).check() {
             Err(OpError::AmountMustBePositive) => (),
             result => panic!(
                 "Expected OpError::PegInAmountMustBePositive, got {:?}",
@@ -282,11 +343,19 @@ mod tests {
             ),
         };
 
-        create_op(1)
+        match create_op(1, 0).check() {
+            Err(OpError::AmountMustBePositive) => (),
+            result => panic!(
+                "Expected OpError::PegInAmountMustBePositive, got {:?}",
+                result
+            ),
+        };
+
+        create_op(1, 1)
             .check()
             .expect("Any strictly positive amounts should be ok");
 
-        create_op(u64::MAX)
+        create_op(u64::MAX, 1)
             .check()
             .expect("Any strictly positive amounts should be ok");
     }
