@@ -454,6 +454,12 @@ impl FromRow<PegOutRequestOp> for PegOutRequestOp {
 
         let signature = MessageSignature::from_column(row, "signature")?;
 
+        let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
+        let fulfillment_fee = row
+            .get::<_, String>("fulfillment_fee")?
+            .parse()
+            .map_err(|_| db_error::ParseError)?;
+
         let memo_hex: String = row.get_unwrap("memo");
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
         let memo = memo_bytes.to_vec();
@@ -466,6 +472,8 @@ impl FromRow<PegOutRequestOp> for PegOutRequestOp {
             recipient,
             amount,
             signature,
+            peg_wallet_address,
+            fulfillment_fee,
             memo,
         })
     }
@@ -826,6 +834,8 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         amount TEXT NOT NULL,
         recipient TEXT NOT NULL,
         signature TEXT NOT NULL,
+        peg_wallet_address TEXT NOT NULL,
+        fulfillment_fee TEXT NOT NULL,
         memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
@@ -5060,10 +5070,12 @@ impl<'a> SortitionHandleTx<'a> {
             &op.amount.to_string(),
             &op.recipient.to_string(),
             &op.signature,
+            &op.peg_wallet_address.to_string(),
+            &op.fulfillment_fee.to_string(),
             &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_out_requests (txid, vtxindex, block_height, burn_header_hash, amount, recipient, signature, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO peg_out_requests (txid, vtxindex, block_height, burn_header_hash, amount, recipient, signature, peg_wallet_address, fulfillment_fee, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
 
         Ok(())
     }
@@ -6578,12 +6590,17 @@ pub mod tests {
             let amount = 1337;
             let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
             let signature = MessageSignature([0; 65]);
+            let peg_wallet_address =
+                PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+            let fulfillment_fee = 3;
             let memo = vec![1, 3, 3, 7];
 
             PegOutRequestOp {
                 recipient,
                 amount,
                 signature,
+                peg_wallet_address,
+                fulfillment_fee,
                 memo,
 
                 txid,
