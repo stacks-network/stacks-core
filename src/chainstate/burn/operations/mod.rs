@@ -433,7 +433,7 @@ impl BlockstackOperationType {
 
     pub fn pre_stx_to_json(op: &PreStxOp) -> serde_json::Value {
         json!({
-            "PreStx": {
+            "pre_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "output": stacks_addr_serialize(&op.output),
@@ -445,7 +445,7 @@ impl BlockstackOperationType {
 
     pub fn stack_stx_to_json(op: &StackStxOp) -> serde_json::Value {
         json!({
-            "StackStx": {
+            "stack_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "num_cycles": op.num_cycles,
@@ -460,7 +460,7 @@ impl BlockstackOperationType {
 
     pub fn transfer_stx_to_json(op: &TransferStxOp) -> serde_json::Value {
         json!({
-            "TransferStx": {
+            "transfer_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "memo": memo_serialize(&op.memo),
@@ -475,7 +475,7 @@ impl BlockstackOperationType {
 
     pub fn delegate_stx_to_json(op: &DelegateStxOp) -> serde_json::Value {
         json!({
-            "DelegateStx": {
+            "delegate_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "delegate_to": stacks_addr_serialize(&op.delegate_to),
@@ -571,7 +571,7 @@ mod test {
         };
         let serialized_json = BlockstackOperationType::transfer_stx_to_json(&op);
         let constructed_json = json!({
-            "TransferStx": {
+            "transfer_stx": {
                 "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "memo": "0x000102030405",
@@ -618,7 +618,7 @@ mod test {
         };
         let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
         let constructed_json = json!({
-            "StackStx": {
+            "stack_stx": {
                 "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "num_cycles": 10,
@@ -651,7 +651,7 @@ mod test {
         };
         let serialized_json = BlockstackOperationType::pre_stx_to_json(&op);
         let constructed_json = json!({
-            "PreStx": {
+            "pre_stx": {
                 "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "output": {
@@ -693,7 +693,7 @@ mod test {
         };
         let serialized_json = BlockstackOperationType::delegate_stx_to_json(&op);
         let constructed_json = json!({
-            "DelegateStx": {
+            "delegate_stx": {
                 "burn_block_height": 10,
                 "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
                 "delegate_to": {

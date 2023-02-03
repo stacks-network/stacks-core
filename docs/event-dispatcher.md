@@ -88,7 +88,7 @@ Example:
     },
     {
       "burnchain_op": {
-        "TransferStx": {
+        "transfer_stx": {
           "burn_block_height": 10,
           "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
           "memo": "0x000102030405",
@@ -156,7 +156,7 @@ Example:
 - TransferStx 
 ```json
 {
-  "TransferStx": {
+  "transfer_stx": {
     "burn_block_height": 10,
     "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
     "memo": "0x000102030405",
@@ -180,7 +180,7 @@ Example:
 - StackStx
 ```json
 {
-  "StackStx": {
+  "stack_stx": {
     "burn_block_height": 10,
     "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
     "num_cycles": 10,
@@ -200,7 +200,7 @@ Example:
 - DelegateStx
 ```json
 {
-  "DelegateStx": {
+  "delegate_stx": {
     "burn_block_height": 10,
     "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
     "delegate_to": {
