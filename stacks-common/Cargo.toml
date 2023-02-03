@@ -22,6 +22,7 @@ rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 sha3 = "0.10.1"
+sha2 = "0.10"
 ripemd = "0.1.1"
 lazy_static = "1.4.0"
 percent-encoding = "2.1.0"
@@ -38,6 +39,7 @@ features = ["arbitrary_precision", "unbounded_depth"]
 [dependencies.secp256k1]
 version = "0.24.3"
 features = ["serde", "recovery"]
+optional = true
 
 [dependencies.rusqlite]
 version = "=0.27.0"
@@ -64,7 +66,12 @@ rstest_reuse = "0.1.3"
 assert-json-diff = "1.0.0"
 
 [features]
-default = ["developer-mode"]
+default = ["canonical", "log", "developer-mode"]
+canonical = ["vrf", "sqlite", "secp256k1"]
+log = ["slog", "slog-term", "slog-json"]
+sqlite = ["rusqlite"]
+vrf = ["ed25519-dalek", "curve25519-dalek"]
+wasm = ["libsecp256k1", "developer-mode"]
 developer-mode = []
 slog_json = ["slog-json"]
-testing = []
+testing = ["canonical"]

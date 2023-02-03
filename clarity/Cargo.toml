@@ -53,10 +53,14 @@ assert-json-diff = "1.0.0"
 # criterion = "0.3"
 
 [features]
-default = ["developer-mode"]
-developer-mode = []
+default = ["developer-mode", "canonical", "log"]
+canonical = ["sqlite", "stacks_common/canonical", "serde_stacker"]
+log = ["slog", "stacks_common/log"]
+sqlite = ["rusqlite"]
+wasm = ["stacks_common/wasm", "developer-mode"]
+developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
-testing = []
+testing = ["canonical"]
 
 [profile.dev.package.regex]
 opt-level = 2
