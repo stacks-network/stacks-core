@@ -112,13 +112,13 @@ mod tests {
 
         let amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+        let output2 = test::Output::new(amount, recipient_address_bytes);
 
         let mut data = vec![];
         let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op =
@@ -137,7 +137,7 @@ mod tests {
 
         let amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+        let output2 = test::Output::new(amount, recipient_address_bytes);
 
         let mut data = vec![];
         let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
@@ -145,7 +145,7 @@ mod tests {
         let memo_bytes: [u8; 17] = test::random_bytes(&mut rng);
         data.extend_from_slice(&memo_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op =
@@ -164,13 +164,13 @@ mod tests {
 
         let amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+        let output2 = test::Output::new(amount, recipient_address_bytes);
 
         let mut data = vec![];
         let chain_tip_bytes: [u8; 32] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegOutFulfillOp::from_tx(&header, &tx);
@@ -210,13 +210,13 @@ mod tests {
 
         let amount = 1;
         let recipient_address_bytes = test::random_bytes(&mut rng);
-        let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+        let output2 = test::Output::new(amount, recipient_address_bytes);
 
         let mut data = vec![];
         let chain_tip_bytes: [u8; 31] = test::random_bytes(&mut rng);
         data.extend_from_slice(&chain_tip_bytes);
 
-        let tx = test::burnchain_transaction(data, output2, opcode);
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
 
         let op = PegOutFulfillOp::from_tx(&header, &tx);
@@ -238,9 +238,9 @@ mod tests {
         let mut create_op = move |amount| {
             let opcode = Opcodes::PegOutFulfill;
             let recipient_address_bytes = test::random_bytes(&mut rng);
-            let output2 = test::Output::new_as_option(amount, recipient_address_bytes);
+            let output2 = test::Output::new(amount, recipient_address_bytes);
 
-            let tx = test::burnchain_transaction(data.clone(), output2, opcode);
+            let tx = test::burnchain_transaction(data.clone(), Some(output2), opcode);
             let header = test::burnchain_block_header();
 
             PegOutFulfillOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation")

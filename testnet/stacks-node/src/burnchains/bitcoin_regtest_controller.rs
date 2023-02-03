@@ -1259,6 +1259,7 @@ impl BitcoinRegtestController {
         tx.output = vec![amount_and_signature_output];
         tx.output
             .push(payload.recipient.to_bitcoin_tx_out(dust_amount));
+        tx.output.push(payload.peg_wallet_address.to_bitcoin_tx_out(payload.fulfillment_fee));
 
         self.finalize_tx(
             epoch_id,
