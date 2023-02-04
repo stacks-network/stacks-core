@@ -1216,6 +1216,8 @@ fn test_classify_delegate_stx() {
     let block_height_1 = 502;
     let block_hash_1 = BurnchainHeaderHash([3; 32]);
 
+    let ops_0_length = ops_0.len();
+    let ops_1_length= ops_1.len();
     let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_0,
         &block_hash_0,
@@ -1223,7 +1225,7 @@ fn test_classify_delegate_stx() {
         ops_0,
         350,
     ));
-
+    
     let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_1,
         &block_hash_1,
@@ -1235,7 +1237,7 @@ fn test_classify_delegate_stx() {
     headers.push(block_0.header().clone());
     headers.push(block_1.header().clone());
 
-    test_debug!("store ops ({}) for block 0", &ops_0.len());
+    test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
         .unwrap();
@@ -1246,7 +1248,7 @@ fn test_classify_delegate_stx() {
         "Only pre_delegate_stx op should have been accepted"
     );
 
-    test_debug!("store ops ({}) for block 1", &ops_1.len());
+    test_debug!("store ops ({}) for block 1", ops_1_length);
     let processed_ops_1 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
         .unwrap();
