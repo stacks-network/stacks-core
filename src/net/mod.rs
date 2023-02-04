@@ -66,6 +66,8 @@ use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::UrlString;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::StandardPrincipalData;
 use clarity::vm::types::TraitIdentifier;
 use clarity::vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
@@ -135,6 +137,9 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod stackerdb;
+
+use crate::net::stackerdb::StackerDBSyncResult;
 
 #[derive(Debug)]
 pub enum Error {
@@ -856,6 +861,7 @@ pub struct HandshakeData {
 pub enum ServiceFlags {
     RELAY = 0x01,
     RPC = 0x02,
+    STACKERDB = 0x04,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -904,6 +910,92 @@ pub enum MemPoolSyncData {
     TxTags([u8; 32], Vec<TxTag>),
 }
 
+/// Make QualifiedContractIdentifier usable to the networking code
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContractId(QualifiedContractIdentifier);
+impl ContractId {
+    pub fn new(addr: StacksAddress, name: ContractName) -> ContractId {
+        let id_addr = StandardPrincipalData(addr.version, addr.bytes.0);
+        ContractId(QualifiedContractIdentifier::new(id_addr, name))
+    }
+
+    pub fn address(&self) -> StacksAddress {
+        StacksAddress {
+            version: self.0.issuer.0,
+            bytes: Hash160(self.0.issuer.1.clone()),
+        }
+    }
+
+    pub fn name(&self) -> ContractName {
+        self.0.name.clone()
+    }
+
+    pub fn parse(txt: &str) -> Option<ContractId> {
+        QualifiedContractIdentifier::parse(txt)
+            .ok()
+            .map(|qc| ContractId(qc))
+    }
+}
+
+impl fmt::Display for ContractId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.0)
+    }
+}
+
+/// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBHandshakeData {
+    /// current reward cycle ID
+    pub rc_consensus_hash: ConsensusHash,
+    /// list of smart contracts that we index.
+    /// there can be as many as 256 entries.
+    pub smart_contracts: Vec<ContractId>,
+}
+
+/// Request for a chunk inventory
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBGetChunkInvData {
+    /// smart contract being used to determine chunk quantity and order
+    pub contract_id: ContractId,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+}
+
+/// Inventory bitvector for chunks this node contains
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBChunkInvData {
+    /// version vector of chunks available.
+    /// The max-length is a protocol constant.
+    pub chunk_versions: Vec<u32>,
+}
+
+/// Request for a stacker DB chunk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBGetChunkData {
+    /// smart contract being used to determine chunk quantity and order
+    pub contract_id: ContractId,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+    /// chunk ID (i.e. the ith bit)
+    pub chunk_id: u32,
+    /// last-seen chunk version
+    pub chunk_version: u32,
+}
+
+/// Stacker DB chunk
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBChunkData {
+    /// chunk ID (i.e. the ith bit)
+    pub chunk_id: u32,
+    /// chunk version (a lamport clock)
+    pub chunk_version: u32,
+    /// signature from the stacker over (reward cycle consensus hash, chunk id, chunk version, chunk sha512/256)
+    pub sig: MessageSignature,
+    /// the chunk data
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -932,6 +1024,12 @@ pub enum StacksMessageType {
     Pong(PongData),
     NatPunchRequest(u32),
     NatPunchReply(NatPunchData),
+    // stacker DB
+    StackerDBHandshakeAccept(HandshakeAcceptData, StackerDBHandshakeData),
+    StackerDBGetChunkInv(StackerDBGetChunkInvData),
+    StackerDBChunkInv(StackerDBChunkInvData),
+    StackerDBGetChunk(StackerDBGetChunkData),
+    StackerDBChunk(StackerDBChunkData),
 }
 
 /// Peer address variants
@@ -1684,6 +1782,12 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    // stackerdb
+    StackerDBHandshakeAccept = 19,
+    StackerDBGetChunkInv = 21,
+    StackerDBChunkInv = 22,
+    StackerDBGetChunk = 23,
+    StackerDBChunk = 24,
     // reserved
     Reserved = 255,
 }
@@ -1948,6 +2052,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
+    pub stacker_db_sync_results: Vec<StackerDBSyncResult>, // chunks for stacker DBs we downloaded
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1974,6 +2079,7 @@ impl NetworkResult {
             uploaded_microblocks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
+            stacker_db_sync_results: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -2082,6 +2188,10 @@ impl NetworkResult {
                 }
             }
         }
+    }
+
+    pub fn consume_stacker_db_sync_results(&mut self, mut msgs: Vec<StackerDBSyncResult>) {
+        self.stacker_db_sync_results.append(&mut msgs);
     }
 }
 
@@ -2855,7 +2965,7 @@ pub mod test {
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
                 let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &config.burnchain, &chaintip)
+                SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
             let mut peer_network = PeerNetwork::new(
@@ -2893,7 +3003,7 @@ pub mod test {
                     let chaintip =
                         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                     SortitionDB::get_burnchain_view(
-                        &sortdb.conn(),
+                        &sortdb.index_conn(),
                         &self.config.burnchain,
                         &chaintip,
                     )
@@ -3860,8 +3970,13 @@ pub mod test {
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
             let sortdb = self.sortdb.take().unwrap();
             let view_res = {
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.config.burnchain, &chaintip)
+                let chaintip =
+                    SortitionDB::get_canonical_burn_chain_tip(&sortdb.index_conn()).unwrap();
+                SortitionDB::get_burnchain_view(
+                    &sortdb.index_conn(),
+                    &self.config.burnchain,
+                    &chaintip,
+                )
             };
             self.sortdb = Some(sortdb);
             view_res
