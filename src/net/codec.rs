@@ -58,6 +58,9 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::StacksPublicKeyBuffer;
 
+use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
+
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
     pub fn new(
@@ -749,6 +752,131 @@ impl StacksMessageCodec for MemPoolSyncData {
     }
 }
 
+impl StacksMessageCodec for ContractId {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.0.issuer.0)?;
+        write_next(fd, &self.0.issuer.1)?;
+        write_next(fd, &self.0.name)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractId, codec_error> {
+        let version: u8 = read_next(fd)?;
+        let bytes: [u8; 20] = read_next(fd)?;
+        let name: ContractName = read_next(fd)?;
+        let qn = QualifiedContractIdentifier::new(StandardPrincipalData(version, bytes), name);
+        Ok(ContractId(qn))
+    }
+}
+
+impl StacksMessageCodec for StackerDBHandshakeData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        if self.smart_contracts.len() > 256 {
+            return Err(codec_error::ArrayTooLong);
+        }
+        // force no more than 256 names in the protocol
+        let len_u8: u8 = self.smart_contracts.len().try_into().expect("Unreachable");
+        write_next(fd, &self.rc_consensus_hash)?;
+        write_next(fd, &len_u8)?;
+        for cid in self.smart_contracts.iter() {
+            write_next(fd, cid)?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBHandshakeData, codec_error> {
+        let rc_consensus_hash = read_next(fd)?;
+        let len_u8: u8 = read_next(fd)?;
+        let mut smart_contracts = Vec::with_capacity(len_u8 as usize);
+        for _ in 0..len_u8 {
+            let cid: ContractId = read_next(fd)?;
+            smart_contracts.push(cid);
+        }
+        Ok(StackerDBHandshakeData {
+            rc_consensus_hash,
+            smart_contracts,
+        })
+    }
+}
+
+impl StacksMessageCodec for StackerDBGetChunkInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.contract_id)?;
+        write_next(fd, &self.rc_consensus_hash)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkInvData, codec_error> {
+        let contract_id: ContractId = read_next(fd)?;
+        let rc_consensus_hash: ConsensusHash = read_next(fd)?;
+        Ok(StackerDBGetChunkInvData {
+            contract_id,
+            rc_consensus_hash,
+        })
+    }
+}
+
+impl StacksMessageCodec for StackerDBChunkInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        if self.chunk_versions.len() > (stackerdb::STACKERDB_INV_MAX as usize) {
+            return Err(codec_error::ArrayTooLong);
+        }
+        write_next(fd, &self.chunk_versions)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkInvData, codec_error> {
+        let chunk_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
+        Ok(StackerDBChunkInvData { chunk_versions })
+    }
+}
+
+impl StacksMessageCodec for StackerDBGetChunkData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.contract_id)?;
+        write_next(fd, &self.rc_consensus_hash)?;
+        write_next(fd, &self.chunk_id)?;
+        write_next(fd, &self.chunk_version)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkData, codec_error> {
+        let contract_id: ContractId = read_next(fd)?;
+        let rc_consensus_hash: ConsensusHash = read_next(fd)?;
+        let chunk_id: u32 = read_next(fd)?;
+        let chunk_version: u32 = read_next(fd)?;
+        Ok(StackerDBGetChunkData {
+            contract_id,
+            rc_consensus_hash,
+            chunk_id,
+            chunk_version,
+        })
+    }
+}
+
+impl StacksMessageCodec for StackerDBChunkData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.chunk_id)?;
+        write_next(fd, &self.chunk_version)?;
+        write_next(fd, &self.sig)?;
+        write_next(fd, &self.data)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkData, codec_error> {
+        let chunk_id: u32 = read_next(fd)?;
+        let chunk_version: u32 = read_next(fd)?;
+        let sig: MessageSignature = read_next(fd)?;
+        let data: Vec<u8> = read_next(fd)?;
+        Ok(StackerDBChunkData {
+            chunk_id,
+            chunk_version,
+            sig,
+            data,
+        })
+    }
+}
+
 impl StacksMessageCodec for RelayData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.peer)?;
@@ -787,6 +915,15 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
             StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
             StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
+            StacksMessageType::StackerDBHandshakeAccept(ref _h, ref _m) => {
+                StacksMessageID::StackerDBHandshakeAccept
+            }
+            StacksMessageType::StackerDBGetChunkInv(ref _m) => {
+                StacksMessageID::StackerDBGetChunkInv
+            }
+            StacksMessageType::StackerDBChunkInv(ref _m) => StacksMessageID::StackerDBChunkInv,
+            StacksMessageType::StackerDBGetChunk(ref _m) => StacksMessageID::StackerDBGetChunk,
+            StacksMessageType::StackerDBChunk(ref _m) => StacksMessageID::StackerDBChunk,
         }
     }
 
@@ -811,6 +948,13 @@ impl StacksMessageType {
             StacksMessageType::Pong(ref _m) => "Pong",
             StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
             StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
+            StacksMessageType::StackerDBHandshakeAccept(ref _h, ref _m) => {
+                "StackerDBHandshakeAccept"
+            }
+            StacksMessageType::StackerDBGetChunkInv(ref _m) => "StackerDBGetChunkInv",
+            StacksMessageType::StackerDBChunkInv(ref _m) => "StackerDBChunkInv",
+            StacksMessageType::StackerDBGetChunk(ref _m) => "StackerDBGetChunk",
+            StacksMessageType::StackerDBChunk(ref _m) => "StackerDBChunk",
         }
     }
 
@@ -869,6 +1013,38 @@ impl StacksMessageType {
             StacksMessageType::NatPunchReply(ref m) => {
                 format!("NatPunchReply({},{}:{})", m.nonce, &m.addrbytes, m.port)
             }
+            StacksMessageType::StackerDBHandshakeAccept(ref h, ref m) => {
+                format!(
+                    "StackerDBHandshakeAccept({},{},{:?})",
+                    &to_hex(&h.handshake.node_public_key.to_bytes()),
+                    &m.rc_consensus_hash,
+                    &m.smart_contracts
+                )
+            }
+            StacksMessageType::StackerDBGetChunkInv(ref m) => {
+                format!(
+                    "StackerDBGetChunkInv({}.{})",
+                    &m.contract_id, &m.rc_consensus_hash
+                )
+            }
+            StacksMessageType::StackerDBChunkInv(ref m) => {
+                format!("StackerDBChunkInv({:?})", &m.chunk_versions)
+            }
+            StacksMessageType::StackerDBGetChunk(ref m) => {
+                format!(
+                    "StackerDBGetChunk({},{},{},{})",
+                    &m.contract_id, &m.rc_consensus_hash, m.chunk_id, m.chunk_version
+                )
+            }
+            StacksMessageType::StackerDBChunk(ref m) => {
+                format!(
+                    "StackerDBChunk({},{},{},sz={})",
+                    m.chunk_id,
+                    m.chunk_version,
+                    &m.sig,
+                    m.data.len()
+                )
+            }
         }
     }
 }
@@ -902,6 +1078,19 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Pong as u8 => StacksMessageID::Pong,
             x if x == StacksMessageID::NatPunchRequest as u8 => StacksMessageID::NatPunchRequest,
             x if x == StacksMessageID::NatPunchReply as u8 => StacksMessageID::NatPunchReply,
+            x if x == StacksMessageID::StackerDBHandshakeAccept as u8 => {
+                StacksMessageID::StackerDBHandshakeAccept
+            }
+            x if x == StacksMessageID::StackerDBGetChunkInv as u8 => {
+                StacksMessageID::StackerDBGetChunkInv
+            }
+            x if x == StacksMessageID::StackerDBChunkInv as u8 => {
+                StacksMessageID::StackerDBChunkInv
+            }
+            x if x == StacksMessageID::StackerDBGetChunk as u8 => {
+                StacksMessageID::StackerDBGetChunk
+            }
+            x if x == StacksMessageID::StackerDBChunk as u8 => StacksMessageID::StackerDBChunk,
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -935,6 +1124,14 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Pong(ref m) => write_next(fd, m)?,
             StacksMessageType::NatPunchRequest(ref nonce) => write_next(fd, nonce)?,
             StacksMessageType::NatPunchReply(ref m) => write_next(fd, m)?,
+            StacksMessageType::StackerDBHandshakeAccept(ref h, ref m) => {
+                write_next(fd, h)?;
+                write_next(fd, m)?
+            }
+            StacksMessageType::StackerDBGetChunkInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::StackerDBChunkInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::StackerDBGetChunk(ref m) => write_next(fd, m)?,
+            StacksMessageType::StackerDBChunk(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1011,6 +1208,27 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::NatPunchReply => {
                 let m: NatPunchData = read_next(fd)?;
                 StacksMessageType::NatPunchReply(m)
+            }
+            StacksMessageID::StackerDBHandshakeAccept => {
+                let h: HandshakeAcceptData = read_next(fd)?;
+                let m: StackerDBHandshakeData = read_next(fd)?;
+                StacksMessageType::StackerDBHandshakeAccept(h, m)
+            }
+            StacksMessageID::StackerDBGetChunkInv => {
+                let m: StackerDBGetChunkInvData = read_next(fd)?;
+                StacksMessageType::StackerDBGetChunkInv(m)
+            }
+            StacksMessageID::StackerDBChunkInv => {
+                let m: StackerDBChunkInvData = read_next(fd)?;
+                StacksMessageType::StackerDBChunkInv(m)
+            }
+            StacksMessageID::StackerDBGetChunk => {
+                let m: StackerDBGetChunkData = read_next(fd)?;
+                StacksMessageType::StackerDBGetChunk(m)
+            }
+            StacksMessageID::StackerDBChunk => {
+                let m: StackerDBChunkData = read_next(fd)?;
+                StacksMessageType::StackerDBChunk(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(
@@ -1934,6 +2152,122 @@ pub mod test {
     }
 
     #[test]
+    fn codec_StackerDBHandshakeAccept() {
+        let data = StackerDBHandshakeData {
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+            smart_contracts: vec![
+                ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                ContractId::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar").unwrap(),
+            ],
+        };
+        let bytes = vec![
+            // rc consensus hash
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // len(smart_contracts)
+            0x02, // SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN
+            0x16, 0x11, 0x7b, 0x59, 0x1a, 0xdf, 0x7c, 0xae, 0xe4, 0x3b, 0x7e, 0x5d, 0x88, 0x24,
+            0xe8, 0x51, 0xb9, 0x35, 0xbc, 0xa9, 0xae, // len(foo)
+            0x03, // foo
+            0x66, 0x6f, 0x6f, // SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP
+            0x16, 0x90, 0xd2, 0x93, 0xd3, 0x7b, 0x29, 0x89, 0xf5, 0x78, 0x32, 0xf0, 0x07, 0x11,
+            0x76, 0xa9, 0x4f, 0x93, 0x0b, 0x19, 0xa1, // len(bar)
+            0x03, // bar
+            0x62, 0x61, 0x72,
+        ];
+
+        check_codec_and_corruption::<StackerDBHandshakeData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBGetChunkInvData() {
+        let data = StackerDBGetChunkInvData {
+            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+        };
+
+        let bytes = vec![
+            // SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN
+            0x16, 0x11, 0x7b, 0x59, 0x1a, 0xdf, 0x7c, 0xae, 0xe4, 0x3b, 0x7e, 0x5d, 0x88, 0x24,
+            0xe8, 0x51, 0xb9, 0x35, 0xbc, 0xa9, 0xae, // len(foo)
+            0x03, // foo
+            0x66, 0x6f, 0x6f, // rc consensus hash
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        ];
+
+        check_codec_and_corruption::<StackerDBGetChunkInvData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBChunkInvData() {
+        let data = StackerDBChunkInvData {
+            chunk_versions: vec![0, 1, 2, 3],
+        };
+
+        let bytes = vec![
+            // len(chunk_versions)
+            0x00, 0x00, 0x00, 0x04, // 0u32
+            0x00, 0x00, 0x00, 0x00, // 1u32
+            0x00, 0x00, 0x00, 0x01, // 2u32
+            0x00, 0x00, 0x00, 0x02, // 3u32
+            0x00, 0x00, 0x00, 0x03,
+        ];
+
+        check_codec_and_corruption::<StackerDBChunkInvData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBGetChunkData() {
+        let data = StackerDBGetChunkData {
+            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+            chunk_id: 2,
+            chunk_version: 3,
+        };
+
+        let bytes = vec![
+            // SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN
+            0x16, 0x11, 0x7b, 0x59, 0x1a, 0xdf, 0x7c, 0xae, 0xe4, 0x3b, 0x7e, 0x5d, 0x88, 0x24,
+            0xe8, 0x51, 0xb9, 0x35, 0xbc, 0xa9, 0xae, // len(foo)
+            0x03, // foo
+            0x66, 0x6f, 0x6f, // rc consensus hash
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // chunk id
+            0x00, 0x00, 0x00, 0x02, // chunk version
+            0x00, 0x00, 0x00, 0x03,
+        ];
+
+        check_codec_and_corruption::<StackerDBGetChunkData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBChunkData() {
+        let data = StackerDBChunkData {
+            chunk_id: 2,
+            chunk_version: 3,
+            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            data: vec![
+                0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+            ],
+        };
+
+        let bytes = vec![
+            // chunk id
+            0x00, 0x00, 0x00, 0x02, // chunk version
+            0x00, 0x00, 0x00, 0x03, // signature
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // length
+            0x00, 0x00, 0x00, 0x0b, // data
+            0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        ];
+
+        check_codec_and_corruption::<StackerDBChunkData>(&data, &bytes);
+    }
+
+    #[test]
     fn codec_StacksMessage() {
         let payloads: Vec<StacksMessageType> = vec![
             StacksMessageType::Handshake(HandshakeData {
@@ -2048,6 +2382,52 @@ pub mod test {
                 ]),
                 port: 12345,
                 nonce: 0x12345678,
+            }),
+            StacksMessageType::StackerDBHandshakeAccept(
+                HandshakeAcceptData {
+                    heartbeat_interval: 0x01020304,
+                    handshake: HandshakeData {
+                        addrbytes: PeerAddress([
+                            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+                            0x0c, 0x0d, 0x0e, 0x0f,
+                        ]),
+                        port: 12345,
+                        services: 0x0001,
+                        node_public_key: StacksPublicKeyBuffer::from_bytes(
+                            &hex_bytes(
+                                "034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb",
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap(),
+                        expire_block_height: 0x0102030405060708,
+                        data_url: UrlString::try_from("https://the-new-interwebs.com:4008/the-data")
+                            .unwrap(),
+                    },
+                },
+                StackerDBHandshakeData {
+                    rc_consensus_hash: ConsensusHash([0x01; 20]),
+                    smart_contracts: vec![ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(), ContractId::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar").unwrap()]
+                }
+            ),
+            StacksMessageType::StackerDBGetChunkInv(StackerDBGetChunkInvData {
+                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                rc_consensus_hash: ConsensusHash([0x01; 20]),
+            }),
+            StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
+                chunk_versions: vec![0, 1, 2, 3],
+            }),
+            StacksMessageType::StackerDBGetChunk(StackerDBGetChunkData {
+                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                rc_consensus_hash: ConsensusHash([0x01; 20]),
+                chunk_id: 2,
+                chunk_version: 3
+            }),
+            StacksMessageType::StackerDBChunk(StackerDBChunkData {
+                chunk_id: 2,
+                chunk_version: 3,
+                sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),
         ];
 
