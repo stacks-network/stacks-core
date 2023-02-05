@@ -37,6 +37,8 @@ use rand::thread_rng;
 use rand::RngCore;
 use regex::Regex;
 use rusqlite;
+use rusqlite::types::ToSqlOutput;
+use rusqlite::ToSql;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -910,8 +912,10 @@ pub enum MemPoolSyncData {
     TxTags([u8; 32], Vec<TxTag>),
 }
 
-/// Make QualifiedContractIdentifier usable to the networking code
-#[derive(Debug, Clone, PartialEq)]
+/// Make QualifiedContractIdentifier usable to the networking code.
+/// N.B. the `serde` serializers are used for database storage.
+/// The `StacksMessageCodec` implementation for this struct is used for network transmission.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ContractId(QualifiedContractIdentifier);
 impl ContractId {
     pub fn new(addr: StacksAddress, name: ContractName) -> ContractId {
@@ -934,6 +938,13 @@ impl ContractId {
         QualifiedContractIdentifier::parse(txt)
             .ok()
             .map(|qc| ContractId(qc))
+    }
+}
+
+impl ToSql for ContractId {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let str_repr = format!("{}", &self);
+        Ok(str_repr.into())
     }
 }
 
@@ -2574,6 +2585,10 @@ pub mod test {
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
+        /// Which stacker DBs will this peer replicate?
+        pub stacker_dbs: Vec<ContractId>,
+        /// What services should this peer support?
+        pub services: u16,
     }
 
     impl TestPeerConfig {
@@ -2628,6 +2643,10 @@ pub mod test {
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
+                stacker_dbs: vec![],
+                services: (ServiceFlags::RELAY as u16)
+                    | (ServiceFlags::RPC as u16)
+                    | (ServiceFlags::STACKERDB as u16),
             }
         }
 
@@ -2714,6 +2733,7 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
+        pub indexer: Option<BitcoinIndexer>,
         pub coord: ChainsCoordinator<
             'a,
             TestEventObserver,
@@ -2735,6 +2755,10 @@ pub mod test {
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
                 &config.test_name, config.server_port
             )
+        }
+
+        pub fn stackerdb_path(config: &TestPeerConfig) -> String {
+            format!("{}/stacker_db.sqlite", &Self::test_path(config))
         }
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
@@ -2804,6 +2828,7 @@ pub mod test {
                 config.data_url.clone(),
                 &config.asn4_entries,
                 Some(&config.initial_neighbors),
+                &config.stacker_dbs,
             )
             .unwrap();
             {
@@ -2819,6 +2844,7 @@ pub mod test {
                     )
                     .unwrap();
                 }
+                PeerDB::set_local_services(&mut tx, config.services).unwrap();
                 tx.commit().unwrap();
             }
 
@@ -2901,6 +2927,7 @@ pub mod test {
             let (tx, _) = sync_channel(100000);
 
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
+            let coord_indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
             let mut coord = ChainsCoordinator::test_new_with_observer(
                 &config.burnchain,
                 config.network_id,
@@ -2908,7 +2935,7 @@ pub mod test {
                 OnChainRewardSetProvider(),
                 tx,
                 observer,
-                indexer,
+                coord_indexer,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -2993,6 +3020,7 @@ pub mod test {
                 mempool: Some(mempool),
                 chainstate_path: chainstate_path,
                 coord: coord,
+                indexer: Some(indexer),
             }
         }
 
@@ -3051,6 +3079,7 @@ pub mod test {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+            let indexer = self.indexer.take().unwrap();
 
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -3066,7 +3095,6 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
-            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
                 &indexer,
@@ -3084,6 +3112,7 @@ pub mod test {
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
+            self.indexer = Some(indexer);
 
             ret
         }
