@@ -1218,7 +1218,7 @@ impl ConversationP2P {
                 message.preamble.network_id,
                 &handshake_data,
             )?;
-            neighbor.save_update(&mut tx)?;
+            neighbor.save_update(&mut tx, None)?;
             tx.commit()
                 .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
@@ -1239,10 +1239,7 @@ impl ConversationP2P {
                 accept_data,
                 StackerDBHandshakeData {
                     rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
-                    // placeholder sbtc address for now
-                    smart_contracts: vec![
-                        ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
-                    ],
+                    smart_contracts: local_peer.stacker_dbs.clone(),
                 },
             )
         } else {
@@ -2631,6 +2628,7 @@ mod test {
             data_url.clone(),
             &asn4_entries,
             Some(&initial_neighbors),
+            &[],
         )
         .unwrap();
         let sortdb = SortitionDB::connect(
@@ -4953,6 +4951,7 @@ mod test {
             None,
             get_epoch_time_secs() + 123456,
             UrlString::try_from("http://foo.com").unwrap(),
+            vec![],
         );
         let mut convo = ConversationP2P::new(
             123,
