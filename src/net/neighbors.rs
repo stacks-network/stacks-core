@@ -118,18 +118,30 @@ impl Neighbor {
     /// Update this peer in the DB.
     /// If there's no DB entry for this peer, then do nothing.
     /// Updates last-contact-time to now, since this is only called when we get back a Handshake
-    pub fn save_update<'a>(&mut self, tx: &mut DBTx<'a>) -> Result<(), net_error> {
+    pub fn save_update<'a>(
+        &mut self,
+        tx: &mut DBTx<'a>,
+        stacker_dbs: Option<&[ContractId]>,
+    ) -> Result<(), net_error> {
         self.last_contact_time = get_epoch_time_secs();
-        PeerDB::update_peer(tx, &self).map_err(net_error::DBError)
+        PeerDB::update_peer(tx, &self).map_err(net_error::DBError)?;
+        if let Some(stacker_dbs) = stacker_dbs {
+            PeerDB::update_peer_stacker_dbs(tx, &self, stacker_dbs).map_err(net_error::DBError)?;
+        }
+        Ok(())
     }
 
     /// Save to the peer DB, inserting it if it isn't already there.
     /// Updates last-contact-time to now, since this is only called when we get back a Handshake
     /// Return true if saved.
     /// Return false if not saved -- i.e. the frontier is full and we should try evicting neighbors.
-    pub fn save<'a>(&mut self, tx: &mut DBTx<'a>) -> Result<bool, net_error> {
+    pub fn save<'a>(
+        &mut self,
+        tx: &mut DBTx<'a>,
+        stacker_dbs: Option<&[ContractId]>,
+    ) -> Result<bool, net_error> {
         self.last_contact_time = get_epoch_time_secs();
-        PeerDB::try_insert_peer(tx, &self).map_err(net_error::DBError)
+        PeerDB::try_insert_peer(tx, &self, stacker_dbs.unwrap_or(&[])).map_err(net_error::DBError)
     }
 
     /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another
@@ -238,6 +250,237 @@ impl NeighborWalkResult {
         self.broken_connections.clear();
         self.replaced_neighbors.clear();
         self.do_prune = false;
+    }
+}
+
+/// A trait for representing a set of connected neighbors, for the purposes of executing some P2P
+/// algorithm.
+pub trait NeighborSet {
+    /// Add a neighbor and its event ID as connecting
+    fn add_connecting(&mut self, nk: &NeighborKey, event_id: usize);
+    /// Get a connecting neighbor's event ID
+    fn get_connecting(&self, nk: &NeighborKey) -> Option<usize>;
+    /// Remove a neighbor from connecting state
+    fn remove_connecting(&mut self, nk: &NeighborKey);
+    /// Mark a neighbor as dead (inactive, unreachable, etc.)
+    fn add_dead(&mut self, nk: &NeighborKey);
+    /// Pin a connection -- prevent it from getting pruned
+    fn pin_connection(&mut self, event_id: usize);
+    /// Unpin a connection -- allow it to get pruned
+    fn unpin_connection(&mut self, event_id: usize);
+    /// Is the connection pinned?
+    fn is_pinned(&self, event_id: usize) -> bool;
+
+    /// Send off a handshake to a remote peer.
+    /// Fails if not connected.
+    fn neighbor_handshake(
+        &mut self,
+        network: &mut PeerNetwork,
+        nk: &NeighborKey,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        // send handshake.
+        let handshake_data = HandshakeData::from_local_peer(&network.local_peer);
+
+        debug!("{:?}: send Handshake to {:?}", &network.local_peer, &nk);
+        self.remove_connecting(nk);
+
+        let msg = match network.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data)) {
+            Ok(msg) => msg,
+            Err(e) => {
+                info!(
+                    "{:?}: Failed to sign for peer {:?}",
+                    &network.local_peer, &nk
+                );
+                self.add_dead(nk);
+                return Err(e);
+            }
+        };
+
+        let req_res = network.send_message(nk, msg, network.connection_opts.timeout);
+
+        // we tried this neighbor
+        match req_res {
+            Ok(handle) => Ok(handle),
+            Err(e) => {
+                debug!(
+                    "{:?}: Not connected: {:?} ({:?})",
+                    &network.local_peer, nk, &e
+                );
+                self.add_dead(nk);
+                Err(net_error::PeerNotConnected)
+            }
+        }
+    }
+
+    /// Connect to a neighbor if we're not connected yet, and send it a handshake.
+    /// Returns Ok(Some(handle)) if the handshake is now sending
+    /// Returns Ok(None) if we're still connecting. The caller should try again.
+    /// Returns Err(..) if connection or sending failed for some reason.
+    fn neighbor_connect_and_handshake(
+        &mut self,
+        network: &mut PeerNetwork,
+        nk: &NeighborKey,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        match network.can_register_peer(nk, true) {
+            Ok(_) => {
+                if let Some(event_id) = self.get_connecting(nk) {
+                    // is the peer network still working?
+                    if !network.is_connecting(event_id) {
+                        debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &network.local_peer, event_id, nk);
+                        return Err(net_error::PeerNotConnected);
+                    }
+
+                    // still connecting
+                    debug!(
+                        "{:?}: still connecting to {:?} (event {})",
+                        &network.local_peer, nk, event_id
+                    );
+                    return Ok(None);
+                } else {
+                    let con_res = network.connect_peer(nk);
+                    match con_res {
+                        Ok(event_id) => {
+                            // remember this in the walk result
+                            self.add_connecting(nk, event_id);
+
+                            // force the caller to try again -- we're not registered yet
+                            debug!(
+                                "{:?}: Connecting to {:?} (event {})",
+                                &network.local_peer, &nk, event_id
+                            );
+                            return Ok(None);
+                        }
+                        Err(_e) => {
+                            debug!(
+                                "{:?}: Failed to connect to {:?}: {:?}",
+                                &network.local_peer, nk, &_e
+                            );
+                            return Err(net_error::PeerNotConnected);
+                        }
+                    }
+                }
+            }
+            Err(net_error::AlreadyConnected(_event_id, _nk)) => {
+                test_debug!(
+                    "{:?}: already connected to {:?} as event {}",
+                    &network.local_peer,
+                    &nk,
+                    _event_id
+                );
+            }
+            Err(e) => {
+                info!(
+                    "{:?}: could not connect to {:?}: {:?}",
+                    &network.local_peer, &nk, &e
+                );
+                return Err(e);
+            }
+        }
+
+        self.neighbor_handshake(network, nk)
+            .and_then(|handle| Ok(Some(handle)))
+    }
+
+    /// Connect to a remote neighbor, and get back a reply handle which we can use to wait for a
+    /// handshake response.  If the neighbor is already connected, then just send a handshake.
+    /// Return Ok(Some(handle)) if we connected.
+    /// Return Ok(None) if we're in the process of connecting, and should try again.
+    /// Return Err(..) if we fail
+    fn neighbor_session_begin(
+        &mut self,
+        network: &mut PeerNetwork,
+        neighbor_addr: &NeighborKey,
+        neighbor_pubkh: &Hash160,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        match network.can_register_peer_with_pubkey(&neighbor_addr, true, &neighbor_pubkh) {
+            Ok(_) => self.neighbor_connect_and_handshake(network, &neighbor_addr),
+            Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
+                // already connected, but on a possibly-different address.
+                // If the already-connected handle is inbound,
+                // then try to connect to this address anyway in
+                // order to maximize our outbound connections we have.
+                if let Some(convo) = network.peers.get(&event_id) {
+                    if !convo.is_outbound() {
+                        debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
+                               &network.local_peer, &neighbor_addr, &event_id, &handshake_nk, &neighbor_pubkh, &neighbor_addr);
+                        let res = self.neighbor_connect_and_handshake(network, &neighbor_addr)?;
+                        return Ok(res);
+                    } else {
+                        debug!(
+                            "{:?}: Already connected to {:?} on event {} (address: {:?})",
+                            &network.local_peer, &neighbor_addr, &event_id, &handshake_nk
+                        );
+                        let handle = self.neighbor_handshake(network, &handshake_nk)?;
+                        return Ok(Some(handle));
+                    }
+                } else {
+                    // should never be reachable
+                    error!(
+                        "AlreadyConnected error on event {} has no conversation",
+                        event_id
+                    );
+                    return Err(net_error::PeerNotConnected);
+                }
+            }
+            Err(e) => {
+                debug!(
+                    "{:?}: Failed to check connection to {:?}: {:?}. No handshake sent.",
+                    &network.local_peer, &neighbor_addr, &e
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    /// Send a message to a connected neighbor.
+    /// Fails if the neighbor is not connected.
+    fn neighbor_send(
+        network: &mut PeerNetwork,
+        neighbor_addr: &NeighborKey,
+        msg_payload: StacksMessageType,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        let msg = network.sign_for_peer(&neighbor_addr, msg_payload)?;
+        network.send_message(neighbor_addr, msg, network.connection_opts.timeout)
+    }
+
+    /// Try to receive a message from a peer handle.
+    /// On success, consume the reply handle and return the StacksMessage.
+    /// On error, either return the reply handle so we can try again, or return an error if we
+    /// encounter an irrecoverable failure.  In the event of a failure, the neighbor will be added
+    /// to the `dead` set in the neighbor set.
+    fn neighbor_try_recv(
+        &mut self,
+        network: &mut PeerNetwork,
+        req_nk: &NeighborKey,
+        mut req: ReplyHandleP2P,
+    ) -> Result<StacksMessage, Result<ReplyHandleP2P, net_error>> {
+        if let Err(e) = network.saturate_p2p_socket(req.get_event_id(), &mut req) {
+            self.add_dead(req_nk);
+            return Err(Err(e));
+        }
+
+        match req.try_send_recv() {
+            Ok(message) => {
+                return Ok(message);
+            }
+            Err(req_res) => {
+                match req_res {
+                    Ok(same_req) => {
+                        // try again
+                        return Err(Ok(same_req));
+                    }
+                    Err(e) => {
+                        // disconnected
+                        debug!(
+                            "{:?}: Failed to get reply from {:?}: {:?}",
+                            &network.local_peer, req_nk, &e
+                        );
+                        self.add_dead(req_nk);
+                        return Err(Err(e));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -493,6 +736,94 @@ impl NeighborWalk {
         self.set_state(NeighborWalkState::HandshakeFinish);
     }
 
+    /// Handle a HandshakeAcceptData.
+    /// Update the PeerDB information from the handshake data, as well as `self.cur_neighbor`, if
+    /// this neighbor was routable.  If it's not routable (i.e. we walked to an inbound neighbor),
+    /// then do not update the DB.
+    /// Add this neighbor to our newly-calculated frontier either way.
+    /// Returns the updated `self.cur_neighbor` on success.
+    /// Returns Err(..) if we failed to validate the request or we have a DB error.
+    fn handle_handshake_accept(
+        &mut self,
+        network: &mut PeerNetwork,
+        message: &StacksMessage,
+        data: &HandshakeAcceptData,
+        db_data: Option<&StackerDBHandshakeData>,
+    ) -> Result<Neighbor, net_error> {
+        // accepted! can proceed to ask for neighbors
+        // save knowledge to the peer DB if it was outbound
+        // (NOTE: an outbound neighbor should already be in
+        // the DB, since it's cur_neighbor)
+        if self.walk_outbound {
+            // connected to a routable neighbor, so update its entry in the DB.
+            let mut tx = network.peerdb.tx_begin()?;
+            let mut neighbor_from_handshake = Neighbor::from_handshake(
+                &mut tx,
+                message.preamble.peer_version,
+                message.preamble.network_id,
+                &data.handshake,
+            )?;
+
+            // if the neighbor accidentally gave us a private IP address, then
+            // just use the one we used to contact it.  This can happen if the
+            // node is behind a load-balancer, or is doing port-forwarding,
+            // etc.
+            if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
+                debug!(
+                    "{:?}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}",
+                    &self.local_peer, &neighbor_from_handshake.addr, &self.cur_neighbor.addr
+                );
+                neighbor_from_handshake.addr.addrbytes = self.cur_neighbor.addr.addrbytes.clone();
+                neighbor_from_handshake.addr.port = self.cur_neighbor.addr.port;
+            }
+
+            let res = if neighbor_from_handshake.addr != self.cur_neighbor.addr {
+                // somehow, got a handshake from someone that _isn't_ cur_neighbor
+                debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", 
+                           &self.local_peer,
+                           &neighbor_from_handshake.addr,
+                           &self.cur_neighbor.addr);
+
+                Err(net_error::PeerNotConnected)
+            } else {
+                // this is indeed cur_neighbor
+                self.cur_neighbor
+                    .handshake_update(&mut tx, &data.handshake)?;
+                self.cur_neighbor
+                    .save_update(&mut tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
+
+                debug!(
+                    "{:?}: Connected with {:?}",
+                    &self.local_peer, &self.cur_neighbor.addr
+                );
+                self.new_frontier
+                    .insert(self.cur_neighbor.addr.clone(), self.cur_neighbor.clone());
+
+                // advance state!
+                Ok(self.cur_neighbor.clone())
+            };
+            tx.commit()?;
+            self.neighbor_from_handshake = neighbor_from_handshake.addr;
+            res
+        } else {
+            // connected to an unroutable neighbor, so
+            // don't save to DB (but do update frontier)
+            let neighbor_from_handshake = Neighbor::from_handshake(
+                &network.peerdb.conn(),
+                message.preamble.peer_version,
+                message.preamble.network_id,
+                &data.handshake,
+            )?;
+            debug!(
+                "{:?}: Connected with inbound non-frontier neighbor {:?}: {:?}",
+                &self.local_peer, &self.cur_neighbor.addr, &neighbor_from_handshake.addr
+            );
+
+            self.neighbor_from_handshake = neighbor_from_handshake.addr;
+            Ok(self.cur_neighbor.clone())
+        }
+    }
+
     /// Finish handshaking with our current neighbor, thereby ensuring that it is connected
     pub fn handshake_try_finish(
         &mut self,
@@ -529,10 +860,6 @@ impl NeighborWalk {
                 } else {
                     match message.payload {
                         StacksMessageType::HandshakeAccept(ref data) => {
-                            // accepted! can proceed to ask for neighbors
-                            // save knowledge to the peer DB if it was outbound
-                            // (NOTE: an outbound neighbor should already be in
-                            // the DB, since it's cur_neighbor)
                             debug!(
                                 "{:?}: received HandshakeAccept from {} {:?}: {:?}",
                                 &self.local_peer,
@@ -548,81 +875,39 @@ impl NeighborWalk {
                                 &data.handshake
                             );
 
-                            if self.walk_outbound {
-                                // connected to a routable neighbor, so update its entry in the DB.
-                                let mut tx = network.peerdb.tx_begin()?;
-                                let mut neighbor_from_handshake = Neighbor::from_handshake(
-                                    &mut tx,
-                                    message.preamble.peer_version,
-                                    message.preamble.network_id,
-                                    &data.handshake,
-                                )?;
+                            let updated_cur_neighbor =
+                                self.handle_handshake_accept(network, &message, data, None)?;
 
-                                // if the neighbor accidentally gave us a private IP address, then
-                                // just use the one we used to contact it.  This can happen if the
-                                // node is behind a load-balancer, or is doing port-forwarding,
-                                // etc.
-                                if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
-                                    debug!("{:?}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}", &self.local_peer, &neighbor_from_handshake.addr, &self.cur_neighbor.addr);
-                                    neighbor_from_handshake.addr.addrbytes =
-                                        self.cur_neighbor.addr.addrbytes.clone();
-                                    neighbor_from_handshake.addr.port = self.cur_neighbor.addr.port;
-                                }
-
-                                let res = if neighbor_from_handshake.addr != self.cur_neighbor.addr
-                                {
-                                    // somehow, got a handshake from someone that _isn't_ cur_neighbor
-                                    debug!("{:?}: got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", 
-                                               &self.local_peer,
-                                               &neighbor_from_handshake.addr,
-                                               &self.cur_neighbor.addr);
-
-                                    Err(net_error::PeerNotConnected)
+                            // proceed to ask this neighbor for its neighbors.
+                            self.set_state(NeighborWalkState::GetNeighborsBegin);
+                            Ok(Some(updated_cur_neighbor))
+                        }
+                        StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                            debug!(
+                                "{:?}: received StackerDBHandshakeAccept from {} {:?}: {:?}, {:?}",
+                                &self.local_peer,
+                                if self.walk_outbound {
+                                    "outbound"
                                 } else {
-                                    // this is indeed cur_neighbor
-                                    self.cur_neighbor
-                                        .handshake_update(&mut tx, &data.handshake)?;
-                                    self.cur_neighbor.save_update(&mut tx)?;
+                                    "inbound"
+                                },
+                                &message.to_neighbor_key(
+                                    &data.handshake.addrbytes,
+                                    data.handshake.port
+                                ),
+                                &data.handshake,
+                                db_data
+                            );
+                            let updated_cur_neighbor = self.handle_handshake_accept(
+                                network,
+                                &message,
+                                data,
+                                Some(db_data),
+                            )?;
 
-                                    debug!(
-                                        "{:?}: Connected with {:?}",
-                                        &self.local_peer, &self.cur_neighbor.addr
-                                    );
-                                    self.new_frontier.insert(
-                                        self.cur_neighbor.addr.clone(),
-                                        self.cur_neighbor.clone(),
-                                    );
-
-                                    // advance state!
-                                    self.set_state(NeighborWalkState::GetNeighborsBegin);
-                                    Ok(Some(self.cur_neighbor.clone()))
-                                };
-                                tx.commit()?;
-
-                                self.neighbor_from_handshake = neighbor_from_handshake.addr;
-                                res
-                            } else {
-                                // connected to an unroutable neighbor, so
-                                // don't save to DB (but do update frontier)
-                                let neighbor_from_handshake = Neighbor::from_handshake(
-                                    &network.peerdb.conn(),
-                                    message.preamble.peer_version,
-                                    message.preamble.network_id,
-                                    &data.handshake,
-                                )?;
-                                debug!(
-                                    "{:?}: Connected with inbound non-frontier neighbor {:?}: {:?}",
-                                    &self.local_peer,
-                                    &self.cur_neighbor.addr,
-                                    &neighbor_from_handshake.addr
-                                );
-
-                                self.neighbor_from_handshake = neighbor_from_handshake.addr;
-
-                                // advance state!
-                                self.set_state(NeighborWalkState::GetNeighborsBegin);
-                                Ok(Some(self.cur_neighbor.clone()))
-                            }
+                            // proceed to ask this neighbor for its neighbors.
+                            self.set_state(NeighborWalkState::GetNeighborsBegin);
+                            Ok(Some(updated_cur_neighbor))
                         }
                         StacksMessageType::HandshakeReject => {
                             // told to bugger off
@@ -904,6 +1189,7 @@ impl NeighborWalk {
         peer_version: u32,
         network_id: u32,
         handshake: &HandshakeData,
+        db_data: Option<&StackerDBHandshakeData>,
     ) -> Result<(bool, Neighbor), net_error> {
         let mut neighbor_from_handshake =
             Neighbor::from_handshake(tx, peer_version, network_id, handshake)?;
@@ -914,7 +1200,8 @@ impl NeighborWalk {
                     "{:?}: already know about {:?}",
                     &self.local_peer, &neighbor.addr
                 );
-                neighbor_from_handshake.save_update(tx)?;
+                neighbor_from_handshake
+                    .save_update(tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
 
                 // seen this neighbor before
                 Ok((false, neighbor_from_handshake))
@@ -926,7 +1213,8 @@ impl NeighborWalk {
                 );
 
                 // didn't know about this neighbor yet. Try to add it.
-                let added = neighbor_from_handshake.save(tx)?;
+                let added = neighbor_from_handshake
+                    .save(tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
                 if !added {
                     // no more room in the db.  See if we can add it by
                     // evicting an existing neighbor once we're done with this
@@ -960,6 +1248,45 @@ impl NeighborWalk {
                 Ok((true, neighbor_from_handshake))
             }
         }
+    }
+
+    /// Handle a handshake accept from a neighbor as part of our neighbor-handshake step
+    fn handle_neighbor_handshake_accept(
+        &mut self,
+        network: &mut PeerNetwork,
+        block_height: u64,
+        naddr: NeighborAddress,
+        message: &StacksMessage,
+        data: &HandshakeAcceptData,
+        db_data: Option<&StackerDBHandshakeData>,
+    ) -> Result<(), net_error> {
+        // NOTE: even if cur_neighbor is an inbound neighbor, the neighbors
+        // of cur_neighbor that we could handshake with are necessarily
+        // outbound connections.  So, save them all.
+        // Do we know about this peer already?
+        let mut tx = network.peerdb.tx_begin()?;
+        let (new, neighbor) = self.add_or_schedule_replace_neighbor(
+            &mut tx,
+            block_height,
+            &naddr,
+            message.preamble.peer_version,
+            message.preamble.network_id,
+            &data.handshake,
+            db_data,
+        )?;
+        if new {
+            // neighbor was new
+            self.new_frontier
+                .insert(neighbor.addr.clone(), neighbor.clone());
+        } else {
+            // frontier maintenance
+            self.frontier
+                .insert(neighbor.addr.clone(), neighbor.clone());
+        }
+
+        self.resolved_handshake_neighbors.insert(naddr, neighbor);
+        tx.commit()?;
+        Ok(())
     }
 
     /// Try to finish getting handshakes from cur_neighbors' neighbors.
@@ -1016,31 +1343,29 @@ impl NeighborWalk {
                                     &self.local_peer, &naddr
                                 );
 
-                                // NOTE: even if cur_neighbor is an inbound neighbor, the neighbors
-                                // of cur_neighbor that we could handshake with are necessarily
-                                // outbound connections.  So, save them all.
-                                // Do we know about this peer already?
-                                let mut tx = network.peerdb.tx_begin()?;
-                                let (new, neighbor) = self.add_or_schedule_replace_neighbor(
-                                    &mut tx,
+                                self.handle_neighbor_handshake_accept(
+                                    network,
                                     block_height,
-                                    &naddr,
-                                    message.preamble.peer_version,
-                                    message.preamble.network_id,
-                                    &data.handshake,
+                                    naddr,
+                                    &message,
+                                    data,
+                                    None,
                                 )?;
-                                if new {
-                                    // neighbor was new
-                                    self.new_frontier
-                                        .insert(neighbor.addr.clone(), neighbor.clone());
-                                } else {
-                                    // frontier maintenance
-                                    self.frontier
-                                        .insert(neighbor.addr.clone(), neighbor.clone());
-                                }
+                            }
+                            StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                                debug!(
+                                    "{:?}: Got StackerDBHandshakeAccept from {:?}",
+                                    &self.local_peer, &naddr
+                                );
 
-                                self.resolved_handshake_neighbors.insert(naddr, neighbor);
-                                tx.commit()?;
+                                self.handle_neighbor_handshake_accept(
+                                    network,
+                                    block_height,
+                                    naddr,
+                                    &message,
+                                    data,
+                                    Some(db_data),
+                                )?;
                             }
                             StacksMessageType::HandshakeReject => {
                                 // remote peer doesn't want to talk to us
@@ -1264,7 +1589,7 @@ impl NeighborWalk {
                 );
 
                 let mut tx = network.peerdb.tx_begin()?;
-                self.cur_neighbor.save_update(&mut tx)?;
+                self.cur_neighbor.save_update(&mut tx, None)?;
                 tx.commit()?;
             }
 
@@ -1481,7 +1806,8 @@ impl NeighborWalk {
                     } else {
                         // if we got back a HandshakeAccept, and it's on the same chain as us, we're good!
                         match message.payload {
-                            StacksMessageType::HandshakeAccept(ref data) => {
+                            StacksMessageType::HandshakeAccept(ref data)
+                            | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
                                 debug!("{:?}: received HandshakeAccept from peer {:?}; now known to be routable from us", &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port));
 
                                 // must have the same key; otherwise don't add
@@ -1502,6 +1828,7 @@ impl NeighborWalk {
                                     message.preamble.peer_version,
                                     message.preamble.network_id,
                                     &data.handshake,
+                                    None,
                                 )?;
                                 tx.commit()?;
                             }
@@ -1562,6 +1889,43 @@ impl NeighborWalk {
         self.set_state(NeighborWalkState::ReplacedNeighborsPingFinish);
     }
 
+    /// Handle a handshake accept for a pinged neighbor.
+    /// If it was a StackerDBHandshakeAccept, then also handle the newly-announced DBs
+    fn handle_handshake_accept_from_ping(
+        &mut self,
+        network: &mut PeerNetwork,
+        message: &StacksMessage,
+        data: &HandshakeAcceptData,
+        db_data: Option<&StackerDBHandshakeData>,
+    ) -> Result<(), net_error> {
+        let mut tx = network.peerdb.tx_begin()?;
+        let mut neighbor_from_handshake = Neighbor::from_handshake(
+            &mut tx,
+            message.preamble.peer_version,
+            message.preamble.network_id,
+            &data.handshake,
+        )?;
+        neighbor_from_handshake
+            .save_update(&mut tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
+        tx.commit()?;
+
+        // not going to replace
+        if self
+            .replaced_neighbors
+            .contains_key(&neighbor_from_handshake.addr)
+        {
+            test_debug!(
+                "{:?}: will NOT replace {:?}",
+                &self.local_peer,
+                &neighbor_from_handshake.addr
+            );
+            self.replaced_neighbors
+                .remove(&neighbor_from_handshake.addr);
+        }
+
+        Ok(())
+    }
+
     // try to finish pinging/handshaking all exisitng neighbors.
     // if the remote neighbor does _not_ respond to our ping, then replace it.
     // Return the list of _evicted_ neighbors.
@@ -1572,8 +1936,9 @@ impl NeighborWalk {
         assert!(self.state == NeighborWalkState::ReplacedNeighborsPingFinish);
 
         let mut new_unresolved_neighbor_pings = HashMap::new();
-
-        for (nkey, mut rh) in self.unresolved_neighbor_pings.drain() {
+        let mut unresolved_neighbor_pings =
+            std::mem::replace(&mut self.unresolved_neighbor_pings, HashMap::new());
+        for (nkey, mut rh) in unresolved_neighbor_pings.drain() {
             let rh_nkey = nkey.clone(); // used below
             if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
                 self.result.add_dead(rh_nkey);
@@ -1595,30 +1960,28 @@ impl NeighborWalk {
                                     data.handshake.port
                                 )
                             );
-
-                            let mut tx = network.peerdb.tx_begin()?;
-                            let mut neighbor_from_handshake = Neighbor::from_handshake(
-                                &mut tx,
-                                message.preamble.peer_version,
-                                message.preamble.network_id,
-                                &data.handshake,
+                            self.handle_handshake_accept_from_ping(network, &message, data, None)?;
+                        }
+                        StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                            // this peer is still alive -- will not replace it
+                            // save knowledge to the peer DB (NOTE: the neighbor should already be in
+                            // the DB, since it's cur_neighbor)
+                            test_debug!(
+                                "{:?}: received StackerDBHandshakeAccept from {:?}: {:?}, {:?}",
+                                &self.local_peer,
+                                &message.to_neighbor_key(
+                                    &data.handshake.addrbytes,
+                                    data.handshake.port
+                                ),
+                                data,
+                                db_data
+                            );
+                            self.handle_handshake_accept_from_ping(
+                                network,
+                                &message,
+                                data,
+                                Some(db_data),
                             )?;
-                            neighbor_from_handshake.save_update(&mut tx)?;
-                            tx.commit()?;
-
-                            // not going to replace
-                            if self
-                                .replaced_neighbors
-                                .contains_key(&neighbor_from_handshake.addr)
-                            {
-                                test_debug!(
-                                    "{:?}: will NOT replace {:?}",
-                                    &self.local_peer,
-                                    &neighbor_from_handshake.addr
-                                );
-                                self.replaced_neighbors
-                                    .remove(&neighbor_from_handshake.addr);
-                            }
                         }
                         StacksMessageType::Nack(ref data) => {
                             // evict
@@ -1708,6 +2071,37 @@ impl NeighborWalk {
     }
 }
 
+impl NeighborSet for NeighborWalk {
+    fn add_connecting(&mut self, nk: &NeighborKey, event_id: usize) {
+        self.connecting.insert(nk.clone(), event_id);
+        self.pin_connection(event_id);
+    }
+
+    fn get_connecting(&self, nk: &NeighborKey) -> Option<usize> {
+        self.connecting.get(nk).cloned()
+    }
+
+    fn remove_connecting(&mut self, nk: &NeighborKey) {
+        self.connecting.remove(nk);
+    }
+
+    fn add_dead(&mut self, nk: &NeighborKey) {
+        self.result.dead_connections.insert(nk.clone());
+    }
+
+    fn pin_connection(&mut self, event_id: usize) {
+        self.events.insert(event_id);
+    }
+
+    fn unpin_connection(&mut self, event_id: usize) {
+        self.events.remove(&event_id);
+    }
+
+    fn is_pinned(&self, event_id: usize) -> bool {
+        self.events.contains(&event_id)
+    }
+}
+
 impl PeerNetwork {
     /// Get some initial fresh random neighbor(s) to crawl,
     /// given the number of neighbors and current burn block height
@@ -1736,112 +2130,20 @@ impl PeerNetwork {
         Ok(neighbors)
     }
 
-    /// Send off a handshake to a remote peer
     fn walk_handshake(
         &mut self,
         walk: &mut NeighborWalk,
         nk: &NeighborKey,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // send handshake.
-        let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
-
-        debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
-        walk.connecting.remove(nk);
-
-        let msg = match self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data)) {
-            Ok(msg) => msg,
-            Err(e) => {
-                info!("{:?}: Failed to sign for peer {:?}", &self.local_peer, &nk);
-                walk.result.add_dead(nk.clone());
-                return Err(e);
-            }
-        };
-
-        let req_res = self.send_message(nk, msg, self.connection_opts.timeout);
-
-        // we tried this neighbor
-        match req_res {
-            Ok(handle) => Ok(handle),
-            Err(e) => {
-                debug!("{:?}: Not connected: {:?} ({:?})", &self.local_peer, nk, &e);
-                walk.result.add_dead(nk.clone());
-                Err(net_error::PeerNotConnected)
-            }
-        }
+        walk.neighbor_handshake(self, nk)
     }
 
-    /// Connect to a remote peer and begin to handshake with it.
-    /// Returns Ok(None) if the connection is in progress.
-    /// Returns Ok(Some(handle)) if the connection succeeded and we sent the handshake
-    /// Returns Err(..) if there was a problem
     fn walk_connect_and_handshake(
         &mut self,
         walk: &mut NeighborWalk,
         nk: &NeighborKey,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
-        match self.can_register_peer(nk, true) {
-            Ok(_) => {
-                if !walk.connecting.contains_key(nk) {
-                    let con_res = self.connect_peer(nk);
-                    match con_res {
-                        Ok(event_id) => {
-                            // remember this in the walk result
-                            walk.connecting.insert(nk.clone(), event_id);
-
-                            // stop the pruner from removing this connection
-                            walk.events.insert(event_id);
-
-                            // force the caller to try again -- we're not registered yet
-                            debug!(
-                                "{:?}: Walk is connecting to {:?} (event {})",
-                                &self.local_peer, &nk, event_id
-                            );
-                            return Ok(None);
-                        }
-                        Err(_e) => {
-                            debug!(
-                                "{:?}: Failed to connect to {:?}: {:?}",
-                                &self.local_peer, nk, &_e
-                            );
-                            return Err(net_error::PeerNotConnected);
-                        }
-                    }
-                } else {
-                    let event_id = walk.connecting.get(nk).unwrap();
-
-                    // is the peer network still working?
-                    if !self.is_connecting(*event_id) {
-                        debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", &self.local_peer, *event_id, nk);
-                        return Err(net_error::PeerNotConnected);
-                    }
-
-                    // still connecting
-                    debug!(
-                        "{:?}: walk still connecting to {:?} (event {})",
-                        &self.local_peer, nk, event_id
-                    );
-                    return Ok(None);
-                }
-            }
-            Err(net_error::AlreadyConnected(_event_id, _nk)) => {
-                test_debug!(
-                    "{:?}: already connected to {:?} as event {}",
-                    &self.local_peer,
-                    &nk,
-                    _event_id
-                );
-            }
-            Err(e) => {
-                info!(
-                    "{:?}: could not connect to {:?}: {:?}",
-                    &self.local_peer, &nk, &e
-                );
-                return Err(e);
-            }
-        }
-
-        self.walk_handshake(walk, nk)
-            .and_then(|handle| Ok(Some(handle)))
+        walk.neighbor_connect_and_handshake(self, nk)
     }
 
     /// Instantiate the neighbor walk from a neighbor routable from us.
@@ -2090,7 +2392,7 @@ impl PeerNetwork {
     /// Return true/false to indicate if we connected or not.
     /// Return an error to reset the walk.
     pub fn walk_handshake_begin(&mut self) -> Result<bool, net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             match walk.handshake_request {
                 Some(_) => {
                     // in progress already
@@ -2134,47 +2436,7 @@ impl PeerNetwork {
                     walk.clear_state();
 
                     let cur_pubkh = Hash160::from_node_public_key(&walk.cur_neighbor.public_key);
-                    let res = match network
-                        .can_register_peer_with_pubkey(&cur_addr, true, &cur_pubkh)
-                    {
-                        Ok(_) => network.walk_connect_and_handshake(walk, &cur_addr)?,
-                        Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
-                            // already connected, but on a possibly-different address.
-                            // If the already-connected handle is inbound, and we're _not_ doing an
-                            // inbound neighbor walk, try to connect to this address anyway in
-                            // order to maximize our outbound connections we have.
-                            if let Some(convo) = network.peers.get(&event_id) {
-                                if !convo.is_outbound() {
-                                    debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
-                                           &network.local_peer, &cur_addr, &event_id, &handshake_nk, &cur_pubkh, &cur_addr);
-                                    network.walk_connect_and_handshake(walk, &cur_addr)?
-                                } else {
-                                    debug!(
-                                        "{:?}: Already connected to {:?} on event {} (address: {:?})",
-                                        &network.local_peer, &cur_addr, &event_id, &handshake_nk
-                                    );
-                                    network
-                                        .walk_handshake(walk, &handshake_nk)
-                                        .and_then(|handle| Ok(Some(handle)))?
-                                }
-                            } else {
-                                // should never be reachable
-                                unreachable!(
-                                    "AlreadyConnected error on event {} has no conversation",
-                                    event_id
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            debug!(
-                                "{:?}: Failed to check connection to {:?}: {:?}. No handshake sent.",
-                                &network.local_peer, &cur_addr, &e
-                            );
-                            return Ok(false);
-                        }
-                    };
-
-                    match res {
+                    match walk.neighbor_session_begin(network, &cur_addr, &cur_pubkh)? {
                         Some(handle) => {
                             debug!("{:?}: Handshake sent to {:?}", &walk.local_peer, &cur_addr);
                             walk.handshake_begin(handle);
@@ -2182,8 +2444,8 @@ impl PeerNetwork {
                         }
                         None => {
                             debug!(
-                                "{:?}: No Handshake sent (dest was {:?})",
-                                &walk.local_peer, &cur_addr
+                                "{:?}: No Handshake sent (dest was {:?}); still connecting",
+                                &walk.local_peer, &cur_addr,
                             );
                             Ok(false)
                         }
@@ -2197,7 +2459,7 @@ impl PeerNetwork {
     pub fn walk_handshake_try_finish(&mut self) -> Result<Option<Neighbor>, net_error> {
         let burn_stable_block_height = self.chain_view.burn_stable_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             walk.handshake_try_finish(network, burn_stable_block_height)
         })
     }
@@ -2207,34 +2469,26 @@ impl PeerNetwork {
     /// and then stepping to one of the neighbor's neighbors.
     /// Return an error to reset the walk.
     pub fn walk_getneighbors_begin(&mut self) -> Result<(), net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
-            match walk.getneighbors_request {
-                Some(_) => Ok(()),
-                None => {
-                    debug!(
-                        "{:?}: send GetNeighbors to {:?}",
-                        &walk.local_peer, &walk.cur_neighbor.addr
-                    );
+        PeerNetwork::with_walk_state(self, |network, walk| match walk.getneighbors_request {
+            Some(_) => Ok(()),
+            None => {
+                debug!(
+                    "{:?}: send GetNeighbors to {:?}",
+                    &walk.local_peer, &walk.cur_neighbor.addr
+                );
 
-                    let msg = network
-                        .sign_for_peer(&walk.cur_neighbor.addr, StacksMessageType::GetNeighbors)?;
-                    let req_res = network.send_message(
-                        &walk.cur_neighbor.addr,
-                        msg,
-                        network.connection_opts.timeout,
-                    );
-                    match req_res {
-                        Ok(handle) => {
-                            walk.getneighbors_begin(Some(handle));
-                            Ok(())
-                        }
-                        Err(e) => {
-                            debug!(
-                                "{:?}: Not connected: {:?} ({:?}",
-                                &walk.local_peer, &walk.cur_neighbor.addr, &e
-                            );
-                            Err(e)
-                        }
+                let addr = walk.cur_neighbor.addr.clone();
+                match NeighborWalk::neighbor_send(network, &addr, StacksMessageType::GetNeighbors) {
+                    Ok(handle) => {
+                        walk.getneighbors_begin(Some(handle));
+                        Ok(())
+                    }
+                    Err(e) => {
+                        debug!(
+                            "{:?}: Not connected: {:?} ({:?}",
+                            &walk.local_peer, &walk.cur_neighbor.addr, &e
+                        );
+                        Err(e)
                     }
                 }
             }
@@ -2247,7 +2501,7 @@ impl PeerNetwork {
     pub fn walk_getneighbors_try_finish(&mut self) -> Result<bool, net_error> {
         let burn_block_height = self.chain_view.burn_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             if walk.pending_neighbor_addrs.is_none() {
                 // keep trying to finish getting neighbor addresses.  Stop trying once we get something.
                 let neighbor_addrs_opt =
@@ -2318,7 +2572,7 @@ impl PeerNetwork {
 
     /// Start handshaking with our neighbors' neighbors.
     pub fn walk_neighbor_handshakes_begin(&mut self) -> Result<bool, net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             let my_pubkey_hash = Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
                 &walk.local_peer.private_key,
             ));
@@ -2390,64 +2644,31 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        match network.can_register_peer_with_pubkey(&nk, true, &na.public_key_hash)
-                        {
-                            Ok(_) => {
-                                // not connected; try and do so
-                                test_debug!(
-                                    "{:?}: try to connect to {:?} ({:?})",
-                                    &network.local_peer,
-                                    &nk,
-                                    &na
-                                );
-
-                                match network.walk_connect_and_handshake(walk, &nk) {
-                                    Ok(Some(handle)) => {
-                                        debug!(
-                                            "{:?}: will Handshake with neighbor-of-neighbor {:?} ({})",
-                                            &network.local_peer, &nk, &na.public_key_hash
-                                        );
-                                        walk.unresolved_handshake_neighbors
-                                            .insert(na.clone(), handle);
-                                    }
-                                    Ok(None) => {
-                                        test_debug!(
-                                            "{:?}: already connecting to {:?}",
-                                            &network.local_peer,
-                                            &nk
-                                        );
-                                        pending = true;
-
-                                        // try again
-                                        continue;
-                                    }
-                                    Err(e) => {
-                                        debug!(
-                                            "{:?}: Failed to connect to {:?}: {:?}",
-                                            &network.local_peer, &nk, &e
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
-                            Err(net_error::AlreadyConnected(_event_id, handshake_nk)) => {
-                                // connected already -- just proceed to send handshake
-                                match network.walk_handshake(walk, &handshake_nk) {
-                                    Ok(handle) => {
-                                        debug!("{:?}: will Handshake with neighbor-of-neighbor {:?} {:?} (connected as {:?})", &network.local_peer, &na.public_key_hash, &nk, &handshake_nk);
-                                        walk.unresolved_handshake_neighbors
-                                            .insert(na.clone(), handle);
-                                    }
-                                    Err(e) => {
-                                        info!("{:?}: failed to send Handshake to neighbor-of-neighbor {:?} ({:?}): {:?}", &network.local_peer, &handshake_nk, &nk, &e);
-                                        continue;
-                                    }
-                                }
-                            }
-                            Err(_e) => {
+                        // start a session with this neighbor
+                        match walk.neighbor_session_begin(network, &nk, &na.public_key_hash) {
+                            Ok(Some(handle)) => {
                                 debug!(
-                                    "{:?}: cannot handshake with neighbor peer {:?}: {:?}",
-                                    &network.local_peer, &nk, &_e
+                                    "{:?}: will Handshake with neighbor-of-neighbor {:?} ({})",
+                                    &network.local_peer, &nk, &na.public_key_hash
+                                );
+                                walk.unresolved_handshake_neighbors
+                                    .insert(na.clone(), handle);
+                            }
+                            Ok(None) => {
+                                test_debug!(
+                                    "{:?}: already connecting to {:?}",
+                                    &network.local_peer,
+                                    &nk
+                                );
+                                pending = true;
+
+                                // try again
+                                continue;
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "{:?}: Failed to connect to {:?}: {:?}",
+                                    &network.local_peer, &nk, &e
                                 );
                                 continue;
                             }
@@ -2482,7 +2703,7 @@ impl PeerNetwork {
         let burn_block_height = self.chain_view.burn_block_height;
         let burn_stable_block_height = self.chain_view.burn_stable_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             match walk.neighbor_handshakes_try_finish(
                 network,
                 burn_block_height,
@@ -2500,9 +2721,12 @@ impl PeerNetwork {
 
     /// Get our neighbors' neighbors
     pub fn walk_getneighbors_neighbors_begin(&mut self) -> Result<(), net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             walk.unresolved_getneighbors_neighbors.clear();
-            for nk in walk.handshake_neighbor_keys.drain(..) {
+
+            let mut handshake_neighbor_keys =
+                std::mem::replace(&mut walk.handshake_neighbor_keys, vec![]);
+            for nk in handshake_neighbor_keys.drain(..) {
                 if !network.is_registered(&nk) {
                     // not connected to this neighbor -- can't ask for neighbors
                     debug!("{:?}: Not connected to {:?}", &network.local_peer, &nk);
@@ -2511,9 +2735,7 @@ impl PeerNetwork {
 
                 debug!("{:?}: send GetNeighbors to {:?}", &walk.local_peer, &nk);
 
-                let msg = network.sign_for_peer(&nk, StacksMessageType::GetNeighbors)?;
-                let rh_res = network.send_message(&nk, msg, network.connection_opts.timeout);
-                match rh_res {
+                match NeighborWalk::neighbor_send(network, &nk, StacksMessageType::GetNeighbors) {
                     Ok(rh) => {
                         walk.unresolved_getneighbors_neighbors.insert(nk, rh);
                     }
@@ -2539,7 +2761,7 @@ impl PeerNetwork {
     pub fn walk_getneighbors_neighbors_try_finish(&mut self) -> Result<bool, net_error> {
         let burn_stable_block_height = self.chain_view.burn_stable_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             match walk.getneighbors_neighbors_try_finish(network, burn_stable_block_height)? {
                 None => {
                     // not done yet
@@ -2557,7 +2779,7 @@ impl PeerNetwork {
 
     /// Begin handshaking with peers that reached out to us
     pub fn walk_pingback_handshakes_begin(&mut self) -> Result<bool, net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             let mut pending = false;
             let mut network_pingbacks = mem::replace(&mut walk.network_pingbacks, HashMap::new());
             let mut new_network_pingbacks = HashMap::new();
@@ -2580,55 +2802,29 @@ impl PeerNetwork {
                 );
 
                 // already trying to connect to this neighbor?
-                if walk.connecting.contains_key(&nk) {
+                if walk.get_connecting(&nk).is_some() {
                     continue;
                 }
 
-                match network.can_register_peer_with_pubkey(&nk, true, &naddr.public_key_hash) {
-                    Ok(_) => {
-                        // not connected yet
-                        // still have to connect
-                        pending = true;
-                        match network.walk_connect_and_handshake(walk, &nk)? {
-                            Some(handle) => {
-                                debug!(
-                                    "{:?}: Sent pingback handshake to {:?}",
-                                    &network.local_peer, &nk
-                                );
-                                walk.pending_pingback_handshakes
-                                    .insert(naddr.clone(), handle);
-                            }
-                            None => {
-                                debug!(
-                                    "{:?}: No pingback handshake sent to {:?}",
-                                    &network.local_peer, &nk
-                                );
-
-                                // try again
-                                new_network_pingbacks.insert(naddr, pingback);
-                            }
-                        }
+                // start a session with this neighbor
+                match walk.neighbor_session_begin(network, &nk, &naddr.public_key_hash) {
+                    Ok(Some(handle)) => {
+                        debug!(
+                            "{:?}: Sent pingback handshake to {:?}",
+                            &network.local_peer, &nk
+                        );
+                        walk.pending_pingback_handshakes
+                            .insert(naddr.clone(), handle);
                     }
-                    Err(net_error::AlreadyConnected(_event_id, handshake_nk)) => {
-                        // use preferred address
-                        // already connected; just send
-                        match network.walk_handshake(walk, &handshake_nk) {
-                            Ok(handle) => {
-                                debug!(
-                                    "{:?}: Sent pingback handshake to {:?}",
-                                    &network.local_peer, &handshake_nk
-                                );
-                                walk.pending_pingback_handshakes
-                                    .insert(naddr.clone(), handle);
-                            }
-                            Err(e) => {
-                                info!(
-                                    "{:?}: Failed to send pingback handshake to {:?}: {:?}",
-                                    &network.local_peer, &handshake_nk, &e
-                                );
-                                continue;
-                            }
-                        }
+                    Ok(None) => {
+                        debug!(
+                            "{:?}: No pingback handshake sent to {:?}; still connecting",
+                            &network.local_peer, &nk
+                        );
+
+                        // try again
+                        pending = true;
+                        new_network_pingbacks.insert(naddr, pingback);
                     }
                     Err(e) => {
                         debug!(
@@ -2658,7 +2854,7 @@ impl PeerNetwork {
         let burn_block_height = self.chain_view.burn_block_height;
         let burn_stable_block_height = self.chain_view.burn_stable_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             walk.pingback_handshakes_try_finish(
                 network,
                 burn_block_height,
@@ -2669,22 +2865,26 @@ impl PeerNetwork {
 
     /// Begin pinging existing neighbors up for replacement
     pub fn walk_ping_existing_neighbors_begin(&mut self) -> Result<(), net_error> {
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             let mut ping_handles = HashMap::new();
 
             // proceed to ping/handshake neighbors we need to replace
-            for (nk, _) in walk.replaced_neighbors.iter() {
+            let replaced_neighbors = walk.replaced_neighbors.clone();
+            for (nk, _) in replaced_neighbors.iter() {
                 test_debug!(
                     "{:?}: send Handshake to replaceable neighbor {:?}",
                     &walk.local_peer,
                     nk
                 );
 
-                let handshake_data = HandshakeData::from_local_peer(&walk.local_peer);
-                let msg =
-                    network.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
-                let req_res = network.send_message(nk, msg, network.connection_opts.timeout);
-                match req_res {
+                let nk_send = nk.clone();
+                match NeighborWalk::neighbor_send(
+                    network,
+                    &nk_send,
+                    StacksMessageType::Handshake(HandshakeData::from_local_peer(
+                        &network.local_peer,
+                    )),
+                ) {
                     Ok(handle) => {
                         ping_handles.insert((*nk).clone(), handle);
                     }
@@ -2710,7 +2910,7 @@ impl PeerNetwork {
     ) -> Result<Option<NeighborWalkResult>, net_error> {
         let burn_block_height = self.chain_view.burn_block_height;
 
-        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+        PeerNetwork::with_walk_state(self, |network, walk| {
             let replaced_opt = walk.ping_existing_neighbors_try_finish(network)?;
             match replaced_opt {
                 None => {
@@ -4807,6 +5007,24 @@ mod test {
         })
     }
 
+    fn stacker_db_id(i: usize) -> ContractId {
+        ContractId::new(
+            StacksAddress {
+                version: 0x01,
+                bytes: Hash160([i as u8; 20]),
+            },
+            format!("db-{}", i).as_str().into(),
+        )
+    }
+
+    fn make_stacker_db_ids(i: usize) -> Vec<ContractId> {
+        let mut dbs = vec![];
+        for j in 0..i {
+            dbs.push(stacker_db_id(j));
+        }
+        dbs
+    }
+
     fn setup_peer_config(
         i: usize,
         port_base: u16,
@@ -4837,6 +5055,19 @@ mod test {
 
         let j = i as u32;
         conf.burnchain.peer_version = PEER_VERSION_TESTNET | (j << 16) | (j << 8) | j; // different non-major versions for each peer
+
+        // even-number peers support stacker DBs.
+        // odd-number peers do not
+        if i % 2 == 0 {
+            conf.services = (ServiceFlags::RELAY as u16)
+                | (ServiceFlags::RPC as u16)
+                | (ServiceFlags::STACKERDB as u16);
+            conf.stacker_dbs = make_stacker_db_ids(i);
+        } else {
+            conf.services = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+            conf.stacker_dbs = vec![];
+        }
+
         conf
     }
 
@@ -5739,11 +5970,13 @@ mod test {
                 random_order[i] = i;
             }
             let mut rng = thread_rng();
-            let _ = &mut &random_order.shuffle(&mut rng);
+            random_order.shuffle(&mut rng);
 
+            debug!("Random order = {:?}", &random_order);
             for i in random_order.into_iter() {
                 let _ = peers[i].step();
                 let nk = peers[i].config.to_neighbor().addr;
+                debug!("Step peer {:?}", &nk);
 
                 // allowed peers are still connected
                 match initial_allowed.get(&nk) {
@@ -5785,24 +6018,33 @@ mod test {
                 }
 
                 // done?
-                finished = if use_finished_check {
-                    finished_check(&peers)
-                } else {
-                    let mut done = true;
-                    let all_neighbors =
-                        PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-                    peer_counts += all_neighbors.len();
-                    if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
-                        let nk = peers[i].config.to_neighbor().addr;
-                        test_debug!(
-                            "waiting for {:?} to fill up its frontier: {}",
-                            &nk,
-                            all_neighbors.len()
-                        );
-                        done = false;
-                    }
-                    done
-                };
+                finished = finished
+                    && if use_finished_check {
+                        finished_check(&peers)
+                    } else {
+                        let mut done = true;
+                        let all_neighbors =
+                            PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+                        peer_counts += all_neighbors.len();
+
+                        if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
+                            test_debug!(
+                                "waiting for {:?} to fill up its frontier: {} < {}",
+                                &nk,
+                                all_neighbors.len(),
+                                PEER_COUNT - 1
+                            );
+                            done = false;
+                        } else {
+                            test_debug!(
+                                "not waiting for {:?} to fill up its frontier: {} >= {}",
+                                &nk,
+                                all_neighbors.len(),
+                                PEER_COUNT - 1
+                            );
+                        }
+                        done
+                    };
             }
 
             count += 1;
@@ -5824,5 +6066,49 @@ mod test {
         test_debug!("Converged after {} calls to network.run()", count);
         dump_peers(&peers);
         dump_peer_histograms(&peers);
+
+        // each peer learns each other peer's stacker DBs
+        for (i, peer) in peers.iter().enumerate() {
+            if i % 2 != 0 {
+                continue;
+            }
+            let mut expected_dbs = PeerDB::get_local_peer(peer.network.peerdb.conn())
+                .unwrap()
+                .stacker_dbs;
+            expected_dbs.sort();
+            for (j, other_peer) in peers.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                let all_neighbors =
+                    PeerDB::get_all_peers(other_peer.network.peerdb.conn()).unwrap();
+
+                if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
+                    // this is a simulated-NAT'ed node -- it won't learn about other NAT'ed nodes'
+                    // DBs
+                    continue;
+                }
+
+                let mut other_peer_dbs = other_peer
+                    .network
+                    .peerdb
+                    .get_peer_stacker_dbs(&peer.config.to_neighbor())
+                    .unwrap();
+                other_peer_dbs.sort();
+
+                if j % 2 == 0 {
+                    test_debug!(
+                        "Compare stacker DBs of {} vs {}",
+                        &peer.config.to_neighbor(),
+                        &other_peer.config.to_neighbor()
+                    );
+                    assert_eq!(expected_dbs, other_peer_dbs);
+                } else {
+                    // this peer doesn't support Stacker DBs
+                    assert_eq!(other_peer_dbs, vec![]);
+                }
+            }
+        }
     }
 }
