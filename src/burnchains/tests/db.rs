@@ -100,13 +100,8 @@ fn test_store_and_fetch() {
     let headers = vec![first_block_header.clone()];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let ops = burnchain_db
         .store_new_burnchain_block(
             &burnchain,
@@ -222,13 +217,8 @@ fn test_classify_stack_stx() {
     let mut headers = vec![first_block_header.clone()];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let ops = burnchain_db
         .store_new_burnchain_block(
             &burnchain,
@@ -1034,13 +1024,8 @@ fn test_classify_delegate_stx() {
 
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
 
     let ops = burnchain_db
@@ -1217,7 +1202,7 @@ fn test_classify_delegate_stx() {
     let block_hash_1 = BurnchainHeaderHash([3; 32]);
 
     let ops_0_length = ops_0.len();
-    let ops_1_length= ops_1.len();
+    let ops_1_length = ops_1.len();
     let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_0,
         &block_hash_0,
@@ -1225,7 +1210,7 @@ fn test_classify_delegate_stx() {
         ops_0,
         350,
     ));
-    
+
     let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_1,
         &block_hash_1,
