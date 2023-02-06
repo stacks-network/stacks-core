@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -23,7 +39,7 @@ impl PegOutFulfillOp {
         let (amount, recipient) = if let Some(Some(recipient)) = tx.get_recipients().first() {
             (recipient.amount, recipient.address.clone())
         } else {
-            warn!("Invalid tx: Output 2 not provided");
+            warn!("Invalid tx: First output not recognized");
             return Err(OpError::InvalidInput);
         };
 
@@ -68,7 +84,8 @@ impl PegOutFulfillOp {
             return Err(ParseError::MalformedData);
         }
 
-        let chain_tip = StacksBlockId::from_bytes(&data[..32]).unwrap();
+        let chain_tip = StacksBlockId::from_bytes(&data[..32])
+            .expect("PegOutFulfillment chain tip data failed to convert to block ID");
         let memo = data.get(32..).unwrap_or(&[]).to_vec();
 
         Ok(ParsedData { chain_tip, memo })
