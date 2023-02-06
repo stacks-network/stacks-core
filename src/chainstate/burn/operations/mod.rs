@@ -321,7 +321,7 @@ pub struct PegInOp {
     pub recipient: PrincipalData,
     pub peg_wallet_address: PoxAddress,
     pub amount: u64,   // BTC amount to peg in, in satoshis
-    pub memo: Vec<u8>, // extra unused byte
+    pub memo: Vec<u8>, // extra unused bytes
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID

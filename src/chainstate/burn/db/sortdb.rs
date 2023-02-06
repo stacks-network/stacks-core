@@ -735,7 +735,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_in_burn_header_hash";
 
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
     CREATE TABLE peg_in (
@@ -2895,7 +2895,7 @@ impl SortitionDB {
                 version == "1" || version == "2" || version == "3" || version == "4"
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
-            StacksEpochId::Epoch21 => version == "3" || version == "4",
+            StacksEpochId::Epoch21 => version == "5",
         }
     }
 

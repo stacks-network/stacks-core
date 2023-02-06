@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use stacks_common::codec::StacksMessageCodec;
 
 use crate::burnchains::BurnchainBlockHeader;
@@ -29,7 +45,7 @@ impl PegInOp {
             if let Some(Some(recipient)) = tx.get_recipients().first() {
                 (recipient.amount, recipient.address.clone())
             } else {
-                warn!("Invalid tx: Output 2 not provided");
+                warn!("Invalid tx: First output not recognized");
                 return Err(OpError::InvalidInput);
             };
 
@@ -74,7 +90,7 @@ impl PegInOp {
             return Err(ParseError::MalformedData);
         }
 
-        let version = *data.get(0).ok_or(ParseError::MalformedData)?;
+        let version = *data.get(0).expect("No version byte");
         let address_data: [u8; 20] = data
             .get(1..21)
             .ok_or(ParseError::MalformedData)?
@@ -106,10 +122,17 @@ impl PegInOp {
         Ok(())
     }
 
+    /// Returns the leading non-zero bytes of the subslice `data[from..to]`
+    ///
+    /// # Panics
+    ///
+    /// Panics if `from` is larger than or equal to `to`
     fn leading_non_zero_bytes(data: &[u8], from: usize, to: usize) -> Option<&[u8]> {
+        assert!(from < to);
+
         let end_of_non_zero_slice = {
             let mut end = to.min(data.len());
-            for i in 21..end {
+            for i in from..end {
                 if data[i] == 0 {
                     end = i;
                     break;
