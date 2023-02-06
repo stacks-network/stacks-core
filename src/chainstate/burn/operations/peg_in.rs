@@ -205,7 +205,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction() {
+    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_without_memo() {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
@@ -229,6 +229,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_with_memo() {
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
+
+        let mut data = vec![1];
+        let addr_bytes = random_bytes(&mut rng);
+        let stx_address = StacksAddress::new(1, addr_bytes.into());
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
+
+        assert_eq!(op.recipient, stx_address.into());
+        assert_eq!(op.amount, amount);
+        assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+        assert_eq!(op.memo.as_slice(), memo)
+    }
+
+    #[test]
     fn test_parse_peg_in_should_succeed_given_a_contract_recipient() {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
@@ -237,12 +265,15 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
+        data.extend_from_slice(&[0; 11]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -255,6 +286,7 @@ mod tests {
         assert_eq!(op.recipient, expected_principal);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+        assert_eq!(op.memo.as_slice(), memo)
     }
 
     #[test]
@@ -262,16 +294,19 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let contract_name = "Mårten_is_not_a_valid_smart_contract_name";
+        let contract_name = "Mårten_is_not_a_valid_contract_name";
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
+        data.extend_from_slice(&[0; 4]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -292,10 +327,13 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -318,11 +356,14 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&invalid_utf8_byte_sequence);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -340,9 +381,13 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
+        let memo: [u8; 6] = random_bytes(&mut rng);
+
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, None, opcode);
         let header = burnchain_block_header();
@@ -384,11 +429,14 @@ mod tests {
         let mut rng = seeded_rng();
 
         let peg_wallet_address = random_bytes(&mut rng);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let create_op = move |amount| {
             let opcode = Opcodes::PegIn;
