@@ -10,12 +10,13 @@ use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 
+use crate::chainstate::burn::operations::BlockstackOperationType;
 pub use clarity::vm::events::StacksTransactionEvent;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionOrigin {
     Stacks(StacksTransaction),
-    Burn(Txid),
+    Burn(BlockstackOperationType),
 }
 
 impl From<StacksTransaction> for TransactionOrigin {
@@ -27,7 +28,7 @@ impl From<StacksTransaction> for TransactionOrigin {
 impl TransactionOrigin {
     pub fn txid(&self) -> Txid {
         match self {
-            TransactionOrigin::Burn(txid) => txid.clone(),
+            TransactionOrigin::Burn(op) => op.txid(),
             TransactionOrigin::Stacks(tx) => tx.txid(),
         }
     }
@@ -35,7 +36,7 @@ impl TransactionOrigin {
     ///  a database
     pub fn serialize_to_dbstring(&self) -> String {
         match self {
-            TransactionOrigin::Burn(txid) => format!("BTC({})", txid),
+            TransactionOrigin::Burn(op) => format!("BTC({})", op.txid()),
             TransactionOrigin::Stacks(tx) => to_hex(&tx.serialize_to_vec()),
         }
     }
