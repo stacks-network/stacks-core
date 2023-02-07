@@ -9,4 +9,4 @@ RUN rustup component add rustfmt
 
 COPY . .
 
-RUN cargo fmt --all -- --check
+RUN cargo fmt --all -- --check --config group_imports=StdExternalCrate
