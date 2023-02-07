@@ -16,18 +16,11 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    Gauge, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    histogram_opts, labels, opts, register_gauge, register_histogram, register_histogram_vec,
+    register_int_counter, register_int_counter_vec, register_int_gauge,
 };
 use prometheus::{
-    histogram_opts,
-    labels,
-    opts,
-    register_int_counter,
-    register_int_counter_vec,
-    register_histogram_vec,
-    register_gauge,
-    register_int_gauge,
-    register_histogram,
+    Gauge, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge,
 };
 
 lazy_static! {

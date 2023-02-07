@@ -11,7 +11,6 @@ use std::{
 };
 use std::{env, thread};
 
-use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use serde_json::json;
 
@@ -202,6 +201,7 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use lazy_static::lazy_static;
     use tokio;
     use warp;
     use warp::Filter;
