@@ -3316,8 +3316,7 @@ fn test_sbtc_ops() {
     let first_peg_out_request_memo = vec![1, 3, 3, 8];
     let second_peg_out_request_memo = vec![4, 3];
 
-    let first_peg_out_fulfill_memo = vec![1, 3, 3, 8];
-    let second_peg_out_fulfill_memo = vec![4, 3];
+    let peg_out_fulfill_memo = vec![1, 3, 3, 8];
 
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
@@ -3429,7 +3428,7 @@ fn test_sbtc_ops() {
                     amount: 5,
                     peg_wallet_address,
                     fulfillment_fee: 3,
-                    txid: next_txid(),
+                    txid: Txid([0x13; 32]),
                     memo: second_peg_out_request_memo.clone(),
                     vtxindex: 8,
                     block_height: 0,
@@ -3437,27 +3436,15 @@ fn test_sbtc_ops() {
                 }));
             }
             4 => {
-                // Partially fulfill the peg-out request
+                // Fulfill the peg-out request
                 ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                     recipient: recipient_btc_address,
                     amount: 3,
                     chain_tip,
-                    memo: first_peg_out_fulfill_memo.clone(),
+                    memo: peg_out_fulfill_memo.clone(),
+                    request_ref: Txid([0x13; 32]),
                     txid: next_txid(),
                     vtxindex: 6,
-                    block_height: 0,
-                    burn_header_hash: BurnchainHeaderHash([0; 32]),
-                }));
-            }
-            5 => {
-                // Fulfill remainder of the peg-out request
-                ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
-                    recipient: recipient_btc_address,
-                    amount: 2,
-                    chain_tip,
-                    memo: second_peg_out_fulfill_memo.clone(),
-                    txid: next_txid(),
-                    vtxindex: 7,
                     block_height: 0,
                     burn_header_hash: BurnchainHeaderHash([0; 32]),
                 }));
@@ -3523,9 +3510,12 @@ fn test_sbtc_ops() {
     assert_eq!(peg_out_request_ops.len(), 1);
     assert_eq!(peg_out_request_ops[0].memo, second_peg_out_request_memo);
 
-    assert_eq!(peg_out_fulfill_ops.len(), 2);
-    assert_eq!(peg_out_fulfill_ops[0].memo, first_peg_out_fulfill_memo);
-    assert_eq!(peg_out_fulfill_ops[1].memo, second_peg_out_fulfill_memo);
+    assert_eq!(peg_out_fulfill_ops.len(), 1);
+    assert_eq!(peg_out_fulfill_ops[0].memo, peg_out_fulfill_memo);
+    assert_eq!(
+        peg_out_fulfill_ops[0].request_ref,
+        peg_out_request_ops[0].txid
+    );
 }
 
 // This helper function retrieves the delegation info from the delegate address

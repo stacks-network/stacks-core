@@ -19,6 +19,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
+use crate::burnchains::Txid;
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
@@ -50,11 +51,14 @@ impl PegOutFulfillOp {
         let block_height = block_header.block_height;
         let burn_header_hash = block_header.block_hash;
 
+        let request_ref = Self::get_sender_txid(tx)?;
+
         Ok(Self {
             chain_tip,
             amount,
             recipient,
             memo,
+            request_ref,
             txid,
             vtxindex,
             block_height,
@@ -91,6 +95,25 @@ impl PegOutFulfillOp {
         Ok(ParsedData { chain_tip, memo })
     }
 
+    fn get_sender_txid(tx: &BurnchainTransaction) -> Result<Txid, ParseError> {
+        match tx.get_input_tx_ref(0) {
+            Some(&(tx_ref, vout)) => {
+                if vout != 2 {
+                    warn!(
+                        "Invalid tx: PegOutFulfillOp must spend the third output of the PegOutRequestOp"
+                    );
+                    Err(ParseError::InvalidInput)
+                } else {
+                    Ok(tx_ref)
+                }
+            }
+            None => {
+                warn!("Invalid tx: PegOutFulfillOp must have at least one input");
+                Err(ParseError::InvalidInput)
+            }
+        }
+    }
+
     pub fn check(&self) -> Result<(), OpError> {
         if self.amount == 0 {
             warn!("PEG_OUT_FULFILLMENT Invalid: Transferred amount must be positive");
@@ -108,6 +131,7 @@ struct ParsedData {
 
 enum ParseError {
     MalformedData,
+    InvalidInput,
 }
 
 impl From<ParseError> for OpError {
