@@ -9597,7 +9597,10 @@ pub mod tests {
                 delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
                 reward_addr: Some((
                     123,
-                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])), None),
+                    PoxAddress::Standard(
+                        StacksAddress::new(8, Hash160([8u8; 20])),
+                        Some(AddressHashMode::SerializeP2PKH),
+                    ),
                 )),
                 delegated_ustx: 789,
                 until_burn_height: Some(1000),

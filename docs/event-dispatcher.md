@@ -30,6 +30,13 @@ and any events emitted from Stacks transactions during the block.
 If the transaction originally comes from the parent microblock stream 
 preceding this block, the microblock related fields will be filled in.
 
+If the `raw_tx` field for a particular transaction is "0x00", that indicates
+that it is a burnchain operation. A burnchain operation is a transaction that 
+is executed on the Stacks network, but was sent through the Bitcoin network.
+The Stacks network supports a few specific burnchain operations. You can read 
+more about them [here](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md#stx-operations-on-bitcoin).
+The section below has example json encodings for each of the burnchain operations.
+
 Example:
 
 ```json
@@ -57,6 +64,7 @@ Example:
   "transactions": [
     {
       "contract_abi": null,
+      "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
       "status": "success",
@@ -68,6 +76,7 @@ Example:
     },
     {
       "contract_abi": null,
+      "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
       "status": "success",
@@ -76,8 +85,46 @@ Example:
       "microblock_sequence": "3",
       "microblock_hash": "0x9304fcbcc6daf5ac3f264522e0df50eddb5be85df6ee8a9fc2384c54274daaac",
       "microblock_parent_hash": "0x4893ab44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b474bd"
+    },
+    {
+      "burnchain_op": {
+        "transfer_stx": {
+          "burn_block_height": 10,
+          "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
+          "memo": "0x000102030405",
+          "recipient": {
+            "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+            "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+            "address_version": 22
+          },
+          "sender": {
+            "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+            "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+            "address_version": 26
+          },
+          "transfered_ustx": 10,
+          "burn_txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
+          "vtxindex": 10
+        }
+      },
+      "contract_abi": null,
+      "execution_cost": {
+        "read_count": 0,
+        "read_length": 0,
+        "runtime": 0,
+        "write_count": 0,
+        "write_length": 0
+      },
+      "microblock_hash": null,
+      "microblock_parent_hash": null,
+      "microblock_sequence": null,
+      "raw_result": "0x0703",
+      "raw_tx": "0x00",
+      "status": "success",
+      "tx_index": 2,
+      "txid": "0x85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6"
     }
-   ],
+  ],
    "matured_miner_rewards": [
     {
       "recipient": "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96",
@@ -102,6 +149,76 @@ Example:
     "read_length": 150,
     "write_length": 75
    }
+}
+```
+
+#### Example json values for burnchain operations 
+- TransferStx 
+```json
+{
+  "transfer_stx": {
+    "burn_block_height": 10,
+    "burn_header_hash": "1410131010105914101010101013704010101010221010101010101010101010",
+    "memo": "0x000102030405",
+    "recipient": {
+      "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+      "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+      "address_version": 22
+    },
+    "sender": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "transfered_ustx": 10,
+    "burn_txid": "85aa2106186723f3c4f1d8bb58e3a02746ca9be1be9f4be0c6557079e1f660e6",
+    "vtxindex": 10
+  }
+}
+```
+
+- StackStx
+```json
+{
+  "stack_stx": {
+    "burn_block_height": 10,
+    "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+    "num_cycles": 10,
+    "reward_addr": "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf",
+    "sender": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "stacked_ustx": 10,
+    "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "vtxindex": 10
+  }
+}
+```
+
+- DelegateStx
+```json
+{
+  "delegate_stx": {
+    "burn_block_height": 10,
+    "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+    "delegate_to": {
+      "address": "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K",
+      "address_hash_bytes": "0x89f5fd1f719e4449c980de38e3504be6770a2698",
+      "address_version": 22
+    },
+    "delegated_ustx": 10,
+    "sender": {
+      "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+      "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+      "address_version": 26
+    },
+    "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
+    "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "until_burn_height": null,
+    "vtxindex": 10
+  }
 }
 ```
 
@@ -165,6 +282,7 @@ Example:
   "transactions": [
     {
       "contract_abi": null,
+      "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
       "status": "success",
@@ -176,6 +294,7 @@ Example:
     },
     {
       "contract_abi": null,
+      "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
       "status": "success",
