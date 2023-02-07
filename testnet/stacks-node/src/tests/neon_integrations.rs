@@ -10757,8 +10757,11 @@ fn test_submit_and_observe_sbtc_ops() {
         QualifiedContractIdentifier::new(recipient_stx_addr.into(), receiver_contract_name).into();
     let receiver_standard_principal: PrincipalData =
         StandardPrincipalData::from(recipient_stx_addr).into();
+
+    let peg_wallet_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let peg_wallet_address =
-        address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+        address::PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
+
     let recipient_btc_addr = address::PoxAddress::Standard(recipient_stx_addr, None);
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -10776,6 +10779,7 @@ fn test_submit_and_observe_sbtc_ops() {
     conf.burnchain.max_rbf = 1000000;
     conf.miner.first_attempt_time_ms = 5_000;
     conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.miner.segwit = false;
     conf.node.wait_time_for_blocks = 0;
 
     conf.burnchain.epochs = Some(epochs);
@@ -10799,12 +10803,23 @@ fn test_submit_and_observe_sbtc_ops() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
     // Let's send some sBTC ops.
     let peg_in_op_standard = PegInOp {
         recipient: receiver_standard_principal,
         peg_wallet_address: peg_wallet_address.clone(),
-        amount: 1337,
+        amount: 133700,
         memo: Vec::new(),
+        // filled in later
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -10814,8 +10829,9 @@ fn test_submit_and_observe_sbtc_ops() {
     let peg_in_op_contract = PegInOp {
         recipient: receiver_contract_principal,
         peg_wallet_address: peg_wallet_address.clone(),
-        amount: 1337,
+        amount: 133700,
         memo: Vec::new(),
+        // filled in later
         txid: Txid([1u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -10825,11 +10841,12 @@ fn test_submit_and_observe_sbtc_ops() {
     let peg_out_request_op = PegOutRequestOp {
         recipient: recipient_btc_addr.clone(),
         signature: MessageSignature([0; 65]),
-        amount: 1337,
+        amount: 133700,
         peg_wallet_address,
-        fulfillment_fee: 1000,
+        fulfillment_fee: 1_000_000,
         memo: Vec::new(),
-        txid: Txid([0u8; 32]),
+        // filled in later
+        txid: Txid([2u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
@@ -10838,9 +10855,11 @@ fn test_submit_and_observe_sbtc_ops() {
     let peg_out_fulfill_op = PegOutFulfillOp {
         chain_tip: StacksBlockId([0; 32]),
         recipient: recipient_btc_addr,
-        amount: 1337,
+        amount: 133700,
+        request_ref: Txid([2u8; 32]),
         memo: Vec::new(),
-        txid: Txid([0u8; 32]),
+        // filled in later
+        txid: Txid([3u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
@@ -10864,11 +10883,11 @@ fn test_submit_and_observe_sbtc_ops() {
     let parsed_peg_in_op_standard = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
+        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
             .expect("Failed to get peg in ops");
         assert_eq!(ops.len(), 1);
 
-        ops.into_iter().next().unwrap()
+        ops.pop().unwrap()
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
@@ -10889,46 +10908,56 @@ fn test_submit_and_observe_sbtc_ops() {
     let parsed_peg_in_op_contract = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
+        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
             .expect("Failed to get peg in ops");
         assert_eq!(ops.len(), 1);
 
-        ops.into_iter().next().unwrap()
+        ops.pop().unwrap()
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    assert!(
-        btc_regtest_controller
+
+    let peg_out_request_txid = btc_regtest_controller
             .submit_operation(
                 StacksEpochId::Epoch21,
                 BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
                 &mut miner_signer,
                 1
-            )
-            .is_some(),
-        "Peg-out request operation should submit successfully"
-    );
+            ).expect(
+        "Peg-out request operation should submit successfully");
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let parsed_peg_out_request_op = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let ops = SortitionDB::get_peg_out_request_ops(&sortdb.conn(), &tip.burn_header_hash)
+        let mut ops = SortitionDB::get_peg_out_request_ops(&sortdb.conn(), &tip.burn_header_hash)
             .expect("Failed to get peg out request ops");
         assert_eq!(ops.len(), 1);
 
-        ops.into_iter().next().unwrap()
+        ops.pop().unwrap()
     };
 
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let peg_out_request_tx = btc_regtest_controller.get_raw_transaction(&peg_out_request_txid);
+
+    // synthesize the UTXO for this txout, which will be consumed by the peg-out fulfillment tx
+    let peg_out_request_utxo = UTXO {
+        txid: peg_out_request_tx.txid(),
+        vout: 2,
+        script_pub_key: peg_out_request_tx.output[2].script_pubkey.clone(),
+        amount: peg_out_request_tx.output[2].value,
+        confirmations: 0,
+    };
+
+    let mut peg_wallet_signer = BurnchainOpSigner::new(peg_wallet_sk.clone(), false);
+
     assert!(
         btc_regtest_controller
-            .submit_operation(
+            .submit_manual(
                 StacksEpochId::Epoch21,
                 BlockstackOperationType::PegOutFulfill(peg_out_fulfill_op.clone()),
-                &mut miner_signer,
-                1
+                &mut peg_wallet_signer,
+            Some(peg_out_request_utxo),
             )
             .is_some(),
         "Peg-out fulfill operation should submit successfully"
@@ -10939,11 +10968,11 @@ fn test_submit_and_observe_sbtc_ops() {
     let parsed_peg_out_fulfill_op = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let ops = SortitionDB::get_peg_out_fulfill_ops(&sortdb.conn(), &tip.burn_header_hash)
+        let mut ops = SortitionDB::get_peg_out_fulfill_ops(&sortdb.conn(), &tip.burn_header_hash)
             .expect("Failed to get peg out fulfill ops");
         assert_eq!(ops.len(), 1);
 
-        ops.into_iter().next().unwrap()
+        ops.pop().unwrap()
     };
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
