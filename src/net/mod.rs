@@ -74,6 +74,7 @@ use clarity::vm::{
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::codec::{read_next, write_next};
+use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -135,6 +136,7 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod microblock_antientropy;
 
 #[derive(Debug)]
 pub enum Error {
@@ -1934,12 +1936,19 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
+pub struct SyncedMicroblocksResult {
+    stacks_tip_consensus_hash: ConsensusHash,
+    stacks_tip_block_hash: BlockHeaderHash,
+    neighbor_key: Option<NeighborKey>,
+    microblocks: Vec<StacksMicroblock>,
+}
+
 /// Result of doing network work
 pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confirmed microblocks we downloaded, and time taken
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
@@ -1948,6 +1957,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
+    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // microblocks we downloaded via microblock tip sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1974,6 +1984,7 @@ impl NetworkResult {
             uploaded_microblocks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
+            synced_microblock_result: None,
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1989,6 +2000,8 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
+            || self.synced_microblock_result.as_ref().map_or(
+            false, |result| result.microblocks.len() > 0)
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -2528,7 +2541,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port))
                     .unwrap();
             config
         }
@@ -2541,7 +2554,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port))
                     .unwrap();
             config
         }
@@ -3611,6 +3624,7 @@ pub mod test {
 
             *coinbase_nonce += 1;
 
+            info!("MAP: in tenure with tx, bhh: {:?}, ch: {:?}", stacks_block.block_hash(), consensus_hash);
             let tip_id = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if let Some((start_check_cycle, end_check_cycle)) = self.config.check_pox_invariants {

@@ -345,12 +345,6 @@ impl DNSClient {
 
     pub fn poll_lookup(&mut self, host: &str, port: u16) -> Result<Option<DNSResponse>, net_error> {
         let req = DNSRequest::new(host.to_string(), port, 0);
-        if !self.requests.contains_key(&req) {
-            return Err(net_error::LookupError(format!(
-                "No such pending lookup: {}:{}",
-                host, port
-            )));
-        }
 
         let _ = match self.requests.get(&req) {
             Some(None) => {
@@ -358,7 +352,10 @@ impl DNSClient {
             }
             Some(Some(resp)) => resp,
             None => {
-                unreachable!();
+                return Err(net_error::LookupError(format!(
+                    "No such pending lookup: {}:{}",
+                    host, port
+                )));
             }
         };
 

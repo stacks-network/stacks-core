@@ -1747,10 +1747,13 @@ impl ConversationHttp {
                     index_anchor_block_hash.clone(),
                     min_seq,
                 ) {
-                    Ok(stream) => (
-                        HttpResponseType::MicroblockStream(response_metadata),
-                        Some(stream),
-                    ),
+                    Ok(stream) => {
+                        info!("MAP: req microblock stream, {:?}", response_metadata);
+                        (
+                            HttpResponseType::MicroblockStream(response_metadata),
+                            Some(stream),
+                        )
+                    },
                     Err(chain_error::NoSuchBlockError) => (
                         HttpResponseType::NotFound(
                             response_metadata,
@@ -3098,7 +3101,7 @@ impl ConversationHttp {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
-                    warn!("Received response: not a HTTP response");
+                    warn!("Received request: not a HTTP response");
                     return Err(Err(net_error::InvalidMessage));
                 }
                 StacksHttpMessage::Response(http_response) => Ok(http_response),
