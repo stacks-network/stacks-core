@@ -436,6 +436,7 @@ fn test_names_tokens_contracts_interface() {
         ],
         "fungible_tokens": [],
         "non_fungible_tokens": [],
+        "epoch": "Epoch21",
         "clarity_version": "Clarity2"
     }"#).unwrap();
 
@@ -3513,8 +3514,7 @@ fn clarity_trait_experiments_cross_epochs(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we define a trait with two methods with the same name and different
-    // types in Clarity1, then use it in Clarity2?
+    // Can we define a trait in epoch 2.05 that uses another trait, then use it in epoch 2.1?
     let result = db.execute(|db| {
         load_versioned(
             db,

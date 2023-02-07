@@ -131,6 +131,37 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
 }
 
+/// Helper method to create a BitcoinIndexer
+pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
+    let (network, _) = config.burnchain.get_bitcoin_network();
+    let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+        .expect("Bitcoin network unsupported");
+    let indexer_config = {
+        let burnchain_config = config.burnchain.clone();
+        BitcoinIndexerConfig {
+            peer_host: burnchain_config.peer_host,
+            peer_port: burnchain_config.peer_port,
+            rpc_port: burnchain_config.rpc_port,
+            rpc_ssl: burnchain_config.rpc_ssl,
+            username: burnchain_config.username,
+            password: burnchain_config.password,
+            timeout: burnchain_config.timeout,
+            spv_headers_path: config.get_spv_headers_file_path(),
+            first_block: burnchain_params.first_block_height,
+            magic_bytes: burnchain_config.magic_bytes,
+            epochs: burnchain_config.epochs,
+        }
+    };
+
+    let (_, network_type) = config.burnchain.get_bitcoin_network();
+    let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+    let burnchain_indexer = BitcoinIndexer {
+        config: indexer_config.clone(),
+        runtime: indexer_runtime,
+    };
+    burnchain_indexer
+}
+
 impl LeaderBlockCommitFees {
     pub fn fees_from_previous_tx(
         &self,
@@ -1233,7 +1264,7 @@ impl BitcoinRegtestController {
         let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
-            let mined_op = burnchain_db.get_burnchain_op(txid);
+            let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
             if mined_op.is_some() {
                 // Good to go, the transaction in progress was mined
                 debug!("Was able to retrieve ongoing TXID - {}", txid);

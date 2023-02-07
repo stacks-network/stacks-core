@@ -423,6 +423,7 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
+        let cur_block_pox_contract = pox_consts.active_pox_contract(burnchain_tip.block_height);
         let cur_cycle_pox_contract =
             pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
         let next_cycle_pox_contract = pox_consts
@@ -475,7 +476,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             current_burnchain_block_height: burnchain_tip.block_height,
@@ -1673,8 +1674,9 @@ impl ConversationHttp {
 
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 clarity_tx.with_analysis_db_readonly(|db| {
-                    let contract = db.load_contract(&contract_identifier)?;
+                    let contract = db.load_contract(&contract_identifier, &epoch)?;
                     contract.contract_interface
                 })
             }) {
@@ -3596,6 +3598,7 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
     use crate::burnchains::*;
@@ -3720,6 +3723,9 @@ mod test {
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
+        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
 
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
@@ -4045,7 +4051,12 @@ mod test {
         let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -4054,7 +4065,12 @@ mod test {
         let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -4129,7 +4145,12 @@ mod test {
 
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
@@ -4177,7 +4198,12 @@ mod test {
 
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
