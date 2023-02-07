@@ -385,7 +385,7 @@ pub struct PegOutRequestOp {
     pub signature: MessageSignature, // Signature from sBTC owner as per SIP-021
     pub peg_wallet_address: PoxAddress,
     pub fulfillment_fee: u64, // Funding the fulfillment tx fee
-    pub memo: Vec<u8>,        // extra unused byte
+    pub memo: Vec<u8>,        // extra unused bytes
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -400,7 +400,8 @@ pub struct PegOutFulfillOp {
 
     pub amount: u64,           // Transferred BTC amount, in satoshis
     pub recipient: PoxAddress, // Address to receive the BTC
-    pub memo: Vec<u8>,         // extra unused byte
+    pub request_ref: Txid,     // The peg out request which is fulfilled by this op
+    pub memo: Vec<u8>,         // extra unused bytes
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID

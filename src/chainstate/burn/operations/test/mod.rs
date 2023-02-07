@@ -57,7 +57,7 @@ fn bitcoin_transaction(
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
-            tx_ref: (Txid([0; 32]), 0),
+            tx_ref: (Txid([0; 32]), 2),
         }
         .into()],
         outputs: outputs
