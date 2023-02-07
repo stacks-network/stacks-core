@@ -35,6 +35,10 @@ extern crate rstest;
 #[macro_use]
 extern crate rstest_reuse;
 
+#[cfg(feature = "monitoring_prom")]
+#[macro_use]
+pub extern crate prometheus;
+
 #[macro_use]
 extern crate stacks_common;
 
