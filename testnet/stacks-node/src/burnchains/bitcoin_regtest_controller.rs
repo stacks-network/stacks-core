@@ -893,7 +893,6 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_)
             | BlockstackOperationType::PegOutRequest(_)
-            | BlockstackOperationType::PegOutFulfill(_)
             | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
             }
@@ -902,6 +901,9 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::TransferStx(payload) => {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, utxo)
+            }
+            BlockstackOperationType::PegOutFulfill(payload) => {
+                self.build_peg_out_fulfill_tx(epoch_id, payload, op_signer, utxo)
             }
         }?;
 
@@ -1164,8 +1166,11 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
         let max_tx_size = 230;
 
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount;
         let (mut tx, mut utxos) =
-            self.prepare_tx(epoch_id, &public_key, payload.amount, None, None, 0)?;
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
@@ -1237,8 +1242,12 @@ impl BitcoinRegtestController {
         let max_tx_size = 230;
         let dust_amount = 10000;
 
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount
+            + payload.fulfillment_fee;
         let (mut tx, mut utxos) =
-            self.prepare_tx(epoch_id, &public_key, payload.amount, None, None, 0)?;
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
@@ -1264,7 +1273,7 @@ impl BitcoinRegtestController {
         self.finalize_tx(
             epoch_id,
             &mut tx,
-            payload.amount,
+            payload.amount + payload.fulfillment_fee,
             0,
             max_tx_size,
             self.config.burnchain.satoshis_per_byte,
@@ -1288,6 +1297,7 @@ impl BitcoinRegtestController {
         _epoch_id: StacksEpochId,
         _payload: PegOutFulfillOp,
         _signer: &mut BurnchainOpSigner,
+        _utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         unimplemented!()
     }
@@ -1298,12 +1308,20 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         payload: PegOutFulfillOp,
         signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
         let max_tx_size = 230;
 
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount;
         let (mut tx, mut utxos) =
-            self.prepare_tx(epoch_id, &public_key, payload.amount, None, None, 0)?;
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
+        if let Some(utxo) = utxo_to_use {
+            utxos.utxos.insert(0, utxo);
+        }
 
         let op_bytes = {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
@@ -2024,7 +2042,7 @@ impl BitcoinRegtestController {
                 self.build_peg_out_request_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::PegOutFulfill(payload) => {
-                self.build_peg_out_fulfill_tx(epoch_id, payload, op_signer)
+                self.build_peg_out_fulfill_tx(epoch_id, payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
             BlockstackOperationType::DelegateStx(payload) => {
