@@ -135,6 +135,7 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
+pub mod microblock_antientropy;
 
 #[derive(Debug)]
 pub enum Error {

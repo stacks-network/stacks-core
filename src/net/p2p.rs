@@ -19,6 +19,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::fmt::{Display, Formatter};
 use std::mem;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -34,8 +35,10 @@ use std::sync::mpsc::TrySendError;
 
 use mio;
 use mio::net as mio_net;
+use nix::sys::socket::sockopt::SocketError;
 use rand::prelude::*;
 use rand::thread_rng;
+use rusqlite::StatementStatus::Sort;
 
 use url;
 
@@ -54,6 +57,7 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+use crate::net::Requestable;
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::AtlasDB;
 use crate::net::atlas::{AttachmentInstance, AttachmentsDownloader};
@@ -229,6 +233,51 @@ pub enum MempoolSyncState {
     RecvResponse(UrlString, SocketAddr, usize),
 }
 
+pub enum MicroblockTipSyncState {
+    CollectPeerURL,
+    ResolvePeerURL((Vec<(UrlString, SocketAddr)>, Vec<(UrlString, DNSRequest)>)),
+    // Send v2/info request to neighbors
+    SendInfoQuery(Vec<(UrlString, SocketAddr)>),
+    // Gather responses, and determine which neighbor has latest chain tip
+    ResolveLatestTip((Vec<(UrlString, SocketAddr, usize)>, Vec<(UrlString, SocketAddr, u16)>)),
+    ProcessTipData(Vec<(UrlString, SocketAddr, u16)>),
+    // Request microblocks with endpoint from neighbor with latest tip
+    RequestMicroblocks(VecDeque<(UrlString, SocketAddr, u16)>),
+    // Wait for microblocks response
+    WaitForMicroblocks(UnconfirmedMicroblocksRequest, usize, VecDeque<(UrlString, SocketAddr, u16)>),
+    // Forward microblocks to the relayer
+    ForwardMicroblocks,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct UnconfirmedMicroblocksRequest {
+    pub url: UrlString,
+    pub min_seq: u16,
+    pub index_block_hash: StacksBlockId,
+    pub canonical_stacks_tip_height: Option<u64>,
+}
+
+impl Display for UnconfirmedMicroblocksRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let url = self.get_url().to_string();
+        write!(f, "<Request<UnconfirmedMicroblocks>>: url={}", url)
+    }
+}
+
+impl Requestable for UnconfirmedMicroblocksRequest {
+    fn get_url(&self) -> &UrlString {
+        &self.url
+    }
+
+    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+        HttpRequestType::GetMicroblocksUnconfirmed(
+            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
+            self.index_block_hash,
+            self.min_seq,
+        )
+    }
+}
+
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
 #[derive(Debug)]
@@ -325,6 +374,12 @@ pub struct PeerNetwork {
     mempool_sync_timeout: u64,
     mempool_sync_completions: u64,
     mempool_sync_txs: u64,
+
+    microblock_tip_sync_state: MicroblockTipSyncState,
+    microblock_tip_sync_deadline: u64,
+    microblock_tip_sync_timeout: u64,
+    microblock_tip_sync_completions: u64,
+    microblock_tip_sync_amount: u64,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -463,6 +518,12 @@ impl PeerNetwork {
             mempool_sync_timeout: 0,
             mempool_sync_completions: 0,
             mempool_sync_txs: 0,
+
+            microblock_tip_sync_state: MicroblockTipSyncState::CollectPeerURL,
+            microblock_tip_sync_deadline: 0,
+            microblock_tip_sync_timeout: 0,
+            microblock_tip_sync_completions: 0,
+            microblock_tip_sync_amount: 0,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -2226,6 +2287,46 @@ impl PeerNetwork {
         };
     }
 
+    // Do a microblock antientropy pull. This function mainly modifies
+    // meta-variables tracking timing + metrics of the microblock tip sync.
+    // Return true if finished.
+    // TODO(map): might need to return CH & BHH along with microblocks
+    fn do_network_microblock_tip_sync(
+        &mut self,
+        ibd: bool,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Option<Vec<StacksMicroblock>> {
+        if ibd {
+            return None;
+        }
+
+        match self.do_microblock_tip_sync(dns_client_opt, mempool, chainstate) {
+            (true, mb_opt) => {
+                if let Some(mbs) = mb_opt {
+                    self.microblock_tip_sync_deadline = get_epoch_time_secs() + self.connection_opts.microblock_tip_sync_interval;
+                    self.microblock_tip_sync_completions = self.microblock_tip_sync_completions.saturating_add(1);
+                    self.microblock_tip_sync_amount = self.microblock_tip_sync_amount.saturating_add(mbs.len() as u64);
+                    return Some(txs);
+                } else {
+                    // is it ok to not be resetting the deadline here?
+                    return None;
+                }
+            }
+            // Did we get some microblocks, but have more to get?
+            // TODO(map): not sure if this is a real state
+            (false, mbs_opt) => {
+                if let Some(mbs) = mb_opt {
+                    self.microblock_tip_sync_amount = self.microblock_tip_sync_amount.saturating_add(mbs.len() as u64);
+                    return Some(txs);
+                } else {
+                    return None;
+                }
+            }
+        }
+    }
+
     /// Begin the process of learning this peer's public IP address.
     /// Return Ok(finished with this step)
     /// Return Err(..) on failure
@@ -3182,6 +3283,12 @@ impl PeerNetwork {
         self.mempool_sync_timeout = 0;
     }
 
+    /// Reset a microblock tip sync
+    fn microblock_tip_sync_reset(&mut self) {
+        self.microblock_tip_sync_state = MicroblockTipSyncState::CollectPeerURL;
+        self.microblock_tip_sync_timeout = 0;
+    }
+
     /// Pick a peer to mempool sync with.
     /// Returns Ok(None) if we're done syncing the mempool.
     /// Returns Ok(Some(..)) if we're not done, and can proceed
@@ -3283,6 +3390,7 @@ impl PeerNetwork {
                         return Ok(None);
                     }
                 }
+                // TODO(map): change timeout to be non-zero
                 return Ok(Some(MempoolSyncState::ResolveURL(
                     url_str,
                     DNSRequest::new(domain.to_string(), port, 0),
@@ -3346,8 +3454,6 @@ impl PeerNetwork {
     }
 
     /// Ask the remote peer for its mempool, connecting to it in the process if need be.
-    /// Returns Ok((true, ..)) if we're done mempool syncing
-    /// Returns Ok((false, ..)) if there's more to do
     /// Returns the event ID on success
     fn mempool_sync_send_query(
         &mut self,
@@ -3356,7 +3462,7 @@ impl PeerNetwork {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         page_id: Txid,
-    ) -> Result<(bool, Option<usize>), net_error> {
+    ) -> Result<usize, net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_host(
@@ -3374,7 +3480,7 @@ impl PeerNetwork {
             mempool,
             chainstate,
         )?;
-        return Ok((false, Some(event_id)));
+        return Ok(event_id);
     }
 
     /// Receive the mempool sync response.
@@ -3531,20 +3637,11 @@ impl PeerNetwork {
                         chainstate,
                         page_id.clone(),
                     ) {
-                        Ok((false, Some(event_id))) => {
+                        Ok(event_id) => {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
                             self.mempool_state =
                                 MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
-                        }
-                        Ok((false, None)) => {
-                            // try again later
-                            return (false, None);
-                        }
-                        Ok((true, _)) => {
-                            // done
-                            self.mempool_sync_reset();
-                            return (true, None);
                         }
                         Err(e) => {
                             // done
@@ -3611,6 +3708,577 @@ impl PeerNetwork {
                 }
             }
         }
+    }
+
+    /// Query the v2/info endpoint of the remote peer
+    fn microblock_tip_sync_send_info_query(
+        &mut self,
+        peer_addrs: &Vec<(UrlString, SocketAddr)>,
+        mempool: &MempoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<Vec<(UrlString, SocketAddr, usize)>, net_error> {
+
+        let mut convo_info = vec![];
+        for (url_str, addr) in peer_addrs {
+            let request = HttpRequestType::GetInfo(
+                HttpRequestMetadata::from_host(
+                    PeerHost::from_socketaddr(addr),
+                    Some(self.burnchain_tip.canonical_stacks_tip_height)
+                )
+            );
+
+            // TODO(map): question - should I just log the error & keep trying to connect to the other addrs?
+            let event_id = self.connect_or_send_http_request(
+                url_str.clone(),
+                addr.clone(),
+                request.clone(),
+                mempool,
+                chainstate,
+            )?;
+            convo_info.push((url_str.clone(), addr.clone(), event_id));
+        }
+
+        return Ok(convo_info);
+    }
+
+    fn microblock_tip_sync_begin_resolve_url(
+        &self,
+        url_strs: Vec<UrlString>,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+    ) -> Result<Option<MicroblockTipSyncState>, net_error> {
+        let mut resolved_addrs = vec![];
+        let mut dns_lookups = vec![];
+        for url_str in &url_strs {
+            let url = url_str.parse_to_block_url()?;
+            let port = match url.port_or_known_default() {
+                Some(p) => p,
+                None => {
+                    warn!("Unsupported URL {:?}: unknown port", &url);
+                    continue;
+                }
+            };
+
+            if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
+                resolved_addrs.push((url_str.clone(), addr))
+            } else if let Some(url::Host::Domain(domain)) = url.host() {
+                if let Some(ref mut dns_client) = dns_client_opt {
+                    // begin DNS query
+                    let timeout = get_epoch_time_ms() + self.connection_opts.dns_timeout;
+                    match dns_client.queue_lookup(
+                        domain.clone(),
+                        port,
+                        timeout,
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            warn!("Failed to queue DNS lookup on {} with error {:?}", &url_str, e);
+                        }
+                    }
+                    let dns_request = DNSRequest::new(domain.to_string(), port, timeout);
+                    dns_lookups.push((url_str.clone(), dns_request))
+                }
+            }
+        }
+
+        if dns_lookups.len() == 0 {
+            if resolved_addrs.len() == 0 {
+                return Ok(None)
+            }
+            return Ok(Some(MicroblockTipSyncState::SendInfoQuery(resolved_addrs)))
+        } else {
+            Ok(Some(MicroblockTipSyncState::ResolvePeerURL((resolved_addrs, dns_lookups))))
+        }
+
+    }
+
+    fn microblock_tip_sync_resolve_url(
+        &mut self,
+        resolving: Vec<(UrlString, DNSRequest)>,
+        dns_client_opt: &mut Option<&mut DNSClient>
+    ) -> Result<(Vec<(UrlString, SocketAddr)>, Vec<(UrlString, DNSRequest)>), net_error> {
+        let mut now_resolved = vec![];
+        let mut still_resolving = vec![];
+        // Not checking whether URL contains an IP address, since that's done in
+        // `microblock_tip_sync_begin_resolve_url`
+        if let Some(dns_client) = dns_client_opt {
+            for (url_str, dns_request) in resolving {
+                match dns_client.poll_lookup(&dns_request.host, dns_request.port) {
+                    Ok(Some(dns_response)) => match dns_response.result {
+                        Ok(mut addrs) => {
+                            if let Some(addr) = addrs.pop() {
+                                // resolved!
+                                now_resolved.push((url_str, addr));
+                            } else {
+                                warn!("DNS returns no results for {}", url_str);
+                            }
+                        }
+                        Err(msg) => {
+                            warn!("DNS failed to look up {:?}: {}", &url_str, msg);
+                        }
+                    },
+                    Ok(None) => {
+                        // still in-flight
+                        still_resolving.push((url_str, dns_request))
+                    }
+                    Err(e) => {
+                        warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
+                    }
+                }
+            }
+        } else {
+            // can't do anything
+            debug!("No DNS client, and URL contains a domain, so no more addresses can be resolved \
+                for the microblock tip sync");
+        }
+
+        Ok((now_resolved, still_resolving))
+    }
+
+    fn microblock_tip_sync_recv_response(
+        &mut self,
+        convo_info: Vec<(UrlString, SocketAddr, usize)>,
+    ) -> Result<(Vec<(UrlString, SocketAddr, usize)>, Vec<(UrlString, SocketAddr, u16)>), net_error>{
+        let mut ongoing_convos = vec![];
+        let mut tip_data = vec![];
+        PeerNetwork::with_http(self, |network, http| {
+            for (url_str, addr, event_id) in event_ids {
+                match http.get_conversation(event_id) {
+                    None => {
+                        if http.is_connecting(event_id) {
+                            debug!(
+                              "{:?}: Microblock sync event {} is not connected yet",
+                                &network.local_peer,
+                                event_id
+                            );
+                            ongoing_convos.push((url_str, addr, event_id));
+                        } else {
+                            // conversation died
+                            debug!("{:?}: Microblock tip sync peer hung up", &network.local_peer);
+                        }
+                    }
+                    Some(ref mut convo) => {
+                        match convo.try_get_response() {
+                            None => {
+                                // still waiting
+                                debug!(
+                                    "{:?}: Mempool sync event {} still waiting for a response",
+                                    &network.local_peer,
+                                    event_id,
+                                );
+                                ongoing_convos.push((url_str, addr, event_id));
+                            }
+                            Some(http_response) => match http_response {
+                                HttpResponseType::PeerInfo(_, peer_data) => {
+                                    if (self.burnchain_tip.canonical_stacks_tip_consensus_hash == peer_data.stacks_tip_consensus_hash &&
+                                        self.burnchain_tip.canonical_stacks_tip_hash == peer_data.stacks_tip) {
+                                        if let Some(seq) = peer_data.unanchored_seq {
+                                            tip_data.push((url_str, addr, seq));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    warn!("{:?}: Microblock tip sync request v2/info, but received unexpected response type {:?}",
+                                    &network.local_peer, &http_response);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok((ongoing_convos, tip_data))
+    }
+
+    // TODO(map): question - should I ask multiple peers for a particular microblock for redundancy?
+    /// Query the v2/microblocks/unconfirmed endpoint of the remote peer
+    fn microblock_tip_sync_send_microblock_query(
+        &mut self,
+        peer_addrs: &Vec<(UrlString, SocketAddr)>,
+        mempool: &MempoolDB,
+        chainstate: &mut StacksChainState,
+        block_id: StacksBlockId,
+        seq_num: u16,
+    ) -> Result<Vec<(UrlString, SocketAddr, usize)>, net_error> {
+
+        let mut convo_info = vec![];
+        for (url_str, addr) in peer_addrs {
+            let request = HttpRequestType::GetMicroblocksUnconfirmed(
+                HttpRequestMetadata::from_host(
+                    PeerHost::from_socketaddr(addr),
+                    Some(self.burnchain_tip.canonical_stacks_tip_height)
+                ),
+                block_id,
+                seq_num
+            );
+
+            // TODO(map): question(dupe) - should I just log the error & keep trying to connect to the other addrs?
+            let event_id = self.connect_or_send_http_request(
+                url_str.clone(),
+                addr.clone(),
+                request.clone(),
+                mempool,
+                chainstate,
+            )?;
+            convo_info.push((url_str.clone(), addr.clone(), event_id));
+        }
+
+        return Ok(convo_info);
+    }
+
+    fn microblock_tip_sync_recv_microblock_response(
+        &mut self,
+        convo_info: Vec<(UrlString, SocketAddr, usize)>,
+    ) -> Result<(Vec<(UrlString, SocketAddr, usize)>, Vec<(UrlString, SocketAddr, u16)>), net_error>{
+        let mut ongoing_convos = vec![];
+        let mut tip_data = vec![];
+        PeerNetwork::with_http(self, |network, http| {
+            for (url_str, addr, event_id) in event_ids {
+                match http.get_conversation(event_id) {
+                    None => {
+                        if http.is_connecting(event_id) {
+                            debug!(
+                              "{:?}: Microblock sync event {} is not connected yet",
+                                &network.local_peer,
+                                event_id
+                            );
+                            ongoing_convos.push((url_str, addr, event_id));
+                        } else {
+                            // conversation died
+                            debug!("{:?}: Microblock tip sync peer hung up", &network.local_peer);
+                        }
+                    }
+                    Some(ref mut convo) => {
+                        match convo.try_get_response() {
+                            None => {
+                                // still waiting
+                                debug!(
+                                    "{:?}: Mempool sync event {} still waiting for a response",
+                                    &network.local_peer,
+                                    event_id,
+                                );
+                                ongoing_convos.push((url_str, addr, event_id));
+                            }
+                            Some(http_response) => match http_response {
+                                HttpResponseType::MicroblockStream(_) => {
+                                    // TODO(map) - capture the stream
+                                }
+                                _ => {
+                                    warn!("{:?}: Microblock tip sync request v2/microblocks/unconfirmed, but received unexpected response type {:?}",
+                                    &network.local_peer, &http_response);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok((ongoing_convos, tip_data))
+    }
+
+    fn do_microblock_tip_sync(
+        &mut self,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> (bool, Option<Vec<StacksMicroblock>>) {
+        if get_epoch_time_secs() <= self.microblock_tip_sync_deadline {
+            debug!(
+                "{:?}: Wait until {} to do a microblock tip sync",
+                &self.local_peer, self.microblock_tip_sync_deadline
+            );
+            return (true, None)
+        }
+
+        if self.microblock_tip_sync_timeout == 0 {
+            // begin a new sync
+            self.microblock_tip_sync_timeout =
+                get_epoch_time_secs() + self.connection_opts.microblock_tip_sync_timeout
+        } else {
+            if get_epoch_time_secs() > self.mempool_sync_timeout {
+                debug!(
+                    "{:?} Microblock tip sync took too long; terminating",
+                    &self.local_peer
+                );
+                self.microblock_tip_sync_reset();
+                return (true, None)
+            }
+        }
+
+        // Try advancing states until we get blocked.
+        // Once we get blocked, return.
+        loop {
+            let curr_state = self.microblock_tip_sync_state.clone();
+            debug!(
+                "{:?} Microblock sync state is {:?}",
+                &self.local_peer, &curr_state
+            );
+            match curr_state {
+                MicroblockTipSyncState::CollectPeerURL => {
+                    if self.peers.len() == 0 {
+                        debug!("No peers connected; cannot do microblock tip sync");
+                        self.microblock_tip_sync_reset();
+                        return (true, None)
+                    }
+                    // gather URLs from peers
+                    let mut urls = vec![];
+                    for (event_id, convo) in &self.peers {
+                        if !convo.is_authenticated() || !convo.is_outbound() {
+                            continue;
+                        }
+                        // TODO(map): do I need to check service flags - RELAY & RPC? / or just RPC?
+                        if !ConversationP2P::supports_mempool_query(convo.peer_services) {
+                            continue;
+                        }
+                        if convo.data_url.len() == 0 {
+                            continue;
+                        }
+                        let url = convo.data_url.clone();
+                        urls.push(url);
+                    }
+
+                    match self.microblock_tip_sync_begin_resolve_url(urls, dns_client_opt) {
+                        Ok(Some(next_state)) => {
+                            self.microblock_tip_sync_state = next_state;
+                        }
+                        Ok(None) => {
+                            // done
+                            self.microblock_tip_sync_reset();
+                            return (true, None);
+                        }
+                        Err(e) => {
+                            // done
+                            warn!("microblock_tip_sync_begin_resolve_url returned {:?}", &e);
+                            self.microblock_tip_sync_reset();
+                            return (true, None);
+                        }
+                    }
+
+                }
+                MicroblockTipSyncState::ResolvePeerURL((mut resolved, resolving)) => {
+                    let (new_resolved, still_resolving) = self.microblock_tip_sync_resolve_url(resolving, dns_client_opt)?;
+                    resolved.extend(new_resolved.iter());
+
+                    if still_resolving.len() > 0 {
+                        self.microblock_tip_sync_state = MicroblockTipSyncState::ResolvePeerURL((resolved, still_resolving));
+                        // check back later!
+                        return (false, None)
+                    } else {
+                        if resolved.len() > 0 {
+                            self.microblock_tip_sync_state = MicroblockTipSyncState::SendInfoQuery(resolved);
+                        } else {
+                            // done, no addresses to query
+                            self.microblock_tip_sync_reset();
+                            return (true, None)
+                        }
+                    }
+                }
+                // TODO(map): question - should I be using "ref peer_addrs" - it's how it's done
+                // for the mempool sync, but we clone the curr state above so seems unnecessary
+                MicroblockTipSyncState::SendInfoQuery(peer_addrs) => {
+                    // sendQuery in mempool sync
+                    // need to determine how to send message to all neighbors
+                    debug!(
+                        "{:?}: Microblock tip sync will query {} for v2/info",
+                        &self.local_peer, url
+                    );
+                    match self.microblock_tip_sync_send_info_query(
+                        &peer_addrs,
+                        mempool,
+                        chainstate
+                    ) {
+                        Ok(convo_info) => {
+                            // success! advance
+                            debug!(
+                                "{:?}: Microblock tip sync query {:?} for mempool transaction on events {:?}",
+                                &self.local_peer,
+                                peer_addrs,
+                                convo_info
+                            );
+                            if convo_info.len() > 0 {
+                                self.microblock_tip_sync_state = MicroblockTipSyncState::ResolveLatestTip((convo_info, vec![]));
+                            } else {
+                                // no active convos, end sync
+                                self.microblock_tip_sync_reset();
+                                return (true, None);
+                            }
+                        }
+                        Err(e) => {
+                            // done
+                            warn!("microblock_tip_sync_send_query({:?}) returned {:?}", peer_addrs, &e);
+                            self.microblock_tip_sync_reset();
+                            return (true, None);
+                        }
+                    }
+
+
+                }
+                MicroblockTipSyncState::ResolveLatestTip((convo_info, mut tip_data)) => {
+                    match self.microblock_tip_sync_recv_response(convo_info) {
+                        Ok((ongoing_convos, retrieved_tip_data)) => {
+                            tip_data.extend(retrieved_tip_data.iter());
+                            if ongoing_convos.len() > 0 {
+                                // still receiving; try again later
+                                self.microblock_tip_sync_state = MicroblockTipSyncState::ResolveLatestTip((ongoing_convos, tip_data));
+                                return (false, None);
+                            } else {
+                                if retrieved_tip_data.len() > 0 {
+                                    // received all the tip data, move on to the next state
+                                    self.microblock_tip_sync_state = MicroblockTipSyncState::ProcessTipData(retrieved_tip_data);
+                                } else {
+                                    // we have no data from any peer, end the sync
+                                    self.microblock_tip_sync_reset();
+                                    return (true, None);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // likely a network error
+                            warn!("microblock_tip_sync_recv_response returned {:?}", &e);
+                            self.microblock_tip_sync_reset();
+                            return (true, None);
+                        }
+                    }
+                }
+                MicroblockTipSyncState::ProcessTipData(tip_data) => {
+                    // determine current unconfirmed tip
+                    let local_unconfirmed_height = match chainstate.unconfirmed_state {
+                        Some(ref unconfirmed) => unconfirmed.last_mblock_seq,
+                        None => 0,
+                    };
+
+                    let mut sorted_tip_data: VecDeque<(UrlString, SocketAddr, u16)> = tip_data.iter()
+                        .sorted_by(|(_, _, seq_num_a), (_, _, seq_num_b)| {
+                            Ord::cmp(seq_num_a, seq_num_b)
+                        })
+                        .filter(|(_, _, seq_num)| seq_num > &local_unconfirmed_height)
+                        .collect();
+                    self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(sorted_tip_data);
+                }
+                MicroblockTipSyncState::RequestMicroblocks(mut sorted_tip_data) => {
+                    let canonical_tip_block_id = StacksBlockId::new(
+                        &self.burnchain_tip.canonical_stacks_tip_consensus_hash,
+                        &self.burnchain_tip.canonical_stacks_tip_hash
+                    );
+                    let canonical_tip_height = self.burnchain_tip.canonical_stacks_tip_height;
+
+                    loop {
+                        match sorted_tip_data.pop_front(){
+                            Some((url_str, addr, peer_tip_height)) => {
+                                let requestable = UnconfirmedMicroblocksRequest {
+                                    url: url_str.clone(),
+                                    min_seq: peer_tip_height,
+                                    index_block_hash: canonical_tip_block_id,
+                                    canonical_stacks_tip_height: Some(canonical_tip_height),
+                                };
+                                let mut requestables = VecDeque::new();
+                                requestables.push_back(requestable);
+
+                                let mut dns_lookups = HashMap::new();
+                                dns_lookups[url_str] = addr;
+
+                                match PeerNetwork::begin_request(
+                                    &mut self,
+                                    &dns_lookups,
+                                    &mut requestables,
+                                    mempool,
+                                    chainstate
+                                ) {
+                                    Some((request, event_id)) => {
+                                        self.microblock_tip_sync_state = MicroblockTipSyncState::WaitForMicroblocks(
+                                            request, event_id, sorted_tip_data
+                                        );
+                                        break;
+                                    }
+                                    None => {
+                                        // keep looping & try to start a request with a different peer, this request failed
+                                    }
+                                }
+
+                            }
+                            None => {
+                                // we have no requests to try to send, end the sync
+                                self.microblock_tip_sync_reset();
+                                return (true, None);
+                            }
+                        }
+                    }
+                }
+                MicroblockTipSyncState::WaitForMicroblocks(request, event_id, sorted_tip_data) => {
+                    let mut pending = false;
+                    let mut request_next_peer = false;
+                    PeerNetwork::with_http(network, |_, ref mut http| {
+                        match http.get_conversation(event_id) {
+                            None => {
+                                if http.is_connecting(event_id) {
+                                    debug!(
+                                        "{:?}: microblock tip sync request for microblocks is still connecting, request: {}, event_id: {}",
+                                        &self.local_peer,
+                                        request,
+                                        event_id
+                                    );
+                                    // wait a little longer
+                                    pending = true;
+                                } else {
+                                    debug!(
+                                        "{:?}: microblock tip sync request for microblocks failed to connect, request: {}, event_id: {}",
+                                        &self.local_peer,
+                                        request,
+                                        event_id
+                                    );
+                                    request_next_peer = true;
+                                    // TODO(map): do I want to block this URL... ? check the mempool sync, but atlas does this
+                                }
+                            }
+                            Some(ref mut convo) => {
+                                match convo.try_get_response() {
+                                    None => {
+                                        // still waiting
+                                        debug!(
+                                            "{:?}: microblock tip sync request for microblocks is still waiting, request: {}, event_id: {}",
+                                            &self.local_peer,
+                                            request,
+                                            event_id
+                                        );
+                                        pending = true;
+                                    }
+                                    Some(response) => match response {
+                                        HttpResponseType::MicroblockStream(_) => {
+                                            // successful
+                                            // TODO(map): figure out how to get the streamed object
+                                        }
+                                        _ => {
+                                            warn!("{:?}: Microblock tip sync request v2/info, but received unexpected response type {:?}",
+                                                &self.local_peer, &response);
+                                            // TODO(map): determine if we want to block this peer ...
+                                            request_next_peer = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    if pending == true {
+                        return (false, None)
+                    }
+                    if request_next_peer == true && sorted_tip_data.len() > 0 {
+                        // the request failed, try asking another peer for its microblocks
+                        self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(sorted_tip_data);
+                    }
+
+                    // done with sync
+                    self.microblock_tip_sync_reset();
+                    return (true, None)
+                }
+                MicroblockTipSyncState::ForwardMicroblocks => {
+
+                }
+            }
+        }
+
+        // TODO(map): delete if unnecessary - put here for typechecking
+        return (true, None)
     }
 
     /// Do the actual work in the state machine.
@@ -5143,6 +5811,9 @@ impl PeerNetwork {
         {
             network_result.synced_transactions.append(&mut txs);
         }
+
+        // In parallel, do a microblock antientropy pull.
+        self.do_network_microblock_tip_sync(ibd, &mut dns_client_opt, mempool, chainstate);
 
         // download attachments
         self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
