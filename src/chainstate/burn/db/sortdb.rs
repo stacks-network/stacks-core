@@ -498,6 +498,8 @@ impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
         let memo = memo_bytes.to_vec();
 
+        let request_ref = Txid::from_column(row, "request_ref")?;
+
         Ok(Self {
             txid,
             vtxindex,
@@ -507,6 +509,7 @@ impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
             recipient,
             amount,
             memo,
+            request_ref,
         })
     }
 }
@@ -850,6 +853,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         chain_tip TEXT NOT NULL,
         amount TEXT NOT NULL,
         recipient TEXT NOT NULL,
+        request_ref TEXT NOT NULL,
         memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
@@ -5090,10 +5094,11 @@ impl<'a> SortitionHandleTx<'a> {
             &op.chain_tip,
             &op.amount.to_string(),
             &op.recipient.to_string(),
+            &op.request_ref.to_string(),
             &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient, request_ref, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -6665,12 +6670,14 @@ pub mod tests {
             let vtxindex = 456;
             let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
             let chain_tip = StacksBlockId([0; 32]);
+            let request_ref = Txid([1; 32]);
             let memo = vec![1, 3, 3, 7];
 
             PegOutFulfillOp {
                 recipient,
                 amount,
                 chain_tip,
+                request_ref,
                 memo,
 
                 txid,
