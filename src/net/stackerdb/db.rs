@@ -176,7 +176,7 @@ fn inner_get_chunk_metadata(
     rc_consensus_hash: &ConsensusHash,
     chunk_id: u32,
 ) -> Result<Option<ChunkMetadata>, net_error> {
-    let sql = format!("SELECT chunk_id,rc_consensus_hash,version,data_hash,signature FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2", stackerdb_table(smart_contract));
+    let sql = format!("SELECT chunk_id,rc_consensus_hash,version,data_hash,signature FROM \"{}\" WHERE rc_consensus_hash = ?1 AND chunk_id = ?2", stackerdb_table(smart_contract));
     let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
     query_row(conn, &sql, args).map_err(|e| e.into())
 }
@@ -190,7 +190,7 @@ fn inner_get_chunk_validation(
     chunk_id: u32,
 ) -> Result<Option<ChunkValidation>, net_error> {
     let sql = format!(
-        "SELECT stacker,write_time,version FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
+        "SELECT stacker,write_time,version FROM \"{}\" WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
         stackerdb_table(smart_contract)
     );
     let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
@@ -210,7 +210,7 @@ impl<'a> StackerDBTx<'a> {
     /// Idempotent.
     pub fn create_stackerdb(&self, smart_contract: &ContractId) -> Result<(), net_error> {
         let qry = format!(
-            "CREATE TABLE IF NOT EXISTS {}{}",
+            "CREATE TABLE IF NOT EXISTS \"{}\"{}",
             stackerdb_table(smart_contract),
             CHUNKS_DB_TABLE_BODY
         );
@@ -219,7 +219,7 @@ impl<'a> StackerDBTx<'a> {
 
         for (index_name, index_body) in CHUNKS_DB_INDEX_BODIES.iter() {
             let qry = format!(
-                "CREATE INDEX IF NOT EXISTS index_{}_{} ON {}{}",
+                "CREATE INDEX IF NOT EXISTS \"index_{}_{}\" ON \"{}\"{}",
                 stackerdb_table(smart_contract),
                 index_name,
                 stackerdb_table(smart_contract),
@@ -250,7 +250,7 @@ impl<'a> StackerDBTx<'a> {
 
         for (index_name, _) in CHUNKS_DB_INDEX_BODIES.iter() {
             let qry = format!(
-                "DROP INDEX IF EXISTS index_{}_{}",
+                "DROP INDEX IF EXISTS \"index_{}_{}\"",
                 stackerdb_table(smart_contract),
                 index_name
             );
@@ -280,7 +280,7 @@ impl<'a> StackerDBTx<'a> {
             return Err(net_error::ArrayTooLong);
         }
 
-        let qry = format!("REPLACE INTO {} (rc_consensus_hash,stacker,chunk_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", stackerdb_table(smart_contract));
+        let qry = format!("REPLACE INTO \"{}\" (rc_consensus_hash,stacker,chunk_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", stackerdb_table(smart_contract));
         let mut stmt = self.sql_tx.prepare(&qry)?;
         let mut chunk_id = 0u32;
 
@@ -312,7 +312,7 @@ impl<'a> StackerDBTx<'a> {
         rc_consensus_hash: &ConsensusHash,
     ) -> Result<(), net_error> {
         let qry = format!(
-            "DELETE FROM {} WHERE rc_consensus_hash = ?1",
+            "DELETE FROM \"{}\" WHERE rc_consensus_hash = ?1",
             stackerdb_table(smart_contract)
         );
         let mut stmt = self.sql_tx.prepare(&qry)?;
@@ -351,7 +351,7 @@ impl<'a> StackerDBTx<'a> {
         chunk_desc: &ChunkMetadata,
         chunk: &[u8],
     ) -> Result<(), net_error> {
-        let sql = format!("UPDATE {} SET version = ?1, data_hash = ?2, signature = ?3, data = ?4, write_time = ?5 WHERE rc_consensus_hash = ?6 AND chunk_id = ?7", stackerdb_table(smart_contract));
+        let sql = format!("UPDATE \"{}\" SET version = ?1, data_hash = ?2, signature = ?3, data = ?4, write_time = ?5 WHERE rc_consensus_hash = ?6 AND chunk_id = ?7", stackerdb_table(smart_contract));
         let mut stmt = self.sql_tx.prepare(&sql)?;
 
         let args: &[&dyn ToSql] = &[
@@ -503,7 +503,7 @@ impl StackerDB {
         chunk_id: u32,
     ) -> Result<Option<StacksAddress>, net_error> {
         let sql = &format!(
-            "SELECT stacker FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
+            "SELECT stacker FROM \"{}\" WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
             stackerdb_table(smart_contract)
         );
         let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
@@ -537,7 +537,7 @@ impl StackerDB {
         rc_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<u32>, net_error> {
         let sql = format!(
-            "SELECT version FROM {} WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
+            "SELECT version FROM \"{}\" WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
             stackerdb_table(smart_contract)
         );
         let args: &[&dyn ToSql] = &[rc_consensus_hash];
@@ -551,7 +551,7 @@ impl StackerDB {
         rc_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<u64>, net_error> {
         let sql = format!(
-            "SELECT write_time FROM {} WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
+            "SELECT write_time FROM \"{}\" WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
             stackerdb_table(smart_contract)
         );
         let args: &[&dyn ToSql] = &[rc_consensus_hash];
@@ -566,7 +566,7 @@ impl StackerDB {
         chunk_id: u32,
     ) -> Result<Vec<u8>, net_error> {
         let qry = format!(
-            "SELECT data FROM {} where rc_consensus_hash = ?1 AND chunk_id = ?2",
+            "SELECT data FROM \"{}\" where rc_consensus_hash = ?1 AND chunk_id = ?2",
             stackerdb_table(smart_contract)
         );
         let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
@@ -595,7 +595,7 @@ impl StackerDB {
         chunk_id: u32,
         chunk_version: u32,
     ) -> Result<Option<StackerDBChunkData>, net_error> {
-        let qry = format!("SELECT chunk_id,version,signature,data FROM {} where rc_consensus_hash = ?1 AND chunk_id = ?2 AND version = ?3", stackerdb_table(smart_contract));
+        let qry = format!("SELECT chunk_id,version,signature,data FROM \"{}\" where rc_consensus_hash = ?1 AND chunk_id = ?2 AND version = ?3", stackerdb_table(smart_contract));
         let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id, &chunk_version];
         query_row(&self.conn, &qry, args).map_err(|e| e.into())
     }
