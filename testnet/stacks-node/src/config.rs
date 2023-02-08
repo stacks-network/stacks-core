@@ -1190,6 +1190,12 @@ impl Config {
         path.to_str().expect("Unable to produce path").to_string()
     }
 
+    pub fn get_stacker_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("stacker_db.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
+    }
+
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
             address: PrincipalData::parse_standard_principal(&address)

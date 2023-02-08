@@ -191,6 +191,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
+    stackerdb::StackerDB,
     Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
 use stacks::types::chainstate::{
@@ -3927,8 +3928,9 @@ impl StacksNode {
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
-            &vec![],
+            &[],
             Some(&initial_neighbors),
+            &[],
         )
         .map_err(|e| {
             eprintln!(
@@ -4020,6 +4022,8 @@ impl StacksNode {
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
 
+        let stackerdb = StackerDB::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
             _ => panic!("Unable to retrieve local peer"),
@@ -4028,11 +4032,13 @@ impl StacksNode {
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
+            stackerdb,
             local_peer,
             config.burnchain.peer_version,
             burnchain,
             view,
             config.connection_options.clone(),
+            vec![],
             epochs,
         );
 
@@ -4158,7 +4164,10 @@ impl StacksNode {
         let _ = Self::setup_mempool_db(&config);
 
         let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
-        let relayer = Relayer::from_p2p(&mut p2p_net);
+        let stackerdb = StackerDB::connect(&config.get_stacker_db_file_path(), true)
+            .expect("FATAL: failed to connect to stacker DB");
+
+        let relayer = Relayer::from_p2p(&mut p2p_net, stackerdb);
 
         let local_peer = p2p_net.local_peer.clone();
 
