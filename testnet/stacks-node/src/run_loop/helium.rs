@@ -4,10 +4,8 @@ use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
 use stacks::chainstate::stacks::db::ClarityTx;
-use stacks::net::atlas::AttachmentInstance;
+
 use stacks::types::chainstate::BurnchainHeaderHash;
-use std::collections::HashSet;
-use std::sync::mpsc::{sync_channel, Receiver};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.

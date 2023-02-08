@@ -139,7 +139,7 @@
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::collections::HashMap;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::mem;
@@ -184,7 +184,7 @@ use stacks::cost_estimates::UnitEstimator;
 use stacks::cost_estimates::{CostEstimator, FeeEstimator};
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
+    atlas::{AtlasConfig, AtlasDB},
     db::{LocalPeer, PeerDB},
     dns::DNSClient,
     dns::DNSResolver,

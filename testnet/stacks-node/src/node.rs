@@ -177,7 +177,6 @@ fn spawn_peer(
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
     config: Config,
-    atlas_db: AtlasDB,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
@@ -545,9 +544,8 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = Self::make_atlas_config();
+        let _atlas_config = Self::make_atlas_config();
         let atlasdb = self.make_atlas_db();
-        let peer_atlasdb = self.make_atlas_db();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -581,7 +579,6 @@ impl Node {
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             self.config.clone(),
-            peer_atlasdb,
         )
         .unwrap();
 

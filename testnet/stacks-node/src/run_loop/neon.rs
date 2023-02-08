@@ -5,13 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::atomic::AtomicU64;
 
 use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
-
-use std::collections::HashSet;
 
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
@@ -28,9 +26,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
-use stacks::net::atlas::{
-    AtlasConfig, AtlasDB, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE,
-};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
