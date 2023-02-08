@@ -253,6 +253,16 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// chunk is stale
+    StaleChunk(u32, u32),
+    /// no such chunk
+    NoSuchChunk(ContractId, u32),
+    /// chunk signer is wrong
+    BadChunkSigner(StacksAddress, u32),
+    /// too many writes to a chunk
+    TooManyChunkWrites(u32, u32),
+    /// too frequent writes to a chunk
+    TooFrequentChunkWrites(u64),
 }
 
 impl From<codec_error> for Error {
@@ -354,6 +364,21 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StaleChunk(ref current, ref given) => {
+                write!(f, "Stale DB chunk (cur={},given={})", current, given)
+            }
+            Error::NoSuchChunk(ref addr, ref chunk_id) => {
+                write!(f, "No such DB chunk ({},{})", addr, chunk_id)
+            }
+            Error::BadChunkSigner(ref addr, ref chunk_id) => {
+                write!(f, "Bad DB chunk signer ({},{})", addr, chunk_id)
+            }
+            Error::TooManyChunkWrites(ref max, ref given) => {
+                write!(f, "Too many chunk writes (max={},given={})", max, given)
+            }
+            Error::TooFrequentChunkWrites(ref deadline) => {
+                write!(f, "Too frequent chunk writes (deadline={})", deadline)
+            }
         }
     }
 }
@@ -415,6 +440,11 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StaleChunk(..) => None,
+            Error::NoSuchChunk(..) => None,
+            Error::BadChunkSigner(..) => None,
+            Error::TooManyChunkWrites(..) => None,
+            Error::TooFrequentChunkWrites(..) => None,
         }
     }
 }
