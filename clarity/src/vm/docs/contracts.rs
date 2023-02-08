@@ -6,11 +6,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
 use crate::types::StacksEpochId;
+use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};
+
+use stacks_common::consts::CHAIN_ID_TESTNET;
 
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
@@ -66,24 +70,34 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
 
 fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
+        CHAIN_ID_TESTNET,
         conn,
         LimitedCostTracker::new_free(),
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = vm::ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        vm::eval_all(&parsed, &mut contract_context, g)
+        let parsed = vm::ast::build_ast_with_rules(
+            &contract_id,
+            program,
+            &mut (),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            ASTRules::PrecheckSize,
+        )?
+        .expressions;
+        vm::eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
 pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
     let (_, contract_analysis) =
-        mem_type_check(content).expect("BUG: failed to type check boot contract");
+        mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
+            .expect("BUG: failed to type check boot contract");
 
     let ContractAnalysis {
         public_function_types,

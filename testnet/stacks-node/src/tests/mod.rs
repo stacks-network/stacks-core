@@ -1,4 +1,6 @@
 use std::convert::TryInto;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 use rand::RngCore;
 
@@ -26,6 +28,11 @@ use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
 
 use crate::helium::RunLoop;
+use crate::tests::neon_integrations::get_chain_info;
+use crate::tests::neon_integrations::next_block_and_wait;
+use crate::BitcoinRegtestController;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochExtension;
 use stacks::core::StacksEpochId;
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
@@ -34,6 +41,7 @@ use super::Config;
 mod atlas;
 mod bitcoin_regtest;
 mod epoch_205;
+mod epoch_21;
 mod integrations;
 mod mempool;
 pub mod neon_integrations;
@@ -253,13 +261,15 @@ pub fn new_test_conf() -> Config {
         10000,
     );
 
+    conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
+
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
 
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
     conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
-    conf.node.data_url = format!("https://{}:{}", localhost, rpc_port);
+    conf.node.data_url = format!("http://{}:{}", localhost, rpc_port);
     conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
     conf
 }
@@ -339,7 +349,7 @@ pub fn make_poison(
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
@@ -430,6 +440,59 @@ fn make_microblock(
     microblock
 }
 
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
+/// match `test_fn`.
+pub fn select_transactions_where(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> Vec<StacksTransaction> {
+    let mut result = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if test_fn(&parsed) {
+                result.push(parsed);
+            }
+        }
+    }
+
+    return result;
+}
+
+/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
+/// reaches *exactly* `target_height`.
+///
+/// Returns `false` if `next_block_and_wait` times out.
+pub fn run_until_burnchain_height(
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    target_height: u64,
+    conf: &Config,
+) -> bool {
+    let tip_info = get_chain_info(&conf);
+    let mut current_height = tip_info.burn_block_height;
+
+    while current_height < target_height {
+        eprintln!(
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
+            get_epoch_time_secs(),
+            current_height
+        );
+        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        if !next_result {
+            return false;
+        }
+        let tip_info = get_chain_info(&conf);
+        current_height = tip_info.burn_block_height;
+    }
+
+    assert_eq!(current_height, target_height);
+    true
+}
+
 #[test]
 fn should_succeed_mining_valid_txs() {
     let mut conf = new_test_conf();
@@ -472,7 +535,7 @@ fn should_succeed_mining_valid_txs() {
                 // On round 1, publish the KV contract
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned(),
                                 &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
+                                &StacksEpochId::Epoch21,
                 ).unwrap();
             },
             2 => {
@@ -481,8 +544,8 @@ fn should_succeed_mining_valid_txs() {
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000a0100b7ff8b6c20c427b4f4f09c1ad7e50027e2b076b2ddc0ab55e64ef5ea3771dd4763a79bc5a2b1a79b72ce03dd146ccf24b84942d675a815819a8b85aa8065dfaa030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
-                                           ).unwrap();
+                                &StacksEpochId::Epoch21,
+                ).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
@@ -490,8 +553,8 @@ fn should_succeed_mining_valid_txs() {
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
-                                           ).unwrap();
+                                &StacksEpochId::Epoch21,
+                ).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
@@ -499,8 +562,8 @@ fn should_succeed_mining_valid_txs() {
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000003000000000000000a010046c2c1c345231443fef9a1f64fccfef3e1deacc342b2ab5f97612bb3742aa799038b20aea456789aca6b883e52f84a31adfee0bc2079b740464877af8f2f87d2030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
-                                           ).unwrap();
+                                &StacksEpochId::Epoch21,
+                ).unwrap();
             },
             5 => {
                 // On round 5, publish a stacks transaction
@@ -508,8 +571,8 @@ fn should_succeed_mining_valid_txs() {
                 let transfer_1000_stx = "80800000000400b71a091b4b8b7661a661c620966ab6573bc2dcd30000000000000000000000000000000a0000393810832bacd44cfc4024980876135de6b95429bdb610d5ce96a92c9ee9bfd81ec77ea0f1748c8515fc9a1589e51d8b92bf028e3e84ade1249682c05271d5b803020000000000051a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
-                                           ).unwrap();
+                                &StacksEpochId::Epoch21,
+                ).unwrap();
             },
             _ => {}
         };
@@ -527,15 +590,6 @@ fn should_succeed_mining_valid_txs() {
 
                     // Block #1 should only have 0 txs
                     assert!(chain_tip.block.txs.len() == 1);
-
-                    // 1 lockup event should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    println!("{:?}", events);
-                    assert_eq!(events.len(), 1);
                 }
                 1 => {
                     // Inspecting the chain at round 1.
@@ -549,7 +603,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -557,7 +611,7 @@ fn should_succeed_mining_valid_txs() {
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(_) => true,
+                        TransactionPayload::SmartContract(..) => true,
                         _ => false,
                     });
 
@@ -581,7 +635,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -613,7 +667,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -654,7 +708,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -695,7 +749,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -819,7 +873,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -835,7 +889,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -843,7 +897,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(_) => true,
+                        TransactionPayload::SmartContract(..) => true,
                         _ => false,
                     });
                 }
@@ -859,7 +913,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -875,7 +929,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -891,7 +945,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 

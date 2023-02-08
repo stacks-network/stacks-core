@@ -36,12 +36,16 @@ impl BurnchainOpSigner {
 
     pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
         if self.is_disposed {
+            debug!("Signer is disposed");
             return None;
         }
 
         let signature = match self.secret_key.sign(hash) {
             Ok(r) => r,
-            _ => return None,
+            Err(e) => {
+                debug!("Secret key error: {:?}", &e);
+                return None;
+            }
         };
         self.usages += 1;
 

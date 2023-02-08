@@ -43,13 +43,29 @@ extern crate serde_json;
 #[macro_use]
 extern crate assert_json_diff;
 
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
-extern crate stacks_common;
+extern crate rstest;
 
-pub use stacks_common::types;
-pub use stacks_common::util;
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+extern crate rstest_reuse;
+
+#[cfg(feature = "monitoring_prom")]
+#[macro_use]
+pub extern crate prometheus;
+
+#[macro_use]
+pub extern crate stacks_common;
+pub use stacks_common::{
+    impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
+    impl_byte_array_serde,
+};
 
 pub use stacks_common::codec;
+pub use stacks_common::consts;
+pub use stacks_common::types;
+pub use stacks_common::util;
 
 #[macro_use]
 /// The Clarity virtual machine

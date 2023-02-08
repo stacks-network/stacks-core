@@ -24,7 +24,6 @@ use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use clarity::vm::ast::build_ast;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
@@ -37,6 +36,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
+use clarity::vm::ClarityVersion;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -113,6 +113,31 @@ impl StacksMessageCodec for TransactionSmartContract {
     }
 }
 
+fn ClarityVersion_consensus_serialize<W: Write>(
+    version: &ClarityVersion,
+    fd: &mut W,
+) -> Result<(), codec_error> {
+    match *version {
+        ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
+        ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
+    }
+    Ok(())
+}
+
+fn ClarityVersion_consensus_deserialize<R: Read>(
+    fd: &mut R,
+) -> Result<ClarityVersion, codec_error> {
+    let version_byte: u8 = read_next(fd)?;
+    match version_byte {
+        1u8 => Ok(ClarityVersion::Clarity1),
+        2u8 => Ok(ClarityVersion::Clarity2),
+        _ => Err(codec_error::DeserializeError(format!(
+            "Unrecognized ClarityVersion byte {}",
+            &version_byte
+        ))),
+    }
+}
+
 impl StacksMessageCodec for TransactionPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -126,18 +151,36 @@ impl StacksMessageCodec for TransactionPayload {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
                 cc.consensus_serialize(fd)?;
             }
-            TransactionPayload::SmartContract(ref sc) => {
-                write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
-                sc.consensus_serialize(fd)?;
+            TransactionPayload::SmartContract(ref sc, ref version_opt) => {
+                if let Some(version) = version_opt {
+                    // caller requests a specific Clarity version
+                    write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
+                    ClarityVersion_consensus_serialize(&version, fd)?;
+                    sc.consensus_serialize(fd)?;
+                } else {
+                    // caller requests to use whatever the current clarity version is
+                    write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
+                    sc.consensus_serialize(fd)?;
+                }
             }
             TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
                 write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(ref buf) => {
-                write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
-                write_next(fd, buf)?;
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
+                match recipient_opt {
+                    None => {
+                        // stacks 2.05 and earlier only use this path
+                        write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
+                        write_next(fd, buf)?;
+                    }
+                    Some(recipient) => {
+                        write_next(fd, &(TransactionPayloadID::CoinbaseToAltRecipient as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(fd, &Value::Principal(recipient.clone()))?;
+                    }
+                }
             }
         }
         Ok(())
@@ -158,7 +201,12 @@ impl StacksMessageCodec for TransactionPayload {
             }
             x if x == TransactionPayloadID::SmartContract as u8 => {
                 let payload: TransactionSmartContract = read_next(fd)?;
-                TransactionPayload::SmartContract(payload)
+                TransactionPayload::SmartContract(payload, None)
+            }
+            x if x == TransactionPayloadID::VersionedSmartContract as u8 => {
+                let version = ClarityVersion_consensus_deserialize(fd)?;
+                let payload: TransactionSmartContract = read_next(fd)?;
+                TransactionPayload::SmartContract(payload, Some(version))
             }
             x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
                 let h1: StacksMicroblockHeader = read_next(fd)?;
@@ -183,7 +231,19 @@ impl StacksMessageCodec for TransactionPayload {
             }
             x if x == TransactionPayloadID::Coinbase as u8 => {
                 let payload: CoinbasePayload = read_next(fd)?;
-                TransactionPayload::Coinbase(payload)
+                TransactionPayload::Coinbase(payload, None)
+            }
+            x if x == TransactionPayloadID::CoinbaseToAltRecipient as u8 => {
+                let payload: CoinbasePayload = read_next(fd)?;
+                let principal_value: Value = read_next(fd)?;
+                let recipient = match principal_value {
+                    Value::Principal(recipient_principal) => recipient_principal,
+                    _ => {
+                        return Err(codec_error::DeserializeError("Failed to parse coinbase transaction -- did not receive a recipient principal value".to_string()));
+                    }
+                };
+
+                TransactionPayload::Coinbase(payload, Some(recipient))
             }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
@@ -228,7 +288,11 @@ impl TransactionPayload {
         }))
     }
 
-    pub fn new_smart_contract(name: &str, contract: &str) -> Option<TransactionPayload> {
+    pub fn new_smart_contract(
+        name: &str,
+        contract: &str,
+        version_opt: Option<ClarityVersion>,
+    ) -> Option<TransactionPayload> {
         match (
             ContractName::try_from(name.to_string()),
             StacksString::from_str(contract),
@@ -238,6 +302,7 @@ impl TransactionPayload {
                     name: s_name,
                     code_body: s_body,
                 },
+                version_opt,
             )),
             (_, _) => None,
         }
@@ -458,7 +523,7 @@ impl StacksTransaction {
                     ));
                 }
             }
-            TransactionPayload::Coinbase(_) => {
+            TransactionPayload::Coinbase(..) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for coinbase");
                     return Err(codec_error::DeserializeError(
@@ -498,6 +563,16 @@ impl StacksTransaction {
             fd.num_read(),
         ))
     }
+
+    /// Try to convert to a coinbase payload
+    pub fn try_as_coinbase(&self) -> Option<(&CoinbasePayload, Option<&PrincipalData>)> {
+        match &self.payload {
+            TransactionPayload::Coinbase(ref payload, ref recipient_opt) => {
+                Some((payload, recipient_opt.as_ref()))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl StacksMessageCodec for StacksTransaction {
@@ -519,7 +594,7 @@ impl StacksMessageCodec for StacksTransaction {
 
 impl From<TransactionSmartContract> for TransactionPayload {
     fn from(value: TransactionSmartContract) -> Self {
-        TransactionPayload::SmartContract(value)
+        TransactionPayload::SmartContract(value, None)
     }
 }
 
@@ -537,7 +612,7 @@ impl StacksTransaction {
         payload: TransactionPayload,
     ) -> StacksTransaction {
         let anchor_mode = match payload {
-            TransactionPayload::Coinbase(_) => TransactionAnchorMode::OnChainOnly,
+            TransactionPayload::Coinbase(..) => TransactionAnchorMode::OnChainOnly,
             TransactionPayload::PoisonMicroblock(_, _) => TransactionAnchorMode::OnChainOnly,
             _ => TransactionAnchorMode::Any,
         };
@@ -703,15 +778,8 @@ impl StacksTransaction {
         privk: &StacksPrivateKey,
     ) -> Result<Txid, net_error> {
         let next_sighash = match self.auth {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                StacksTransaction::sign_and_append(
-                    origin_condition,
-                    cur_sighash,
-                    &TransactionAuthFlags::AuthStandard,
-                    privk,
-                )?
-            }
-            TransactionAuth::Sponsored(ref mut origin_condition, _) => {
+            TransactionAuth::Standard(ref mut origin_condition)
+            | TransactionAuth::Sponsored(ref mut origin_condition, _) => {
                 StacksTransaction::sign_and_append(
                     origin_condition,
                     cur_sighash,
@@ -1441,13 +1509,14 @@ mod test {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 TransactionPayload::TokenTransfer(addr.clone(), amount + 1, memo.clone())
             }
-            TransactionPayload::ContractCall(_) => {
-                TransactionPayload::SmartContract(TransactionSmartContract {
+            TransactionPayload::ContractCall(_) => TransactionPayload::SmartContract(
+                TransactionSmartContract {
                     name: ContractName::try_from("corrupt-name").unwrap(),
                     code_body: StacksString::from_str("corrupt body").unwrap(),
-                })
-            }
-            TransactionPayload::SmartContract(_) => {
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(..) => {
                 TransactionPayload::ContractCall(TransactionContractCall {
                     address: StacksAddress {
                         version: 1,
@@ -1466,12 +1535,12 @@ mod test {
                 corrupt_h2.sequence += 1;
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
-            TransactionPayload::Coinbase(ref buf) => {
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
                 let mut corrupt_buf_bytes = buf.as_bytes().clone();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf)
+                TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
@@ -1586,7 +1655,7 @@ mod test {
     }
 
     #[test]
-    fn tx_stacks_transacton_payload_contracts() {
+    fn tx_stacks_transaction_payload_contracts() {
         let hello_contract_call = "hello-contract-call";
         let hello_contract_name = "hello-contract-name";
         let hello_function_name = "hello-function-name";
@@ -1635,11 +1704,47 @@ mod test {
             .consensus_serialize(&mut smart_contract_bytes)
             .unwrap();
 
+        let mut version_1_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity1,
+            &mut version_1_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_1_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_1_smart_contract_bytes)
+            .unwrap();
+
+        let mut version_2_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity2,
+            &mut version_2_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_2_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_2_smart_contract_bytes)
+            .unwrap();
+
         let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         let mut transaction_smart_contract = vec![TransactionPayloadID::SmartContract as u8];
         transaction_smart_contract.append(&mut smart_contract_bytes.clone());
+
+        let mut v1_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v1_smart_contract.append(&mut version_1_smart_contract_bytes.clone());
+
+        let mut v2_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v2_smart_contract.append(&mut version_2_smart_contract_bytes.clone());
 
         check_codec_and_corruption::<TransactionContractCall>(&contract_call, &contract_call_bytes);
         check_codec_and_corruption::<TransactionSmartContract>(
@@ -1651,14 +1756,28 @@ mod test {
             &transaction_contract_call,
         );
         check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(smart_contract.clone()),
+            &TransactionPayload::SmartContract(smart_contract.clone(), None),
             &transaction_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(
+                smart_contract.clone(),
+                Some(ClarityVersion::Clarity1),
+            ),
+            &v1_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(
+                smart_contract.clone(),
+                Some(ClarityVersion::Clarity2),
+            ),
+            &v2_smart_contract,
         );
     }
 
     #[test]
     fn tx_stacks_transaction_payload_coinbase() {
-        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]));
+        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None);
         let coinbase_payload_bytes = vec![
             // payload type ID
             TransactionPayloadID::Coinbase as u8,
@@ -3151,6 +3270,7 @@ mod test {
             TransactionPayload::new_smart_contract(
                 &"name-contract".to_string(),
                 &"hello smart contract".to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3158,7 +3278,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         let tx_stx = StacksTransaction::new(

@@ -19,6 +19,7 @@
 //! Implementation of a various large-but-fixed sized unsigned integer types.
 //! The functions here are designed to be fast.
 //!
+use crate::util::hash::{hex_bytes, to_hex};
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 use std::fmt;
 
@@ -130,7 +131,7 @@ macro_rules! construct_uint {
                 $name(ret)
             }
 
-            /// as byte array
+            /// as litte-endian byte array
             pub fn to_u8_slice(&self) -> [u8; $n_words * 8] {
                 let mut ret = [0u8; $n_words * 8];
                 for i in 0..$n_words {
@@ -140,6 +141,67 @@ macro_rules! construct_uint {
                     }
                 }
                 ret
+            }
+
+            /// as big-endian byte array
+            pub fn to_u8_slice_be(&self) -> [u8; $n_words * 8] {
+                let mut ret = [0u8; $n_words * 8];
+                for i in 0..$n_words {
+                    let word_end = $n_words * 8 - (i * 8);
+                    let word_start = word_end - 8;
+                    ret[word_start..word_end].copy_from_slice(&self.0[i].to_be_bytes());
+                }
+                ret
+            }
+
+            /// from a little-endian hex string
+            /// padding is expected
+            pub fn from_hex_le(hex: &str) -> Option<$name> {
+                let bytes = hex_bytes(hex).ok()?;
+                if bytes.len() % 8 != 0 {
+                    return None;
+                }
+                if bytes.len() / 8 != $n_words {
+                    return None;
+                }
+                let mut ret = [0u64; $n_words];
+                for i in 0..(bytes.len() / 8) {
+                    let mut next_bytes = [0u8; 8];
+                    next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+                    let next = u64::from_le_bytes(next_bytes);
+                    ret[i] = next;
+                }
+                Some($name(ret))
+            }
+
+            /// to a little-endian hex string
+            pub fn to_hex_le(&self) -> String {
+                to_hex(&self.to_u8_slice())
+            }
+
+            /// from a big-endian hex string
+            /// padding is expected
+            pub fn from_hex_be(hex: &str) -> Option<$name> {
+                let bytes = hex_bytes(hex).ok()?;
+                if bytes.len() % 8 != 0 {
+                    return None;
+                }
+                if bytes.len() / 8 != $n_words {
+                    return None;
+                }
+                let mut ret = [0u64; $n_words];
+                for i in 0..(bytes.len() / 8) {
+                    let mut next_bytes = [0u8; 8];
+                    next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+                    let next = u64::from_be_bytes(next_bytes);
+                    ret[(bytes.len() / 8) - 1 - i] = next;
+                }
+                Some($name(ret))
+            }
+
+            /// to a big-endian hex string
+            pub fn to_hex_be(&self) -> String {
+                to_hex(&self.to_u8_slice_be())
             }
         }
 
@@ -418,13 +480,13 @@ impl Uint256 {
     #[inline]
     pub fn increment(&mut self) {
         let &mut Uint256(ref mut arr) = self;
-        arr[0] += 1;
+        arr[0] = arr[0].wrapping_add(1);
         if arr[0] == 0 {
-            arr[1] += 1;
+            arr[1] = arr[1].wrapping_add(1);
             if arr[1] == 0 {
-                arr[2] += 1;
+                arr[2] = arr[2].wrapping_add(1);
                 if arr[2] == 0 {
-                    arr[3] += 1;
+                    arr[3] = arr[3].wrapping_add(1);
                 }
             }
         }
@@ -670,5 +732,52 @@ mod tests {
             add << 64,
             Uint256([0, 0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0])
         );
+    }
+
+    #[test]
+    pub fn hex_codec() {
+        let init =
+            Uint256::from_u64(0xDEADBEEFDEADBEEF) << 64 | Uint256::from_u64(0x0102030405060708);
+
+        // little-endian representation
+        let hex_init = "0807060504030201efbeaddeefbeadde00000000000000000000000000000000";
+        assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
+        assert_eq!(&init.to_hex_le(), hex_init);
+        assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
+
+        // big-endian representation
+        let hex_init = "00000000000000000000000000000000deadbeefdeadbeef0102030405060708";
+        assert_eq!(Uint256::from_hex_be(&hex_init).unwrap(), init);
+        assert_eq!(&init.to_hex_be(), hex_init);
+        assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);
+    }
+
+    #[test]
+    pub fn uint_increment_test() {
+        let mut value = Uint256([0xffffffffffffffff, 0, 0, 0]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 1, 0, 0]));
+
+        value = Uint256([0xffffffffffffffff, 0xffffffffffffffff, 0, 0]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 1, 0]));
+
+        value = Uint256([
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0,
+        ]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 0, 1]));
+
+        value = Uint256([
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+        ]);
+        value.increment();
+        assert_eq!(value, Uint256([0, 0, 0, 0]));
     }
 }

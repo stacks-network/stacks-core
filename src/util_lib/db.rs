@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use std::convert::TryInto;
 use std::error;
 use std::fmt;
@@ -25,23 +24,12 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::sleep_ms;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use rusqlite::types::{
-    FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
-    ValueRef as RusqliteValueRef,
-};
+use rand::thread_rng;
+use rand::Rng;
+use rand::RngCore;
+use rusqlite::types::{FromSql, ToSql};
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
@@ -50,27 +38,32 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
+use serde_json::Error as serde_error;
+
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MarfTransaction;
 use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::storage::TrieStorageTransaction;
 use crate::chainstate::stacks::index::Error as MARFError;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::types::chainstate::TrieHash;
-
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
-
-use serde_json::Error as serde_error;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
 
 // 256MB
 pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
+
+// 32K
+pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 
 #[derive(Debug)]
 pub enum Error {
@@ -103,6 +96,10 @@ pub enum Error {
     IOError(IOError),
     /// MARF index error
     IndexError(MARFError),
+    /// Old schema error
+    OldSchema(u64),
+    /// Database is too old for epoch
+    TooOldForEpoch,
     /// Other error
     Other(String),
 }
@@ -124,6 +121,10 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
+            Error::OldSchema(ref s) => write!(f, "Old database schema: {}", s),
+            Error::TooOldForEpoch => {
+                write!(f, "Database is not compatible with current system epoch")
+            }
             Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
@@ -146,6 +147,8 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
+            Error::OldSchema(ref _s) => None,
+            Error::TooOldForEpoch => None,
             Error::Other(ref _s) => None,
         }
     }
@@ -178,6 +181,13 @@ impl FromRow<u64> for u64 {
             return Err(Error::ParseError);
         }
         Ok(x as u64)
+    }
+}
+
+impl FromRow<String> for String {
+    fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
+        let x: String = row.get_unwrap(0);
+        Ok(x)
     }
 }
 
@@ -230,6 +240,13 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
     }
 }
 
+impl FromRow<bool> for bool {
+    fn from_row<'a>(row: &'a Row) -> Result<bool, Error> {
+        let x: bool = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 /// Make public keys loadable from a sqlite database
 impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, Error> {
@@ -254,6 +271,18 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
+}
+
+pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
+    match x {
+        Some(num) => {
+            if num > (i64::MAX as u64) {
+                return Err(Error::ParseError);
+            }
+            Ok(Some(num as i64))
+        }
+        None => Ok(None),
+    }
 }
 
 macro_rules! impl_byte_array_from_column_only {
@@ -510,6 +539,13 @@ fn inner_sql_pragma(
     conn.pragma_update(None, pragma_name, pragma_value)
 }
 
+/// Run a VACUUM command
+pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
+    conn.execute("VACUUM", NO_PARAMS)
+        .map_err(Error::SqliteError)
+        .and_then(|_| Ok(()))
+}
+
 /// Returns true if the database table `table_name` exists in the active
 ///  database of the provided SQLite connection.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
@@ -611,14 +647,15 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
 }
 
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 10;
+    let mut sleep_count = 2;
     if run_count > 0 {
         sleep_count = 2u64.saturating_pow(run_count as u32);
     }
     sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
 
-    if sleep_count > 5000 {
-        sleep_count = 5000;
+    if sleep_count > 100 {
+        let jitter = thread_rng().gen::<u64>() % 20;
+        sleep_count = 100 - jitter;
     }
 
     debug!(
@@ -647,6 +684,15 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     Ok(tx)
 }
 
+#[cfg(feature = "profile-sqlite")]
+fn trace_profile(query: &str, duration: Duration) {
+    let obj = json!({"millis":duration.as_millis(), "query":query});
+    debug!(
+        "sqlite trace profile {}",
+        serde_json::to_string(&obj).unwrap()
+    );
+}
+
 /// Open a database connection and set some typically-used pragmas
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
@@ -654,8 +700,11 @@ pub fn sqlite_open<P: AsRef<Path>>(
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
     let db = Connection::open_with_flags(path, flags)?;
+    #[cfg(feature = "profile-sqlite")]
+    db.profile(Some(trace_profile));
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
     if foreign_keys {
         inner_sql_pragma(&db, "foreign_keys", &true)?;
     }
@@ -829,30 +878,24 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         get_indexed(self.index_mut(), header_hash, key)
     }
 
-    pub fn put_indexed_begin(
+    /// Put all keys and values in a single MARF transaction, and seal it.
+    /// This is a one-time operation; subsequent calls will panic.  You should follow this up with
+    /// a commit if you want to save the MARF state.
+    pub fn put_indexed_all(
         &mut self,
         parent_header_hash: &T,
         header_hash: &T,
-    ) -> Result<(), Error> {
-        match self.block_linkage {
-            None => {
-                self.index_mut().begin(parent_header_hash, header_hash)?;
-                self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
-                Ok(())
-            }
-            Some(_) => panic!("Tried to put_indexed_begin twice!"),
-        }
-    }
-
-    /// Put all keys and values in a single MARF transaction.
-    /// No other MARF transactions will be permitted in the lifetime of this transaction.
-    pub fn put_indexed_all(
-        &mut self,
         keys: &Vec<String>,
         values: &Vec<String>,
     ) -> Result<TrieHash, Error> {
         assert_eq!(keys.len(), values.len());
-        assert!(self.block_linkage.is_some());
+        match self.block_linkage {
+            None => {
+                self.index_mut().begin(parent_header_hash, header_hash)?;
+                self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
+            }
+            Some(_) => panic!("Tried to put_indexed_all twice!"),
+        }
 
         let mut marf_values = Vec::with_capacity(values.len());
         for i in 0..values.len() {
@@ -861,11 +904,11 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         }
 
         self.index_mut().insert_batch(&keys, marf_values)?;
-        let root_hash = self.index_mut().get_root_hash()?;
+        let root_hash = self.index_mut().seal()?;
         Ok(root_hash)
     }
 
-    /// Commit the tx
+    /// Commit the MARF transaction
     pub fn commit(mut self) -> Result<(), Error> {
         self.block_linkage = None;
         debug!("Indexed-commit: MARF index");
@@ -899,8 +942,9 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     #[test]
     fn test_pragma() {

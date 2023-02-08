@@ -16,7 +16,9 @@
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use clarity::types::StacksEpochId;
 use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
@@ -26,6 +28,8 @@ use clarity::vm::test_util::{
 };
 use clarity::vm::types::Value;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::version::ClarityVersion;
+use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -33,24 +37,37 @@ use crate::clarity_vm::database::marf::MarfedKV;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 
-#[test]
-fn test_forking_simple() {
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_type_checker(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
+
+#[apply(test_clarity_versions_type_checker)]
+fn test_forking_simple(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     with_separate_forks_environment(
+        version,
+        epoch,
         initialize_contract,
         |x| {
-            branched_execution(x, true);
+            branched_execution(version, x, true);
         },
         |x| {
-            branched_execution(x, true);
+            branched_execution(version, x, true);
         },
         |x| {
-            branched_execution(x, false);
+            branched_execution(version, x, false);
         },
     );
 }
 
-#[test]
-fn test_at_block_mutations() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     // test how at-block works when a mutation has occurred
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
@@ -65,43 +82,50 @@ fn test_at_block_mutations() {
                  (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum)))))";
 
         eprintln!("Initializing contract...");
-        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+        owned_env
+            .initialize_contract(c.clone(), &contract, None, ASTRules::PrecheckSize)
+            .unwrap();
     }
 
     fn branch(
         owned_env: &mut OwnedEnvironment,
+        version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal();
+        let mut placeholder_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None);
+            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
             let command = format!("(var-get datum)");
             let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
         owned_env
-            .execute_transaction(p1, c, to_exec, &vec![])
+            .execute_transaction(p1, None, c, to_exec, &vec![])
             .map(|(x, _, _)| x)
     }
 
     with_separate_forks_environment(
+        version,
+        epoch,
         initialize,
         |x| {
             assert_eq!(
-                branch(x, 1, "working").unwrap(),
+                branch(x, version, 1, "working").unwrap(),
                 Value::okay(Value::Int(1)).unwrap()
             );
             assert_eq!(
-                branch(x, 1, "broken").unwrap(),
+                branch(x, version, 1, "broken").unwrap(),
                 Value::okay(Value::Int(1)).unwrap()
             );
             assert_eq!(
-                branch(x, 10, "working").unwrap(),
+                branch(x, version, 10, "working").unwrap(),
                 Value::okay(Value::Int(1)).unwrap()
             );
             // make this test fail: this assertion _should_ be
@@ -110,7 +134,7 @@ fn test_at_block_mutations() {
             //  wrapping that the Clarity VM does needs to be
             //  ignored.
             assert_eq!(
-                branch(x, 10, "broken").unwrap(),
+                branch(x, version, 10, "broken").unwrap(),
                 Value::okay(Value::Int(1)).unwrap()
             );
         },
@@ -119,8 +143,8 @@ fn test_at_block_mutations() {
     );
 }
 
-#[test]
-fn test_at_block_good() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =
@@ -137,40 +161,47 @@ fn test_at_block_good() {
                  (ok (var-get datum))))";
 
         eprintln!("Initializing contract...");
-        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+        owned_env
+            .initialize_contract(c.clone(), &contract, None, ASTRules::PrecheckSize)
+            .unwrap();
     }
 
     fn branch(
         owned_env: &mut OwnedEnvironment,
+        version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal();
+        let mut placeholder_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None);
+            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
             let command = format!("(var-get datum)");
             let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
         owned_env
-            .execute_transaction(p1, c, to_exec, &vec![])
+            .execute_transaction(p1, None, c, to_exec, &vec![])
             .map(|(x, _, _)| x)
     }
 
     with_separate_forks_environment(
+        version,
+        epoch,
         initialize,
         |x| {
             assert_eq!(
-                branch(x, 1, "set-val").unwrap(),
+                branch(x, version, 1, "set-val").unwrap(),
                 Value::okay(Value::Int(10)).unwrap()
             );
         },
         |x| {
-            let resp = branch(x, 1, "reset").unwrap_err();
+            let resp = branch(x, version, 1, "reset").unwrap_err();
             eprintln!("{}", resp);
             match resp {
                 Error::Runtime(x, _) => assert_eq!(
@@ -184,15 +215,15 @@ fn test_at_block_good() {
         },
         |x| {
             assert_eq!(
-                branch(x, 10, "reset").unwrap(),
+                branch(x, version, 10, "reset").unwrap(),
                 Value::okay(Value::Int(11)).unwrap()
             );
         },
     );
 }
 
-#[test]
-fn test_at_block_missing_defines() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
 
@@ -205,7 +236,7 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         owned_env
-            .initialize_contract(c_a.clone(), &contract)
+            .initialize_contract(c_a.clone(), &contract, None, ASTRules::PrecheckSize)
             .unwrap();
     }
 
@@ -220,12 +251,14 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         let e = owned_env
-            .initialize_contract(c_b.clone(), &contract)
+            .initialize_contract(c_b.clone(), &contract, None, ASTRules::PrecheckSize)
             .unwrap_err();
         e
     }
 
     with_separate_forks_environment(
+        version,
+        epoch,
         |_| {},
         initialize_1,
         |_| {},
@@ -250,8 +283,14 @@ fn test_at_block_missing_defines() {
 // with b @ block 3;32
 // with z @ block 4;32
 
-fn with_separate_forks_environment<F0, F1, F2, F3>(f: F0, a: F1, b: F2, z: F3)
-where
+fn with_separate_forks_environment<F0, F1, F2, F3>(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    f: F0,
+    a: F1,
+    b: F2,
+    z: F3,
+) where
     F0: FnOnce(&mut OwnedEnvironment),
     F1: FnOnce(&mut OwnedEnvironment),
     F2: FnOnce(&mut OwnedEnvironment),
@@ -269,8 +308,10 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            epoch,
+        );
         f(&mut owned_env);
         store.test_commit();
     }
@@ -279,24 +320,30 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            epoch,
+        );
         a(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            epoch,
+        );
         b(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            epoch,
+        );
         z(&mut owned_env);
         store.test_commit();
     }
@@ -327,11 +374,15 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
     owned_env
-        .initialize_contract(contract_identifier, &contract)
+        .initialize_contract(contract_identifier, &contract, None, ASTRules::PrecheckSize)
         .unwrap();
 }
 
-fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
+fn branched_execution(
+    version: ClarityVersion,
+    owned_env: &mut OwnedEnvironment,
+    expect_success: bool,
+) {
     let p1_address = {
         if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
             address
@@ -340,11 +391,13 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         }
     };
     let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+    let mut placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         let command = format!("(get-balance {})", p1_str);
         let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
         let expected = if expect_success { 10 } else { 0 };
@@ -353,7 +406,8 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
 
     let (result, _, _) = owned_env
         .execute_transaction(
-            p1_address.into(),
+            PrincipalData::Standard(p1_address),
+            None,
             contract_identifier,
             "destroy",
             &symbols_from_values(vec![Value::UInt(10)]),

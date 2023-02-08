@@ -6,6 +6,7 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::sleep_ms;
 
 use crate::burnchains::BurnchainTip;
+use crate::Config;
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -26,8 +27,6 @@ pub struct PoxSyncWatchdogComms {
     inv_sync_passes: Arc<AtomicU64>,
     /// how many times have we done a download pass?
     download_passes: Arc<AtomicU64>,
-    /// What's the burnchain tip we last saw?
-    burnchain_tip_height: Arc<AtomicU64>,
     /// What's our last IBD status?
     last_ibd: Arc<AtomicBool>,
     /// Should keep running?
@@ -40,7 +39,6 @@ impl PoxSyncWatchdogComms {
             p2p_state_passes: Arc::new(AtomicU64::new(0)),
             inv_sync_passes: Arc::new(AtomicU64::new(0)),
             download_passes: Arc::new(AtomicU64::new(0)),
-            burnchain_tip_height: Arc::new(AtomicU64::new(0)),
             last_ibd: Arc::new(AtomicBool::new(true)),
             should_keep_running,
         }
@@ -169,24 +167,28 @@ const PER_SAMPLE_WAIT_MS: u64 = 1000;
 
 impl PoxSyncWatchdog {
     pub fn new(
-        mainnet: bool,
-        chain_id: u32,
-        chainstate_path: String,
-        burnchain_poll_time: u64,
-        download_timeout: u64,
-        max_samples: u64,
-        unconditionally_download: bool,
-        should_keep_running: Arc<AtomicBool>,
+        config: &Config,
+        watchdog_comms: PoxSyncWatchdogComms,
     ) -> Result<PoxSyncWatchdog, String> {
-        let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
-            Ok(cs) => cs,
-            Err(e) => {
-                return Err(format!(
-                    "Failed to open chainstate at '{}': {:?}",
-                    &chainstate_path, &e
-                ));
-            }
-        };
+        let mainnet = config.is_mainnet();
+        let chain_id = config.burnchain.chain_id;
+        let chainstate_path = config.get_chainstate_path_str();
+        let burnchain_poll_time = config.burnchain.poll_time_secs;
+        let download_timeout = config.connection_options.timeout;
+        let max_samples = config.node.pox_sync_sample_secs;
+        let unconditionally_download = config.node.pox_sync_sample_secs == 0;
+        let marf_opts = config.node.get_marf_opts();
+
+        let (chainstate, _) =
+            match StacksChainState::open(mainnet, chain_id, &chainstate_path, Some(marf_opts)) {
+                Ok(cs) => cs,
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to open chainstate at '{}': {:?}",
+                        &chainstate_path, &e
+                    ));
+                }
+            };
 
         Ok(PoxSyncWatchdog {
             unconditionally_download,
@@ -203,7 +205,7 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            relayer_comms: PoxSyncWatchdogComms::new(should_keep_running),
+            relayer_comms: watchdog_comms,
         })
     }
 

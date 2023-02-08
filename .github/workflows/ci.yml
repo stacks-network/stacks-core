@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'The tag to create (optional)'
+        description: "The tag to create (optional)"
         required: false
 
 concurrency:
@@ -34,7 +34,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: large_genesis
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Run unit tests with code coverage
   unit-tests:
@@ -52,7 +52,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: unit_tests
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   open-api-validation:
     runs-on: ubuntu-latest
@@ -81,6 +81,21 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
+  core-contracts-clarinet-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: "Execute core contract unit tests in Clarinet"
+        uses: docker://hirosystems/clarinet:1.1.0
+        with:
+          args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
+      - name: "Export code coverage"
+        uses: codecov/codecov-action@v1
+        with:
+          files: ./coverage.lcov
+          verbose: true
+          fail_ci_if_error: false
+
   # rustfmt checking
   rustfmt:
     runs-on: ubuntu-latest
@@ -96,7 +111,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform:
+          [
+            windows-x64,
+            macos-x64,
+            macos-arm64,
+            linux-x64,
+            linux-musl-x64,
+            linux-armv7,
+            linux-arm64,
+          ]
 
     steps:
       - uses: actions/checkout@v2
@@ -117,7 +141,7 @@ jobs:
             STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          
+
       - name: Compress artifact
         run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
 
@@ -127,14 +151,14 @@ jobs:
           name: ${{ matrix.platform }}
           path: ${{ matrix.platform }}.zip
 
-  call-docker-platforms-workflow:
-    if: ${{ github.event.inputs.tag != '' }}
-    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
-    with:
-      tag: ${{ github.event.inputs.tag }}
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+#  call-docker-platforms-workflow:
+#    if: ${{ github.event.inputs.tag != '' }}
+#    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
+#    with:
+#      tag: ${{ github.event.inputs.tag }}
+#    secrets:
+#      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+#      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
@@ -276,7 +300,16 @@ jobs:
       - create-release
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform:
+          [
+            windows-x64,
+            macos-x64,
+            macos-arm64,
+            linux-x64,
+            linux-musl-x64,
+            linux-armv7,
+            linux-arm64,
+          ]
 
     steps:
       - uses: actions/checkout@v2

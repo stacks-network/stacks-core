@@ -29,6 +29,7 @@ use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use clarity::vm::representations::MAX_STRING_LEN;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
@@ -72,10 +73,11 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
 use clarity::vm::{
-    ast::parser::{
-        CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
+    representations::{
+        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
     },
     types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
     ClarityName, ContractName, Value,
@@ -117,37 +119,37 @@ lazy_static! {
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
-        *PRINCIPAL_DATA_REGEX
+        *PRINCIPAL_DATA_REGEX_STRING
     ))
     .unwrap();
     static ref PATH_GET_DATA_VAR: Regex = Regex::new(&format!(
         "^/v2/data_var/(?P<address>{})/(?P<contract>{})/(?P<varname>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
         "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_POST_CALL_READ_ONLY: Regex = Regex::new(&format!(
         "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
         "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
     ))
     .unwrap();
     static ref PATH_GET_IS_TRAIT_IMPLEMENTED: Regex = Regex::new(&format!(
         "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
         "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
     ))
     .unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
@@ -171,9 +173,9 @@ pub(crate) enum HttpReservedHeader {
 
 /// Stacks block accepted struct
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct StacksBlockAcceptedData {
-    stacks_block_id: StacksBlockId,
-    accepted: bool,
+pub struct StacksBlockAcceptedData {
+    pub stacks_block_id: StacksBlockId,
+    pub accepted: bool,
 }
 
 impl FromStr for PeerHost {
@@ -1931,6 +1933,14 @@ impl HttpRequestType {
         let sender = PrincipalData::parse(&body.sender)
             .map_err(|_e| net_error::DeserializeError("Failed to parse sender principal".into()))?;
 
+        let sponsor = if let Some(sponsor) = body.sponsor {
+            Some(PrincipalData::parse(&sponsor).map_err(|_e| {
+                net_error::DeserializeError("Failed to parse sponsor principal".into())
+            })?)
+        } else {
+            None
+        };
+
         let arguments = body
             .arguments
             .into_iter()
@@ -1947,6 +1957,7 @@ impl HttpRequestType {
             contract_addr,
             contract_name,
             sender,
+            sponsor,
             func_name,
             arguments,
             tip,
@@ -2857,6 +2868,7 @@ impl HttpRequestType {
                 contract_addr,
                 contract_name,
                 _,
+                _,
                 func_name,
                 _,
                 tip_req,
@@ -3048,6 +3060,7 @@ impl HttpRequestType {
                 _contract_addr,
                 _contract_name,
                 sender,
+                sponsor,
                 _func_name,
                 func_args,
                 ..,
@@ -3062,6 +3075,7 @@ impl HttpRequestType {
 
                 let request_body = CallReadOnlyRequestBody {
                     sender: sender.to_string(),
+                    sponsor: sponsor.as_ref().map(|sp| sp.to_string()),
                     arguments: args,
                 };
 
@@ -6097,6 +6111,7 @@ mod test {
     #[test]
     fn test_http_response_type_codec() {
         let test_neighbors_info = RPCNeighborsInfo {
+            bootstrap: vec![],
             sample: vec![
                 RPCNeighbor {
                     network_id: 1,
@@ -6698,9 +6713,9 @@ mod test {
     #[test]
     fn test_http_duplicate_concurrent_streamed_response_fails() {
         // do not permit multiple in-flight chunk-encoded HTTP responses with the same request ID.
-        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n28\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
+        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n37\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
         let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
-        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n29\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
+        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n38\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
         let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
 
@@ -6731,6 +6746,7 @@ mod test {
             ) => assert_eq!(
                 neighbors_data,
                 RPCNeighborsInfo {
+                    bootstrap: vec![],
                     sample: vec![],
                     inbound: vec![],
                     outbound: vec![]

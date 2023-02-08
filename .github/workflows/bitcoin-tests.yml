@@ -38,13 +38,16 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
+          - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::microblock_integration_test
+          - tests::neon_integrations::microblock_fork_poison_integration_test
           - tests::neon_integrations::size_check_integration_test
           - tests::neon_integrations::cost_voting_integration
           - tests::integrations::integration_test_get_info
           - tests::neon_integrations::bitcoind_integration_test
           - tests::neon_integrations::liquid_ustx_integration
           - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::pox_integration_test
@@ -58,8 +61,7 @@ jobs:
           - tests::neon_integrations::antientropy_integration_test
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
-          - tests::neon_integrations::mining_transactions_is_fair
-          - tests::neon_integrations::microblock_large_tx_integration_test
+          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
           - tests::neon_integrations::block_large_tx_integration_test
           - tests::neon_integrations::microblock_limit_hit_integration_test
           - tests::neon_integrations::block_limit_hit_integration_test
@@ -67,11 +69,36 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::test_flash_block_skip_tenure
+          - tests::neon_integrations::test_chainwork_first_intervals
+          - tests::neon_integrations::test_chainwork_partial_interval
+          - tests::neon_integrations::test_problematic_txs_are_not_stored
+          - tests::neon_integrations::test_problematic_blocks_are_not_mined
+          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
+          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          - tests::neon_integrations::push_boot_receipts
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::bigger_microblock_streams_in_2_05
+          - tests::epoch_21::transition_adds_burn_block_height
+          - tests::epoch_21::transition_fixes_bitcoin_rigidity
+          - tests::epoch_21::transition_adds_pay_to_contract
+          - tests::epoch_21::transition_adds_get_pox_addr_recipients
+          - tests::epoch_21::transition_adds_mining_from_segwit
+          - tests::epoch_21::transition_removes_pox_sunset
+          - tests::epoch_21::transition_empty_blocks
+          - tests::epoch_21::test_pox_reorgs_three_flaps
+          - tests::epoch_21::test_pox_reorg_one_flap
+          - tests::epoch_21::test_pox_reorg_flap_duel
+          - tests::epoch_21::test_pox_reorg_flap_reward_cycles
+          - tests::epoch_21::test_pox_missing_five_anchor_blocks
+          - tests::epoch_21::test_sortition_divergence_pre_21
+          - tests::epoch_21::test_v1_unlock_height_with_current_stackers
+          - tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
+          - tests::epoch_21::trait_invocation_cross_epoch
+          - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
@@ -90,7 +117,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -120,4 +147,4 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false

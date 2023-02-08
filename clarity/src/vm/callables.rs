@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
+
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::{cost_functions, runtime_cost};
 
@@ -25,14 +27,18 @@ use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, Span, SymbolicExpression};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
-    FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
+    CallableData, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype, TraitIdentifier,
+    TupleData, TupleTypeSignature, TypeSignature,
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
 use super::costs::CostOverflowingMath;
+use super::types::signatures::CallableSubtype;
+use super::ClarityVersion;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
@@ -76,10 +82,11 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
+    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -92,6 +99,7 @@ impl NativeHandle {
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
+            Self::MoreArgEnv(function) => function(args, env),
         }
     }
 }
@@ -168,28 +176,111 @@ impl DefinedFunction {
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
 
-            match (type_sig, value) {
-                (
-                    TypeSignature::TraitReferenceType(trait_identifier),
-                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                ) => {
-                    // Argument is a trait reference, probably leading to a dynamic contract call
-                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                    // The code fetching and checking the trait is implemented in the contract_call eval function.
-                    context.callable_contracts.insert(
-                        name.clone(),
-                        (callee_contract_id.clone(), trait_identifier.clone()),
-                    );
-                }
-                _ => {
-                    if !type_sig.admits(value) {
-                        return Err(
-                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
+            // Clarity 1 behavior
+            if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
+                match (type_sig, value) {
+                    // Epoch < 2.1 uses TraitReferenceType
+                    (
+                        TypeSignature::TraitReferenceType(trait_identifier),
+                        Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: callee_contract_id.clone(),
+                                trait_identifier: Some(trait_identifier.clone()),
+                            },
                         );
                     }
-                    if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
-                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                    // Epoch >= 2.1 uses CallableType
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+                        Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: callee_contract_id.clone(),
+                                trait_identifier: Some(trait_identifier.clone()),
+                            },
+                        );
                     }
+                    // Since this Clarity 1 contract may be called from a Clarity 2 contract,
+                    // we need to handle Clarity 2 values as well. Clarity 2 contracts can only
+                    // be executed in epoch 2.1, so we only need to handle `CallableType` here.
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                        Value::CallableContract(CallableData {
+                            contract_identifier,
+                            trait_identifier,
+                        }),
+                    ) => {
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: contract_identifier.clone(),
+                                trait_identifier: trait_identifier.clone(),
+                            },
+                        );
+                    }
+                    _ => {
+                        if !type_sig.admits(env.epoch(), value)? {
+                            return Err(CheckErrors::TypeValueError(
+                                type_sig.clone(),
+                                value.clone(),
+                            )
+                            .into());
+                        }
+                        if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
+                            return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                        }
+                    }
+                }
+            } else {
+                // Clarity 2+ behavior
+                // Arguments containing principal literals can be implicitly cast to traits
+                // to match parameter types.
+                // e.g. `(some .foo)` to `(optional <trait>`)
+                // and traits can be implicitly cast to sub-traits
+                // e.g. `<foo-and-bar>` to `<foo>`
+                let cast_value = clarity2_implicit_cast(type_sig, value)?;
+
+                match (&type_sig, &cast_value) {
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                        Value::CallableContract(CallableData {
+                            contract_identifier,
+                            trait_identifier,
+                        }),
+                    ) => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call.
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The trait compatibility has been checked by the type-checker.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: contract_identifier.clone(),
+                                trait_identifier: trait_identifier.clone(),
+                            },
+                        );
+                    }
+                    _ => {
+                        if !type_sig.admits(env.epoch(), &cast_value)? {
+                            return Err(
+                                CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
+                            );
+                        }
+                    }
+                }
+
+                if let Some(_) = context.variables.insert(name.clone(), cast_value) {
+                    return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                 }
             }
         }
@@ -209,6 +300,7 @@ impl DefinedFunction {
 
     pub fn check_trait_expectations(
         &self,
+        epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
     ) -> Result<()> {
@@ -225,7 +317,7 @@ impl DefinedFunction {
                 ))?;
 
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
-        if !expected_sig.check_args_trait_compliance(args) {
+        if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
             );
@@ -257,6 +349,25 @@ impl DefinedFunction {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         self.identifier.clone()
     }
+
+    pub fn get_arguments(&self) -> &Vec<ClarityName> {
+        &self.arguments
+    }
+
+    pub fn get_arg_types(&self) -> &Vec<TypeSignature> {
+        &self.arg_types
+    }
+
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for i in 0..self.arguments.len() {
+            self.arg_types[i] = self.arg_types[i].canonicalize(epoch);
+        }
+    }
+
+    #[cfg(feature = "developer-mode")]
+    pub fn get_span(&self) -> Span {
+        self.body.span.clone()
+    }
 }
 
 impl CallableType {
@@ -285,5 +396,332 @@ impl FunctionIdentifier {
         FunctionIdentifier {
             identifier: identifier,
         }
+    }
+}
+
+// Implicitly cast principals to traits and traits to other traits as needed,
+// recursing into compound types. This function does not check for legality of
+// these casts, as that is done in the type-checker. Note: depth of recursion
+// should be capped by earlier checks on the types/values.
+fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
+    Ok(match (type_sig, value) {
+        (
+            TypeSignature::OptionalType(inner_type),
+            Value::Optional(OptionalData {
+                data: Some(inner_value),
+            }),
+        ) => Value::Optional(OptionalData {
+            data: Some(Box::new(clarity2_implicit_cast(inner_type, inner_value)?)),
+        }),
+        (
+            TypeSignature::ResponseType(inner_types),
+            Value::Response(ResponseData { committed, data }),
+        ) => Value::Response(ResponseData {
+            committed: *committed,
+            data: Box::new(clarity2_implicit_cast(
+                if *committed {
+                    &inner_types.0
+                } else {
+                    &inner_types.1
+                },
+                data,
+            )?),
+        }),
+        (
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)),
+            Value::Sequence(SequenceData::List(ListData {
+                data,
+                type_signature,
+            })),
+        ) => {
+            let mut values = Vec::with_capacity(data.len());
+            for elem in data {
+                values.push(clarity2_implicit_cast(
+                    list_type.get_list_item_type(),
+                    elem,
+                )?);
+            }
+            let cast_list_type_data = ListTypeData::new_list(
+                list_type.get_list_item_type().clone(),
+                type_signature.get_max_len(),
+            )?;
+            Value::Sequence(SequenceData::List(ListData {
+                data: values,
+                type_signature: cast_list_type_data,
+            }))
+        }
+        (
+            TypeSignature::TupleType(tuple_type),
+            Value::Tuple(TupleData {
+                type_signature: _,
+                data_map,
+            }),
+        ) => {
+            let mut cast_data_map = BTreeMap::new();
+            for (name, field_value) in data_map {
+                let to_type = match tuple_type.get_type_map().get(name) {
+                    Some(ty) => ty,
+                    None => {
+                        // This should be unreachable if the type-checker has already run successfully
+                        return Err(
+                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
+                        );
+                    }
+                };
+                cast_data_map.insert(name.clone(), clarity2_implicit_cast(to_type, field_value)?);
+            }
+            Value::Tuple(TupleData {
+                type_signature: tuple_type.clone(),
+                data_map: cast_data_map,
+            })
+        }
+        (
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            Value::CallableContract(callable_data),
+        ) => Value::CallableContract(CallableData {
+            contract_identifier: callable_data.contract_identifier.clone(),
+            trait_identifier: Some(trait_identifier.clone()),
+        }),
+        // N.B. it seems like this should be illegal, since it is converting a
+        // principal to a callable trait, and only principal literals should be
+        // allowed to do that. The case that this is handling is when principal
+        // values are passed in from the initial contract-call, which by
+        // definition must be a literal. Other scenarios where a principal is
+        // passed will have been caught by the type checker. This could
+        // alternatively be checked with
+        // `FunctionType::check_args_by_allowing_trait_cast` before execution.
+        (
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            Value::Principal(PrincipalData::Contract(contract_identifier)),
+        ) => Value::CallableContract(CallableData {
+            contract_identifier: contract_identifier.clone(),
+            trait_identifier: Some(trait_identifier.clone()),
+        }),
+        _ => value.clone(),
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use crate::vm::types::StandardPrincipalData;
+
+    use super::*;
+
+    #[test]
+    fn test_implicit_cast() {
+        // principal -> <trait>
+        let trait_identifier = TraitIdentifier::parse_fully_qualified(
+            "SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-trait.nft-trait",
+        )
+        .unwrap();
+        let trait_ty =
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier.clone()));
+        let contract_identifier = QualifiedContractIdentifier::parse(
+            "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract",
+        )
+        .unwrap();
+        let contract_identifier2 = QualifiedContractIdentifier::parse(
+            "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract2",
+        )
+        .unwrap();
+        let contract = Value::CallableContract(CallableData {
+            contract_identifier: contract_identifier.clone(),
+            trait_identifier: None,
+        });
+        let contract2 = Value::CallableContract(CallableData {
+            contract_identifier: contract_identifier2.clone(),
+            trait_identifier: None,
+        });
+        let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
+        let cast_trait = cast_contract.expect_callable();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+
+        // (optional principal) -> (optional <trait>)
+        let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
+        let optional_contract = Value::some(contract.clone()).unwrap();
+        let cast_optional = clarity2_implicit_cast(&optional_ty, &optional_contract).unwrap();
+        match &cast_optional.expect_optional().unwrap() {
+            Value::CallableContract(CallableData {
+                contract_identifier: contract_id,
+                trait_identifier: trait_id,
+            }) => {
+                assert_eq!(contract_id, &contract_identifier);
+                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+            }
+            other => panic!("expected Value::CallableContract, got {:?}", other),
+        }
+
+        // (ok principal) -> (ok <trait>)
+        let response_ok_ty =
+            TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
+        let response_contract = Value::okay(contract.clone()).unwrap();
+        let cast_response = clarity2_implicit_cast(&response_ok_ty, &response_contract).unwrap();
+        let cast_trait = cast_response.expect_result_ok().expect_callable();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+
+        // (err principal) -> (err <trait>)
+        let response_err_ty =
+            TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
+        let response_contract = Value::error(contract.clone()).unwrap();
+        let cast_response = clarity2_implicit_cast(&response_err_ty, &response_contract).unwrap();
+        let cast_trait = cast_response.expect_result_err().expect_callable();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+
+        // (list principal) -> (list <trait>)
+        let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
+        let list_contract = Value::list_from(vec![contract.clone(), contract2.clone()]).unwrap();
+        let cast_list = clarity2_implicit_cast(&list_ty, &list_contract).unwrap();
+        let items = cast_list.expect_list();
+        for item in items {
+            let cast_trait = item.expect_callable();
+            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        }
+
+        // {a: principal} -> {a: <trait>}
+        let a_name = ClarityName::from("a");
+        let tuple_ty = TypeSignature::TupleType(
+            TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty.clone())]).unwrap(),
+        );
+        let contract_tuple_ty = TypeSignature::TupleType(
+            TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
+                .unwrap(),
+        );
+        let mut data_map = BTreeMap::new();
+        data_map.insert(a_name.clone(), contract.clone());
+        let tuple_contract = Value::Tuple(TupleData {
+            type_signature: TupleTypeSignature::try_from(vec![(
+                a_name.clone(),
+                TypeSignature::PrincipalType,
+            )])
+            .unwrap(),
+            data_map,
+        });
+        let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();
+        let cast_trait = cast_tuple
+            .expect_tuple()
+            .get(&a_name)
+            .unwrap()
+            .clone()
+            .expect_callable();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+
+        // (list (optional principal)) -> (list (optional <trait>))
+        let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
+        let list_opt_contract = Value::list_from(vec![
+            Value::some(contract.clone()).unwrap(),
+            Value::some(contract2.clone()).unwrap(),
+            Value::none(),
+        ])
+        .unwrap();
+        let cast_list = clarity2_implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
+        let items = cast_list.expect_list();
+        for item in items {
+            match item.expect_optional() {
+                Some(cast_opt) => {
+                    let cast_trait = cast_opt.expect_callable();
+                    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+                }
+                None => (),
+            }
+        }
+
+        // (list (response principal uint)) -> (list (response <trait> uint))
+        let list_res_ty = TypeSignature::list_of(response_ok_ty.clone(), 4).unwrap();
+        let list_res_contract = Value::list_from(vec![
+            Value::okay(contract.clone()).unwrap(),
+            Value::okay(contract2.clone()).unwrap(),
+            Value::okay(contract2.clone()).unwrap(),
+        ])
+        .unwrap();
+        let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+        let items = cast_list.expect_list();
+        for item in items {
+            let cast_trait = item.expect_result_ok().expect_callable();
+            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        }
+
+        // (list (response uint principal)) -> (list (response uint <trait>))
+        let list_res_ty = TypeSignature::list_of(response_err_ty.clone(), 4).unwrap();
+        let list_res_contract = Value::list_from(vec![
+            Value::error(contract.clone()).unwrap(),
+            Value::error(contract2.clone()).unwrap(),
+            Value::error(contract2.clone()).unwrap(),
+        ])
+        .unwrap();
+        let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+        let items = cast_list.expect_list();
+        for item in items {
+            let cast_trait = item.expect_result_err().expect_callable();
+            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        }
+
+        // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
+        let list_res_ty = TypeSignature::list_of(response_err_ty.clone(), 4).unwrap();
+        let opt_list_res_ty = TypeSignature::new_option(list_res_ty).unwrap();
+        let list_res_contract = Value::list_from(vec![
+            Value::error(contract.clone()).unwrap(),
+            Value::error(contract2.clone()).unwrap(),
+            Value::error(contract2.clone()).unwrap(),
+        ])
+        .unwrap();
+        let opt_list_res_contract = Value::some(list_res_contract).unwrap();
+        let cast_opt = clarity2_implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
+        let inner = cast_opt.expect_optional().unwrap();
+        let items = inner.expect_list();
+        for item in items {
+            let cast_trait = item.expect_result_err().expect_callable();
+            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        }
+
+        // (optional (optional principal)) -> (optional (optional <trait>))
+        let optional_optional_ty = TypeSignature::new_option(optional_ty.clone()).unwrap();
+        let optional_contract = Value::some(contract.clone()).unwrap();
+        let optional_optional_contract = Value::some(optional_contract.clone()).unwrap();
+        let cast_optional =
+            clarity2_implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
+
+        match &cast_optional
+            .expect_optional()
+            .unwrap()
+            .expect_optional()
+            .unwrap()
+        {
+            Value::CallableContract(CallableData {
+                contract_identifier: contract_id,
+                trait_identifier: trait_id,
+            }) => {
+                assert_eq!(contract_id, &contract_identifier);
+                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+            }
+            other => panic!("expected Value::CallableContract, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_canonicalize_defined_function() {
+        let trait_id = TraitIdentifier::new(
+            StandardPrincipalData::transient(),
+            "my-contract".into(),
+            "my-trait".into(),
+        );
+        let mut f = DefinedFunction::new(
+            vec![(
+                "a".into(),
+                TypeSignature::TraitReferenceType(trait_id.clone()),
+            )],
+            SymbolicExpression::atom_value(Value::Int(3)),
+            DefineType::Public,
+            &"foo".into(),
+            "testing",
+        );
+        f.canonicalize_types(&StacksEpochId::Epoch21);
+        assert_eq!(
+            f.arg_types[0],
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+        );
     }
 }

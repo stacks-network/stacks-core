@@ -19,7 +19,6 @@ use crate::util::hash::Hash160;
 use std::cmp::Ordering;
 
 pub mod chainstate;
-//pub mod proof;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
@@ -64,13 +63,21 @@ pub trait Address: Clone + fmt::Debug + fmt::Display {
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
+pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
 pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
+    Epoch21 = 0x0200a,
+}
+
+impl StacksEpochId {
+    pub fn latest() -> StacksEpochId {
+        StacksEpochId::Epoch21
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {
@@ -79,6 +86,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch10 => write!(f, "1.0"),
             StacksEpochId::Epoch20 => write!(f, "2.0"),
             StacksEpochId::Epoch2_05 => write!(f, "2.05"),
+            StacksEpochId::Epoch21 => write!(f, "2.1"),
         }
     }
 }
@@ -91,6 +99,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch10 as u32 => Ok(StacksEpochId::Epoch10),
             x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
             x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
+            x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
             _ => Err("Invalid epoch"),
         }
     }
@@ -234,6 +243,18 @@ impl<L> StacksEpoch<L> {
     pub fn find_epoch(epochs: &[StacksEpoch<L>], height: u64) -> Option<usize> {
         for (i, epoch) in epochs.iter().enumerate() {
             if epoch.start_height <= height && height < epoch.end_height {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Find an epoch by its ID
+    /// Returns Some(index) if the epoch is in the list
+    /// Returns None if not
+    pub fn find_epoch_by_id(epochs: &[StacksEpoch<L>], epoch_id: StacksEpochId) -> Option<usize> {
+        for (i, epoch) in epochs.iter().enumerate() {
+            if epoch.epoch_id == epoch_id {
                 return Some(i);
             }
         }

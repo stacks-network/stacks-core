@@ -31,12 +31,15 @@ use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
+use crate::vm::Value::CallableContract;
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
 
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
+
+use stacks_common::types::StacksEpochId;
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
@@ -51,110 +54,161 @@ macro_rules! switch_on_global_epoch {
                 }
                 StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
                 StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.1.
+                StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
             }
         }
     };
 }
 
+use crate::vm::ClarityVersion;
+
 mod arithmetic;
 mod assets;
 mod boolean;
+mod conversions;
 mod crypto;
 mod database;
 pub mod define;
 mod options;
+pub mod principals;
 mod sequences;
 pub mod tuples;
 
-define_named_enum!(NativeFunctions {
-    Add("+"),
-    Subtract("-"),
-    Multiply("*"),
-    Divide("/"),
-    CmpGeq(">="),
-    CmpLeq("<="),
-    CmpLess("<"),
-    CmpGreater(">"),
-    ToInt("to-int"),
-    ToUInt("to-uint"),
-    Modulo("mod"),
-    Power("pow"),
-    Sqrti("sqrti"),
-    Log2("log2"),
-    BitwiseXOR("xor"),
-    And("and"),
-    Or("or"),
-    Not("not"),
-    Equals("is-eq"),
-    If("if"),
-    Let("let"),
-    Map("map"),
-    Fold("fold"),
-    Append("append"),
-    Concat("concat"),
-    AsMaxLen("as-max-len?"),
-    Len("len"),
-    ElementAt("element-at"),
-    IndexOf("index-of"),
-    ListCons("list"),
-    FetchVar("var-get"),
-    SetVar("var-set"),
-    FetchEntry("map-get?"),
-    SetEntry("map-set"),
-    InsertEntry("map-insert"),
-    DeleteEntry("map-delete"),
-    TupleCons("tuple"),
-    TupleGet("get"),
-    TupleMerge("merge"),
-    Begin("begin"),
-    Hash160("hash160"),
-    Sha256("sha256"),
-    Sha512("sha512"),
-    Sha512Trunc256("sha512/256"),
-    Keccak256("keccak256"),
-    Secp256k1Recover("secp256k1-recover?"),
-    Secp256k1Verify("secp256k1-verify"),
-    Print("print"),
-    ContractCall("contract-call?"),
-    AsContract("as-contract"),
-    ContractOf("contract-of"),
-    PrincipalOf("principal-of?"),
-    AtBlock("at-block"),
-    GetBlockInfo("get-block-info?"),
-    ConsError("err"),
-    ConsOkay("ok"),
-    ConsSome("some"),
-    DefaultTo("default-to"),
-    Asserts("asserts!"),
-    UnwrapRet("unwrap!"),
-    UnwrapErrRet("unwrap-err!"),
-    Unwrap("unwrap-panic"),
-    UnwrapErr("unwrap-err-panic"),
-    Match("match"),
-    TryRet("try!"),
-    IsOkay("is-ok"),
-    IsNone("is-none"),
-    IsErr("is-err"),
-    IsSome("is-some"),
-    Filter("filter"),
-    GetTokenBalance("ft-get-balance"),
-    GetAssetOwner("nft-get-owner?"),
-    TransferToken("ft-transfer?"),
-    TransferAsset("nft-transfer?"),
-    MintAsset("nft-mint?"),
-    MintToken("ft-mint?"),
-    GetTokenSupply("ft-get-supply"),
-    BurnToken("ft-burn?"),
-    BurnAsset("nft-burn?"),
-    GetStxBalance("stx-get-balance"),
-    StxTransfer("stx-transfer?"),
-    StxBurn("stx-burn?"),
+define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
+    Add("+", ClarityVersion::Clarity1),
+    Subtract("-", ClarityVersion::Clarity1),
+    Multiply("*", ClarityVersion::Clarity1),
+    Divide("/", ClarityVersion::Clarity1),
+    CmpGeq(">=", ClarityVersion::Clarity1),
+    CmpLeq("<=", ClarityVersion::Clarity1),
+    CmpLess("<", ClarityVersion::Clarity1),
+    CmpGreater(">", ClarityVersion::Clarity1),
+    ToInt("to-int", ClarityVersion::Clarity1),
+    ToUInt("to-uint", ClarityVersion::Clarity1),
+    Modulo("mod", ClarityVersion::Clarity1),
+    Power("pow", ClarityVersion::Clarity1),
+    Sqrti("sqrti", ClarityVersion::Clarity1),
+    Log2("log2", ClarityVersion::Clarity1),
+    BitwiseXor("xor", ClarityVersion::Clarity1),
+    And("and", ClarityVersion::Clarity1),
+    Or("or", ClarityVersion::Clarity1),
+    Not("not", ClarityVersion::Clarity1),
+    Equals("is-eq", ClarityVersion::Clarity1),
+    If("if", ClarityVersion::Clarity1),
+    Let("let", ClarityVersion::Clarity1),
+    Map("map", ClarityVersion::Clarity1),
+    Fold("fold", ClarityVersion::Clarity1),
+    Append("append", ClarityVersion::Clarity1),
+    Concat("concat", ClarityVersion::Clarity1),
+    AsMaxLen("as-max-len?", ClarityVersion::Clarity1),
+    Len("len", ClarityVersion::Clarity1),
+    ElementAt("element-at", ClarityVersion::Clarity1),
+    ElementAtAlias("element-at?", ClarityVersion::Clarity2),
+    IndexOf("index-of", ClarityVersion::Clarity1),
+    IndexOfAlias("index-of?", ClarityVersion::Clarity2),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
+    IsStandard("is-standard", ClarityVersion::Clarity2),
+    PrincipalDestruct("principal-destruct?", ClarityVersion::Clarity2),
+    PrincipalConstruct("principal-construct?", ClarityVersion::Clarity2),
+    StringToInt("string-to-int?", ClarityVersion::Clarity2),
+    StringToUInt("string-to-uint?", ClarityVersion::Clarity2),
+    IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
+    IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
+    ListCons("list", ClarityVersion::Clarity1),
+    FetchVar("var-get", ClarityVersion::Clarity1),
+    SetVar("var-set", ClarityVersion::Clarity1),
+    FetchEntry("map-get?", ClarityVersion::Clarity1),
+    SetEntry("map-set", ClarityVersion::Clarity1),
+    InsertEntry("map-insert", ClarityVersion::Clarity1),
+    DeleteEntry("map-delete", ClarityVersion::Clarity1),
+    TupleCons("tuple", ClarityVersion::Clarity1),
+    TupleGet("get", ClarityVersion::Clarity1),
+    TupleMerge("merge", ClarityVersion::Clarity1),
+    Begin("begin", ClarityVersion::Clarity1),
+    Hash160("hash160", ClarityVersion::Clarity1),
+    Sha256("sha256", ClarityVersion::Clarity1),
+    Sha512("sha512", ClarityVersion::Clarity1),
+    Sha512Trunc256("sha512/256", ClarityVersion::Clarity1),
+    Keccak256("keccak256", ClarityVersion::Clarity1),
+    Secp256k1Recover("secp256k1-recover?", ClarityVersion::Clarity1),
+    Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1),
+    Print("print", ClarityVersion::Clarity1),
+    ContractCall("contract-call?", ClarityVersion::Clarity1),
+    AsContract("as-contract", ClarityVersion::Clarity1),
+    ContractOf("contract-of", ClarityVersion::Clarity1),
+    PrincipalOf("principal-of?", ClarityVersion::Clarity1),
+    AtBlock("at-block", ClarityVersion::Clarity1),
+    GetBlockInfo("get-block-info?", ClarityVersion::Clarity1),
+    GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2),
+    ConsError("err", ClarityVersion::Clarity1),
+    ConsOkay("ok", ClarityVersion::Clarity1),
+    ConsSome("some", ClarityVersion::Clarity1),
+    DefaultTo("default-to", ClarityVersion::Clarity1),
+    Asserts("asserts!", ClarityVersion::Clarity1),
+    UnwrapRet("unwrap!", ClarityVersion::Clarity1),
+    UnwrapErrRet("unwrap-err!", ClarityVersion::Clarity1),
+    Unwrap("unwrap-panic", ClarityVersion::Clarity1),
+    UnwrapErr("unwrap-err-panic", ClarityVersion::Clarity1),
+    Match("match", ClarityVersion::Clarity1),
+    TryRet("try!", ClarityVersion::Clarity1),
+    IsOkay("is-ok", ClarityVersion::Clarity1),
+    IsNone("is-none", ClarityVersion::Clarity1),
+    IsErr("is-err", ClarityVersion::Clarity1),
+    IsSome("is-some", ClarityVersion::Clarity1),
+    Filter("filter", ClarityVersion::Clarity1),
+    GetTokenBalance("ft-get-balance", ClarityVersion::Clarity1),
+    GetAssetOwner("nft-get-owner?", ClarityVersion::Clarity1),
+    TransferToken("ft-transfer?", ClarityVersion::Clarity1),
+    TransferAsset("nft-transfer?", ClarityVersion::Clarity1),
+    MintAsset("nft-mint?", ClarityVersion::Clarity1),
+    MintToken("ft-mint?", ClarityVersion::Clarity1),
+    GetTokenSupply("ft-get-supply", ClarityVersion::Clarity1),
+    BurnToken("ft-burn?", ClarityVersion::Clarity1),
+    BurnAsset("nft-burn?", ClarityVersion::Clarity1),
+    GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
+    StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
+    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
+    StxBurn("stx-burn?", ClarityVersion::Clarity1),
+    StxGetAccount("stx-account", ClarityVersion::Clarity2),
+    BitwiseAnd("bit-and", ClarityVersion::Clarity2),
+    BitwiseOr("bit-or", ClarityVersion::Clarity2),
+    BitwiseNot("bit-not", ClarityVersion::Clarity2),
+    BitwiseLShift("bit-shift-left", ClarityVersion::Clarity2),
+    BitwiseRShift("bit-shift-right", ClarityVersion::Clarity2),
+    BitwiseXor2("bit-xor", ClarityVersion::Clarity2),
+    Slice("slice?", ClarityVersion::Clarity2),
+    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
+    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
+    ReplaceAt("replace-at?", ClarityVersion::Clarity2),
 });
 
-pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
+impl NativeFunctions {
+    pub fn lookup_by_name_at_version(
+        name: &str,
+        version: &ClarityVersion,
+    ) -> Option<NativeFunctions> {
+        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
+            if &native_function.get_version() <= version {
+                Some(native_function)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+///
+/// Returns a callable for the given native function if it exists in the provided
+///   ClarityVersion
+///
+pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
     use crate::vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
     use crate::vm::functions::NativeFunctions::*;
-    if let Some(native_function) = NativeFunctions::lookup_by_name(name) {
+    if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
         let callable = match native_function {
             Add => NativeFunction(
                 "native_add",
@@ -176,26 +230,10 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::MoreArg(&arithmetic::native_div),
                 ClarityCostFunction::Div,
             ),
-            CmpGeq => NativeFunction(
-                "native_geq",
-                NativeHandle::DoubleArg(&arithmetic::native_geq),
-                ClarityCostFunction::Geq,
-            ),
-            CmpLeq => NativeFunction(
-                "native_leq",
-                NativeHandle::DoubleArg(&arithmetic::native_leq),
-                ClarityCostFunction::Leq,
-            ),
-            CmpLess => NativeFunction(
-                "native_le",
-                NativeHandle::DoubleArg(&arithmetic::native_le),
-                ClarityCostFunction::Le,
-            ),
-            CmpGreater => NativeFunction(
-                "native_ge",
-                NativeHandle::DoubleArg(&arithmetic::native_ge),
-                ClarityCostFunction::Ge,
-            ),
+            CmpGeq => SpecialFunction("special_geq", &arithmetic::special_geq),
+            CmpLeq => SpecialFunction("special_leq", &arithmetic::special_leq),
+            CmpLess => SpecialFunction("special_le", &arithmetic::special_less),
+            CmpGreater => SpecialFunction("special_ge", &arithmetic::special_greater),
             ToUInt => NativeFunction(
                 "native_to_uint",
                 NativeHandle::SingleArg(&arithmetic::native_to_uint),
@@ -226,7 +264,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::SingleArg(&arithmetic::native_log2),
                 ClarityCostFunction::Log2,
             ),
-            BitwiseXOR => NativeFunction(
+            BitwiseXor => NativeFunction(
                 "native_xor",
                 NativeHandle::DoubleArg(&arithmetic::native_xor),
                 ClarityCostFunction::Xor,
@@ -240,7 +278,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ),
             Equals => NativeFunction205(
                 "native_eq",
-                NativeHandle::MoreArg(&native_eq),
+                NativeHandle::MoreArgEnv(&native_eq),
                 ClarityCostFunction::Eq,
                 &cost_input_sized_vararg,
             ),
@@ -250,6 +288,55 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
             Map => SpecialFunction("special_map", &sequences::special_map),
             Filter => SpecialFunction("special_filter", &sequences::special_filter),
+            BuffToIntLe => NativeFunction(
+                "native_buff_to_int_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
+                ClarityCostFunction::BuffToIntLe,
+            ),
+            BuffToUIntLe => NativeFunction(
+                "native_buff_to_uint_le",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
+                ClarityCostFunction::BuffToUIntLe,
+            ),
+            BuffToIntBe => NativeFunction(
+                "native_buff_to_int_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
+                ClarityCostFunction::BuffToIntBe,
+            ),
+            BuffToUIntBe => NativeFunction(
+                "native_buff_to_uint_be",
+                NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                ClarityCostFunction::BuffToUIntBe,
+            ),
+            StringToInt => NativeFunction(
+                "native_string_to_int",
+                NativeHandle::SingleArg(&conversions::native_string_to_int),
+                ClarityCostFunction::StringToInt,
+            ),
+            StringToUInt => NativeFunction(
+                "native_string_to_uint",
+                NativeHandle::SingleArg(&conversions::native_string_to_uint),
+                ClarityCostFunction::StringToUInt,
+            ),
+            IntToAscii => NativeFunction(
+                "native_int_to_ascii",
+                NativeHandle::SingleArg(&conversions::native_int_to_ascii),
+                ClarityCostFunction::IntToAscii,
+            ),
+            IntToUtf8 => NativeFunction(
+                "native_int_to_utf8",
+                NativeHandle::SingleArg(&conversions::native_int_to_utf8),
+                ClarityCostFunction::IntToUtf8,
+            ),
+            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
+            PrincipalDestruct => SpecialFunction(
+                "special_principal_destruct",
+                &principals::special_principal_destruct,
+            ),
+            PrincipalConstruct => SpecialFunction(
+                "special_principal_construct",
+                &principals::special_principal_construct,
+            ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
             AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
@@ -259,17 +346,18 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::SingleArg(&sequences::native_len),
                 ClarityCostFunction::Len,
             ),
-            ElementAt => NativeFunction(
+            ElementAt | ElementAtAlias => NativeFunction(
                 "native_element_at",
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            IndexOf => NativeFunction205(
+            IndexOf | IndexOfAlias => NativeFunction205(
                 "native_index_of",
                 NativeHandle::DoubleArg(&sequences::native_index_of),
                 ClarityCostFunction::IndexOf,
                 &cost_input_sized_vararg,
             ),
+            Slice => SpecialFunction("special_slice", &sequences::special_slice),
             ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
             SetEntry => SpecialFunction("special_set-entry", &database::special_set_entry),
@@ -335,6 +423,10 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetBlockInfo => {
                 SpecialFunction("special_get_block_info", &database::special_get_block_info)
             }
+            GetBurnBlockInfo => SpecialFunction(
+                "special_get_burn_block_info",
+                &database::special_get_burn_block_info,
+            ),
             ConsSome => NativeFunction(
                 "native_some",
                 NativeHandle::SingleArg(&options::native_some),
@@ -421,7 +513,52 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             AtBlock => SpecialFunction("special_at_block", &database::special_at_block),
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
+            StxTransferMemo => SpecialFunction(
+                "special_stx_transfer_memo",
+                &assets::special_stx_transfer_memo,
+            ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
+            StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
+            ToConsensusBuff => NativeFunction205(
+                "to_consensus_buff",
+                NativeHandle::SingleArg(&conversions::to_consensus_buff),
+                ClarityCostFunction::ToConsensusBuff,
+                &cost_input_sized_vararg,
+            ),
+            FromConsensusBuff => {
+                SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
+            }
+            ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
+            BitwiseAnd => NativeFunction(
+                "native_bitwise_and",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
+                ClarityCostFunction::BitwiseAnd,
+            ),
+            BitwiseOr => NativeFunction(
+                "native_bitwise_or",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_or),
+                ClarityCostFunction::BitwiseOr,
+            ),
+            BitwiseNot => NativeFunction(
+                "native_bitwise_not",
+                NativeHandle::SingleArg(&arithmetic::native_bitwise_not),
+                ClarityCostFunction::BitwiseNot,
+            ),
+            BitwiseLShift => NativeFunction(
+                "native_bitwise_left_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_left_shift),
+                ClarityCostFunction::BitwiseLShift,
+            ),
+            BitwiseRShift => NativeFunction(
+                "native_bitwise_right_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
+                ClarityCostFunction::BitwiseRShift,
+            ),
+            BitwiseXor2 => NativeFunction(
+                "native_bitwise_xor",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
+                ClarityCostFunction::Xor,
+            ),
         };
         Some(callable)
     } else {
@@ -429,7 +566,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
     }
 }
 
-fn native_eq(args: Vec<Value>) -> Result<Value> {
+fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -441,7 +578,8 @@ fn native_eq(args: Vec<Value>) -> Result<Value> {
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            arg_type = TypeSignature::least_supertype(&TypeSignature::type_of(x), &arg_type)?;
+            arg_type =
+                TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false));
             }
@@ -467,7 +605,7 @@ fn special_print(
     runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
     if cfg!(feature = "developer-mode") {
-        info!("{}", &input);
+        debug!("{}", &input);
     }
 
     env.register_print_event(input.clone())?;
@@ -581,7 +719,7 @@ fn special_let(
 
     finally_drop_memory!( env, memory_use; {
         handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
-            if is_reserved(binding_name) ||
+            if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
@@ -592,6 +730,11 @@ fn special_let(
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+                if let CallableContract(trait_data) = &binding_value {
+                    inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
+                }
+            }
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())
         })?;
@@ -615,6 +758,11 @@ fn special_as_contract(
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
+
+    // in epoch 2.1 and later, this has a cost
+    if *env.epoch() >= StacksEpochId::Epoch21 {
+        runtime_cost(ClarityCostFunction::AsContract, env, 0)?;
+    }
 
     // nest an environment.
     env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
@@ -646,13 +794,15 @@ fn special_contract_of(
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
-        Some((ref contract_identifier, _trait_identifier)) => {
+        Some(trait_data) => {
             env.global_context
                 .database
-                .get_contract(contract_identifier)
-                .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                .get_contract(&trait_data.contract_identifier)
+                .map_err(|_e| {
+                    CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                })?;
 
-            contract_identifier
+            &trait_data.contract_identifier
         }
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
     };

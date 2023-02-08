@@ -24,6 +24,7 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::*;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
@@ -84,6 +85,11 @@ pub struct UnconfirmedState {
     num_mblocks_added: u64,
     have_state: bool,
 
+    mainnet: bool,
+    chain_id: u32,
+    clarity_state_index_root: String,
+    marf_opts: Option<MARFOpenOpts>,
+
     // fault injection for testing
     pub disable_cost_check: bool,
     pub disable_bytes_check: bool,
@@ -93,9 +99,13 @@ impl UnconfirmedState {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+        let marf = MarfedKV::open_unconfirmed(
+            &chainstate.clarity_state_index_root,
+            None,
+            chainstate.marf_opts.clone(),
+        )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -116,8 +126,50 @@ impl UnconfirmedState {
             num_mblocks_added: 0,
             have_state: false,
 
+            mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
+            clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
+            marf_opts: chainstate.marf_opts.clone(),
+
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
+        })
+    }
+
+    /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
+    /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
+    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState, Error> {
+        let marf = MarfedKV::open_unconfirmed(
+            &self.clarity_state_index_root,
+            None,
+            self.marf_opts.clone(),
+        )?;
+
+        let clarity_instance = ClarityInstance::new(self.mainnet, self.chain_id, marf);
+
+        Ok(UnconfirmedState {
+            confirmed_chain_tip: self.confirmed_chain_tip.clone(),
+            unconfirmed_chain_tip: self.unconfirmed_chain_tip.clone(),
+            clarity_inst: clarity_instance,
+            mined_txs: self.mined_txs.clone(),
+            cost_so_far: self.cost_so_far.clone(),
+            bytes_so_far: self.bytes_so_far,
+
+            last_mblock: self.last_mblock.clone(),
+            last_mblock_seq: self.last_mblock_seq,
+
+            readonly: true,
+            dirty: false,
+            num_mblocks_added: self.num_mblocks_added,
+            have_state: self.have_state,
+
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            clarity_state_index_root: self.clarity_state_index_root.clone(),
+            marf_opts: self.marf_opts.clone(),
+
+            disable_cost_check: self.disable_cost_check,
+            disable_bytes_check: self.disable_bytes_check,
         })
     }
 
@@ -126,9 +178,13 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         tip: StacksBlockId,
     ) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+        let marf = MarfedKV::open_unconfirmed(
+            &chainstate.clarity_state_index_root,
+            None,
+            chainstate.marf_opts.clone(),
+        )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -148,6 +204,11 @@ impl UnconfirmedState {
             dirty: false,
             num_mblocks_added: 0,
             have_state: false,
+
+            mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
+            clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
+            marf_opts: chainstate.marf_opts.clone(),
 
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
@@ -186,6 +247,8 @@ impl UnconfirmedState {
         let burn_block_timestamp = headers_db
             .get_burn_block_time_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
+
+        let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -245,6 +308,7 @@ impl UnconfirmedState {
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &vec![mblock.clone()],
+                        ast_rules,
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {
@@ -590,8 +654,8 @@ mod test {
     use crate::chainstate::stacks::index::marf::*;
     use crate::chainstate::stacks::index::node::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::miner::test::make_coinbase;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::make_coinbase;
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::chainstate::stacks::*;
     use crate::core::mempool::*;
@@ -614,11 +678,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(
-            "test_unconfirmed_refresh_one_microblock_stx_transfer",
-            7000,
-            7001,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7000, 7001);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -810,7 +870,7 @@ mod test {
             peer.sortdb = Some(sortdb);
 
             // move 1 stx per round
-            assert_eq!(recv_balance.amount_unlocked, (tenure_id + 1) as u128);
+            assert_eq!(recv_balance.amount_unlocked(), (tenure_id + 1) as u128);
             let (canonical_burn, canonical_block) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
@@ -825,8 +885,8 @@ mod test {
                 .unwrap();
             peer.sortdb = Some(sortdb);
 
-            assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
-            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+            assert_eq!(confirmed_recv_balance.amount_unlocked(), tenure_id as u128);
+            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
         }
     }
 
@@ -842,11 +902,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(
-            "test_unconfirmed_refresh_10_microblocks_10_stx_transfers",
-            7002,
-            7003,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7002, 7003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -1040,7 +1096,7 @@ mod test {
 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(
-                    recv_balance.amount_unlocked,
+                    recv_balance.amount_unlocked(),
                     (100 * tenure_id + 10 * (i + 1)) as u128
                 );
                 let (canonical_burn, canonical_block) =
@@ -1058,10 +1114,10 @@ mod test {
                 peer.sortdb = Some(sortdb);
 
                 assert_eq!(
-                    confirmed_recv_balance.amount_unlocked,
+                    confirmed_recv_balance.amount_unlocked(),
                     100 * tenure_id as u128
                 );
-                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+                eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
             }
         }
     }
@@ -1078,8 +1134,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config =
-            TestPeerConfig::new("test_unconfirmed_refresh_invalid_microblock", 7004, 7005);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
         peer_config.epochs = Some(vec![StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -1337,6 +1392,6 @@ mod test {
         peer.sortdb = Some(sortdb);
 
         // all valid txs were processed
-        assert_eq!(db_recv_balance.amount_unlocked, recv_balance);
+        assert_eq!(db_recv_balance.amount_unlocked(), recv_balance);
     }
 }

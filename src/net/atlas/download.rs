@@ -33,6 +33,7 @@ use crate::net::NeighborKey;
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use crate::types::chainstate::StacksBlockId;
+use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings;
 use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -236,10 +237,10 @@ impl AttachmentsDownloader {
         iterator: Vec<AttachmentInstance>,
         do_if_found: F,
         do_if_not_found: G,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error>
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, DBError>
     where
-        F: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), net_error>,
-        G: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), net_error>,
+        F: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), DBError>,
+        G: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), DBError>,
     {
         let mut attachments_batches: HashMap<StacksBlockId, AttachmentsBatch> = HashMap::new();
         let mut resolved_attachments = vec![];
@@ -298,21 +299,17 @@ impl AttachmentsDownloader {
     pub fn check_queued_attachment_instances(
         &mut self,
         atlas_db: &mut AtlasDB,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, DBError> {
         let new_attachments = atlas_db.queued_attachments()?;
 
         self.check_attachment_instances(
             atlas_db,
             new_attachments,
             |atlas_db, attachment_instance| {
-                atlas_db
-                    .mark_attachment_instance_checked(&attachment_instance, true)
-                    .map_err(net_error::from)
+                atlas_db.mark_attachment_instance_checked(&attachment_instance, true)
             },
             |atlas_db, attachment_instance| {
-                atlas_db
-                    .mark_attachment_instance_checked(&attachment_instance, false)
-                    .map_err(net_error::from)
+                atlas_db.mark_attachment_instance_checked(&attachment_instance, false)
             },
         )
     }
@@ -322,7 +319,7 @@ impl AttachmentsDownloader {
     pub fn enqueue_initial_attachments(
         &mut self,
         atlas_db: &mut AtlasDB,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, DBError> {
         if self.initial_batch.is_empty() {
             return Ok(vec![]);
         }
@@ -335,9 +332,7 @@ impl AttachmentsDownloader {
             atlas_db,
             initial_batch,
             |atlas_db, attachment_instance| {
-                atlas_db
-                    .insert_initial_attachment_instance(&attachment_instance)
-                    .map_err(net_error::from)
+                atlas_db.insert_initial_attachment_instance(&attachment_instance)
             },
             |_atlas_db, _attachment_instance| {
                 // If attachment not found, don't insert attachment instance

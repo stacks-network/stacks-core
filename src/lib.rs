@@ -66,6 +66,14 @@ extern crate serde_json;
 #[macro_use]
 extern crate assert_json_diff;
 
+#[cfg(test)]
+#[macro_use]
+extern crate rstest;
+
+#[cfg(test)]
+#[macro_use]
+extern crate rstest_reuse;
+
 #[cfg(feature = "monitoring_prom")]
 #[macro_use]
 pub extern crate prometheus;

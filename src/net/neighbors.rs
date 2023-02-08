@@ -1897,7 +1897,7 @@ impl PeerNetwork {
             // only get bootstrap peers
             PeerDB::get_bootstrap_peers(&self.peerdb.conn(), self.local_peer.network_id)?
         } else {
-            // can be any peer
+            // can be any peer marked 'always-allowed'
             PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?
         };
 
@@ -2805,9 +2805,26 @@ impl PeerNetwork {
             );
 
             // always ensure we're connected to always-allowed outbound peers
-            let walk_res = match self.instantiate_walk_to_always_allowed(ibd) {
+            let walk_res = if ibd {
+                // always connect to bootstrap peers if in IBD
+                self.instantiate_walk_to_always_allowed(ibd)
+            } else {
+                // if not in IBD, then we're not required to use the always-allowed neighbors
+                // all the time (since they may be offline, and we have all the blocks anyway).
+                // Alternate between picking random neighbors, and picking always-allowed
+                // neighbors.
+                if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
+                    self.instantiate_walk()
+                } else {
+                    self.instantiate_walk_to_always_allowed(ibd)
+                }
+            };
+
+            let walk_res = match walk_res {
                 Ok(x) => Ok(x),
                 Err(net_error::NotFoundError) => {
+                    // failed to create a walk, so either connect to any known neighbor or connect
+                    // to an inbound peer.
                     if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
                         self.instantiate_walk()
                     } else {

@@ -19,8 +19,8 @@ use std::io::{Read, Write};
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::PoxConstants;
 use crate::burnchains::Txid;
-use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::Error as op_error;
@@ -29,9 +29,11 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::core::StacksEpochId;
 use crate::core::POX_MAX_NUM_CYCLES;
 use crate::net::Error as net_error;
 use crate::types::chainstate::TrieHash;
@@ -66,12 +68,14 @@ impl PreStxOp {
 
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
         pox_sunset_ht: u64,
     ) -> Result<PreStxOp, op_error> {
         PreStxOp::parse_from_tx(
             block_header.block_height,
             &block_header.block_hash,
+            epoch_id,
             tx,
             pox_sunset_ht,
         )
@@ -82,27 +86,26 @@ impl PreStxOp {
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
         pox_sunset_ht: u64,
     ) -> Result<PreStxOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
-        let outputs = tx.get_recipients();
+        let num_inputs = tx.num_signers();
+        let num_outputs = tx.num_recipients();
 
-        if inputs.len() == 0 {
+        if num_inputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs, num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs, num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -112,8 +115,25 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         };
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
+        let output = outputs[0]
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: first output cannot be decoded");
+                op_error::InvalidInput
+            })?
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: first output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         // check if we've reached PoX disable
-        if block_height >= pox_sunset_ht {
+        if PoxConstants::has_pox_sunset(epoch_id) && block_height >= pox_sunset_ht {
             debug!(
                 "PreStxOp broadcasted after sunset. Ignoring. txid={}",
                 tx.txid()
@@ -122,7 +142,7 @@ impl PreStxOp {
         }
 
         Ok(PreStxOp {
-            output: outputs[0].address,
+            output: output,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -135,7 +155,7 @@ impl StackStxOp {
     #[cfg(test)]
     pub fn new(
         sender: &StacksAddress,
-        reward_addr: &StacksAddress,
+        reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
     ) -> StackStxOp {
@@ -204,6 +224,7 @@ impl StackStxOp {
 
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
         sender: &StacksAddress,
         pox_sunset_ht: u64,
@@ -211,6 +232,7 @@ impl StackStxOp {
         StackStxOp::parse_from_tx(
             block_header.block_height,
             &block_header.block_hash,
+            epoch_id,
             tx,
             sender,
             pox_sunset_ht,
@@ -222,27 +244,28 @@ impl StackStxOp {
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
         sender: &StacksAddress,
         pox_sunset_ht: u64,
     ) -> Result<StackStxOp, op_error> {
         // can't be too careful...
-        let outputs = tx.get_recipients();
+        let num_outputs = tx.num_recipients();
 
         if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -257,8 +280,20 @@ impl StackStxOp {
             op_error::ParseError
         })?;
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
+        let first_output = outputs[0].as_ref().ok_or_else(|| {
+            warn!("Invalid tx: failed to decode first output");
+            op_error::InvalidInput
+        })?;
+
+        // coerce a hash mode for this address if need be, since we'll need it when we feed this
+        // address into the .pox contract
+        let reward_addr = first_output.address.clone().coerce_hash_mode();
+
         // check if we've reached PoX disable
-        if block_height >= pox_sunset_ht {
+        if PoxConstants::has_pox_sunset(epoch_id) && block_height >= pox_sunset_ht {
             debug!(
                 "StackStxOp broadcasted after sunset. Ignoring. txid={}",
                 tx.txid()
@@ -268,7 +303,7 @@ impl StackStxOp {
 
         Ok(StackStxOp {
             sender: sender.clone(),
-            reward_addr: outputs[0].address,
+            reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
             txid: tx.txid(),
@@ -341,8 +376,10 @@ mod tests {
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::StacksEpochId;
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
@@ -380,36 +417,37 @@ mod tests {
             opcode: Opcodes::PreStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -421,6 +459,7 @@ mod tests {
         let op = PreStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
             16843023,
         )
@@ -428,7 +467,90 @@ mod tests {
 
         assert_eq!(
             &op.output,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_pre_stack_stx_sunset() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::PreStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+
+        // pre-2.1 this fails
+        let op_err = PreStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            16843022,
+        )
+        .unwrap_err();
+
+        if let op_error::InvalidInput = op_err {
+        } else {
+            panic!("Parsed post-sunset prestx");
+        }
+
+        // post-2.1 this succeeds
+        let op = PreStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch21,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            16843022,
+        )
+        .unwrap();
+
+        assert_eq!(
+            &op.output,
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
         );
     }
 
@@ -440,36 +562,37 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -481,6 +604,7 @@ mod tests {
         let op = StackStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
             &sender,
             16843023,
@@ -490,7 +614,101 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(
             &op.reward_addr,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &PoxAddress::Standard(
+                StacksAddress::from_legacy_bitcoin_address(
+                    &tx.outputs[0].address.clone().expect_legacy()
+                ),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
+        );
+        assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.num_cycles, 1);
+    }
+
+    #[test]
+    fn test_parse_stack_stx_sunset() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+
+        // pre-2.1: this fails
+        let op_err = StackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+            16843022,
+        )
+        .unwrap_err();
+
+        if let op_error::InvalidInput = op_err {
+        } else {
+            panic!("Parsed post-sunset epoch 2.05");
+        }
+
+        // post-2.1: this succeeds
+        let op = StackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch21,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+            16843022,
+        )
+        .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(
+            &op.reward_addr,
+            &PoxAddress::Standard(
+                StacksAddress::from_legacy_bitcoin_address(
+                    &tx.outputs[0].address.clone().expect_legacy()
+                ),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);

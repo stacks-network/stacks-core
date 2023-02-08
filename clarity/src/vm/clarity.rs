@@ -2,6 +2,7 @@ use crate::vm::analysis;
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::Environment;
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
@@ -10,7 +11,9 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
+use crate::vm::ClarityVersion;
+use crate::vm::ContractContext;
 use crate::vm::{ast, SymbolicExpression, Value};
 use stacks_common::types::StacksEpochId;
 use std::fmt;
@@ -118,7 +121,10 @@ pub trait ClarityConnection {
     fn with_readonly_clarity_env<F, R>(
         &mut self,
         mainnet: bool,
+        chain_id: u32,
+        clarity_version: ClarityVersion,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
     ) -> Result<R, InterpreterError>
@@ -127,10 +133,13 @@ pub trait ClarityConnection {
     {
         let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env =
-                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
+            let initial_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
+            let mut vm_env = OwnedEnvironment::new_cost_limited(
+                mainnet, chain_id, clarity_db, cost_track, epoch_id,
+            );
             let result = vm_env
-                .execute_in_env(sender, to_do)
+                .execute_in_env(sender, sponsor, Some(initial_context), to_do)
                 .map(|(result, _, _)| result);
             let (db, _) = vm_env
                 .destruct()
@@ -141,6 +150,14 @@ pub trait ClarityConnection {
 }
 
 pub trait TransactionConnection: ClarityConnection {
+    /// Do something with this connection's Clarity environment that can be aborted
+    ///  with `abort_call_back`.
+    /// This returns the return value of `to_do`:
+    ///  * the generic term `R`
+    ///  * the asset changes during `to_do` in an `AssetMap`
+    ///  * the Stacks events during the transaction
+    /// and a `bool` value which is `true` if the `abort_call_back` caused the changes to abort
+    /// If `to_do` returns an `Err` variant, then the changes are aborted.
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
@@ -163,10 +180,21 @@ pub trait TransactionConnection: ClarityConnection {
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
         contract_content: &str,
+        ast_rules: ASTRules,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
+        let epoch_id = self.get_epoch();
+
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+            let ast_result = ast::build_ast_with_rules(
+                identifier,
+                contract_content,
+                &mut cost_track,
+                clarity_version,
+                epoch_id,
+                ast_rules,
+            );
 
             let mut contract_ast = match ast_result {
                 Ok(x) => x,
@@ -179,6 +207,8 @@ pub trait TransactionConnection: ClarityConnection {
                 db,
                 false,
                 cost_track,
+                epoch_id,
+                clarity_version,
             );
 
             match result {
@@ -222,9 +252,14 @@ pub trait TransactionConnection: ClarityConnection {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
         self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount).map_err(Error::from),
+            |vm_env| {
+                vm_env
+                    .stx_transfer(from, to, amount, memo)
+                    .map_err(Error::from)
+            },
             |_, _| false,
         )
         .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
@@ -238,6 +273,7 @@ pub trait TransactionConnection: ClarityConnection {
     fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
+        sponsor: Option<&PrincipalData>,
         contract: &QualifiedContractIdentifier,
         public_function: &str,
         args: &[Value],
@@ -256,6 +292,7 @@ pub trait TransactionConnection: ClarityConnection {
                 vm_env
                     .execute_transaction(
                         sender.clone(),
+                        sponsor.cloned(),
                         contract.clone(),
                         public_function,
                         &expr_args,
@@ -281,8 +318,10 @@ pub trait TransactionConnection: ClarityConnection {
     fn initialize_smart_contract<F>(
         &mut self,
         identifier: &QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
         contract_ast: &ContractAST,
         contract_str: &str,
+        sponsor: Option<PrincipalData>,
         abort_call_back: F,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
@@ -291,7 +330,13 @@ pub trait TransactionConnection: ClarityConnection {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
+                    .initialize_contract_from_ast(
+                        identifier.clone(),
+                        clarity_version,
+                        contract_ast,
+                        contract_str,
+                        sponsor,
+                    )
                     .map_err(Error::from)
             },
             abort_call_back,

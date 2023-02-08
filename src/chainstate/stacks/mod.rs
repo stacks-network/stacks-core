@@ -32,6 +32,7 @@ use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::MinerRewardInfo;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
@@ -48,6 +49,7 @@ use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use clarity::vm::ClarityVersion;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -72,6 +74,9 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
+#[cfg(test)]
+pub mod tests;
+
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 pub use stacks_common::address::{
@@ -79,8 +84,8 @@ pub use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-pub const STACKS_BLOCK_VERSION: u8 = 0;
-pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
+pub const STACKS_BLOCK_VERSION: u8 = 4;
+pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
@@ -118,6 +123,13 @@ pub enum Error {
     PoxAlreadyLocked,
     PoxInsufficientBalance,
     PoxNoRewardCycle,
+    PoxExtendNotLocked,
+    PoxIncreaseOnV1,
+    PoxInvalidIncrease,
+    DefunctPoxContract,
+    ProblematicTransaction(Txid),
+    MinerAborted,
+    ChannelClosed(String),
 }
 
 impl From<marf_error> for Error {
@@ -179,6 +191,9 @@ impl fmt::Display for Error {
             Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
             Error::NoTransactionsToMine => write!(f, "No transactions to mine"),
             Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
+            Error::PoxExtendNotLocked => {
+                write!(f, "Account has not already locked STX for PoX extend")
+            }
             Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
             Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
             Error::StacksTransactionSkipped(ref r) => {
@@ -188,6 +203,18 @@ impl fmt::Display for Error {
                     r
                 )
             }
+            Error::DefunctPoxContract => {
+                write!(f, "A defunct PoX contract was called after transition")
+            }
+            Error::ProblematicTransaction(ref txid) => write!(
+                f,
+                "Transaction {} is problematic and will not be mined again",
+                txid
+            ),
+            Error::PoxIncreaseOnV1 => write!(f, "PoX increase only allowed for pox-2 locks"),
+            Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
+            Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
+            Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
         }
     }
 }
@@ -220,7 +247,14 @@ impl error::Error for Error {
             Error::PoxAlreadyLocked => None,
             Error::PoxInsufficientBalance => None,
             Error::PoxNoRewardCycle => None,
+            Error::PoxExtendNotLocked => None,
+            Error::DefunctPoxContract => None,
             Error::StacksTransactionSkipped(ref _r) => None,
+            Error::ProblematicTransaction(ref _txid) => None,
+            Error::PoxIncreaseOnV1 => None,
+            Error::PoxInvalidIncrease => None,
+            Error::MinerAborted => None,
+            Error::ChannelClosed(ref _s) => None,
         }
     }
 }
@@ -253,7 +287,14 @@ impl Error {
             Error::PoxAlreadyLocked => "PoxAlreadyLocked",
             Error::PoxInsufficientBalance => "PoxInsufficientBalance",
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
+            Error::PoxExtendNotLocked => "PoxExtendNotLocked",
+            Error::DefunctPoxContract => "DefunctPoxContract",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
+            Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
+            Error::PoxIncreaseOnV1 => "PoxIncreaseOnV1",
+            Error::PoxInvalidIncrease => "PoxInvalidIncrease",
+            Error::MinerAborted => "MinerAborted",
+            Error::ChannelClosed(ref _s) => "ChannelClosed",
         }
     }
 
@@ -543,6 +584,14 @@ pub struct TransactionContractCall {
     pub function_args: Vec<Value>,
 }
 
+impl TransactionContractCall {
+    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
+        let standard_principal =
+            StandardPrincipalData(self.address.version, self.address.bytes.0.clone());
+        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
+    }
+}
+
 /// A transaction that instantiates a smart contract
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSmartContract {
@@ -557,7 +606,6 @@ impl_array_newtype!(CoinbasePayload, u8, 32);
 impl_array_hexstring_fmt!(CoinbasePayload);
 impl_byte_array_newtype!(CoinbasePayload, u8, 32);
 impl_byte_array_serde!(CoinbasePayload);
-pub const CONIBASE_PAYLOAD_ENCODED_SIZE: u32 = 32;
 
 pub struct TokenTransferMemo(pub [u8; 34]); // same length as it is in stacks v1
 impl_byte_array_message_codec!(TokenTransferMemo, 34);
@@ -565,15 +613,14 @@ impl_array_newtype!(TokenTransferMemo, u8, 34);
 impl_array_hexstring_fmt!(TokenTransferMemo);
 impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
 impl_byte_array_serde!(TokenTransferMemo);
-pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract),
+    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload),
+    Coinbase(CoinbasePayload, Option<PrincipalData>),
 }
 
 impl TransactionPayload {
@@ -596,6 +643,8 @@ pub enum TransactionPayloadID {
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
+    CoinbaseToAltRecipient = 5,
+    VersionedSmartContract = 6,
 }
 
 /// Encoding of an asset type identifier
@@ -842,7 +891,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     parent_consensus_hash: ConsensusHash,
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
@@ -865,6 +914,7 @@ pub mod test {
     use crate::net::codec::*;
     use crate::net::*;
     use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::ClarityVersion;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
@@ -1140,11 +1190,40 @@ pub mod test {
                 function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(hello_contract_name).unwrap(),
-                code_body: StacksString::from_str(hello_contract_body).unwrap(),
-            }),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32])),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
+            ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
         ];
 
@@ -1155,7 +1234,7 @@ pub mod test {
                 for tx_payload in tx_payloads.iter() {
                     match tx_payload {
                         // poison microblock and coinbase must be on-chain
-                        TransactionPayload::Coinbase(_) => {
+                        TransactionPayload::Coinbase(..) => {
                             if *anchor_mode != TransactionAnchorMode::OnChainOnly {
                                 continue;
                             }
@@ -1203,7 +1282,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1221,7 +1300,7 @@ pub mod test {
 
         for tx in all_txs.drain(..) {
             match tx.payload {
-                TransactionPayload::Coinbase(_) => {
+                TransactionPayload::Coinbase(..) => {
                     continue;
                 }
                 _ => {}

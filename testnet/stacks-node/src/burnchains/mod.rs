@@ -11,11 +11,14 @@ use std::time::Instant;
 
 use stacks::burnchains;
 use stacks::burnchains::BurnchainStateTransitionOps;
+use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 
-use stacks::core::StacksEpoch;
+use stacks::core::{StacksEpoch, StacksEpochId};
+
+pub use self::bitcoin_regtest_controller::make_bitcoin_indexer;
 
 #[derive(Debug)]
 pub enum Error {
@@ -43,10 +46,11 @@ pub trait BurnchainController {
         -> Result<(BurnchainTip, u64), Error>;
     fn submit_operation(
         &mut self,
+        epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> bool;
+    ) -> Option<Txid>;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;

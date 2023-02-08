@@ -18,6 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::CostOverflowingMath;
 use crate::vm::costs::ExecutionCost;
@@ -35,25 +36,33 @@ use crate::vm::errors::{
 use crate::vm::representations::ClarityName;
 use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, StandardPrincipalData, TupleData, TupleTypeSignature,
-    TypeSignature, Value, NONE,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
+
 use crate::vm::types::byte_len_of_serialization;
 
 use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
+use stacks_common::consts::MINER_REWARD_MATURITY;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::Address;
+
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
+
+use serde_json;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -92,21 +101,59 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
 }
 
 pub trait BurnStateDB {
+    fn get_v1_unlock_height(&self) -> u32;
+
+    /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+
+    /// Returns the height of the burnchain when the Stacks chain started running.
+    fn get_burn_start_height(&self) -> u32;
+
+    fn get_pox_prepare_length(&self) -> u32;
+    fn get_pox_reward_cycle_length(&self) -> u32;
+    fn get_pox_rejection_fraction(&self) -> u64;
+
+    /// Returns the burnchain header hash for the given burn block height, as queried from the given SortitionId.
+    ///
+    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
+
+    /// Lookup a `SortitionId` keyed to a `ConsensusHash`.
+    ///
+    /// Returns None if no block found.
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId>;
+
+    /// The epoch is defined as by a start and end height. This returns
+    /// the epoch enclosing `height`.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
+
+    fn get_ast_rules(&self, height: u32) -> ASTRules;
+
+    /// Get the PoX payout addresses for a given burnchain block
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -118,6 +165,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
+    }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        (*self).get_consensus_hash_for_block(id_bhh)
     }
     fn get_vrf_seed_for_block(&self, bhh: &StacksBlockId) -> Option<VRFSeed> {
         (*self).get_vrf_seed_for_block(bhh)
@@ -131,11 +181,35 @@ impl HeadersDB for &dyn HeadersDB {
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
     }
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_burnchain_tokens_spent_for_block(id_bhh)
+    }
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_burnchain_tokens_spent_for_winning_block(id_bhh)
+    }
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_tokens_earned_for_block(id_bhh)
+    }
 }
 
 impl BurnStateDB for &dyn BurnStateDB {
+    fn get_v1_unlock_height(&self) -> u32 {
+        (*self).get_v1_unlock_height()
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         (*self).get_burn_block_height(sortition_id)
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        (*self).get_sortition_id_from_consensus_hash(consensus_hash)
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        (*self).get_burn_start_height()
     }
 
     fn get_burn_header_hash(
@@ -150,16 +224,43 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_stacks_epoch(height)
     }
 
+    fn get_pox_prepare_length(&self) -> u32 {
+        (*self).get_pox_prepare_length()
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        (*self).get_pox_reward_cycle_length()
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        (*self).get_pox_rejection_fraction()
+    }
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
+    }
+
+    fn get_ast_rules(&self, height: u32) -> ASTRules {
+        (*self).get_ast_rules(height)
+    }
+
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        (*self).get_pox_payout_addrs(height, sortition_id)
     }
 }
 
 pub struct NullHeadersDB {}
-pub struct NullBurnStateDB {}
+pub struct NullBurnStateDB {
+    epoch: StacksEpochId,
+}
 
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
-pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {};
+pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {
+    epoch: StacksEpochId::Epoch20,
+};
 
 impl HeadersDB for NullHeadersDB {
     fn get_burn_header_hash_for_block(
@@ -189,6 +290,9 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
+    fn get_consensus_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -202,16 +306,39 @@ impl HeadersDB for NullHeadersDB {
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
-            None
+            Some(1)
         }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        None
+    }
+    fn get_burnchain_tokens_spent_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+    ) -> Option<u128> {
+        None
+    }
+    fn get_tokens_earned_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
         None
     }
 }
 
 impl BurnStateDB for NullBurnStateDB {
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+        None
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        _consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
         None
     }
 
@@ -225,16 +352,42 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         Some(StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
+            epoch_id: self.epoch.clone(),
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_0,
         })
     }
-
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        None
+    }
+
+    fn get_ast_rules(&self, _height: u32) -> ASTRules {
+        ASTRules::Typical
     }
 }
 
@@ -501,9 +654,10 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        let data = self.fetch_metadata(contract_identifier, &key)?.expect(
+        let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?.expect(
             "Failed to read non-consensus contract metadata, even though contract exists in MARF.",
         );
+        data.canonicalize_types(&self.get_clarity_epoch_version());
         Ok(data)
     }
 
@@ -576,6 +730,9 @@ impl<'a> ClarityDatabase<'a> {
 // Get block information
 
 impl<'a> ClarityDatabase<'a> {
+    /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
+    ///
+    /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store
             .get_block_header_hash(block_height)
@@ -584,17 +741,26 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Block header hash must return for provided block height")
     }
 
+    /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
 
+    /// Return the height for PoX v1 -> v2 auto unlocks
+    ///   from the burn state db
+    pub fn get_v1_unlock_height(&self) -> u32 {
+        self.burn_state_db.get_v1_unlock_height()
+    }
+
     /// Get the last-known burnchain block height.
     /// Note that this is _not_ the burnchain height in which this block was mined!
-    /// This is the burnchain block height of its parent.
+    /// This is the burnchain block height of the parent of the Stacks block at the current Stacks
+    /// block height (i.e. that returned by `get_index_block_header_hash` for
+    /// `get_current_block_height`).
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
         let last_mined_bhh = if cur_stacks_height == 0 {
-            StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+            return self.burn_state_db.get_burn_start_height();
         } else {
             self.get_index_block_header_hash(
                 cur_stacks_height
@@ -631,6 +797,71 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
+    /// 1. Get the current Stacks tip height (which is in the process of being evaluated)
+    /// 2. Get the parent block's StacksBlockId, which is SHA512-256(consensus_hash, block_hash).
+    ///    This is the highest Stacks block in this fork whose consensus hash is known.
+    /// 3. Resolve the parent StacksBlockId to its consensus hash
+    /// 4. Resolve the consensus hash to the associated SortitionId
+    fn get_sortition_id_for_stacks_tip(&mut self) -> Option<SortitionId> {
+        let current_stacks_height = self.get_current_block_height();
+
+        if current_stacks_height < 1 {
+            // we are in the Stacks genesis block
+            return None;
+        }
+
+        // this is the StacksBlockId of the last block evaluated in this fork
+        let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1);
+
+        // infallible, since we always store the consensus hash with the StacksBlockId in the
+        // headers DB
+        let consensus_hash = self
+            .headers_db
+            .get_consensus_hash_for_block(&parent_id_bhh)
+            .expect(&format!(
+                "FATAL: no consensus hash found for StacksBlockId {}",
+                &parent_id_bhh
+            ));
+
+        // infallible, since every sortition has a consensus hash
+        let sortition_id = self
+            .burn_state_db
+            .get_sortition_id_from_consensus_hash(&consensus_hash)
+            .expect(&format!(
+                "FATAL: no SortitionID found for consensus hash {}",
+                &consensus_hash
+            ));
+
+        Some(sortition_id)
+    }
+
+    /// Fetch the burnchain block header hash for a given burnchain height.
+    /// Because the burnchain can fork, we need to resolve the burnchain hash from the
+    /// currently-evaluated Stacks chain tip.
+    ///
+    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
+    /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
+    /// fork).
+    pub fn get_burnchain_block_header_hash_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> Option<BurnchainHeaderHash> {
+        let sortition_id = self.get_sortition_id_for_stacks_tip()?;
+        self.burn_state_db
+            .get_burn_header_hash(burnchain_block_height, &sortition_id)
+    }
+
+    /// Get the PoX reward addresses and per-address payout for a given burnchain height.  Because the burnchain can fork,
+    /// we need to resolve the PoX addresses from the currently-evaluated Stacks chain tip.
+    pub fn get_pox_payout_addrs_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        let sortition_id = self.get_sortition_id_for_stacks_tip()?;
+        self.burn_state_db
+            .get_pox_payout_addrs(burnchain_block_height, &sortition_id)
+    }
+
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
         self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
@@ -648,6 +879,53 @@ impl<'a> ClarityDatabase<'a> {
             .get_miner_address(&id_bhh)
             .expect("Failed to get block data.")
             .into()
+    }
+
+    pub fn get_miner_spend_winner(&mut self, block_height: u32) -> u128 {
+        if block_height == 0 {
+            return 0;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh)
+            .expect("FATAL: no winning burnchain token spend record for block")
+            .into()
+    }
+
+    pub fn get_miner_spend_total(&mut self, block_height: u32) -> u128 {
+        if block_height == 0 {
+            return 0;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db
+            .get_burnchain_tokens_spent_for_block(&id_bhh)
+            .expect("FATAL: no total burnchain token spend record for block")
+            .into()
+    }
+
+    pub fn get_block_reward(&mut self, block_height: u32) -> Option<u128> {
+        if block_height == 0 {
+            return None;
+        }
+
+        let cur_height: u64 = self.get_current_block_height().into();
+
+        // reward for the *child* of this block must have matured, since that determines the
+        // streamed tx fee reward portion
+        if ((block_height + 1) as u64) + MINER_REWARD_MATURITY >= cur_height {
+            return None;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        let reward: u128 = self
+            .headers_db
+            .get_tokens_earned_for_block(&id_bhh)
+            .map(|x| x.into())
+            .expect("FATAL: matured block has no recorded reward");
+
+        Some(reward)
     }
 
     pub fn get_stx_btc_ops_processed(&mut self) -> u64 {
@@ -811,7 +1089,10 @@ impl<'a> ClarityDatabase<'a> {
         value: Value,
         variable_descriptor: &DataVariableMetadata,
     ) -> Result<ValueResult> {
-        if !variable_descriptor.value_type.admits(&value) {
+        if !variable_descriptor
+            .value_type
+            .admits(&self.get_clarity_epoch_version(), &value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(variable_descriptor.value_type.clone(), value).into(),
             );
@@ -952,6 +1233,7 @@ impl<'a> ClarityDatabase<'a> {
         self.fetch_entry(contract_identifier, map_name, key_value, &descriptor)
     }
 
+    /// Returns a Clarity optional type wrapping a found or not found result
     pub fn fetch_entry(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -959,7 +1241,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<Value> {
-        if !map_descriptor.key_type.admits(key_value) {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -986,7 +1271,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(key_value) {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -1097,12 +1385,18 @@ impl<'a> ClarityDatabase<'a> {
         return_if_exists: bool,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(&key_value) {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), &key_value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.key_type.clone(), key_value).into(),
             );
         }
-        if !map_descriptor.value_type.admits(&value) {
+        if !map_descriptor
+            .value_type
+            .admits(&self.get_clarity_epoch_version(), &value)?
+        {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.value_type.clone(), value).into(),
             );
@@ -1143,7 +1437,10 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(key_value) {
+        if !map_descriptor
+            .key_type
+            .admits(&self.get_clarity_epoch_version(), key_value)?
+        {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
                 (*key_value).clone(),
@@ -1363,7 +1660,7 @@ impl<'a> ClarityDatabase<'a> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<PrincipalData> {
-        if !key_type.admits(asset) {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
@@ -1405,7 +1702,7 @@ impl<'a> ClarityDatabase<'a> {
         principal: &PrincipalData,
         key_type: &TypeSignature,
     ) -> Result<()> {
-        if !key_type.admits(asset) {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
@@ -1429,7 +1726,7 @@ impl<'a> ClarityDatabase<'a> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<()> {
-        if !key_type.admits(asset) {
+        if !key_type.admits(&self.get_clarity_epoch_version(), asset)? {
             return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
         }
 
@@ -1476,12 +1773,12 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
@@ -1495,12 +1792,12 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }

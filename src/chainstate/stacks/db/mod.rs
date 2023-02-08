@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -22,18 +22,21 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
+use clarity::vm::ast::ASTRules;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
@@ -41,7 +44,8 @@ use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::{
-    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -67,7 +71,6 @@ use crate::util_lib::db::{
 };
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -93,6 +96,7 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use clarity::vm::Value;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -105,6 +109,19 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 
+/// Fault injection struct for various kinds of faults we'd like to introduce into the system
+pub struct StacksChainStateFaults {
+    // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
+    // Stacks block heights to never propagate or announce.
+    pub hide_blocks: bool,
+}
+
+impl StacksChainStateFaults {
+    pub fn new() -> Self {
+        Self { hide_blocks: false }
+    }
+}
+
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
@@ -115,6 +132,8 @@ pub struct StacksChainState {
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
     pub unconfirmed_state: Option<UnconfirmedState>,
+    pub fault_injection: StacksChainStateFaults,
+    marf_opts: Option<MARFOpenOpts>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +146,7 @@ pub struct StacksAccount {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerPaymentSchedule {
     pub address: StacksAddress,
+    pub recipient: PrincipalData,
     pub block_hash: BlockHeaderHash,
     pub consensus_hash: ConsensusHash,
     pub parent_block_hash: BlockHeaderHash,
@@ -159,6 +179,8 @@ pub struct StacksHeaderInfo {
 pub struct MinerRewardInfo {
     pub from_block_consensus_hash: ConsensusHash,
     pub from_stacks_block_hash: BlockHeaderHash,
+    pub from_parent_block_consensus_hash: ConsensusHash,
+    pub from_parent_stacks_block_hash: BlockHeaderHash,
 }
 
 /// This is the block receipt for a Stacks block
@@ -177,6 +199,7 @@ pub struct StacksEpochReceipt {
     /// which is the Stacks epoch that this block's parent was elected
     /// in.
     pub evaluated_epoch: StacksEpochId,
+    pub epoch_transition: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,9 +212,17 @@ pub struct DBConfig {
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
         match epoch_id {
-            StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
-            StacksEpochId::Epoch2_05 => self.version == "2",
+            StacksEpochId::Epoch10 => true,
+            StacksEpochId::Epoch20 => {
+                self.version == "1"
+                    || self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
+            }
+            StacksEpochId::Epoch2_05 => {
+                self.version == "2" || self.version == "3" || self.version == "4"
+            }
+            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
         }
     }
 }
@@ -318,10 +349,6 @@ impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
 }
 
 impl<'a, 'b> ClarityTx<'a, 'b> {
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.block.get_root_hash()
-    }
-
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
     }
@@ -355,6 +382,10 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         let result = todo(self);
         let new_tracker = self.set_cost_tracker(original_tracker);
         (result, new_tracker)
+    }
+
+    pub fn seal(&mut self) -> TrieHash {
+        self.block.seal()
     }
 
     #[cfg(test)]
@@ -460,7 +491,7 @@ impl<'a> ChainstateTx<'a> {
                 "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
             for tx_event in events.iter() {
                 let txid = tx_event.transaction.txid();
-                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
                 let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
@@ -576,7 +607,7 @@ pub struct TxStreamData {
     pub corked: bool,
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "2";
+pub const CHAINSTATE_VERSION: &'static str = "3";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -610,6 +641,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         cost TEXT NOT NULL,
         block_size TEXT NOT NULL,       -- converted to/from u64
+        affirmation_weight INTEGER NOT NULL,
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
@@ -729,6 +761,57 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
+const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+    // new in epoch 2.1 (schema version 3)
+    // track mature miner rewards paid out, so we can report them in Clarity.
+    r#"
+    -- table for MinerRewards.
+    -- For each block within in a fork, there will be exactly two miner records:
+    -- * one that records the coinbase, anchored tx fee, and confirmed streamed tx fees, and
+    -- * one that records only the produced streamed tx fees.
+    -- The latter is determined once this block's stream gets subsequently confirmed.
+    -- You query this table by passing both the parent and the child block hashes, since both the 
+    -- parent and child blocks determine the full reward for the parent block.
+    CREATE TABLE matured_rewards(
+        address TEXT NOT NULL,      -- address of the miner who produced the block
+        recipient TEXT,             -- who received the reward (if different from the miner)
+        vtxindex INTEGER NOT NULL,  -- will be 0 if this is the miner, >0 if this is a user burn support
+        coinbase TEXT NOT NULL,
+        tx_fees_anchored TEXT NOT NULL,
+        tx_fees_streamed_confirmed TEXT NOT NULL,
+        tx_fees_streamed_produced TEXT NOT NULL,
+
+        -- fork identifier 
+        child_index_block_hash TEXT NOT NULL,
+        parent_index_block_hash TEXT NOT NULL,
+
+        -- there are two rewards records per (parent,child) pair. One will have a non-zero coinbase; the other will have a 0 coinbase.
+        PRIMARY KEY(parent_index_block_hash,child_index_block_hash,coinbase)
+    );"#,
+    r#"
+    -- Add a `recipient` column so that in Stacks 2.1, the block reward can be sent to someone besides the miner (e.g. a contract).
+    -- If NULL, then the payment goes to the `address`.
+    ALTER TABLE payments ADD COLUMN recipient TEXT;
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS index_matured_rewards_by_vtxindex ON matured_rewards(parent_index_block_hash,child_index_block_hash,vtxindex);
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS index_parent_block_id_by_block_id ON block_headers(index_block_hash,parent_block_id);
+    "#,
+    // table to map index block hashes to the txids of on-burnchain stacks operations that were
+    // proessed
+    r#"
+    CREATE TABLE burnchain_txids(
+        index_block_hash TEXT PRIMARY KEY,
+        -- this is a JSON-encoded list of txids
+        txids TEXT NOT NULL
+    );"#,
+    r#"
+    UPDATE db_config SET version = "3";
+    "#,
+];
+
 const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -751,17 +834,11 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
 ];
 
-#[cfg(test)]
-pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
-
-#[cfg(not(test))]
-pub const MINER_REWARD_MATURITY: u64 = 100;
-
-pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
-
-pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
+pub use stacks_common::consts::MINER_REWARD_MATURITY;
 
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
@@ -896,7 +973,7 @@ impl StacksChainState {
         StacksChainState::load_db_config(marf.sqlite_conn())
     }
 
-    fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
+    pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
         let config = query_row::<DBConfig, _>(
             conn,
             &"SELECT * FROM db_config LIMIT 1".to_string(),
@@ -938,6 +1015,17 @@ impl StacksChainState {
                         for cmd in CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
+                    }
+                    "2" => {
+                        // migrate to 3
+                        info!("Migrating chainstate schema from version 2 to 3");
+                        for cmd in CHAINSTATE_SCHEMA_3.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "3" => {
+                        // done
+                        break;
                     }
                     _ => {
                         error!(
@@ -1003,7 +1091,9 @@ impl StacksChainState {
 
     pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let marf = MARF::from_path(marf_path).map_err(|e| db_error::IndexError(e))?;
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = true;
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|e| db_error::IndexError(e))?;
         Ok(marf)
     }
 
@@ -1028,8 +1118,8 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
-            Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
+        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+            Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
@@ -1098,12 +1188,15 @@ impl StacksChainState {
                     boot_code_contract.len()
                 );
 
-                let smart_contract = TransactionPayload::SmartContract(TransactionSmartContract {
-                    name: ContractName::try_from(boot_code_name.to_string())
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(boot_code_contract)
-                        .expect("FATAL: invalid boot code body"),
-                });
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(boot_code_name.to_string())
+                            .expect("FATAL: invalid boot-code contract name"),
+                        code_body: StacksString::from_str(boot_code_contract)
+                            .expect("FATAL: invalid boot code body"),
+                    },
+                    None,
+                );
 
                 let boot_code_smart_contract = StacksTransaction::new(
                     tx_version.clone(),
@@ -1116,6 +1209,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        ASTRules::PrecheckSize,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1423,6 +1517,7 @@ impl StacksChainState {
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
+                    None,
                     &contract,
                     "set-burnchain-parameters",
                     &params,
@@ -1482,8 +1577,8 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
-            let first_root_hash = tx.put_indexed_all(&vec![], &vec![])?;
+            let first_root_hash =
+                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -1503,6 +1598,7 @@ impl StacksChainState {
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::zero(),
+                0,
             )?;
             tx.commit()?;
         }
@@ -1515,22 +1611,20 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
     pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
-    }
-
-    pub fn open_testnet<F>(
-        chain_id: u32,
-        path_str: &str,
-        boot_data: Option<&mut ChainStateBootData>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
+        StacksChainState::open(
+            self.mainnet,
+            self.chain_id,
+            &self.root_path,
+            self.marf_opts.clone(),
+        )
     }
 
     pub fn blocks_path(mut path: PathBuf) -> PathBuf {
@@ -1578,6 +1672,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
@@ -1620,10 +1715,11 @@ impl StacksChainState {
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             )),
+            marf_opts.clone(),
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state);
+        let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -1635,6 +1731,8 @@ impl StacksChainState {
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
+            fault_injection: StacksChainStateFaults::new(),
+            marf_opts: marf_opts,
         };
 
         let mut receipts = vec![];
@@ -1710,26 +1808,9 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
+            ASTRules::PrecheckSize,
         );
         result.unwrap()
-    }
-
-    pub fn clarity_eval_read_only_checked(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        code: &str,
-    ) -> Result<Value, Error> {
-        self.clarity_state
-            .eval_read_only(
-                parent_id_bhh,
-                &HeadersDBConn(self.state_index.sqlite_conn()),
-                burn_dbconn,
-                contract,
-                code,
-            )
-            .map_err(Error::ClarityError)
     }
 
     pub fn db(&self) -> &DBConn {
@@ -2049,6 +2130,114 @@ impl StacksChainState {
         }
     }
 
+    /// Create a Clarity VM transaction connection for testing in 2.1
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_1<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block_2_1(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
+    /// Create a Clarity VM transaction connection for testing in 2.05
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_05<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
@@ -2098,6 +2287,86 @@ impl StacksChainState {
         Ok(height_opt)
     }
 
+    /// Get the burnchain txids for a given index block hash
+    fn get_burnchain_txids_for_block(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Vec<Txid>, Error> {
+        let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+
+        let txids = conn
+            .query_row(sql, args, |r| {
+                let txids_json: String = r.get_unwrap(0);
+                let txids: Vec<Txid> = serde_json::from_str(&txids_json)
+                    .expect("FATAL: database corruption: could not parse TXID JSON");
+
+                Ok(txids)
+            })
+            .optional()?
+            .unwrap_or(vec![]);
+
+        Ok(txids)
+    }
+
+    /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    pub fn get_burnchain_txids_in_ancestors(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+        count: u64,
+    ) -> Result<HashSet<Txid>, Error> {
+        let mut ret = HashSet::new();
+        let ancestors = StacksChainState::get_ancestor_index_hashes(conn, index_block_hash, count)?;
+        for ancestor in ancestors.into_iter() {
+            let txids = StacksChainState::get_burnchain_txids_for_block(conn, &ancestor)?;
+            for txid in txids.into_iter() {
+                ret.insert(txid);
+            }
+        }
+        Ok(ret)
+    }
+
+    /// Store all on-burnchain STX operations' txids by index block hash
+    fn store_burnchain_txids(
+        tx: &DBTx,
+        index_block_hash: &StacksBlockId,
+        burn_stack_stx_ops: Vec<StackStxOp>,
+        burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
+    ) -> Result<(), Error> {
+        let mut txids: Vec<_> = burn_stack_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        let mut xfer_txids = burn_transfer_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        txids.append(&mut xfer_txids);
+
+        let mut delegate_txids = burn_delegate_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        txids.append(&mut delegate_txids);
+
+        let txids_json =
+            serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
+        let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
+        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        tx.execute(sql, args)?;
+        Ok(())
+    }
+
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
     pub fn advance_tip<'a>(
@@ -2112,9 +2381,14 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
+        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,
+        burn_stack_stx_ops: Vec<StackStxOp>,
+        burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2138,9 +2412,12 @@ impl StacksChainState {
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash)
         );
-        headers_tx
-            .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
-        let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+        let root_hash = headers_tx.put_indexed_all(
+            &parent_hash,
+            &new_tip.index_block_hash(new_consensus_hash),
+            &vec![],
+            &vec![],
+        )?;
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
@@ -2161,18 +2438,63 @@ impl StacksChainState {
         };
 
         StacksChainState::insert_stacks_block_header(
-            headers_tx,
+            headers_tx.deref_mut(),
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
+            affirmation_weight,
         )?;
-        StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
+        StacksChainState::insert_miner_payment_schedule(
+            headers_tx.deref_mut(),
+            block_reward,
+            user_burns,
+        )?;
+        StacksChainState::store_burnchain_txids(
+            headers_tx.deref(),
+            &index_block_hash,
+            burn_stack_stx_ops,
+            burn_transfer_stx_ops,
+            burn_delegate_stx_ops,
+        )?;
+
+        if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts
+        {
+            let rewarded_miner_block_id = StacksBlockHeader::make_index_block_hash(
+                &reward_info.from_block_consensus_hash,
+                &reward_info.from_stacks_block_hash,
+            );
+            let rewarded_parent_miner_block_id = StacksBlockHeader::make_index_block_hash(
+                &reward_info.from_parent_block_consensus_hash,
+                &reward_info.from_parent_stacks_block_hash,
+            );
+
+            StacksChainState::insert_matured_child_miner_reward(
+                headers_tx.deref_mut(),
+                &rewarded_parent_miner_block_id,
+                &rewarded_miner_block_id,
+                &miner_payout,
+            )?;
+            for user_payout in user_payouts.into_iter() {
+                StacksChainState::insert_matured_child_user_reward(
+                    headers_tx.deref_mut(),
+                    &rewarded_parent_miner_block_id,
+                    &rewarded_miner_block_id,
+                    &user_payout,
+                )?;
+            }
+            StacksChainState::insert_matured_parent_miner_reward(
+                headers_tx.deref_mut(),
+                &rewarded_parent_miner_block_id,
+                &rewarded_miner_block_id,
+                &parent_payout,
+            )?;
+        }
 
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
             let args: &[&dyn ToSql] = &[&index_block_hash];
-            headers_tx.execute(sql, args)?;
+            headers_tx.deref_mut().execute(sql, args)?;
         }
 
         debug!(
@@ -2237,14 +2559,16 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
             .unwrap()
             .0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
+        StacksChainState::open(mainnet, chain_id, &path, None)
+            .unwrap()
+            .0
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
@@ -2253,7 +2577,7 @@ pub mod test {
 
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -2329,7 +2653,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate-test");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -2338,7 +2662,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 
@@ -2419,7 +2743,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -2428,7 +2752,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 

@@ -31,6 +31,8 @@ use std::convert::TryFrom;
 
 pub mod b58;
 pub mod c32;
+#[cfg(test)]
+pub mod c32_old;
 
 pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
 pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
@@ -93,10 +95,13 @@ impl error::Error for Error {
     }
 }
 
+/// Serialization modes for public keys to addresses.  These apply to Stacks addresses, which
+/// correspond to legacy Bitcoin addresses -- legacy Bitcoin address can be converted directly
+/// into a Stacks address, permitting a Bitcoin address to be represented directly on Stacks.
+/// These *do not apply* to Bitcoin segwit addresses.
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq, Copy, Serialize, Deserialize)]
 pub enum AddressHashMode {
-    // serialization modes for public keys to addresses.
     // We support four different modes due to legacy compatibility with Stacks v1 addresses:
     SerializeP2PKH = 0x00,  // hash160(public-key), same as bitcoin's p2pkh
     SerializeP2SH = 0x01,   // hash160(multisig-redeem-script), same as bitcoin's multisig p2sh
@@ -119,6 +124,7 @@ impl AddressHashMode {
         }
     }
 
+    /// WARNING: this does not support segwit-p2sh!
     pub fn from_version(version: u8) -> AddressHashMode {
         match version {
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => {
