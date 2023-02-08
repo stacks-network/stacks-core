@@ -75,6 +75,7 @@ use crate::net::relay::*;
 use crate::net::relay::*;
 use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
+use crate::net::stackerdb::{StackerDB, StackerDBConfig, StackerDBSync};
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
@@ -231,7 +232,6 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-#[derive(Debug)]
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -317,6 +317,13 @@ pub struct PeerNetwork {
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
+    // peer stacker DB state machines
+    pub stacker_db_syncs: Option<HashMap<ContractId, StackerDBSync>>,
+    // configuration state for stacker DBs (loaded at runtime from smart contracts)
+    pub stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
+    // handle to the stacker DB
+    pub stacker_db: StackerDB,
+
     // outstanding request to perform a mempool sync
     // * mempool_sync_deadline is when the next mempool sync must start
     // * mempool_sync_timeout is when the current mempool sync must stop
@@ -374,11 +381,13 @@ impl PeerNetwork {
     pub fn new(
         peerdb: PeerDB,
         atlasdb: AtlasDB,
+        stackerdb: StackerDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
+        stacker_db_syncs: Vec<StackerDBSync>,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
@@ -396,6 +405,11 @@ impl PeerNetwork {
         let first_block_height = burnchain.first_block_height;
         let first_burn_header_hash = burnchain.first_block_hash.clone();
         let first_burn_header_ts = burnchain.first_block_timestamp;
+
+        let mut stacker_db_sync_map = HashMap::new();
+        for stacker_db_sync in stacker_db_syncs.into_iter() {
+            stacker_db_sync_map.insert(stacker_db_sync.smart_contract_id.clone(), stacker_db_sync);
+        }
 
         let mut network = PeerNetwork {
             peer_version: peer_version,
@@ -457,6 +471,10 @@ impl PeerNetwork {
 
             block_downloader: None,
             attachments_downloader: None,
+
+            stacker_db_syncs: Some(stacker_db_sync_map),
+            stacker_db_configs: HashMap::new(),
+            stacker_db: stackerdb,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
@@ -1690,6 +1708,7 @@ impl PeerNetwork {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stackerdb: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -1730,6 +1749,7 @@ impl PeerNetwork {
             local_peer,
             peerdb,
             sortdb,
+            stackerdb,
             pox_id,
             chainstate,
             header_cache,
@@ -1823,6 +1843,7 @@ impl PeerNetwork {
                         &self.local_peer,
                         &mut self.peerdb,
                         sortdb,
+                        &self.stacker_db,
                         &self.pox_id,
                         chainstate,
                         &mut self.header_cache,
@@ -2032,18 +2053,27 @@ impl PeerNetwork {
                 );
                 safe.insert(*event_id);
             }
-        }
 
-        // if we're in the middle of a peer walk, then don't prune any outbound connections it established
-        // (yet)
-        match self.walk {
-            Some(ref walk) => {
-                for event_id in walk.events.iter() {
+            // if we're in the middle of a peer walk, then don't prune any outbound connections it established
+            // (yet)
+            if let Some(walk) = self.walk.as_ref() {
+                if walk.is_pinned(*event_id) {
                     safe.insert(*event_id);
                 }
             }
-            None => {}
-        };
+
+            // if we're running stacker DBs, then don't prune any outbound connections it
+            // established
+            if let Some(stacker_db_syncs) = self.stacker_db_syncs.as_ref() {
+                for (_, stacker_db_sync) in stacker_db_syncs.iter() {
+                    if let Some(ns) = stacker_db_sync.neighbor_set() {
+                        if ns.is_pinned(*event_id) {
+                            safe.insert(*event_id);
+                        }
+                    }
+                }
+            }
+        }
 
         self.prune_frontier(&safe);
     }
@@ -4929,6 +4959,16 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Set the stacker DB configs
+    pub fn set_stacker_db_configs(&mut self, configs: HashMap<ContractId, StackerDBConfig>) {
+        self.stacker_db_configs = configs;
+    }
+
+    /// Obtain a copy of the stacker DB configs
+    pub fn get_stacker_db_configs(&self) -> HashMap<ContractId, StackerDBConfig> {
+        self.stacker_db_configs.clone()
+    }
+
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5146,6 +5186,16 @@ impl PeerNetwork {
 
         // download attachments
         self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
+
+        // synchronize stacker DBs
+        match self.run_stacker_db_sync() {
+            Ok(stacker_db_sync_results) => {
+                network_result.consume_stacker_db_sync_results(stacker_db_sync_results);
+            }
+            Err(e) => {
+                warn!("Failed to run Stacker DB sync: {:?}", &e);
+            }
+        }
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -5380,6 +5430,8 @@ impl PeerNetwork {
             self.num_inv_sync_passes,
             self.num_downloader_passes,
             self.chain_view.burn_block_height,
+            self.chain_view.rc_consensus_hash.clone(),
+            self.get_stacker_db_configs(),
         );
 
         network_result.consume_unsolicited(unsolicited_buffered_messages);
@@ -5543,16 +5595,19 @@ mod test {
         .unwrap();
         let atlas_config = AtlasConfig::default(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
+        let stacker_db = StackerDB::connect_memory();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
             atlasdb,
+            stacker_db,
             local_peer,
             0x12345678,
             burnchain,
             burnchain_view,
             conn_opts,
+            vec![],
             StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
