@@ -2577,7 +2577,7 @@ pub mod test {
 
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -2653,7 +2653,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate-test");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -2743,7 +2743,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();

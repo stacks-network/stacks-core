@@ -1366,7 +1366,7 @@ mod test {
 
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "get_tip_ancestor_test");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
@@ -1440,8 +1440,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
@@ -1505,11 +1504,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule_pay_contract() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "load_store_miner_payment_schedule_pay_contract",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
