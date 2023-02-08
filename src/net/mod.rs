@@ -141,6 +141,9 @@ pub mod rpc;
 pub mod server;
 pub mod stackerdb;
 
+use crate::net::stackerdb::StackerDB;
+use crate::net::stackerdb::StackerDBConfig;
+use crate::net::stackerdb::StackerDBSync;
 use crate::net::stackerdb::StackerDBSyncResult;
 
 #[derive(Debug)]
@@ -912,6 +915,8 @@ pub mod NackErrorCodes {
     pub const Throttled: u32 = 3;
     pub const InvalidPoxFork: u32 = 4;
     pub const InvalidMessage: u32 = 5;
+    pub const NoSuchDB: u32 = 6;
+    pub const StaleVersion: u32 = 7;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2098,6 +2103,8 @@ pub struct NetworkResult {
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
     pub burn_height: u64,
+    pub rc_consensus_hash: ConsensusHash,
+    pub stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
 }
 
 impl NetworkResult {
@@ -2106,6 +2113,8 @@ impl NetworkResult {
         num_inv_sync_passes: u64,
         num_download_passes: u64,
         burn_height: u64,
+        rc_consensus_hash: ConsensusHash,
+        stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
@@ -2125,6 +2134,8 @@ impl NetworkResult {
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
             burn_height,
+            rc_consensus_hash,
+            stacker_db_configs,
         }
     }
 
@@ -2617,6 +2628,9 @@ pub mod test {
         pub check_pox_invariants: Option<(u64, u64)>,
         /// Which stacker DBs will this peer replicate?
         pub stacker_dbs: Vec<ContractId>,
+        /// Stacker DB configurations for each stacker_dbs entry above, if different from
+        /// StackerDBConfig::noop()
+        pub stacker_db_configs: Vec<Option<StackerDBConfig>>,
         /// What services should this peer support?
         pub services: u16,
     }
@@ -2673,6 +2687,7 @@ pub mod test {
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
+                stacker_db_configs: vec![],
                 stacker_dbs: vec![],
                 services: (ServiceFlags::RELAY as u16)
                     | (ServiceFlags::RPC as u16)
@@ -2739,6 +2754,20 @@ pub mod test {
                 self.http_port,
             )
         }
+
+        pub fn get_stacker_db_configs(&self) -> HashMap<ContractId, StackerDBConfig> {
+            let mut ret = HashMap::new();
+            for (contract_id, config_opt) in
+                self.stacker_dbs.iter().zip(self.stacker_db_configs.iter())
+            {
+                if let Some(config) = config_opt {
+                    ret.insert(contract_id.clone(), config.clone());
+                } else {
+                    ret.insert(contract_id.clone(), StackerDBConfig::noop());
+                }
+            }
+            ret
+        }
     }
 
     pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
@@ -2802,6 +2831,33 @@ pub mod test {
 
             fs::create_dir_all(&test_path).unwrap();
             test_path
+        }
+
+        fn init_stacker_dbs(
+            root_path: &str,
+            peerdb: &PeerDB,
+            stacker_dbs: &[ContractId],
+            stacker_db_configs: &[Option<StackerDBConfig>],
+        ) -> Vec<StackerDBSync> {
+            let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
+            let mut stacker_db_syncs = vec![];
+            for (i, contract_id) in stacker_dbs.iter().enumerate() {
+                let db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
+                    if let Some(db_config) = config_opt.as_ref() {
+                        db_config.clone()
+                    } else {
+                        StackerDBConfig::noop()
+                    }
+                } else {
+                    StackerDBConfig::noop()
+                };
+
+                let stacker_db_sync =
+                    StackerDBSync::new(&peerdb, contract_id.clone(), &db_config, &stackerdb_path)
+                        .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                stacker_db_syncs.push(stacker_db_sync);
+            }
+            stacker_db_syncs
         }
 
         pub fn new_with_observer(
@@ -3025,19 +3081,32 @@ pub mod test {
                 SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
+            let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
+            let relayer_stacker_db = StackerDB::connect(&stackerdb_path, true).unwrap();
+            let p2p_stacker_db = StackerDB::connect(&stackerdb_path, true).unwrap();
+            let stacker_dbs = Self::init_stacker_dbs(
+                &test_path,
+                &peerdb,
+                &config.stacker_dbs,
+                &config.stacker_db_configs,
+            );
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
+                p2p_stacker_db,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                stacker_dbs,
                 epochs.clone(),
             );
+            peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
-            let relayer = Relayer::from_p2p(&mut peer_network);
+            let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_db);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
