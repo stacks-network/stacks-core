@@ -45,6 +45,7 @@ use crate::net::db::PeerDB;
 use crate::net::db::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::relay::*;
+use crate::net::stackerdb::StackerDB;
 use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
@@ -1715,6 +1716,138 @@ impl ConversationP2P {
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
 
+    /// Handle an inbound StackerDBGetChunkInv request.
+    /// Generates a StackerDBChunkInv response from the target database table, if we have it.
+    /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
+    fn make_stacker_db_getchunkinv_response(
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        getchunkinv: &StackerDBGetChunkInvData,
+    ) -> Result<StacksMessageType, net_error> {
+        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
+            debug!(
+                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
+                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
+            );
+            return Ok(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            )));
+        }
+
+        let chunk_versions = match stacker_db
+            .get_chunk_versions(&getchunkinv.contract_id, &getchunkinv.rc_consensus_hash)
+        {
+            Ok(versions) => versions,
+            Err(e) => {
+                debug!(
+                    "{:?}: failed to get chunk versions for {}: {:?}",
+                    local_peer, &getchunkinv.contract_id, &e
+                );
+
+                // most likely indicates that this DB doesn't exist
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::NoSuchDB,
+                )));
+            }
+        };
+
+        Ok(StacksMessageType::StackerDBChunkInv(
+            StackerDBChunkInvData { chunk_versions },
+        ))
+    }
+
+    /// Handle an inbound StackerDBGetChunkInv request.
+    /// Retrns a reply handle to the generated message (possibly a nack)
+    fn handle_stacker_db_getchunkinv(
+        &mut self,
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        preamble: &Preamble,
+        getchunkinv: &StackerDBGetChunkInvData,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
+            local_peer,
+            burnchain_view,
+            stacker_db,
+            getchunkinv,
+        )?;
+        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
+    }
+
+    /// Handle an inbound StackerDBGetChunk request.
+    /// Generates a StackerDBChunk response from the target database table, if we have it.
+    /// Generates a NACK if we don't have this DB, or if the request's consensus hash or version
+    /// are stale or invalid.
+    fn make_stacker_db_getchunk_response(
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        getchunk: &StackerDBGetChunkData,
+    ) -> Result<StacksMessageType, net_error> {
+        if burnchain_view.rc_consensus_hash != getchunk.rc_consensus_hash {
+            debug!(
+                "{:?}: NACK StackerDBGetChunk; {} != {}",
+                local_peer, &burnchain_view.rc_consensus_hash, &getchunk.rc_consensus_hash
+            );
+            return Ok(StacksMessageType::Nack(NackData::new(
+                NackErrorCodes::InvalidPoxFork,
+            )));
+        }
+
+        let chunk = match stacker_db.get_chunk(
+            &getchunk.contract_id,
+            &getchunk.rc_consensus_hash,
+            getchunk.chunk_id,
+            getchunk.chunk_version,
+        ) {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => {
+                // request for a stale chunk
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::StaleVersion,
+                )));
+            }
+            Err(e) => {
+                debug!(
+                    "{:?}: failed to get chunk {}.{} for {}: {:?}",
+                    local_peer,
+                    getchunk.chunk_id,
+                    getchunk.chunk_version,
+                    &getchunk.contract_id,
+                    &e
+                );
+
+                // most likely indicates that this DB doesn't exist
+                return Ok(StacksMessageType::Nack(NackData::new(
+                    NackErrorCodes::NoSuchDB,
+                )));
+            }
+        };
+
+        Ok(StacksMessageType::StackerDBChunk(chunk))
+    }
+
+    /// Handle an inbound StackerDBGetChunk request
+    /// Returns a reply handle to the generated message (possibly a nack)
+    fn handle_stacker_db_getchunk(
+        &mut self,
+        local_peer: &LocalPeer,
+        burnchain_view: &BurnchainView,
+        stacker_db: &StackerDB,
+        preamble: &Preamble,
+        getchunk: &StackerDBGetChunkData,
+    ) -> Result<ReplyHandleP2P, net_error> {
+        let response = ConversationP2P::make_stacker_db_getchunk_response(
+            local_peer,
+            burnchain_view,
+            stacker_db,
+            getchunk,
+        )?;
+        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
+    }
+
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
     fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
@@ -1923,6 +2056,7 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stacker_db: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -2004,6 +2138,21 @@ impl ConversationP2P {
                     }
                 }
             }
+            StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => self
+                .handle_stacker_db_getchunkinv(
+                    local_peer,
+                    chain_view,
+                    stacker_db,
+                    &msg.preamble,
+                    getchunkinv,
+                ),
+            StacksMessageType::StackerDBGetChunk(ref getchunk) => self.handle_stacker_db_getchunk(
+                local_peer,
+                chain_view,
+                stacker_db,
+                &msg.preamble,
+                getchunk,
+            ),
             StacksMessageType::StackerDBChunk(_) => {
                 // not handled here, but do some accounting -- we can't receive too many
                 // stackerdb chunks per second
@@ -2371,6 +2520,7 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
+        stackerdb: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -2513,6 +2663,7 @@ impl ConversationP2P {
                             local_peer,
                             peerdb,
                             sortdb,
+                            stackerdb,
                             pox_id,
                             chainstate,
                             header_cache,
@@ -2601,7 +2752,7 @@ mod test {
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
         services: u16,
-    ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
+    ) -> (PeerDB, SortitionDB, StackerDB, PoxId, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -2614,6 +2765,7 @@ mod test {
 
         let sortdb_path = format!("{}/burn", &test_path);
         let peerdb_path = format!("{}/peers.sqlite", &test_path);
+        let stackerdb_path = format!("{}/stackerdb.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let mut peerdb = PeerDB::connect(
@@ -2646,6 +2798,8 @@ mod test {
         PeerDB::set_local_services(&mut tx, services).unwrap();
         tx.commit().unwrap();
 
+        let stackerdb = StackerDB::connect(&stackerdb_path, true).unwrap();
+
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
 
@@ -2667,7 +2821,7 @@ mod test {
             sortdb_reader.get_pox_id().unwrap()
         };
 
-        (peerdb, sortdb, pox_id, chainstate)
+        (peerdb, sortdb, stackerdb, pox_id, chainstate)
     }
 
     fn convo_send_recv(
@@ -2811,177 +2965,6 @@ mod test {
         }
     }
 
-    #[test]
-    fn convo_handshake_accept() {
-        with_timeout(100, || {
-            let conn_opts = ConnectionOptions::default();
-
-            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
-            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
-
-            let burnchain = testing_burnchain_config();
-
-            let mut chain_view = BurnchainView {
-                burn_block_height: 12348,
-                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
-                burn_stable_block_height: 12341,
-                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
-                last_burn_block_hashes: HashMap::new(),
-                rc_consensus_hash: ConsensusHash([0x33; 20]),
-            };
-            chain_view.make_test_data();
-
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-                "convo_handshake_accept_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-                DEFAULT_SERVICES,
-            );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-                "convo_handshake_accept_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-                DEFAULT_SERVICES,
-            );
-
-            db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
-            db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
-
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
-
-            let mut convo_1 = ConversationP2P::new(
-                123,
-                456,
-                &burnchain,
-                &socketaddr_2,
-                &conn_opts,
-                true,
-                0,
-                StacksEpoch::unit_test_pre_2_05(0),
-            );
-            let mut convo_2 = ConversationP2P::new(
-                123,
-                456,
-                &burnchain,
-                &socketaddr_1,
-                &conn_opts,
-                true,
-                0,
-                StacksEpoch::unit_test_pre_2_05(0),
-            );
-
-            // no peer public keys known yet
-            assert!(convo_1.connection.get_public_key().is_none());
-            assert!(convo_2.connection.get_public_key().is_none());
-
-            // convo_1 sends a handshake to convo_2
-            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
-            let handshake_1 = convo_1
-                .sign_message(
-                    &chain_view,
-                    &local_peer_1.private_key,
-                    StacksMessageType::Handshake(handshake_data_1.clone()),
-                )
-                .unwrap();
-            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
-
-            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-            // it along to the chat caller (us)
-            test_debug!("send handshake");
-            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-            let unhandled_2 = convo_2
-                .chat(
-                    &local_peer_2,
-                    &mut peerdb_2,
-                    &sortdb_2,
-                    &pox_id_2,
-                    &mut chainstate_2,
-                    &mut BlockHeaderCache::new(),
-                    &chain_view,
-                )
-                .unwrap();
-
-            // convo_1 has a handshakeaccept
-            test_debug!("send handshake-accept");
-            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
-            let unhandled_1 = convo_1
-                .chat(
-                    &local_peer_1,
-                    &mut peerdb_1,
-                    &sortdb_1,
-                    &pox_id_1,
-                    &mut chainstate_1,
-                    &mut BlockHeaderCache::new(),
-                    &chain_view,
-                )
-                .unwrap();
-
-            let reply_1 = rh_1.recv(0).unwrap();
-
-            assert_eq!(unhandled_1.len(), 0);
-            assert_eq!(unhandled_2.len(), 1);
-
-            // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
-
-            // received a valid HandshakeAccept from peer 2
-            match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
-
-            // convo_2 got updated with convo_1's peer info, but no heartbeat info
-            assert_eq!(convo_2.peer_heartbeat, 3600);
-            assert_eq!(
-                convo_2.connection.get_public_key().unwrap(),
-                Secp256k1PublicKey::from_private(&local_peer_1.private_key)
-            );
-            assert_eq!(convo_2.data_url, "http://peer1.com".into());
-
-            // convo_1 got updated with convo_2's peer info, as well as heartbeat
-            assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
-            assert_eq!(
-                convo_1.connection.get_public_key().unwrap(),
-                Secp256k1PublicKey::from_private(&local_peer_2.private_key)
-            );
-            assert_eq!(convo_1.data_url, "http://peer2.com".into());
-        })
-    }
-
     /// Inner function for testing various kinds of stackerdb/non-stackerdb peer interactions
     fn inner_convo_handshake_accept_stackerdb(
         peer_1_services: u16,
@@ -3010,44 +2993,79 @@ mod test {
             let mut chain_view_2 = chain_view_1.clone();
             chain_view_2.rc_consensus_hash = peer_2_rc_consensus_hash.clone();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-                &format!(
-                    "convo_handshake_accept_1-{}-{}-{}-{}",
+            let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    &format!(
+                        "convo_handshake_accept_1-{}-{}-{}-{}",
+                        peer_1_services,
+                        peer_2_services,
+                        &peer_1_rc_consensus_hash,
+                        &peer_2_rc_consensus_hash
+                    ),
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
                     peer_1_services,
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    &format!(
+                        "convo_handshake_accept_2-{}-{}-{}-{}",
+                        peer_1_services,
+                        peer_2_services,
+                        &peer_2_rc_consensus_hash,
+                        &peer_2_rc_consensus_hash
+                    ),
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
                     peer_2_services,
-                    &peer_1_rc_consensus_hash,
-                    &peer_2_rc_consensus_hash
-                ),
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-                peer_1_services,
-            );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-                &format!(
-                    "convo_handshake_accept_2-{}-{}-{}-{}",
-                    peer_1_services,
-                    peer_2_services,
-                    &peer_2_rc_consensus_hash,
-                    &peer_2_rc_consensus_hash
-                ),
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-                peer_2_services,
-            );
+                );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view_1);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view_2);
 
             let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
             let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+            peerdb_1
+                .update_local_peer(
+                    0x9abcdef0,
+                    burnchain.network_id,
+                    local_peer_1.data_url,
+                    local_peer_1.port,
+                    &[ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
+                )
+                .unwrap();
+
+            peerdb_2
+                .update_local_peer(
+                    0x9abcdef0,
+                    burnchain.network_id,
+                    local_peer_2.data_url,
+                    local_peer_2.port,
+                    &[ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
+                )
+                .unwrap();
+
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+            assert_eq!(
+                local_peer_1.stacker_dbs,
+                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
+            );
+
+            assert_eq!(
+                local_peer_2.stacker_dbs,
+                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
+            );
 
             let mut convo_1 = ConversationP2P::new(
                 123,
@@ -3094,6 +3112,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3109,6 +3128,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3264,6 +3284,182 @@ mod test {
     }
 
     #[test]
+    #[ignore]
+    fn convo_handshake_accept() {
+        with_timeout(100, || {
+            let conn_opts = ConnectionOptions::default();
+
+            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+            let burnchain = testing_burnchain_config();
+
+            let mut chain_view = BurnchainView {
+                burn_block_height: 12348,
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+                burn_stable_block_height: 12341,
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
+            };
+            chain_view.make_test_data();
+
+            let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    "convo_handshake_accept_1",
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    "convo_handshake_accept_2",
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
+
+            db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+            db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+            let mut convo_1 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+            let mut convo_2 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_1,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+
+            // no peer public keys known yet
+            assert!(convo_1.connection.get_public_key().is_none());
+            assert!(convo_2.connection.get_public_key().is_none());
+
+            // convo_1 sends a handshake to convo_2
+            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+            let handshake_1 = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Handshake(handshake_data_1.clone()),
+                )
+                .unwrap();
+            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
+            // it along to the chat caller (us)
+            test_debug!("send handshake");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(
+                    &local_peer_2,
+                    &mut peerdb_2,
+                    &sortdb_2,
+                    &stackerdb_2,
+                    &pox_id_2,
+                    &mut chainstate_2,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view,
+                )
+                .unwrap();
+
+            // convo_1 has a handshakeaccept
+            test_debug!("send handshake-accept");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(
+                    &local_peer_1,
+                    &mut peerdb_1,
+                    &sortdb_1,
+                    &stackerdb_1,
+                    &pox_id_1,
+                    &mut chainstate_1,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view,
+                )
+                .unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);
+
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            // received a valid HandshakeAccept from peer 2
+            match reply_1.payload {
+                StacksMessageType::HandshakeAccept(ref data) => {
+                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                    assert_eq!(data.handshake.port, local_peer_2.port);
+                    assert_eq!(data.handshake.services, local_peer_2.services);
+                    assert_eq!(
+                        data.handshake.node_public_key,
+                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                            &local_peer_2.private_key
+                        ))
+                    );
+                    assert_eq!(
+                        data.handshake.expire_block_height,
+                        local_peer_2.private_key_expire
+                    );
+                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            // convo_2 got updated with convo_1's peer info, but no heartbeat info
+            assert_eq!(convo_2.peer_heartbeat, 3600);
+            assert_eq!(
+                convo_2.connection.get_public_key().unwrap(),
+                Secp256k1PublicKey::from_private(&local_peer_1.private_key)
+            );
+            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+
+            // convo_1 got updated with convo_2's peer info, as well as heartbeat
+            assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
+            assert_eq!(
+                convo_1.connection.get_public_key().unwrap(),
+                Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+            );
+            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+        })
+    }
+
+    #[test]
     fn convo_handshake_reject() {
         let conn_opts = ConnectionOptions::default();
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -3286,26 +3482,28 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_reject_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_reject_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_reject_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_reject_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3358,6 +3556,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3372,6 +3571,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3425,26 +3625,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_badsignature_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_badsignature_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_badsignature_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_badsignature_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3501,6 +3703,7 @@ mod test {
             &local_peer_2,
             &mut peerdb_2,
             &sortdb_2,
+            &stackerdb_2,
             &pox_id_2,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
@@ -3514,6 +3717,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3562,26 +3766,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_self_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_self_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_self_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_self_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3632,6 +3838,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3646,6 +3853,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3700,26 +3908,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_ping_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_ping_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_ping_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_ping_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3788,6 +3998,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3808,6 +4019,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3870,26 +4082,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_handshake_ping_loop_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_handshake_ping_loop_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_handshake_ping_loop_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_handshake_ping_loop_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3956,6 +4170,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3974,6 +4189,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4091,26 +4307,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_nack_unsolicited_1",
-            &burnchain,
-            0x9abcdef0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_nack_unsolicited_2",
-            &burnchain,
-            0x9abcdef0,
-            12351,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_nack_unsolicited_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_nack_unsolicited_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -4161,6 +4379,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4175,6 +4394,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -4223,35 +4443,37 @@ mod test {
             let burnchain = testing_burnchain_config();
 
             let mut chain_view = BurnchainView {
-                burn_block_height: 12331, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12348 - 8).unwrap()),
+                burn_block_height: 12331,
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
-                burn_stable_block_height: 12331 - 7, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12341 - 8).unwrap() - 1),
+                burn_stable_block_height: 12331 - 7,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
                 rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-                "convo_handshake_getblocksinv_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-                DEFAULT_SERVICES,
-            );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-                "convo_handshake_getblocksinv_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-                DEFAULT_SERVICES,
-            );
+            let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+                make_test_chain_dbs(
+                    "convo_handshake_getblocksinv_1",
+                    &burnchain,
+                    0x9abcdef0,
+                    12350,
+                    "http://peer1.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
+            let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+                make_test_chain_dbs(
+                    "convo_handshake_getblocksinv_2",
+                    &burnchain,
+                    0x9abcdef0,
+                    12351,
+                    "http://peer2.com".into(),
+                    &vec![],
+                    &vec![],
+                    DEFAULT_SERVICES,
+                );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -4304,6 +4526,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4319,6 +4542,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4343,7 +4567,8 @@ mod test {
 
             // received a valid HandshakeAccept from peer 2
             match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
+                StacksMessageType::HandshakeAccept(ref data)
+                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
                     assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
                     assert_eq!(data.handshake.port, local_peer_2.port);
                     assert_eq!(data.handshake.services, local_peer_2.services);
@@ -4402,6 +4627,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4417,6 +4643,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4471,6 +4698,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4486,6 +4714,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4539,26 +4768,28 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
-            "convo_natpunch_1",
-            &burnchain,
-            0x9abcdef0,
-            12352,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
-            "convo_natpunch_2",
-            &burnchain,
-            0x9abcdef0,
-            12353,
-            "http://peer2.com".into(),
-            &vec![],
-            &vec![],
-            DEFAULT_SERVICES,
-        );
+        let (mut peerdb_1, mut sortdb_1, stackerdb_1, pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                "convo_natpunch_1",
+                &burnchain,
+                0x9abcdef0,
+                12352,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, stackerdb_2, pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                "convo_natpunch_2",
+                &burnchain,
+                0x9abcdef0,
+                12353,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -4607,6 +4838,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4622,6 +4854,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
