@@ -113,11 +113,19 @@
 #[cfg(test)]
 pub mod tests;
 
-use std::collections::HashSet;
+pub mod bits;
+pub mod db;
 
 use crate::net::ContractId;
+use crate::net::Neighbor;
 use crate::net::NeighborKey;
 use crate::net::StackerDBChunkData;
+
+use crate::util_lib::db::{DBConn, DBTx};
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
+use std::collections::{HashMap, HashSet};
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
@@ -130,4 +138,67 @@ pub struct StackerDBSyncResult {
     pub chunks_to_store: Vec<StackerDBChunkData>,
     /// dead neighbors we can disconnect from
     pub dead: HashSet<NeighborKey>,
+}
+
+/// Settings for the Stacker DB
+#[derive(Clone, Debug, PartialEq)]
+pub struct StackerDBConfig {
+    /// maximum chunk size
+    pub chunk_size: u64,
+    /// number of chunks in this DB.  Cannot be bigger than STACERDB_INV_MAX.
+    pub num_chunks: u64,
+    /// minimum wall-clock time between writes to the same chunk.
+    pub write_freq: u64,
+    /// maximum number of times a chunk may be written to during a reward cycle.
+    pub max_writes: u32,
+    /// hint for some initial peers that have replicas of this DB
+    pub hint_peers: Vec<NeighborKey>,
+    /// hint for how many neighbors to connect to
+    pub num_neighbors: usize,
+}
+
+impl StackerDBConfig {
+    /// Config that does nothing
+    pub fn noop() -> StackerDBConfig {
+        StackerDBConfig {
+            chunk_size: u64::MAX,
+            write_freq: 0,
+            max_writes: u32::MAX,
+            hint_peers: vec![],
+            num_neighbors: 8,
+            num_chunks: STACKERDB_INV_MAX.into(),
+        }
+    }
+}
+
+/// This is a replicated database that stores fixed-length opaque blobs of data from a
+/// smart-contract-specified list of principals.  For example, in sBTC, each Stacker gets one slot
+/// per reward cycle clinched.
+///
+/// Users can store whatever they like in their blobs.  For example, in sBTC this is signature
+/// generation data.
+pub struct StackerDB {
+    conn: DBConn,
+}
+
+/// A transaction against the Stacker DB
+pub struct StackerDBTx<'a> {
+    sql_tx: DBTx<'a>,
+    config: StackerDBConfig,
+}
+
+/// Chunk metadata from the DB.
+/// This is derived state from a StackerDBChunkData message.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChunkMetadata {
+    /// Reward cycle identifier
+    pub rc_consensus_hash: ConsensusHash,
+    /// Chunk identifier (unique for each DB instance)
+    pub chunk_id: u32,
+    /// Chunk version (a lamport clock)
+    pub chunk_version: u32,
+    /// data hash
+    pub data_hash: Sha512Trunc256Sum,
+    /// signature over the above
+    pub signature: MessageSignature,
 }
