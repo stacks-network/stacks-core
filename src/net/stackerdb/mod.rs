@@ -115,17 +115,22 @@ pub mod tests;
 
 pub mod bits;
 pub mod db;
+pub mod sync;
 
 use crate::net::ContractId;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
 use crate::net::StackerDBChunkData;
+use crate::net::StackerDBChunkInvData;
+use crate::net::StackerDBGetChunkData;
 
 use crate::util_lib::db::{DBConn, DBTx};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use std::collections::{HashMap, HashSet};
+
+use crate::net::connection::ReplyHandleP2P;
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
@@ -201,4 +206,51 @@ pub struct ChunkMetadata {
     pub data_hash: Sha512Trunc256Sum,
     /// signature over the above
     pub signature: MessageSignature,
+}
+
+/// Set of peers for a stacker DB
+pub struct StackerDBPeerSet {
+    /// which contract this is a replica for
+    pub smart_contract_id: ContractId,
+    /// number of chunks in this DB
+    pub num_chunks: usize,
+    /// how frequently we accept chunk writes
+    pub write_freq: u64,
+    /// event handles to peers we're talking to
+    pub peers: HashSet<usize>,
+    /// peers that are in the process of connecting
+    pub connecting: HashMap<NeighborKey, usize>,
+    /// in-flight requests for the current state
+    pub requests: HashMap<NeighborKey, ReplyHandleP2P>,
+    /// in-flight requests for the next state
+    pub next_requests: HashMap<NeighborKey, ReplyHandleP2P>,
+    /// nodes that didn't reply, and can be disconnected
+    pub dead: HashSet<NeighborKey>,
+    /// What versions of each chunk does each neighbor have?
+    pub chunk_invs: HashMap<NeighborKey, StackerDBChunkInvData>,
+    /// What priority should we be fetching chunks in, and from whom?
+    pub chunk_priorities: Vec<(StackerDBGetChunkData, Vec<NeighborKey>)>,
+    /// Index into `chunk_priorities` at which to consider the next download.
+    pub next_chunk_priority: usize,
+    /// What is the expected version vector for this DB's chunks?
+    pub expected_versions: Vec<u32>,
+    /// Downloaded chunks
+    pub downloaded_chunks: HashMap<NeighborKey, Vec<StackerDBChunkData>>,
+}
+
+/// Possible states a DB sync state-machine can be in
+pub enum StackerDBSyncState {
+    ConnectBegin(Vec<Neighbor>, StackerDBPeerSet, u64),
+    ConnectFinish(StackerDBPeerSet),
+    GetChunkInv(StackerDBPeerSet),
+    GetChunks(StackerDBPeerSet),
+    Final(StackerDBSyncResult),
+}
+
+/// Top-level state machine a stacker DB
+pub struct StackerDBSync {
+    pub smart_contract_id: ContractId,
+    pub stacker_db: StackerDB,
+    pub total_stored: u64,
+    state: Option<StackerDBSyncState>,
 }
