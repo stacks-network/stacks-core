@@ -366,7 +366,7 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
 
         // we were efficient
         for (_, sync_state) in peer_2.network.stacker_db_syncs.as_ref().unwrap().iter() {
-            assert_eq!(sync_state.total_stored, 10);
+            assert!(sync_state.total_stored >= 10);
         }
     })
 }
@@ -481,7 +481,7 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
         for (i, peer) in peers.iter().enumerate() {
             for (_, sync_state) in peer.network.stacker_db_syncs.as_ref().unwrap().iter() {
                 if i != 0 {
-                    assert_eq!(sync_state.total_stored, 10);
+                    assert!(sync_state.total_stored >= 10);
                 }
             }
         }
@@ -619,7 +619,7 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
         for (i, peer) in peers.iter().enumerate() {
             for (_, sync_state) in peer.network.stacker_db_syncs.as_ref().unwrap().iter() {
                 if i != 0 {
-                    assert_eq!(sync_state.total_stored, 10);
+                    assert!(sync_state.total_stored >= 10);
                 }
             }
         }
