@@ -680,7 +680,7 @@ pub mod test {
         let num_items = 8192;
         let err_rate = 0.001;
 
-        let mut db = setup_bloom_counter("has_all_inserted_items_with_error_rate");
+        let mut db = setup_bloom_counter(function_name!());
         let hasher = BloomNodeHasher::new(&[0u8; 32]);
 
         let bf = {
@@ -720,7 +720,7 @@ pub mod test {
         let num_items = 8192;
         let err_rate = 0.001;
 
-        let mut db = setup_bloom_counter("counter_is_invertible");
+        let mut db = setup_bloom_counter(function_name!());
 
         let hasher = BloomNodeHasher::new(&[0u8; 32]);
 
@@ -787,7 +787,7 @@ pub mod test {
         let num_items = 8192;
         let err_rate = 0.001;
 
-        let mut db = setup_bloom_counter("counter_is_invertible_over_iterations");
+        let mut db = setup_bloom_counter(function_name!());
 
         let hasher = BloomNodeHasher::new(&[0u8; 32]);
 
@@ -980,7 +980,7 @@ pub mod test {
         let num_items = 8192;
         let err_rate = 0.001;
 
-        let mut db = setup_bloom_counter("has_all_inserted_items_with_error_rate");
+        let mut db = setup_bloom_counter(function_name!());
 
         let hasher = BloomNodeHasher::new(&[0u8; 32]);
 
