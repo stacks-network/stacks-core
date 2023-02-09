@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
@@ -25,7 +27,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::vm::ClarityVersion;
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
-    let mut contract_interface = ContractInterface::new(contract_analysis.clarity_version.clone());
+    let mut contract_interface = ContractInterface::new(
+        contract_analysis.epoch.clone(),
+        contract_analysis.clarity_version.clone(),
+    );
 
     let ContractAnalysis {
         private_function_types,
@@ -36,6 +41,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         map_types,
         fungible_tokens,
         non_fungible_tokens,
+        epoch: _,
         clarity_version: _,
         defined_traits: _,
         implemented_traits: _,
@@ -229,7 +235,7 @@ pub struct ContractInterfaceFunctionArg {
 }
 
 impl ContractInterfaceFunctionArg {
-    pub fn from_function_args(fnArgs: &Vec<FunctionArg>) -> Vec<ContractInterfaceFunctionArg> {
+    pub fn from_function_args(fnArgs: &[FunctionArg]) -> Vec<ContractInterfaceFunctionArg> {
         let mut args: Vec<ContractInterfaceFunctionArg> = Vec::new();
         for ref fnArg in fnArgs.iter() {
             args.push(ContractInterfaceFunctionArg {
@@ -365,17 +371,19 @@ pub struct ContractInterface {
     pub maps: Vec<ContractInterfaceMap>,
     pub fungible_tokens: Vec<ContractInterfaceFungibleTokens>,
     pub non_fungible_tokens: Vec<ContractInterfaceNonFungibleTokens>,
+    pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
 }
 
 impl ContractInterface {
-    pub fn new(clarity_version: ClarityVersion) -> Self {
+    pub fn new(epoch: StacksEpochId, clarity_version: ClarityVersion) -> Self {
         Self {
             functions: Vec::new(),
             variables: Vec::new(),
             maps: Vec::new(),
             fungible_tokens: Vec::new(),
             non_fungible_tokens: Vec::new(),
+            epoch,
             clarity_version,
         }
     }

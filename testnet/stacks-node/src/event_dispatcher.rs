@@ -30,6 +30,7 @@ use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
+use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
@@ -46,6 +47,7 @@ struct ReceiptPayloadInfo<'a> {
     raw_result: String,
     raw_tx: String,
     contract_interface_json: serde_json::Value,
+    burnchain_op_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -214,12 +216,16 @@ impl EventObserver {
             }
         };
 
-        let (txid, raw_tx) = match tx {
-            TransactionOrigin::Burn(txid) => (txid.to_string(), "00".to_string()),
+        let (txid, raw_tx, burnchain_op_json) = match tx {
+            TransactionOrigin::Burn(op) => (
+                op.txid().to_string(),
+                "00".to_string(),
+                BlockstackOperationType::blockstack_op_to_json(&op),
+            ),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
                 let bytes = tx.serialize_to_vec();
-                (txid, bytes_to_hex(&bytes))
+                (txid, bytes_to_hex(&bytes), json!(null))
             }
         };
 
@@ -239,6 +245,7 @@ impl EventObserver {
             raw_result,
             raw_tx,
             contract_interface_json,
+            burnchain_op_json,
         }
     }
 
@@ -256,6 +263,7 @@ impl EventObserver {
             "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
             "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
             "contract_abi": receipt_payload_info.contract_interface_json,
+            "burnchain_op": receipt_payload_info.burnchain_op_json,
             "execution_cost": receipt.execution_cost,
             "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
             "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
@@ -337,7 +345,7 @@ impl EventObserver {
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
@@ -451,10 +459,10 @@ impl BlockEventDispatcher for EventDispatcher {
         &self,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: &Vec<MinerReward>,
+        mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
@@ -652,10 +660,10 @@ impl EventDispatcher {
         &self,
         block: &StacksBlock,
         metadata: &StacksHeaderInfo,
-        receipts: &Vec<StacksTransactionReceipt>,
+        receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: &Vec<MinerReward>,
+        mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
@@ -664,7 +672,7 @@ impl EventDispatcher {
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
     ) {
-        let all_receipts = receipts.clone();
+        let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
         if dispatch_matrix.len() > 0 {

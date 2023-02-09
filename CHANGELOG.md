@@ -18,7 +18,7 @@ This release will contain consensus-breaking changes.
   keyword or function. 
 - Clarity2 improvements to traits (see #3251 for details):
   * Trait values can be passed to compatible sub-trait types
-  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)
+  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
   * Traits can be assigned to a let-variable
 - Fixes to unexpected behavior in traits
   * A trait with duplicate function names is now an error (#3214)

@@ -216,7 +216,7 @@ pub trait ConsensusHashExtensions {
         burn_header_hash: &BurnchainHeaderHash,
         opshash: &OpsHash,
         total_burn: u64,
-        prev_consensus_hashes: &Vec<ConsensusHash>,
+        prev_consensus_hashes: &[ConsensusHash],
         pox_id: &PoxId,
     ) -> ConsensusHash;
 
@@ -255,7 +255,7 @@ impl ConsensusHashExtensions for ConsensusHash {
         burn_header_hash: &BurnchainHeaderHash,
         opshash: &OpsHash,
         total_burn: u64,
-        prev_consensus_hashes: &Vec<ConsensusHash>,
+        prev_consensus_hashes: &[ConsensusHash],
         pox_id: &PoxId,
     ) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
