@@ -912,7 +912,7 @@ impl TransactionAuth {
         }
     }
 
-    pub fn from_p2sh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+    pub fn from_p2sh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
         let mut pubks = vec![];
         for privk in privks.iter() {
             pubks.push(StacksPublicKey::from_private(privk));
@@ -933,7 +933,7 @@ impl TransactionAuth {
         }
     }
 
-    pub fn from_p2wsh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+    pub fn from_p2wsh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
         let mut pubks = vec![];
         for privk in privks.iter() {
             pubks.push(StacksPublicKey::from_private(privk));
