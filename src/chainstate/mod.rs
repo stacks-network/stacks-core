@@ -19,7 +19,7 @@ use crate::util_lib::db;
 use crate::util_lib::db::Error as db_error;
 
 pub trait ChainstateDB {
-    fn backup(backup_path: &String) -> Result<(), db_error>;
+    fn backup(backup_path: &str) -> Result<(), db_error>;
 }
 
 // needs to come _after_ the macro def above, since they both use this macro

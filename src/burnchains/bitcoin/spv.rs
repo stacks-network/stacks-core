@@ -381,7 +381,7 @@ impl SpvClient {
     }
 
     /// Calculate the total work over a given interval of headers.
-    fn get_interval_work(interval_headers: &Vec<LoneBlockHeader>) -> Uint256 {
+    fn get_interval_work(interval_headers: &[LoneBlockHeader]) -> Uint256 {
         let mut work = Uint256::from_u64(0);
         for hdr in interval_headers.iter() {
             work = work + hdr.header.work();

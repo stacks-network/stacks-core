@@ -2380,7 +2380,7 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
