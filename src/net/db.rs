@@ -554,7 +554,7 @@ impl PeerDB {
         }
     }
 
-    fn update_local_peer(
+    pub fn update_local_peer(
         &mut self,
         network_id: u32,
         parent_network_id: u32,
@@ -1324,7 +1324,7 @@ impl PeerDB {
         conn: &Connection,
         smart_contract: &ContractId,
     ) -> Result<Vec<u32>, db_error> {
-        let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_id";
+        let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_id = ?1";
         let args: &[&dyn ToSql] = &[&smart_contract];
         query_rows(conn, qry, args)
     }
@@ -1396,7 +1396,8 @@ impl PeerDB {
             tx.execute(sql, args).map_err(db_error::SqliteError)?;
         }
 
-        let sql = "INSERT OR REPLACE INTO stackerdb_peers (smart_contract_id,peer_slot) VALUES (?1,?2,?3)";
+        let sql =
+            "INSERT OR REPLACE INTO stackerdb_peers (smart_contract_id,peer_slot) VALUES (?1,?2)";
         for slot in cur_slots {
             for cid in to_insert.iter() {
                 test_debug!("Add Stacker DB for {:?}: {}", &neighbor.addr, &cid);
