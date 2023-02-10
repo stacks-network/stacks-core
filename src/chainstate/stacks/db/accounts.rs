@@ -555,7 +555,7 @@ impl StacksChainState {
     pub fn insert_miner_payment_schedule<'a>(
         tx: &mut DBTx<'a>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
     ) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
@@ -970,7 +970,7 @@ impl StacksChainState {
         parent_block_epoch: StacksEpochId,
         participant: &MinerPaymentSchedule,
         miner: &MinerPaymentSchedule,
-        users: &Vec<MinerPaymentSchedule>,
+        users: &[MinerPaymentSchedule],
         parent: &MinerPaymentSchedule,
         poison_reporter_opt: Option<&StacksAddress>,
     ) -> (MinerReward, MinerReward) {

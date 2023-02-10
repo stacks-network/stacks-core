@@ -60,7 +60,7 @@ impl MocknetController {
             current_block.block_height + 1,
             &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(),
             &current_block.burn_header_hash,
-            &vec![],
+            vec![],
             get_epoch_time_secs(),
         ));
         block.header()

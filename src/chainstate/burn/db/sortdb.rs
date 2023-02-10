@@ -5092,7 +5092,7 @@ impl<'a> SortitionHandleTx<'a> {
         &mut self,
         parent_snapshot: &mut BlockSnapshot,
         snapshot: &BlockSnapshot,
-        block_ops: &Vec<BlockstackOperationType>,
+        block_ops: &[BlockstackOperationType],
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
@@ -5679,7 +5679,7 @@ impl<'a> SortitionHandleTx<'a> {
 }
 
 impl ChainstateDB for SortitionDB {
-    fn backup(_backup_path: &String) -> Result<(), db_error> {
+    fn backup(_backup_path: &str) -> Result<(), db_error> {
         return Err(db_error::NotImplemented);
     }
 }
