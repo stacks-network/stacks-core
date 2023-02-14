@@ -725,7 +725,7 @@ impl NonfungibleConditionCode {
         }
     }
 
-    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &Vec<Value>) -> bool {
+    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
         for asset_sent in nfts_sent.iter() {
             if *asset_sent == *nft_sent_condition {
                 // asset was sent, and is no longer owned by this principal
@@ -735,7 +735,7 @@ impl NonfungibleConditionCode {
         return false;
     }
 
-    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &Vec<Value>) -> bool {
+    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &[Value]) -> bool {
         match *self {
             NonfungibleConditionCode::Sent => {
                 NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)

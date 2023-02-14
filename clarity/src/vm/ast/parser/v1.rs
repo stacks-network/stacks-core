@@ -19,9 +19,7 @@ use lazy_static::lazy_static;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType,
-    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, CONTRACT_NAME_REGEX_STRING,
-    CONTRACT_PRINCIPAL_REGEX_STRING, MAX_STRING_LEN, STANDARD_PRINCIPAL_REGEX_STRING,
+    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, MAX_STRING_LEN,
 };
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
 use regex::{Captures, Regex};
@@ -32,6 +30,9 @@ use std::convert::TryInto;
 
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::MAX_CALL_STACK_DEPTH;
+
+pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
+pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 
 pub enum LexItem {
     LeftParen,
@@ -111,7 +112,22 @@ fn get_lines_at(input: &str) -> Vec<usize> {
 }
 
 lazy_static! {
-    pub static ref CLARITY_NAME_REGEX_STRING: String =
+    pub static ref STANDARD_PRINCIPAL_REGEX: String =
+        "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
+    pub static ref CONTRACT_NAME_REGEX: String = format!(
+        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+        CONTRACT_MIN_NAME_LENGTH - 1,
+        CONTRACT_MAX_NAME_LENGTH - 1
+    );
+    pub static ref CONTRACT_PRINCIPAL_REGEX: String = format!(
+        r#"{}(\.){}"#,
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
+    );
+    pub static ref PRINCIPAL_DATA_REGEX: String = format!(
+        "({})|({})",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX
+    );
+    pub static ref CLARITY_NAME_REGEX: String =
         format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN);
 
     static ref lex_matchers: Vec<LexMatcher> = vec![
@@ -142,31 +158,31 @@ lazy_static! {
         LexMatcher::new(
             &format!(
                 r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_PRINCIPAL_REGEX_STRING, MAX_STRING_LEN
+                *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN
             ),
             TokenType::FullyQualifiedFieldIdentifierLiteral,
         ),
         LexMatcher::new(
             &format!(
                 r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN
+                *CONTRACT_NAME_REGEX, MAX_STRING_LEN
             ),
             TokenType::SugaredFieldIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!(r#"'(?P<value>{})"#, *CONTRACT_PRINCIPAL_REGEX_STRING),
+            &format!(r#"'(?P<value>{})"#, *CONTRACT_PRINCIPAL_REGEX),
             TokenType::FullyQualifiedContractIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!(r#"(?P<value>(\.){})"#, *CONTRACT_NAME_REGEX_STRING),
+            &format!(r#"(?P<value>(\.){})"#, *CONTRACT_NAME_REGEX),
             TokenType::SugaredContractIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!("'(?P<value>{})", *STANDARD_PRINCIPAL_REGEX_STRING),
+            &format!("'(?P<value>{})", *STANDARD_PRINCIPAL_REGEX),
             TokenType::PrincipalLiteral,
         ),
         LexMatcher::new(
-            &format!("(?P<value>{})", *CLARITY_NAME_REGEX_STRING),
+            &format!("(?P<value>{})", *CLARITY_NAME_REGEX),
             TokenType::Variable,
         ),
     ];
@@ -477,7 +493,7 @@ enum ParseStackItem {
 }
 
 fn handle_expression(
-    parse_stack: &mut Vec<(Vec<ParseStackItem>, u32, u32, ParseContext)>,
+    parse_stack: &mut [(Vec<ParseStackItem>, u32, u32, ParseContext)],
     outputs: &mut Vec<PreSymbolicExpression>,
     expr: PreSymbolicExpression,
 ) {
@@ -1301,5 +1317,16 @@ mod test {
                 panic!("Got {:?}", &x);
             }
         });
+    }
+
+    #[test]
+    fn test_long_contract_name() {
+        let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
+        assert!(
+            match ast::parser::v1::parse(long_contract_name).unwrap_err().err {
+                ParseErrors::SeparatorExpected(_) => true,
+                _ => false,
+            }
+        );
     }
 }

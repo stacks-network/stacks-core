@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::env;
 use std::thread;
 
-use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
@@ -52,6 +51,7 @@ use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::miner::set_mining_spend_amount;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::chainstate::stacks::miner::signal_mining_ready;
 
@@ -67,6 +67,9 @@ use crate::operations::BurnchainOpSigner;
 use crate::Keychain;
 
 use stacks::util::sleep_ms;
+
+use stacks::util_lib::boot::boot_code_id;
+use stacks_common::types::chainstate::StacksBlockId;
 
 const MINER_BURN_PUBLIC_KEY: &'static str =
     "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa";
@@ -1636,7 +1639,7 @@ fn transition_removes_pox_sunset() {
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(
         &pox_info.contract_id,
-        &format!("ST000000000000000000002AMW42H.pox")
+        &format!("ST000000000000000000002AMW42H.pox-2")
     );
 
     // re-stack
@@ -1979,9 +1982,6 @@ fn transition_empty_blocks() {
 fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
     loop {
         let mut straggler = false;
-        let mut stacker_am = None;
-        let mut heaviest_am = None;
-        let mut sortition_am = None;
         let mut stacks_tip_ch = None;
         let mut stacks_tip_bhh = None;
 
@@ -1993,22 +1993,6 @@ fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64
                 straggler = true;
             }
 
-            let affirmations = tip_info.affirmations.unwrap();
-
-            if let Some(stacker_am) = stacker_am.as_ref() {
-                if affirmations.stacks_tip != *stacker_am {
-                    straggler = true;
-                }
-            } else {
-                stacker_am = Some(affirmations.stacks_tip);
-            }
-            if let Some(heaviest_am) = heaviest_am.as_ref() {
-                if affirmations.heaviest != *heaviest_am {
-                    straggler = true;
-                }
-            } else {
-                heaviest_am = Some(affirmations.heaviest);
-            }
             if let Some(stacks_tip_ch) = stacks_tip_ch.as_ref() {
                 if *stacks_tip_ch != tip_info.stacks_tip_consensus_hash {
                     straggler = true;
@@ -2022,19 +2006,6 @@ fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64
                 }
             } else {
                 stacks_tip_bhh = Some(tip_info.stacks_tip);
-            }
-
-            // sortition affirmation map can differ by the last affirmation
-            if let Some(sortition_am) = sortition_am.as_ref() {
-                let mut tip_sort_am = affirmations.sortition_tip.clone();
-                tip_sort_am.pop();
-                if tip_sort_am != *sortition_am {
-                    straggler = true;
-                }
-            } else {
-                let mut tip_sort_am = affirmations.sortition_tip.clone();
-                tip_sort_am.pop();
-                sortition_am = Some(tip_sort_am);
             }
         }
         if !straggler {
@@ -4261,26 +4232,678 @@ fn test_pox_missing_five_anchor_blocks() {
     }
 }
 
-/*
 #[test]
 #[ignore]
-// fails with NoSuchContract: epoch_21 = 215, v1_unlock_height = 216
-// fails with NoSuchContract: epoch_21 = 214, v1_unlock_height = 215
-// fails with NoSuchContract: epoch_21 = 213, v1_unlock_height = 214
-// works: epoch_21 = 212, v1_unlock_height = 213
-// works: epoch_21 = 211, v1_unlock_height = 212
-// fails with NoSuchContract: epoch_21 = 211, v1_unlock_height = 211
-// fails with NoSuchContract: epoch_21 = 210, v1_unlock_height = 211
-// fails with NoSuchContract: epoch_21 = 209, v1_unlock_height = 211
-//
-// works: epoch_21 = 209, v1_unlock_height = 212
-// works: epoch_21 = 209, v1_unlock_height = 214
-// works: epoch_21 = 210, v1_unlock_height = 212
-// works: epoch_21 = 211, v1_unlock_height = 216
-// works: epoch_21 = 211, v1_unlock_height = 218
-// works: epoch_21 = 213, v1_unlock_height = 218
-// works: epoch_21 = 214, v1_unlock_height = 218
-fn test_v1_unlock_height() {
+/// Verify that if the sortition AM declares that an anchor block is present in epoch 2.05, but the
+/// heaviest AM declares it absent, that this is _not_ treated as a divergence of this behavior
+/// manifests in epoch 2.05.
+fn test_sortition_divergence_pre_21() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_miners = 2;
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 5;
+    let v1_unlock_height = 242;
+
+    let (mut conf_template, _) = neon_integration_test_conf();
+    let block_time_ms = 10_000;
+    conf_template.node.mine_microblocks = true;
+    conf_template.miner.microblock_attempt_time_ms = 2_000;
+    conf_template.node.wait_time_for_microblocks = 0;
+    conf_template.node.microblock_frequency = 0;
+    conf_template.miner.first_attempt_time_ms = 2_000;
+    conf_template.miner.subsequent_attempt_time_ms = 5_000;
+    conf_template.burnchain.max_rbf = 1000000;
+    conf_template.node.wait_time_for_blocks = 1_000;
+    conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
+
+    conf_template.node.require_affirmed_anchor_blocks = false;
+    conf_template.node.always_use_affirmation_maps = false;
+
+    // make epoch 2.1 start after we have created this error condition
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = 101;
+    epochs[2].start_height = 101;
+    epochs[2].end_height = 241;
+    epochs[3].start_height = 241;
+    conf_template.burnchain.epochs = Some(epochs);
+
+    let privks: Vec<_> = (0..5)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+
+    let stack_privks: Vec<_> = (0..5)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+
+    let balances: Vec<_> = privks
+        .iter()
+        .map(|privk| {
+            let addr = to_addr(privk);
+            InitialBalance {
+                address: addr.into(),
+                amount: 30_000_000,
+            }
+        })
+        .collect();
+
+    let stack_balances: Vec<_> = stack_privks
+        .iter()
+        .map(|privk| {
+            let addr = to_addr(privk);
+            InitialBalance {
+                address: addr.into(),
+                amount: 2_000_000_000_000_000,
+            }
+        })
+        .collect();
+
+    let mut confs = vec![];
+    let mut burnchain_configs = vec![];
+    let mut blocks_processed = vec![];
+    let mut channels = vec![];
+    let mut miner_status = vec![];
+
+    for i in 0..num_miners {
+        let seed = StacksPrivateKey::new().to_bytes();
+        let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
+
+        conf.initial_balances.clear();
+        conf.initial_balances.append(&mut balances.clone());
+        conf.initial_balances.append(&mut stack_balances.clone());
+
+        conf.node.mine_microblocks = conf_template.node.mine_microblocks;
+        conf.miner.microblock_attempt_time_ms = conf_template.miner.microblock_attempt_time_ms;
+        conf.node.wait_time_for_microblocks = conf_template.node.wait_time_for_microblocks;
+        conf.node.microblock_frequency = conf_template.node.microblock_frequency;
+        conf.miner.first_attempt_time_ms = conf_template.miner.first_attempt_time_ms;
+        conf.miner.subsequent_attempt_time_ms = conf_template.miner.subsequent_attempt_time_ms;
+        conf.node.wait_time_for_blocks = conf_template.node.wait_time_for_blocks;
+        conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
+        conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
+        conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation.clone();
+        conf.node.require_affirmed_anchor_blocks =
+            conf_template.node.require_affirmed_anchor_blocks;
+
+        conf.node.always_use_affirmation_maps = false;
+
+        // multiple nodes so they must download from each other
+        conf.miner.wait_for_block_download = true;
+
+        // nodes will selectively hide blocks from one another
+        conf.node.fault_injection_hide_blocks = true;
+
+        conf.connection_options.inv_sync_interval = 6;
+
+        let rpc_port = 41113 + 10 * i;
+        let p2p_port = 41113 + 10 * i + 1;
+        conf.node.rpc_bind = format!("127.0.0.1:{}", rpc_port);
+        conf.node.data_url = format!("http://127.0.0.1:{}", rpc_port);
+        conf.node.p2p_bind = format!("127.0.0.1:{}", p2p_port);
+
+        confs.push(conf);
+    }
+
+    let node_privkey_1 =
+        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    for i in 1..num_miners {
+        let chain_id = confs[0].burnchain.chain_id;
+        let peer_version = confs[0].burnchain.peer_version;
+        let p2p_bind = confs[0].node.p2p_bind.clone();
+
+        confs[i].node.set_bootstrap_nodes(
+            format!(
+                "{}@{}",
+                &StacksPublicKey::from_private(&node_privkey_1).to_hex(),
+                p2p_bind
+            ),
+            chain_id,
+            peer_version,
+        );
+    }
+
+    // use short reward cycles
+    for i in 0..num_miners {
+        let mut burnchain_config = Burnchain::regtest(&confs[i].get_burn_db_path());
+        let pox_constants = PoxConstants::new(
+            reward_cycle_len,
+            prepare_phase_len,
+            3,
+            5,
+            15,
+            (1600 * reward_cycle_len - 1).into(),
+            (1700 * reward_cycle_len).into(),
+            v1_unlock_height,
+        );
+        burnchain_config.pox_constants = pox_constants.clone();
+
+        burnchain_configs.push(burnchain_config);
+    }
+
+    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        confs[0].clone(),
+        None,
+        Some(burnchain_configs[0].clone()),
+        None,
+    );
+
+    btc_regtest_controller.bootstrap_chain(1);
+
+    // make sure all miners have BTC
+    for i in 1..num_miners {
+        let old_mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        btc_regtest_controller
+            .set_mining_pubkey(confs[i].burnchain.local_mining_public_key.clone().unwrap());
+        btc_regtest_controller.bootstrap_chain(1);
+        btc_regtest_controller.set_mining_pubkey(old_mining_pubkey);
+    }
+
+    btc_regtest_controller.bootstrap_chain((199 - num_miners) as u64);
+
+    eprintln!("Chain bootstrapped...");
+
+    for (i, burnchain_config) in burnchain_configs.into_iter().enumerate() {
+        let mut run_loop = neon::RunLoop::new(confs[i].clone());
+        let blocks_processed_arc = run_loop.get_blocks_processed_arc();
+        let channel = run_loop.get_coordinator_channel().unwrap();
+        let this_miner_status = run_loop.get_miner_status();
+
+        blocks_processed.push(blocks_processed_arc);
+        channels.push(channel);
+        miner_status.push(this_miner_status);
+
+        thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+    }
+
+    let http_origin = format!("http://{}", &confs[0].node.rpc_bind);
+
+    // give the run loops some time to start up!
+    for i in 0..num_miners {
+        wait_for_runloop(&blocks_processed[i as usize]);
+    }
+
+    // activate miners
+    eprintln!("\n\nBoot miner 0\n\n");
+    loop {
+        let tip_info_opt = get_chain_info_opt(&confs[0]);
+        if let Some(tip_info) = tip_info_opt {
+            eprintln!("\n\nMiner 0: {:?}\n\n", &tip_info);
+            if tip_info.stacks_tip_height > 0 {
+                break;
+            }
+        } else {
+            eprintln!("\n\nWaiting for miner 0...\n\n");
+        }
+        next_block_and_iterate(
+            &mut btc_regtest_controller,
+            &blocks_processed[0],
+            block_time_ms,
+        );
+    }
+
+    for i in 1..num_miners {
+        eprintln!("\n\nBoot miner {}\n\n", i);
+        loop {
+            let tip_info_opt = get_chain_info_opt(&confs[i]);
+            if let Some(tip_info) = tip_info_opt {
+                eprintln!("\n\nMiner 2: {:?}\n\n", &tip_info);
+                if tip_info.stacks_tip_height > 0 {
+                    break;
+                }
+            } else {
+                eprintln!("\n\nWaiting for miner {}...\n\n", i);
+            }
+            next_block_and_iterate(
+                &mut btc_regtest_controller,
+                &blocks_processed[i as usize],
+                5_000,
+            );
+        }
+    }
+
+    eprintln!("\n\nBegin transactions\n\n");
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let sort_height = channels[0].get_sortitions_processed();
+
+    // make everyone stack
+    let stacking_txs: Vec<_> = stack_privks
+        .iter()
+        .enumerate()
+        .map(|(_i, pk)| {
+            make_contract_call(
+                pk,
+                0,
+                1360,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "pox",
+                "stack-stx",
+                &[
+                    Value::UInt(2_000_000_000_000_000 - 30_000_000),
+                    execute(
+                        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                        ClarityVersion::Clarity1,
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    Value::UInt((sort_height + 1) as u128),
+                    Value::UInt(12),
+                ],
+            )
+        })
+        .collect();
+
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
+    // building blocks
+    let all_txs: Vec<_> = privks
+        .iter()
+        .enumerate()
+        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .collect();
+
+    // everyone locks up
+    let mut cnt = 0;
+    for tx in stacking_txs {
+        eprintln!("\n\nSubmit stacking tx {}\n\n", &cnt);
+        submit_tx(&http_origin, &tx);
+        cnt += 1;
+    }
+
+    // run a reward cycle
+    let mut at_220 = false;
+    while !at_220 {
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(block_time_ms);
+
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+            if tip_info.burn_block_height == 220 {
+                at_220 = true;
+            }
+        }
+    }
+
+    // blast out the rest
+    let mut cnt = 0;
+    for tx_chain in all_txs {
+        for tx in tx_chain {
+            eprintln!("\n\nSubmit tx {}\n\n", &cnt);
+            submit_tx(&http_origin, &tx);
+            cnt += 1;
+        }
+    }
+
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+        assert!(tip_info.burn_block_height <= 220);
+    }
+
+    eprintln!("\n\nBegin mining\n\n");
+
+    info!("####################### end of cycle ##############################");
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+    }
+    info!("####################### end of cycle ##############################");
+
+    let mut max_stacks_tip = 0;
+
+    // prevent Stacks at these heights from propagating
+    env::set_var(
+        "STACKS_HIDE_BLOCKS_AT_HEIGHT",
+        "[223,224,225,226,227,228,229,230]",
+    );
+
+    // mine a reward cycle in which the 2.05 rules choose a PoX anchor block, but the 2.1 rules do
+    // not.
+    for i in 0..10 {
+        eprintln!("\n\nBuild block {}\n\n", i);
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(block_time_ms);
+
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+        }
+
+        if i >= reward_cycle_len - prepare_phase_len && i < reward_cycle_len - prepare_phase_len + 3
+        {
+            // only miner 0 mines.
+            signal_mining_ready(miner_status[0].clone());
+            signal_mining_blocked(miner_status[1].clone());
+        } else if i >= reward_cycle_len - prepare_phase_len + 3 && i < reward_cycle_len {
+            // only miner 1 mines, and they mine *hard*.
+            signal_mining_blocked(miner_status[0].clone());
+            signal_mining_ready(miner_status[1].clone());
+            set_mining_spend_amount(
+                miner_status[1].clone(),
+                10 * conf_template.burnchain.burn_fee_cap,
+            );
+        }
+    }
+
+    signal_mining_ready(miner_status[0].clone());
+    signal_mining_ready(miner_status[1].clone());
+    set_mining_spend_amount(
+        miner_status[1].clone(),
+        conf_template.burnchain.burn_fee_cap,
+    );
+
+    info!("####################### end of cycle ##############################");
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+        max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
+    }
+    info!("####################### end of cycle ##############################");
+
+    for i in 0..10 {
+        eprintln!("\n\nBuild block {}\n\n", i);
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(block_time_ms);
+
+        for (i, c) in confs.iter().enumerate() {
+            let tip_info = get_chain_info(&c);
+            info!("Tip for miner {}: {:?}", i, &tip_info);
+        }
+    }
+
+    info!("####################### end of cycle ##############################");
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+        max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
+    }
+    info!("####################### end of cycle ##############################");
+
+    // run some cycles in 2.1
+    for _ in 0..2 {
+        for i in 0..10 {
+            eprintln!("\n\nBuild block {}\n\n", i);
+            btc_regtest_controller.build_next_block(1);
+            sleep_ms(block_time_ms);
+
+            for (i, c) in confs.iter().enumerate() {
+                let tip_info = get_chain_info(&c);
+                info!("Tip for miner {}: {:?}", i, &tip_info);
+            }
+        }
+    }
+
+    // advance to start of next reward cycle
+    eprintln!("\n\nBuild final block\n\n");
+    btc_regtest_controller.build_next_block(1);
+    sleep_ms(block_time_ms);
+
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Tip for miner {}: {:?}", i, &tip_info);
+    }
+
+    env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
+
+    // wait for all blocks to propagate.
+    // miner 1 should learn about all of miner 0's blocks
+    info!(
+        "Wait for all blocks to propagate; stacks tip height is {}",
+        max_stacks_tip
+    );
+    wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
+
+    // nodes now agree on stacks affirmation map
+    for (i, c) in confs.iter().enumerate() {
+        let tip_info = get_chain_info(&c);
+        info!("Final tip for miner {}: {:?}", i, &tip_info);
+    }
+}
+
+#[test]
+#[ignore]
+/// test to verify that a 2.05 contract which use a pre-2.1 trait
+///  can be invoked by a post-2.1 contract through *static* and *dynamic* invocation
+fn trait_invocation_cross_epoch() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = PrincipalData::from(to_addr(&spender_sk));
+    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+
+    let trait_contract = "(define-trait simple-method ((foo (uint) (response uint uint)) ))";
+    let impl_contract =
+        "(impl-trait .simple-trait.simple-method) (define-read-only (foo (x uint)) (ok x))";
+    let use_contract = "(use-trait simple .simple-trait.simple-method)
+                        (define-public (call-simple (s <simple>)) (contract-call? s foo u0))";
+    let invoke_contract = "
+        (use-trait simple .simple-trait.simple-method)
+        (define-public (invocation-1)
+          (contract-call? .use-simple call-simple .impl-simple))
+        (define-public (invocation-2 (st <simple>))
+          (contract-call? .use-simple call-simple st))
+    ";
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    test_observer::spawn();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    let mut initial_balances = vec![InitialBalance {
+        address: spender_addr.clone(),
+        amount: 200_000_000,
+    }];
+    conf.initial_balances.append(&mut initial_balances);
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+    conf.burnchain.epochs = Some(epochs);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let reward_cycle_len = 2000;
+    let prepare_phase_len = 100;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+        u32::max_value(),
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    // bitcoin chain starts at epoch 2.05 boundary
+    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 5);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let runloop_burnchain = burnchain_config.clone();
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // cross the epoch 2.05 boundary
+    for _i in 0..3 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_05 + 1);
+
+    let tx = make_contract_publish(&spender_sk, 0, 10_000, "simple-trait", trait_contract);
+    let trait_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_publish(&spender_sk, 1, 10_000, "impl-simple", impl_contract);
+    let impl_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_publish(&spender_sk, 2, 10_000, "use-simple", use_contract);
+    let use_txid = submit_tx(&http_origin, &tx);
+
+    // mine the transactions and advance to epoch 2.1
+    for _ in 0..5 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_1 + 1);
+
+    let tx = make_contract_publish(&spender_sk, 3, 10_000, "invoke-simple", invoke_contract);
+    let invoke_txid = submit_tx(&http_origin, &tx);
+
+    for _ in 0..2 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tx = make_contract_call(
+        &spender_sk,
+        4,
+        10_000,
+        &spender_addr_c32,
+        "invoke-simple",
+        "invocation-1",
+        &[],
+    );
+    let invoke_1_txid = submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        5,
+        10_000,
+        &spender_addr_c32,
+        "invoke-simple",
+        "invocation-2",
+        &[Value::Principal(PrincipalData::Contract(
+            QualifiedContractIdentifier::parse(&format!("{}.{}", &spender_addr_c32, "impl-simple"))
+                .unwrap(),
+        ))],
+    );
+    let invoke_2_txid = submit_tx(&http_origin, &tx);
+
+    for _ in 0..2 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let interesting_txids = vec![
+        invoke_txid.clone(),
+        invoke_1_txid.clone(),
+        invoke_2_txid.clone(),
+        use_txid.clone(),
+        impl_txid.clone(),
+        trait_txid.clone(),
+    ];
+
+    let blocks = test_observer::get_blocks();
+    let mut results = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if interesting_txids.contains(&parsed.txid().to_string()) {
+                eprintln!(
+                    "{} => {}",
+                    parsed.txid(),
+                    tx.get("status").unwrap().as_str().unwrap()
+                );
+                results.push(tx.get("status").unwrap().as_str().unwrap().to_string());
+                eprintln!(
+                    "{} => {}",
+                    parsed.txid(),
+                    tx.get("raw_result").unwrap().as_str().unwrap()
+                );
+            }
+        }
+    }
+
+    assert_eq!(results.len(), 6);
+
+    for result in results.iter() {
+        assert_eq!(result, "success");
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
+/// height to be at the start of the subsequent reward cycle.
+///
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
+/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
+/// that contains v1 unlock height.
+fn test_v1_unlock_height_with_current_stackers() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -4289,7 +4912,7 @@ fn test_v1_unlock_height() {
     let prepare_phase_len = 3;
     let epoch_2_05 = 205;
     let epoch_2_1 = 210;
-    let v1_unlock_height = 212;
+    let v1_unlock_height = 211;
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
@@ -4302,12 +4925,22 @@ fn test_v1_unlock_height() {
         amount: stacked + 100_000,
     });
 
-    let pox_pubkey = Secp256k1PublicKey::from_hex(
+    let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey)
+    let pox_pubkey_hash_1 = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey_1)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
+        "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
+    )
+    .unwrap();
+    let pox_pubkey_hash_2 = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
             .to_vec(),
     );
@@ -4379,7 +5012,6 @@ fn test_v1_unlock_height() {
     let runloop_burnchain = burnchain_config.clone();
 
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let miner_status = run_loop.get_miner_status();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -4397,17 +5029,10 @@ fn test_v1_unlock_height() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    loop {
-        let tip_info = get_chain_info(&conf);
-        if tip_info.stacks_tip_height >= epoch_2_1 {
-            break;
-        }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
-
-    let sort_height = channel.get_sortitions_processed();
-    let pox_addr_tuple = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash,),
+    // stack right away
+    let sort_height = channel.get_sortitions_processed() + 1;
+    let pox_addr_tuple_1 = execute(
+        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -4417,24 +5042,400 @@ fn test_v1_unlock_height() {
         0,
         3000,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-        "pox-2",
+        "pox",
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple.clone(),
+            pox_addr_tuple_1.clone(),
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
     );
 
-    eprintln!("Submit tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
-    for i in 0..20 {
+    // wait until epoch 2.1
+    loop {
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height >= epoch_2_1 {
+            break;
+        }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    info!("Test passed processing 2.1");
+
+    let sort_height = channel.get_sortitions_processed() + 1;
+    let pox_addr_tuple_2 = execute(
+        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        ClarityVersion::Clarity2,
+    )
+    .unwrap()
+    .unwrap();
+    let tx = make_contract_call(
+        &spender_sk,
+        1,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_2.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    // that it can mine _at all_ is a success criterion
+    let mut last_block_height = get_chain_info(&conf).burn_block_height;
+    for _i in 0..10 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height > last_block_height {
+            last_block_height = tip_info.burn_block_height;
+        } else {
+            panic!("FATAL: failed to mine");
+        }
+    }
+
+    let tip_info = get_chain_info(&conf);
+    let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
+
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+    let sortdb = btc_regtest_controller.sortdb_mut();
+
+    for height in 211..tip_info.burn_block_height {
+        let iconn = sortdb.index_conn();
+        let pox_addrs = chainstate
+            .clarity_eval_read_only(
+                &iconn,
+                &tip,
+                &boot_code_id("pox-2", false),
+                &format!("(get-burn-block-info? pox-addrs u{})", height),
+            )
+            .expect_optional()
+            .unwrap()
+            .expect_tuple()
+            .get_owned("addrs")
+            .unwrap()
+            .expect_list();
+
+        if height < 215 {
+            if !burnchain_config.is_in_prepare_phase(height) {
+                assert_eq!(pox_addrs.len(), 2);
+                for addr_tuple in pox_addrs {
+                    assert_eq!(addr_tuple, pox_addr_tuple_1);
+                }
+            }
+        } else {
+            if !burnchain_config.is_in_prepare_phase(height) {
+                assert_eq!(pox_addrs.len(), 2);
+                for addr_tuple in pox_addrs {
+                    assert_eq!(addr_tuple, pox_addr_tuple_2);
+                }
+            }
+        }
     }
 
     test_observer::clear();
     channel.stop_chains_coordinator();
 }
-*/
+
+#[test]
+#[ignore]
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
+/// height to be at the start of the subsequent reward cycle.
+///
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
+/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
+/// that contains v1 unlock height.
+///
+/// Verify that both of the above work even if miners do not mine in the same block as the PoX-2
+/// start height or v1 unlock height (e.g. suppose there's a delay).
+fn test_v1_unlock_height_with_delay_and_current_stackers() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 3;
+    let epoch_2_05 = 215;
+    let epoch_2_1 = 230;
+    let v1_unlock_height = 231;
+
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    let mut initial_balances = vec![];
+
+    initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: stacked + 100_000,
+    });
+
+    let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash_1 = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey_1)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
+        "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
+    )
+    .unwrap();
+    let pox_pubkey_hash_2 = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey_2)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let (mut conf, _) = neon_integration_test_conf();
+
+    // we'll manually post a forked stream to the node
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 5_000;
+    conf.node.wait_time_for_blocks = 1_000;
+    conf.miner.wait_for_block_download = false;
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+    conf.initial_balances.append(&mut initial_balances);
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+    conf.burnchain.epochs = Some(epochs);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
+        v1_unlock_height as u32,
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let runloop_burnchain = burnchain_config.clone();
+
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // push us to block 205
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // stack right away
+    let sort_height = channel.get_sortitions_processed();
+    let pox_addr_tuple_1 = execute(
+        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        ClarityVersion::Clarity2,
+    )
+    .unwrap()
+    .unwrap();
+    let tx = make_contract_call(
+        &spender_sk,
+        0,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_1.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    // wait until just before epoch 2.1
+    loop {
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height >= epoch_2_1 - 2 {
+            break;
+        }
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // skip a couple sortitions
+    btc_regtest_controller.bootstrap_chain(4);
+    sleep_ms(5000);
+
+    let sort_height = channel.get_sortitions_processed();
+    assert!(sort_height > epoch_2_1);
+    assert!(sort_height > v1_unlock_height);
+
+    // *now* advance to 2.1
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    info!("Test passed processing 2.1");
+
+    let sort_height = channel.get_sortitions_processed();
+    let pox_addr_tuple_2 = execute(
+        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        ClarityVersion::Clarity2,
+    )
+    .unwrap()
+    .unwrap();
+    let tx = make_contract_call(
+        &spender_sk,
+        1,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_2.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    // that it can mine _at all_ is a success criterion
+    let mut last_block_height = get_chain_info(&conf).burn_block_height;
+    for _i in 0..20 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height > last_block_height {
+            last_block_height = tip_info.burn_block_height;
+        } else {
+            panic!("FATAL: failed to mine");
+        }
+    }
+
+    let tip_info = get_chain_info(&conf);
+    let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
+
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+    let sortdb = btc_regtest_controller.sortdb_mut();
+
+    for height in 211..tip_info.burn_block_height {
+        let iconn = sortdb.index_conn();
+        let pox_addrs = chainstate
+            .clarity_eval_read_only(
+                &iconn,
+                &tip,
+                &boot_code_id("pox-2", false),
+                &format!("(get-burn-block-info? pox-addrs u{})", height),
+            )
+            .expect_optional()
+            .unwrap()
+            .expect_tuple()
+            .get_owned("addrs")
+            .unwrap()
+            .expect_list();
+
+        debug!("Test burnchain height {}", height);
+        if !burnchain_config.is_in_prepare_phase(height) {
+            let mut have_expected_payout = false;
+            if height < epoch_2_1 + (reward_cycle_len as u64) {
+                if pox_addrs.len() > 0 {
+                    assert_eq!(pox_addrs.len(), 2);
+                    for addr_tuple in pox_addrs {
+                        // can either pay to pox tuple 1, or burn
+                        assert_ne!(addr_tuple, pox_addr_tuple_2);
+                        if addr_tuple == pox_addr_tuple_1 {
+                            have_expected_payout = true;
+                        }
+                    }
+                }
+            } else {
+                if pox_addrs.len() > 0 {
+                    assert_eq!(pox_addrs.len(), 2);
+                    for addr_tuple in pox_addrs {
+                        // can either pay to pox tuple 2, or burn
+                        assert_ne!(addr_tuple, pox_addr_tuple_1);
+                        if addr_tuple == pox_addr_tuple_2 {
+                            have_expected_payout = true;
+                        }
+                    }
+                }
+            }
+            assert!(have_expected_payout);
+        }
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}

@@ -74,7 +74,7 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX_STRING;
+use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
 use clarity::vm::{
     representations::{
@@ -125,17 +125,17 @@ lazy_static! {
     .unwrap();
     static ref PATH_GET_DATA_VAR: Regex = Regex::new(&format!(
         "^/v2/data_var/(?P<address>{})/(?P<contract>{})/(?P<varname>{})$",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX_STRING
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
         "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX_STRING
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_POST_CALL_READ_ONLY: Regex = Regex::new(&format!(
         "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX_STRING
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
@@ -145,7 +145,7 @@ lazy_static! {
     .unwrap();
     static ref PATH_GET_IS_TRAIT_IMPLEMENTED: Regex = Regex::new(&format!(
         "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX_STRING
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
@@ -3144,7 +3144,7 @@ impl HttpResponseType {
         regex: &Regex,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
-        request_path: &String,
+        request_path: &str,
         fd: &mut R,
         len_hint: Option<usize>,
         parser: F,

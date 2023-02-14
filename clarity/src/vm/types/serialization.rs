@@ -357,7 +357,7 @@ impl TypeSignature {
                     .ok_or_else(|| CheckErrors::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
-            | TypeSignature::CallableType(CallableSubtype::Principal(_))
+            | TypeSignature::CallableType(_)
             | TypeSignature::TraitReferenceType(_) => {
                 // version byte + 20 byte hash160
                 let maximum_issuer_size = 21;
@@ -413,8 +413,7 @@ impl TypeSignature {
                 };
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
-            TypeSignature::CallableType(CallableSubtype::Trait(_))
-            | TypeSignature::ListUnionType(_) => {
+            TypeSignature::ListUnionType(_) => {
                 return Err(CheckErrors::CouldNotDetermineSerializationType)
             }
         };
