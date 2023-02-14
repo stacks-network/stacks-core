@@ -947,7 +947,7 @@ pub fn handle_contract_call_special_cases(
     _sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
-    args: &Vec<Value>,
+    args: &[Value],
     result: &Value,
 ) -> Result<()> {
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {

@@ -175,11 +175,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_stx_transfers_single",
-        2002,
-        2003,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
     let mut peer = TestPeer::new(peer_config);
@@ -313,11 +309,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_empty_with_builder_timeout",
-        2022,
-        2023,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
     let mut peer = TestPeer::new(peer_config);
@@ -615,11 +607,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_connected_by_microblocks_across_epoch",
-        2016,
-        2017,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2016, 2017);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
     let epochs = vec![
@@ -853,11 +841,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid",
-        2018,
-        2019,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
     let epochs = vec![
@@ -1566,11 +1550,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
 
     // make a blank chainstate and mempool so we can mine empty blocks
     //  without punishing the correspondingly "too expensive" transactions
-    let blank_chainstate = instantiate_chainstate(
-        false,
-        1,
-        "test_build_anchored_blocks_multiple_chaintips_blank",
-    );
+    let blank_chainstate = instantiate_chainstate(false, 1, function_name!());
     let mut blank_mempool = MemPoolDB::open_test(false, 1, &blank_chainstate.root_path).unwrap();
 
     let first_stacks_block_height = {
@@ -1845,11 +1825,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_too_expensive_transactions",
-        2013,
-        2014,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2013, 2014);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -2209,11 +2185,7 @@ fn test_build_anchored_blocks_bad_nonces() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_too_expensive_transactions",
-        2012,
-        2013,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2012, 2013);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -2757,11 +2729,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
         balances.push((addr.to_account_principal(), initial_balance));
     }
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_microblock_stream_forks_with_descendants",
-        2014,
-        2015,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -4263,11 +4231,7 @@ fn test_fee_order_mismatch_nonce_order() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(
-        "test_build_anchored_blocks_stx_transfers_single",
-        2002,
-        2003,
-    );
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
     let mut peer = TestPeer::new(peer_config);
