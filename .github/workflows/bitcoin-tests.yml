@@ -49,6 +49,7 @@ jobs:
           - tests::neon_integrations::bitcoind_integration_test
           - tests::neon_integrations::liquid_ustx_integration
           - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::pox_integration_test
@@ -95,6 +96,10 @@ jobs:
           - tests::epoch_21::test_pox_reorg_flap_duel
           - tests::epoch_21::test_pox_reorg_flap_reward_cycles
           - tests::epoch_21::test_pox_missing_five_anchor_blocks
+          - tests::epoch_21::test_sortition_divergence_pre_21
+          - tests::epoch_21::test_v1_unlock_height_with_current_stackers
+          - tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
+          - tests::epoch_21::trait_invocation_cross_epoch
           - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
@@ -114,7 +119,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -144,4 +149,4 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
