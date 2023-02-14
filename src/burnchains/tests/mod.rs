@@ -509,7 +509,7 @@ impl TestBurnchainBlock {
             self.block_height,
             &block_hash,
             &self.parent_snapshot.burn_header_hash,
-            &vec![],
+            vec![],
             get_epoch_time_secs(),
         );
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
@@ -558,11 +558,12 @@ impl TestBurnchainBlock {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
+        B: BurnchainHeaderReader,
     >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE>,
+        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -581,7 +582,7 @@ impl TestBurnchainBlock {
             self.block_height,
             &block_hash,
             &self.parent_snapshot.burn_header_hash,
-            &vec![],
+            vec![],
             now,
         );
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
@@ -696,11 +697,12 @@ impl TestBurnchainFork {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
+        B: BurnchainHeaderReader,
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE>,
+        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();

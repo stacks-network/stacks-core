@@ -128,6 +128,7 @@ pub fn run_analysis(
         contract_identifier.clone(),
         expressions.to_vec(),
         cost_tracker,
+        epoch,
         version,
     );
     let result = analysis_db.execute(|db| {
