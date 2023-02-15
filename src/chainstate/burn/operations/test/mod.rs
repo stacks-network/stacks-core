@@ -16,6 +16,8 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::Opcodes;
 
+mod serialization;
+
 pub(crate) fn seeded_rng() -> StdRng {
     SeedableRng::from_seed([0; 32])
 }
