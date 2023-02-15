@@ -10729,6 +10729,10 @@ fn microblock_miner_multiple_attempts() {
 #[test]
 #[ignore]
 fn test_submit_and_observe_peg_in_request() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
     let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
     let receiver_contract_name = ContractName::from("awesome_contract");
     let receiver_contract_principal: PrincipalData =
