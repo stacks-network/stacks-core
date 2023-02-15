@@ -30,6 +30,11 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::types::StandardPrincipalData;
 use crate::vm::ContractName;
 
+/// Transaction structure:
+///
+/// Output 0: data output (see PegInOp::parse_data())
+/// Output 1: payment to peg wallet address
+///
 impl PegInOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,

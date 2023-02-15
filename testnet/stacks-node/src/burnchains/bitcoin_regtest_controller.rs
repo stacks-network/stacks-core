@@ -1244,8 +1244,8 @@ impl BitcoinRegtestController {
         let dust_amount = 10000;
 
         let output_amt = DUST_UTXO_LIMIT
+            + dust_amount
             + max_tx_size * self.config.burnchain.satoshis_per_byte
-            + payload.amount
             + payload.fulfillment_fee;
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
@@ -1269,12 +1269,16 @@ impl BitcoinRegtestController {
         tx.output = vec![amount_and_signature_output];
         tx.output
             .push(payload.recipient.to_bitcoin_tx_out(dust_amount));
-        tx.output.push(payload.peg_wallet_address.to_bitcoin_tx_out(payload.fulfillment_fee));
+        tx.output.push(
+            payload
+                .peg_wallet_address
+                .to_bitcoin_tx_out(payload.fulfillment_fee),
+        );
 
         self.finalize_tx(
             epoch_id,
             &mut tx,
-            payload.amount + payload.fulfillment_fee,
+            payload.fulfillment_fee,
             0,
             max_tx_size,
             self.config.burnchain.satoshis_per_byte,

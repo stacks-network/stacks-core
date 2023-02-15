@@ -26,6 +26,12 @@ use crate::types::Address;
 use crate::chainstate::burn::operations::Error as OpError;
 use crate::chainstate::burn::operations::PegOutRequestOp;
 
+/// Transaction structure:
+///
+/// Output 0: data output (see PegOutRequestOp::parse_data())
+/// Output 1: Bitcoin address to send the BTC to
+/// Output 2: Bitcoin fee payment to the peg wallet (which the peg wallet will spend on fulfillment)
+///
 impl PegOutRequestOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
