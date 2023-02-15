@@ -1702,7 +1702,7 @@ fn stx_transfer_btc_integration_test() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
-                if !burnchain_op.contains_key("TransferStx") {
+                if !burnchain_op.contains_key("transfer_stx") {
                     panic!("unexpected btc transaction type");
                 }
                 found_btc_tx = true;
