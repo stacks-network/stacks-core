@@ -10744,8 +10744,7 @@ fn test_submit_and_observe_sbtc_ops() {
         StandardPrincipalData::from(recipient_stx_addr).into();
 
     let peg_wallet_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let peg_wallet_address =
-        address::PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
+    let peg_wallet_address = address::PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
 
     let recipient_btc_addr = address::PoxAddress::Standard(recipient_stx_addr, None);
 
@@ -10903,13 +10902,13 @@ fn test_submit_and_observe_sbtc_ops() {
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
 
     let peg_out_request_txid = btc_regtest_controller
-            .submit_operation(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
-                &mut miner_signer,
-                1
-            ).expect(
-        "Peg-out request operation should submit successfully");
+        .submit_operation(
+            StacksEpochId::Epoch21,
+            BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
+            &mut miner_signer,
+            1,
+        )
+        .expect("Peg-out request operation should submit successfully");
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -10942,7 +10941,7 @@ fn test_submit_and_observe_sbtc_ops() {
                 StacksEpochId::Epoch21,
                 BlockstackOperationType::PegOutFulfill(peg_out_fulfill_op.clone()),
                 &mut peg_wallet_signer,
-            Some(peg_out_request_utxo),
+                Some(peg_out_request_utxo),
             )
             .is_some(),
         "Peg-out fulfill operation should submit successfully"
