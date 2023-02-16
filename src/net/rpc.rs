@@ -777,6 +777,22 @@ impl ConversationHttp {
                     )
                 })
             }
+            Opcodes::PegOutRequest => {
+                SortitionDB::get_peg_out_request_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegOutRequest(ops),
+                    )
+                })
+            }
+            Opcodes::PegOutFulfill => {
+                SortitionDB::get_peg_out_fulfill_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegOutFulfill(ops),
+                    )
+                })
+            }
             _ => {
                 return Ok(HttpResponseType::NotFound(
                     response_metadata,
