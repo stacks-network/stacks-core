@@ -42,10 +42,13 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
+
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
+
+use clarity::vm::types::PrincipalData;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -53,6 +56,7 @@ pub mod delegate_stx;
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
+pub mod peg_in;
 pub mod stack_stx;
 pub mod transfer_stx;
 pub mod user_burn_support;
@@ -97,6 +101,9 @@ pub enum Error {
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
+
+    // sBTC errors
+    PegInAmountMustBePositive,
 }
 
 impl fmt::Display for Error {
@@ -159,6 +166,7 @@ impl fmt::Display for Error {
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
+            Self::PegInAmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
     }
 }
@@ -308,7 +316,21 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegInOp {
+    pub recipient: PrincipalData,
+    pub peg_wallet_address: PoxAddress,
+    pub amount: u64,   // BTC amount to peg in, in satoshis
+    pub memo: Vec<u8>, // extra unused bytes
+
+    // common to all transactions
+    pub txid: Txid,                            // transaction ID
+    pub vtxindex: u32,                         // index in the block where this tx occurs
+    pub block_height: u64,                     // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
@@ -317,6 +339,7 @@ pub enum BlockstackOperationType {
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
     DelegateStx(DelegateStxOp),
+    PegIn(PegInOp),
 }
 
 // serialization helpers for blockstack_op_to_json function
@@ -344,6 +367,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
             BlockstackOperationType::DelegateStx(_) => Opcodes::DelegateStx,
+            BlockstackOperationType::PegIn(_) => Opcodes::PegIn,
         }
     }
 
@@ -360,6 +384,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
             BlockstackOperationType::DelegateStx(ref data) => &data.txid,
+            BlockstackOperationType::PegIn(ref data) => &data.txid,
         }
     }
 
@@ -372,6 +397,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
             BlockstackOperationType::DelegateStx(ref data) => data.vtxindex,
+            BlockstackOperationType::PegIn(ref data) => data.vtxindex,
         }
     }
 
@@ -384,6 +410,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
             BlockstackOperationType::DelegateStx(ref data) => data.block_height,
+            BlockstackOperationType::PegIn(ref data) => data.block_height,
         }
     }
 
@@ -396,6 +423,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::PegIn(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -411,6 +439,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::DelegateStx(ref mut data) => data.block_height = height,
+            BlockstackOperationType::PegIn(ref mut data) => data.block_height = height,
         };
     }
 
@@ -428,6 +457,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DelegateStx(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::PegIn(ref mut data) => data.burn_header_hash = hash,
         };
     }
 
@@ -519,6 +549,7 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::PegIn(ref op) => write!(f, "{:?}", op),
         }
     }
 }

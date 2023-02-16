@@ -24,6 +24,7 @@ use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::PrincipalData;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -45,8 +46,8 @@ use crate::burnchains::{
 use crate::chainstate::burn::operations::DelegateStxOp;
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
@@ -407,6 +408,37 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
     }
 }
 
+impl FromRow<PegInOp> for PegInOp {
+    fn from_row<'a>(row: &'a Row) -> Result<Self, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get("vtxindex")?;
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let recipient = PrincipalData::from_column(row, "recipient")?;
+        let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
+        let amount = row
+            .get::<_, String>("amount")?
+            .parse()
+            .map_err(|_| db_error::ParseError)?;
+
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
+        let memo = memo_bytes.to_vec();
+
+        Ok(Self {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            recipient,
+            peg_wallet_address,
+            amount,
+            memo,
+        })
+    }
+}
+
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
@@ -501,7 +533,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "4";
+pub const SORTITION_DB_VERSION: &'static str = "5";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -703,7 +735,22 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_in_burn_header_hash";
+
+const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
+    CREATE TABLE peg_in (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
+        peg_wallet_address TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        memo TEXT,
+
+        PRIMARY KEY(txid, burn_header_hash)
+    );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -728,6 +775,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_peg_in_burn_header_hash ON peg_in(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -2657,6 +2705,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
+        SortitionDB::apply_schema_5(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -2846,7 +2895,7 @@ impl SortitionDB {
                 version == "1" || version == "2" || version == "3" || version == "4"
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
-            StacksEpochId::Epoch21 => version == "3" || version == "4",
+            StacksEpochId::Epoch21 => version == "5",
         }
     }
 
@@ -2915,6 +2964,18 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_5(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_5 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["5"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2952,6 +3013,10 @@ impl SortitionDB {
                     } else if version == "3" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_4(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "4" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_5(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -3881,6 +3946,20 @@ impl SortitionDB {
         )
     }
 
+    /// Get the list of Peg-In operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
+    pub fn get_peg_in_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<PegInOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM peg_in WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
+    }
+
     /// Get the list of Transfer-STX operations processed in a given burnchain block.
     /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
     /// to reject them.
@@ -4741,6 +4820,13 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_delegate_stx(op)
             }
+            BlockstackOperationType::PegIn(ref op) => {
+                info!(
+                    "ACCEPTED({}) sBTC peg in opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_peg_in_sbtc(op)
+            }
         }
     }
 
@@ -4804,6 +4890,24 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a peg-in op
+    fn insert_peg_in_sbtc(&mut self, op: &PegInOp) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.recipient.to_string(),
+            &op.peg_wallet_address.to_string(),
+            &op.amount.to_string(),
+            &to_hex(&op.memo),
+        ];
+
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -6223,6 +6327,71 @@ pub mod tests {
                 SortitionDB::get_user_burns_by_block(db.conn(), &snapshot.sortition_id).unwrap();
             assert_eq!(no_user_burns.len(), 0);
         }
+    }
+
+    #[test]
+    fn test_insert_peg_in() {
+        let block_height = 123;
+
+        let peg_in_op = |burn_header_hash, amount| {
+            let txid = Txid([0; 32]);
+            let vtxindex = 456;
+            let recipient = StacksAddress::new(1, Hash160([1u8; 20])).into();
+            let peg_wallet_address =
+                PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+            let memo = vec![1, 3, 3, 7];
+
+            PegInOp {
+                recipient,
+                peg_wallet_address,
+                amount,
+                memo,
+
+                txid,
+                vtxindex,
+                block_height,
+                burn_header_hash,
+            }
+        };
+
+        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
+        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
+
+        let peg_in_1 = peg_in_op(burn_header_hash_1, 1337);
+        let peg_in_2 = peg_in_op(burn_header_hash_2, 42);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let epochs = StacksEpoch::unit_test(StacksEpochId::Epoch21, block_height);
+        let mut db =
+            SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
+
+        let snapshot_1 = test_append_snapshot(
+            &mut db,
+            burn_header_hash_1,
+            &vec![BlockstackOperationType::PegIn(peg_in_1.clone())],
+        );
+
+        let snapshot_2 = test_append_snapshot(
+            &mut db,
+            burn_header_hash_2,
+            &vec![BlockstackOperationType::PegIn(peg_in_2.clone())],
+        );
+
+        let res_peg_ins_1 = SortitionDB::get_peg_in_ops(db.conn(), &snapshot_1.burn_header_hash)
+            .expect("Failed to get peg-in ops from sortition DB");
+
+        assert_eq!(res_peg_ins_1.len(), 1);
+        assert_eq!(res_peg_ins_1[0], peg_in_1);
+
+        let res_peg_ins_2 = SortitionDB::get_peg_in_ops(db.conn(), &snapshot_2.burn_header_hash)
+            .expect("Failed to get peg-in ops from sortition DB");
+
+        assert_eq!(res_peg_ins_2.len(), 1);
+        assert_eq!(res_peg_ins_2[0], peg_in_2);
     }
 
     #[test]
