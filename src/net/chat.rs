@@ -137,10 +137,14 @@ pub struct NeighborStats {
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
-    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
-    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
-    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
-    pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    /// (timestamp, num bytes)
+    pub block_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>,
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -169,6 +173,9 @@ impl NeighborStats {
         }
     }
 
+    /// Add a neighbor health point for this peer.
+    /// This updates the recent list of instances where this peer either successfully replied to a
+    /// message, or failed to do so (indicated by `success`).
     pub fn add_healthpoint(&mut self, success: bool) -> () {
         let hp = NeighborHealthPoint {
             success: success,
@@ -180,6 +187,9 @@ impl NeighborStats {
         }
     }
 
+    /// Record that we recently received a block of the given size.
+    /// Keeps track of the last `NUM_BLOCK_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by block pushes.
     pub fn add_block_push(&mut self, message_size: u64) -> () {
         self.block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -188,6 +198,9 @@ impl NeighborStats {
         }
     }
 
+    /// Record that we recently received a microblock of the given size.
+    /// Keeps track of the last `NUM_BLOCK_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by microblock pushes.
     pub fn add_microblocks_push(&mut self, message_size: u64) -> () {
         self.microblocks_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -196,6 +209,9 @@ impl NeighborStats {
         }
     }
 
+    /// Record that we recently received a transaction of the given size.
+    /// Keeps track of the last `NUM_BLOCK_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by transaction pushes.
     pub fn add_transaction_push(&mut self, message_size: u64) -> () {
         self.transaction_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -204,6 +220,9 @@ impl NeighborStats {
         }
     }
 
+    /// Record that we recently received a stackerdb chunk push of the given size.
+    /// Keeps track of the last `NUM_BLOCK_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by stackerdb chunk pushes.
     pub fn add_stackerdb_push(&mut self, message_size: u64) -> () {
         self.stackerdb_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -304,43 +323,65 @@ impl NeighborStats {
 
 /// P2P ongoing conversation with another Stacks peer
 pub struct ConversationP2P {
+    /// Instantiation timestamp in seconds since the epoch
     pub instantiated: u64,
 
+    /// network ID of the local end of this conversation
     pub network_id: u32,
+    /// peer version of the local end of this conversation
     pub version: u32,
+    /// Underlying inbox/outbox for protocol communication
     pub connection: ConnectionP2P,
+    /// opaque ID of the socket
     pub conn_id: usize,
 
-    pub burnchain: Burnchain, // copy of our burnchain config
-    pub heartbeat: u32,       // how often do we send heartbeats?
+    /// copy of our burnchain config
+    pub burnchain: Burnchain,
+    /// how often do we send heartbeats?
+    pub heartbeat: u32,
 
+    /// network ID of the remote end of this conversation
     pub peer_network_id: u32,
+    /// peer version of the remote end of this conversation
     pub peer_version: u32,
+    /// reported services of the remote end of this conversation
     pub peer_services: u16,
-    pub peer_addrbytes: PeerAddress,      // from socketaddr
-    pub peer_port: u16,                   // from socketaddr
-    pub handshake_addrbytes: PeerAddress, // from handshake
-    pub handshake_port: u16,              // from handshake
-    pub peer_heartbeat: u32,              // how often do we need to ping the remote peer?
-    pub peer_expire_block_height: u64,    // when does the peer's key expire?
+    /// from socketaddr
+    pub peer_addrbytes: PeerAddress,
+    /// from socketaddr
+    pub peer_port: u16,
+    /// from handshake
+    pub handshake_addrbytes: PeerAddress,
+    /// from handshake
+    pub handshake_port: u16,
+    /// how often do we need to ping the remote peer?
+    pub peer_heartbeat: u32,
+    /// when does the peer's key expire?
+    pub peer_expire_block_height: u64,
 
-    pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
+    /// where does this peer's data live?  Set to a 0-length string if not known.
+    pub data_url: UrlString,
 
-    // highest burnchain block height and burnchain block hash this peer has seen
+    /// what this peer believes is the height of the burnchain
     pub burnchain_tip_height: u64,
+    /// what this peer believes is the hash of the burnchain tip
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
+    /// what this peer believes is the stable height of the burnchain (i.e. after a chain-specific
+    /// number of confirmations)
     pub burnchain_stable_tip_height: u64,
+    /// the hash of the burnchain block at height `burnchain_stable_tip_height`
     pub burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash,
 
+    /// Statistics about this peer from this conversation
     pub stats: NeighborStats,
 
-    // which stacker DBs this peer replicates
+    /// which stacker DBs this peer replicates
     pub db_smart_contracts: Vec<ContractId>,
 
-    // outbound replies
+    /// outbound replies
     pub reply_handles: VecDeque<ReplyHandleP2P>,
 
-    // system epochs
+    /// system epochs
     epochs: Vec<StacksEpoch>,
 }
 
@@ -649,14 +690,14 @@ impl ConversationP2P {
         self.burnchain_stable_tip_burn_header_hash.clone()
     }
 
-    /// Does this remote neighbor support the mempool query interface?  It will if it has both
+    /// Does the given services bitfield mempool query interface?  It will if it has both
     /// RELAY and RPC bits set.
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
     }
 
-    /// Does this remote neighbor support stacker DBs?  It will if it has the STACKERDB bit set
+    /// Does the given services bitfield support stacker DBs?  It will if it has the STACKERDB bit set
     pub fn supports_stackerdb(peer_services: u16) -> bool {
         (peer_services & (ServiceFlags::STACKERDB as u16)) != 0
     }
@@ -1753,7 +1794,7 @@ impl ConversationP2P {
         relayers: &Vec<RelayData>,
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
-            debug!(
+            warn!(
                 "Invalid relayers -- message from {:?} contains a cycle",
                 self.to_neighbor_key()
             );
@@ -1761,7 +1802,7 @@ impl ConversationP2P {
         }
 
         if !ConversationP2P::check_relayers_remote(local_peer, relayers) {
-            debug!(
+            warn!(
                 "Invalid relayers -- message originates from us ({})",
                 local_peer.to_neighbor_addr()
             );
@@ -1788,7 +1829,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
+            warn!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1825,7 +1866,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!(
+            warn!(
                 "Drop pushed microblocks -- invalid relayers {:?}",
                 &relayers
             );
@@ -1860,7 +1901,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!(
+            warn!(
                 "Drop pushed transaction -- invalid relayers {:?}",
                 &relayers
             );
@@ -1883,7 +1924,7 @@ impl ConversationP2P {
         Ok(None)
     }
 
-    /// Validate a pushed stackerdb chunk
+    /// Validate a pushed stackerdb chunk.
     /// Update bandwidth accounting, but forward the stackerdb chunk along.
     /// Possibly return a reply handle for a NACK if we throttle the remote sender
     fn validate_stackerdb_push(
@@ -1896,7 +1937,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!(
+            warn!(
                 "Drop pushed stackerdb chunk -- invalid relayers {:?}",
                 &relayers
             );
