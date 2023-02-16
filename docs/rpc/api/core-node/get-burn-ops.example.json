@@ -10,5 +10,33 @@
       "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
       "vtxindex": 2
     }
-  ]
+    ],
+    "peg_out_request": [
+        {
+            "amount": 1337,
+            "recipient": "S0000000000000000000002AA028H",
+            "block_height": 217,
+            "burn_header_hash": "66b2f18530ccf0e57e82dd054cca9fa41bf5f645f7757171ad9c1546b86387e1",
+            "peg_wallet_address": "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkgkkf5",
+            "txid": "84808f747841fb26e74f171487e56eda1a51373581eb04a8c87a421a77bd46d2",
+            "vtxindex": 1,
+            "signature": "f02266aaea02a6855c321b2a45213a5c1bc7b82bfcceaac9d4d76de3be43d513",
+            "fulfillment_fee": 0,
+            "memo": "f02266aaea02a6855c321b2a45213a5c1bc7b82bfcceaac9d4d76de3be43d513"
+        }
+    ],
+    "peg_out_fulfill": [
+        {
+            "amount": 1337,
+            "recipient": "S0000000000000000000002AA028H",
+            "block_height": 217,
+            "burn_header_hash": "66b2f18530ccf0e57e82dd054cca9fa41bf5f645f7757171ad9c1546b86387e1",
+            "peg_wallet_address": "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkgkkf5",
+            "txid": "weda1a51373581eb04a8c87a421a77bd46d2",
+            "vtxindex": 1,
+            "memo": "f02266aaea02a6855c321b2a45213a5c1bc7b82bfcceaac9d4d76de3be43d513",
+            "chain_tip": "",
+            "request_ref": ""
+        }
+    ]
 }
