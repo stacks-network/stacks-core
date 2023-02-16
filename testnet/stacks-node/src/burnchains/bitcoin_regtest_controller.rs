@@ -1244,7 +1244,6 @@ impl BitcoinRegtestController {
 
         let output_amt = DUST_UTXO_LIMIT
             + max_tx_size * self.config.burnchain.satoshis_per_byte
-            + payload.amount
             + payload.fulfillment_fee;
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
