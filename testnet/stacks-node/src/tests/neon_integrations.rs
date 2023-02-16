@@ -11007,6 +11007,7 @@ fn test_submit_and_observe_peg_in_request() {
             assert_eq!(vec.len(), 1);
             vec.pop().unwrap()
         }
+        _ => panic!("Response not peg in")
     };
 
     let query_height_op_standard = parsed_peg_in_op_standard.block_height;
@@ -11017,6 +11018,7 @@ fn test_submit_and_observe_peg_in_request() {
             assert_eq!(vec.len(), 1);
             vec.pop().unwrap()
         }
+        _ => panic!("Response not peg in")
     };
 
     assert_eq!(
