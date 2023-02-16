@@ -516,12 +516,18 @@ impl PoxConstants {
 /// Structure for encoding our view of the network
 #[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainView {
-    pub burn_block_height: u64, // last-seen block height (at chain tip)
-    pub burn_block_hash: BurnchainHeaderHash, // last-seen burn block hash
-    pub burn_stable_block_height: u64, // latest stable block height (e.g. chain tip minus 7)
-    pub burn_stable_block_hash: BurnchainHeaderHash, // latest stable burn block hash
-    pub last_burn_block_hashes: HashMap<u64, BurnchainHeaderHash>, // map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
-    pub rc_consensus_hash: ConsensusHash, // consensus hash of the current reward cycle's start block
+    /// last-seen block height (at chain tip)
+    pub burn_block_height: u64,
+    /// last-seen burn block hash
+    pub burn_block_hash: BurnchainHeaderHash,
+    /// latest stable block height (e.g. chain tip minus 7)
+    pub burn_stable_block_height: u64,
+    /// latest stable burn block hash
+    pub burn_stable_block_hash: BurnchainHeaderHash,
+    /// map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
+    pub last_burn_block_hashes: HashMap<u64, BurnchainHeaderHash>,
+    /// consensus hash of the current reward cycle's start block
+    pub rc_consensus_hash: ConsensusHash,
 }
 
 /// The burnchain block's encoded state transition:
