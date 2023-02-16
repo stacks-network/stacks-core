@@ -578,7 +578,7 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise Xor"),
+    name: None,
     snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
     signature: "(bit-xor i1 i2...)",
     description:
@@ -592,7 +592,7 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise And"),
+    name: None,
     snippet: "bit-and ${1:expr-1} ${2:expr-2}",
     signature: "(bit-and i1 i2...)",
     description: "Returns the result of bitwise and'ing a variable number of integer inputs.",
@@ -605,7 +605,7 @@ const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise Or"),
+    name: None,
     snippet: "bit-or ${1:expr-1} ${2:expr-2}",
     signature: "(bit-or i1 i2...)",
     description:
@@ -618,7 +618,7 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise Not"),
+    name: None,
     snippet: "bit-not ${1:expr-1}",
     signature: "(bit-not i1)",
     description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
@@ -632,7 +632,7 @@ In other words, every bit that is `1` in ì1` will be `0` in the result.  Conver
 };
 
 const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise Left Shift"),
+    name: None,
     snippet: "bit-shift-left ${1:expr-1} ${2:expr-2}",
     signature: "(bit-shift-left i1 shamt)",
     description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
@@ -652,7 +652,7 @@ should use `*`, `/`, and `pow` instead of the shift operators.
 };
 
 const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("Bitwise Right Shift"),
+    name: None,
     snippet: "bit-shift-right ${1:expr-1} ${2:expr-2}",
     signature: "(bit-shift-right i1 shamt)",
     description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
