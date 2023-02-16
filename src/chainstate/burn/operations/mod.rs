@@ -43,6 +43,7 @@ use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 
+use serde::Deserialize;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
@@ -322,17 +323,40 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
+fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
+    let inst = bhh.to_hex();
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BurnchainHeaderHash, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    BurnchainHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
+}
+
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegInOp {
+    // TODO(3553): Serialization logic
     pub recipient: PrincipalData,
+    //#[serde(serialize_with = "crate::chainstate::stacks::address::DisplaySerialize")]
+    //#[serde(deserialize_with = "crate::chainstate::stacks::address::AddressDeser")]
+    //pub recipient: StacksAddress,
+    //#[serde(serialize_with = "crate::chainstate::stacks::address::display_serialize")]
+    //#[serde(deserialize_with = "crate::chainstate::stacks::address::address_deser")]
+    //pub recipient: StacksAddress,
+    //pub recipient_contract_name: Option<String>, // If set, makes the recepient a smart contract principal
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
     pub peg_wallet_address: PoxAddress,
     pub amount: u64,   // BTC amount to peg in, in satoshis
     pub memo: Vec<u8>, // extra unused bytes
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -395,6 +419,15 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
         "address_hash_bytes": format!("0x{}", addr.bytes),
         "address_version": addr.version
     })
+}
+
+/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
+/// This allows `handle_get_burn_ops` to use an enum for the different operation
+///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
+///  from a, e.g., `Vec<PegInOp>`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BurnchainOpsVec {
+    PegIn(Vec<PegInOp>),
 }
 
 impl BlockstackOperationType {
