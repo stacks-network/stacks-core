@@ -1761,7 +1761,7 @@ impl ConversationP2P {
 
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
-    fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
+    fn check_relayer_cycles(relayers: &[RelayData]) -> bool {
         let mut addrs = HashSet::new();
         for r in relayers.iter() {
             if addrs.contains(&r.peer.public_key_hash) {
@@ -1773,7 +1773,7 @@ impl ConversationP2P {
     }
 
     /// Verify that we aren't in this relayers list
-    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
+    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &[RelayData]) -> bool {
         let addr = local_peer.to_neighbor_addr();
         for r in relayers.iter() {
             if r.peer.public_key_hash == addr.public_key_hash {
@@ -1791,7 +1791,7 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         preamble: &Preamble,
-        relayers: &Vec<RelayData>,
+        relayers: &[RelayData],
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
             warn!(
