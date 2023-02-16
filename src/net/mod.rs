@@ -911,37 +911,39 @@ pub enum MemPoolSyncData {
 }
 
 /// Make QualifiedContractIdentifier usable to the networking code
-#[derive(Debug, Clone, PartialEq)]
-pub struct ContractId(QualifiedContractIdentifier);
-impl ContractId {
-    pub fn new(addr: StacksAddress, name: ContractName) -> ContractId {
+pub trait QualifiedContractIdentifierExtension {
+    fn new(addr: StacksAddress, name: ContractName) -> Self;
+    fn address(&self) -> StacksAddress;
+    fn name(&self) -> ContractName;
+    fn parse(txt: &str) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl QualifiedContractIdentifierExtension for QualifiedContractIdentifier {
+    fn new(addr: StacksAddress, name: ContractName) -> QualifiedContractIdentifier {
         let id_addr = StandardPrincipalData(addr.version, addr.bytes.0);
-        ContractId(QualifiedContractIdentifier::new(id_addr, name))
+        QualifiedContractIdentifier::new(id_addr, name)
     }
 
-    pub fn address(&self) -> StacksAddress {
+    fn address(&self) -> StacksAddress {
         StacksAddress {
-            version: self.0.issuer.0,
-            bytes: Hash160(self.0.issuer.1.clone()),
+            version: self.issuer.0,
+            bytes: Hash160(self.issuer.1.clone()),
         }
     }
 
-    pub fn name(&self) -> ContractName {
-        self.0.name.clone()
+    fn name(&self) -> ContractName {
+        self.name.clone()
     }
 
-    pub fn parse(txt: &str) -> Option<ContractId> {
-        QualifiedContractIdentifier::parse(txt)
-            .ok()
-            .map(|qc| ContractId(qc))
+    fn parse(txt: &str) -> Option<QualifiedContractIdentifier> {
+        QualifiedContractIdentifier::parse(txt).ok()
     }
 }
 
-impl fmt::Display for ContractId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.0)
-    }
-}
+/// short-hand type alias
+pub type ContractId = QualifiedContractIdentifier;
 
 /// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
 #[derive(Debug, Clone, PartialEq)]
@@ -983,7 +985,7 @@ pub struct StackerDBGetChunkData {
     pub chunk_version: u32,
 }
 
-/// Stacker DB chunk
+/// Stacker DB chunk reply to a StackerDBGetChunkData
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBChunkData {
     /// chunk ID (i.e. the ith bit)
