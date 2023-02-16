@@ -24,7 +24,7 @@ the amount stacked on top of a locked batch of STX.
 - The Clarity functions `principal-destruct` and `principal-construct?`
   functions have been added, which provide the means to convert between a
 `principal` instance and the `buff`s and `string-ascii`s that constitute it.
-- The Clarity function `get-burn-block-info?` has been extended to support
+- The Clarity function `get-burn-block-info?` has been added to support
   fetching the burnchain header hash of _any_ burnchain block starting from the
 sortition height of the Stacks genesis block, and to support fetching the PoX
 addresses and rewards paid by miners for a particular burnchain block height.
@@ -50,13 +50,13 @@ addresses and rewards paid by miners for a particular burnchain block height.
   Stacks 2.05.x.x.x.
 - Clarity trait semantics have been refined and made more explicit, so as to
   avoid certain corner cases where a trait reference might be downgraded to a
+`principal` in Clarity 1.
   * Trait values can be passed to compatible sub-trait types
   * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
   * Traits can be assigned to a let-variable
 - Fixes to unexpected behavior in traits
   * A trait with duplicate function names is now an error
   * Aliased trait names do not interfere with local trait definitions
-`principal` in Clarity 1.
 - The comparison functions `<`, `<=`, `>`, and `>=` now work on `string-ascii`,
   `string-utf8`, and `buff` based on byte-by-byte comparison (note that this is
 _not_ lexicographic comparison).
@@ -94,7 +94,6 @@ instead of one.
 (so miners get paid for partially validating them).
 - The default Clarity version is now 2.  Users can opt for version 1 by using
   the new smart contract transaction wire format and explicitly setting version
-1.
 
 ### Fixed
 
