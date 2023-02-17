@@ -1,9 +1,20 @@
-use clarity::codec::StacksMessageCodec;
-use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::ContractName;
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use stacks_common::codec::StacksMessageCodec;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -13,6 +24,12 @@ use crate::types::Address;
 
 use crate::chainstate::burn::operations::Error as OpError;
 use crate::chainstate::burn::operations::PegInOp;
+
+use crate::vm::errors::RuntimeErrorType as ClarityRuntimeError;
+use crate::vm::types::PrincipalData;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::StandardPrincipalData;
+use crate::vm::ContractName;
 
 impl PegInOp {
     pub fn from_tx(
@@ -28,11 +45,11 @@ impl PegInOp {
             if let Some(Some(recipient)) = tx.get_recipients().first() {
                 (recipient.amount, recipient.address.clone())
             } else {
-                warn!("Invalid tx: Output 2 not provided");
+                warn!("Invalid tx: First output not recognized");
                 return Err(OpError::InvalidInput);
             };
 
-        let recipient = Self::parse_data(&tx.data())?;
+        let parsed_data = Self::parse_data(&tx.data())?;
 
         let txid = tx.txid();
         let vtxindex = tx.vtxindex();
@@ -40,9 +57,10 @@ impl PegInOp {
         let burn_header_hash = block_header.block_hash;
 
         Ok(Self {
-            recipient,
+            recipient: parsed_data.recipient,
             peg_wallet_address,
             amount,
+            memo: parsed_data.memo,
             txid,
             vtxindex,
             block_height,
@@ -50,13 +68,13 @@ impl PegInOp {
         })
     }
 
-    fn parse_data(data: &[u8]) -> Result<PrincipalData, ParseError> {
+    fn parse_data(data: &[u8]) -> Result<ParsedData, ParseError> {
         /*
             Wire format:
 
-            0      2  3                  24                            64
-            |------|--|------------------|-----------------------------|
-             magic  op   Stacks address      Contract name (optional)
+            0      2  3                  24                            64       80
+            |------|--|------------------|-----------------------------|--------|
+             magic  op   Stacks address      Contract name (optional)     memo
 
              Note that `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
@@ -72,7 +90,7 @@ impl PegInOp {
             return Err(ParseError::MalformedData);
         }
 
-        let version = *data.get(0).ok_or(ParseError::MalformedData)?;
+        let version = *data.get(0).expect("No version byte");
         let address_data: [u8; 20] = data
             .get(1..21)
             .ok_or(ParseError::MalformedData)?
@@ -80,24 +98,19 @@ impl PegInOp {
 
         let standard_principal_data = StandardPrincipalData(version, address_data);
 
-        let maybe_contract_name: Option<ContractName> = data
-            .get(21..)
-            .filter(|bytes| !bytes.is_empty())
-            .map(std::str::from_utf8)
-            .transpose()?
-            .map(ToOwned::to_owned)
-            .map(TryInto::try_into)
-            .transpose()?;
+        let memo = data.get(61..).unwrap_or(&[]).to_vec();
 
-        println!("Contract name: {:?}", maybe_contract_name);
+        let recipient: PrincipalData =
+            if let Some(contract_bytes) = Self::leading_non_zero_bytes(data, 21, 61) {
+                let contract_name: String = std::str::from_utf8(contract_bytes)?.to_owned();
 
-        let recipient: PrincipalData = if let Some(contract_name) = maybe_contract_name {
-            QualifiedContractIdentifier::new(standard_principal_data, contract_name).into()
-        } else {
-            standard_principal_data.into()
-        };
+                QualifiedContractIdentifier::new(standard_principal_data, contract_name.try_into()?)
+                    .into()
+            } else {
+                standard_principal_data.into()
+            };
 
-        Ok(recipient)
+        Ok(ParsedData { recipient, memo })
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -108,6 +121,37 @@ impl PegInOp {
 
         Ok(())
     }
+
+    /// Returns the leading non-zero bytes of the subslice `data[from..to]`
+    ///
+    /// # Panics
+    ///
+    /// Panics if `from` is larger than or equal to `to`
+    fn leading_non_zero_bytes(data: &[u8], from: usize, to: usize) -> Option<&[u8]> {
+        assert!(from < to);
+
+        let end_of_non_zero_slice = {
+            let mut end = to.min(data.len());
+            for i in from..end {
+                if data[i] == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            end
+        };
+
+        if from == end_of_non_zero_slice {
+            return None;
+        }
+
+        data.get(from..end_of_non_zero_slice)
+    }
+}
+
+struct ParsedData {
+    recipient: PrincipalData,
+    memo: Vec<u8>,
 }
 
 enum ParseError {
@@ -161,7 +205,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction() {
+    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_without_memo() {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
@@ -185,6 +229,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_with_memo() {
+        let mut rng = seeded_rng();
+        let opcode = Opcodes::PegIn;
+
+        let peg_wallet_address = random_bytes(&mut rng);
+        let amount = 10;
+        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
+
+        let mut data = vec![1];
+        let addr_bytes = random_bytes(&mut rng);
+        let stx_address = StacksAddress::new(1, addr_bytes.into());
+        data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
+
+        let tx = burnchain_transaction(data, output2, opcode);
+        let header = burnchain_block_header();
+
+        let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
+
+        assert_eq!(op.recipient, stx_address.into());
+        assert_eq!(op.amount, amount);
+        assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+        assert_eq!(op.memo.as_slice(), memo)
+    }
+
+    #[test]
     fn test_parse_peg_in_should_succeed_given_a_contract_recipient() {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
@@ -193,12 +265,15 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
+        data.extend_from_slice(&[0; 11]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -211,6 +286,7 @@ mod tests {
         assert_eq!(op.recipient, expected_principal);
         assert_eq!(op.amount, amount);
         assert_eq!(op.peg_wallet_address.bytes(), peg_wallet_address);
+        assert_eq!(op.memo.as_slice(), memo)
     }
 
     #[test]
@@ -218,16 +294,19 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let contract_name = "Mårten_is_not_a_valid_smart_contract_name";
+        let contract_name = "Mårten_is_not_a_valid_contract_name";
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
+        data.extend_from_slice(&[0; 4]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -248,10 +327,13 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -274,11 +356,14 @@ mod tests {
         let peg_wallet_address = random_bytes(&mut rng);
         let amount = 10;
         let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&invalid_utf8_byte_sequence);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, output2, opcode);
         let header = burnchain_block_header();
@@ -296,9 +381,13 @@ mod tests {
         let mut rng = seeded_rng();
         let opcode = Opcodes::PegIn;
 
+        let memo: [u8; 6] = random_bytes(&mut rng);
+
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let tx = burnchain_transaction(data, None, opcode);
         let header = burnchain_block_header();
@@ -340,11 +429,14 @@ mod tests {
         let mut rng = seeded_rng();
 
         let peg_wallet_address = random_bytes(&mut rng);
+        let memo: [u8; 6] = random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
+        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.extend_from_slice(&memo);
 
         let create_op = move |amount| {
             let opcode = Opcodes::PegIn;
@@ -372,8 +464,6 @@ mod tests {
             .check()
             .expect("Any strictly positive amounts should be ok");
     }
-
-    // TODO: Invalid contract name test
 
     fn seeded_rng() -> StdRng {
         SeedableRng::from_seed([0; 32])

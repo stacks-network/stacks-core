@@ -69,6 +69,18 @@ impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
         }
         Ok(None)
     }
+
+    fn find_burnchain_header_height(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError> {
+        for hdr in self.iter() {
+            if hdr.block_hash == *burn_header_hash {
+                return Ok(Some(hdr.block_height));
+            }
+        }
+        Ok(None)
+    }
 }
 
 fn make_tx(hex_str: &str) -> BtcTx {

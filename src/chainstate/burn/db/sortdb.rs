@@ -422,6 +422,10 @@ impl FromRow<PegInOp> for PegInOp {
             .parse()
             .map_err(|_| db_error::ParseError)?;
 
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
+        let memo = memo_bytes.to_vec();
+
         Ok(Self {
             txid,
             vtxindex,
@@ -430,6 +434,7 @@ impl FromRow<PegInOp> for PegInOp {
             recipient,
             peg_wallet_address,
             amount,
+            memo,
         })
     }
 }
@@ -729,8 +734,6 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
     );"#,
 ];
 
-/// The changes for version five *just* replace the existing epochs table
-///  by deleting all the current entries and inserting the new epochs definition.
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
@@ -5021,9 +5024,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.recipient.to_string(),
             &op.peg_wallet_address.to_string(),
             &op.amount.to_string(),
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
+        self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -6447,25 +6451,34 @@ pub mod tests {
 
     #[test]
     fn test_insert_peg_in() {
-        let txid = Txid([0; 32]);
         let block_height = 123;
-        let vtxindex = 456;
-        let amount = 1337;
-        let recipient = StacksAddress::new(1, Hash160([1u8; 20])).into();
-        let peg_wallet_address =
-            PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-        let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
 
-        let peg_in = PegInOp {
-            recipient,
-            peg_wallet_address,
-            amount,
+        let peg_in_op = |burn_header_hash, amount| {
+            let txid = Txid([0; 32]);
+            let vtxindex = 456;
+            let recipient = StacksAddress::new(1, Hash160([1u8; 20])).into();
+            let peg_wallet_address =
+                PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
+            let memo = vec![1, 3, 3, 7];
 
-            txid,
-            vtxindex,
-            block_height,
-            burn_header_hash,
+            PegInOp {
+                recipient,
+                peg_wallet_address,
+                amount,
+                memo,
+
+                txid,
+                vtxindex,
+                block_height,
+                burn_header_hash,
+            }
         };
+
+        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
+        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
+
+        let peg_in_1 = peg_in_op(burn_header_hash_1, 1337);
+        let peg_in_2 = peg_in_op(burn_header_hash_2, 42);
 
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -6476,17 +6489,29 @@ pub mod tests {
         let mut db =
             SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
 
-        let snapshot = test_append_snapshot(
+        let snapshot_1 = test_append_snapshot(
             &mut db,
-            BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::PegIn(peg_in.clone())],
+            burn_header_hash_1,
+            &vec![BlockstackOperationType::PegIn(peg_in_1.clone())],
         );
 
-        let res_peg_ins = SortitionDB::get_peg_in_ops(db.conn(), &burn_header_hash)
+        let snapshot_2 = test_append_snapshot(
+            &mut db,
+            burn_header_hash_2,
+            &vec![BlockstackOperationType::PegIn(peg_in_2.clone())],
+        );
+
+        let res_peg_ins_1 = SortitionDB::get_peg_in_ops(db.conn(), &snapshot_1.burn_header_hash)
             .expect("Failed to get peg-in ops from sortition DB");
 
-        assert_eq!(res_peg_ins.len(), 1);
-        assert_eq!(res_peg_ins[0].amount, 1337);
+        assert_eq!(res_peg_ins_1.len(), 1);
+        assert_eq!(res_peg_ins_1[0], peg_in_1);
+
+        let res_peg_ins_2 = SortitionDB::get_peg_in_ops(db.conn(), &snapshot_2.burn_header_hash)
+            .expect("Failed to get peg-in ops from sortition DB");
+
+        assert_eq!(res_peg_ins_2.len(), 1);
+        assert_eq!(res_peg_ins_2[0], peg_in_2);
     }
 
     #[test]

@@ -2545,7 +2545,7 @@ fn clarity_trait_experiments_upcast_trait_1(
             load_versioned(db, "upcast-trait-1", version, epoch)
         })
         .unwrap_err();
-    if epoch <= StacksEpochId::Epoch2_05 {
+    if epoch == StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
     } else {
         assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
@@ -2587,7 +2587,7 @@ fn clarity_trait_experiments_upcast_trait_3(
             load_versioned(db, "upcast-trait-3", version, epoch)
         })
         .unwrap_err();
-    if epoch <= StacksEpochId::Epoch2_05 {
+    if epoch == StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
     } else {
         assert!(err.starts_with("TypeError(PrincipalType, CallableType"));

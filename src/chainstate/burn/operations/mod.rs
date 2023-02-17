@@ -326,6 +326,9 @@ pub struct PegInOp {
     #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
     pub peg_wallet_address: PoxAddress,
     pub amount: u64, // BTC amount to peg in, in satoshis
+    #[serde(serialize_with = "hex_ser_memo")]
+    #[serde(deserialize_with = "hex_deser_memo")]
+    pub memo: Vec<u8>, // extra unused bytes
 
     // common to all transactions
     pub txid: Txid,        // transaction ID
@@ -333,6 +336,16 @@ pub struct PegInOp {
     pub block_height: u64, // block height at which this tx occurs
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+fn hex_ser_memo<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+    let inst = to_hex(bytes);
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deser_memo<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    hex_bytes(&inst_str).map_err(serde::de::Error::custom)
 }
 
 fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
