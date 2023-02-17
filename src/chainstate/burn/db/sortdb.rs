@@ -752,20 +752,6 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
         PRIMARY KEY(txid, burn_header_hash)
     );"#];
 
-const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
-    CREATE TABLE peg_in (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
-        peg_wallet_address TEXT NOT NULL,
-        amount TEXT NOT NULL,
-
-        PRIMARY KEY(txid)
-    );"#];
-
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -3956,20 +3942,6 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM delegate_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
-        )
-    }
-
-    /// Get the list of Peg-In operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
-    pub fn get_peg_in_ops(
-        conn: &Connection,
-        burn_header_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<PegInOp>, db_error> {
-        query_rows(
-            conn,
-            "SELECT * FROM peg_in WHERE burn_header_hash = ?",
             &[burn_header_hash],
         )
     }

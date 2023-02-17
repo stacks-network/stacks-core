@@ -1700,6 +1700,7 @@ pub enum StacksMessageID {
 ///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
 ///  from a, e.g., `Vec<PegInOp>`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum BurnchainOps {
     PegIn(Vec<PegInOp>),
 }
