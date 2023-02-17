@@ -46,8 +46,8 @@ use crate::burnchains::{
 use crate::chainstate::burn::operations::DelegateStxOp;
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp,
-    PegOutRequestOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
@@ -439,81 +439,6 @@ impl FromRow<PegInOp> for PegInOp {
     }
 }
 
-impl FromRow<PegOutRequestOp> for PegOutRequestOp {
-    fn from_row<'a>(row: &'a Row) -> Result<Self, db_error> {
-        let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex")?;
-        let block_height = u64::from_column(row, "block_height")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-
-        let recipient = PoxAddress::from_column(row, "recipient")?;
-        let amount = row
-            .get::<_, String>("amount")?
-            .parse()
-            .map_err(|_| db_error::ParseError)?;
-
-        let signature = MessageSignature::from_column(row, "signature")?;
-
-        let peg_wallet_address = PoxAddress::from_column(row, "peg_wallet_address")?;
-        let fulfillment_fee = row
-            .get::<_, String>("fulfillment_fee")?
-            .parse()
-            .map_err(|_| db_error::ParseError)?;
-
-        let memo_hex: String = row.get_unwrap("memo");
-        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
-        let memo = memo_bytes.to_vec();
-
-        Ok(Self {
-            txid,
-            vtxindex,
-            block_height,
-            burn_header_hash,
-            recipient,
-            amount,
-            signature,
-            peg_wallet_address,
-            fulfillment_fee,
-            memo,
-        })
-    }
-}
-
-impl FromRow<PegOutFulfillOp> for PegOutFulfillOp {
-    fn from_row<'a>(row: &'a Row) -> Result<Self, db_error> {
-        let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get("vtxindex")?;
-        let block_height = u64::from_column(row, "block_height")?;
-        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-
-        let recipient = PoxAddress::from_column(row, "recipient")?;
-        let amount = row
-            .get::<_, String>("amount")?
-            .parse()
-            .map_err(|_| db_error::ParseError)?;
-
-        let chain_tip = StacksBlockId::from_column(row, "chain_tip")?;
-
-        let memo_hex: String = row.get_unwrap("memo");
-        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
-        let memo = memo_bytes.to_vec();
-
-        let request_ref = Txid::from_column(row, "request_ref")?;
-
-        Ok(Self {
-            txid,
-            vtxindex,
-            block_height,
-            burn_header_hash,
-            chain_tip,
-            recipient,
-            amount,
-            memo,
-            request_ref,
-        })
-    }
-}
-
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
@@ -810,10 +735,9 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 ];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_in_burn_header_hash";
 
-const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
-    r#"
+const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
     CREATE TABLE peg_in (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -826,39 +750,7 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
-    );"#,
-    r#"
-    CREATE TABLE peg_out_requests (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        amount TEXT NOT NULL,
-        recipient TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        peg_wallet_address TEXT NOT NULL,
-        fulfillment_fee TEXT NOT NULL,
-        memo TEXT,
-
-        PRIMARY KEY(txid, burn_header_hash)
-    );"#,
-    r#"
-    CREATE TABLE peg_out_fulfillments (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        chain_tip TEXT NOT NULL,
-        amount TEXT NOT NULL,
-        recipient TEXT NOT NULL,
-        request_ref TEXT NOT NULL,
-        memo TEXT,
-
-        PRIMARY KEY(txid, burn_header_hash)
-    );"#,
-];
+    );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -884,8 +776,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_peg_in_burn_header_hash ON peg_in(burn_header_hash);",
-    "CREATE INDEX IF NOT EXISTS index_peg_out_request_burn_header_hash ON peg_out_requests(burn_header_hash);",
-    "CREATE INDEX IF NOT EXISTS index_peg_out_fulfill_burn_header_hash ON peg_out_fulfillments(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -4070,34 +3960,6 @@ impl SortitionDB {
         )
     }
 
-    /// Get the list of Peg-Out Request operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
-    pub fn get_peg_out_request_ops(
-        conn: &Connection,
-        burn_header_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<PegOutRequestOp>, db_error> {
-        query_rows(
-            conn,
-            "SELECT * FROM peg_out_requests WHERE burn_header_hash = ?",
-            &[burn_header_hash],
-        )
-    }
-
-    /// Get the list of Peg-Out Fulfill operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
-    pub fn get_peg_out_fulfill_ops(
-        conn: &Connection,
-        burn_header_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<PegOutFulfillOp>, db_error> {
-        query_rows(
-            conn,
-            "SELECT * FROM peg_out_fulfillments WHERE burn_header_hash = ?",
-            &[burn_header_hash],
-        )
-    }
-
     /// Get the list of Transfer-STX operations processed in a given burnchain block.
     /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
     /// to reject them.
@@ -4965,20 +4827,6 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_peg_in_sbtc(op)
             }
-            BlockstackOperationType::PegOutRequest(ref op) => {
-                info!(
-                    "ACCEPTED({}) sBTC peg out request opt {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
-                self.insert_sbtc_peg_out_request(op)
-            }
-            BlockstackOperationType::PegOutFulfill(ref op) => {
-                info!(
-                    "ACCEPTED({}) sBTC peg out fulfill op {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
-                );
-                self.insert_sbtc_peg_out_fulfill(op)
-            }
         }
     }
 
@@ -5060,45 +4908,6 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO peg_in (txid, vtxindex, block_height, burn_header_hash, recipient, peg_wallet_address, amount, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
-
-        Ok(())
-    }
-
-    /// Insert a peg-out request op
-    fn insert_sbtc_peg_out_request(&mut self, op: &PegOutRequestOp) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[
-            &op.txid,
-            &op.vtxindex,
-            &u64_to_sql(op.block_height)?,
-            &op.burn_header_hash,
-            &op.amount.to_string(),
-            &op.recipient.to_string(),
-            &op.signature,
-            &op.peg_wallet_address.to_string(),
-            &op.fulfillment_fee.to_string(),
-            &to_hex(&op.memo),
-        ];
-
-        self.execute("REPLACE INTO peg_out_requests (txid, vtxindex, block_height, burn_header_hash, amount, recipient, signature, peg_wallet_address, fulfillment_fee, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
-
-        Ok(())
-    }
-
-    /// Insert a peg-out fulfillment op
-    fn insert_sbtc_peg_out_fulfill(&mut self, op: &PegOutFulfillOp) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[
-            &op.txid,
-            &op.vtxindex,
-            &u64_to_sql(op.block_height)?,
-            &op.burn_header_hash,
-            &op.chain_tip,
-            &op.amount.to_string(),
-            &op.recipient.to_string(),
-            &op.request_ref.to_string(),
-            &to_hex(&op.memo),
-        ];
-
-        self.execute("REPLACE INTO peg_out_fulfillments (txid, vtxindex, block_height, burn_header_hash, chain_tip, amount, recipient, request_ref, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -6583,160 +6392,6 @@ pub mod tests {
 
         assert_eq!(res_peg_ins_2.len(), 1);
         assert_eq!(res_peg_ins_2[0], peg_in_2);
-    }
-
-    #[test]
-    fn test_insert_peg_out_request() {
-        let block_height = 123;
-
-        let peg_out_request_op = |burn_header_hash, amount| {
-            let txid = Txid([0; 32]);
-            let vtxindex = 456;
-            let amount = 1337;
-            let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-            let signature = MessageSignature([0; 65]);
-            let peg_wallet_address =
-                PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-            let fulfillment_fee = 3;
-            let memo = vec![1, 3, 3, 7];
-
-            PegOutRequestOp {
-                recipient,
-                amount,
-                signature,
-                peg_wallet_address,
-                fulfillment_fee,
-                memo,
-
-                txid,
-                vtxindex,
-                block_height,
-                burn_header_hash,
-            }
-        };
-
-        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
-        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
-
-        let peg_out_request_1 = peg_out_request_op(burn_header_hash_1, 1337);
-        let peg_out_request_2 = peg_out_request_op(burn_header_hash_2, 42);
-
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-
-        let epochs = StacksEpoch::unit_test(StacksEpochId::Epoch21, block_height);
-        let mut db =
-            SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
-
-        let snapshot_1 = test_append_snapshot(
-            &mut db,
-            burn_header_hash_1,
-            &vec![BlockstackOperationType::PegOutRequest(
-                peg_out_request_1.clone(),
-            )],
-        );
-
-        let snapshot_2 = test_append_snapshot(
-            &mut db,
-            burn_header_hash_2,
-            &vec![BlockstackOperationType::PegOutRequest(
-                peg_out_request_2.clone(),
-            )],
-        );
-
-        let res_peg_out_requests_1 =
-            SortitionDB::get_peg_out_request_ops(db.conn(), &burn_header_hash_1)
-                .expect("Failed to get peg-out request ops from sortition DB");
-
-        assert_eq!(res_peg_out_requests_1.len(), 1);
-        assert_eq!(res_peg_out_requests_1[0], peg_out_request_1);
-
-        let res_peg_out_requests_2 =
-            SortitionDB::get_peg_out_request_ops(db.conn(), &burn_header_hash_2)
-                .expect("Failed to get peg-out request ops from sortition DB");
-
-        assert_eq!(res_peg_out_requests_2.len(), 1);
-        assert_eq!(res_peg_out_requests_2[0], peg_out_request_2);
-    }
-
-    #[test]
-    fn test_insert_peg_out_fulfill() {
-        let txid = Txid([0; 32]);
-
-        let peg_out_fulfill_op = |burn_header_hash, amount| {
-            let block_height = 123;
-            let vtxindex = 456;
-            let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-            let chain_tip = StacksBlockId([0; 32]);
-            let request_ref = Txid([1; 32]);
-            let memo = vec![1, 3, 3, 7];
-
-            PegOutFulfillOp {
-                recipient,
-                amount,
-                chain_tip,
-                request_ref,
-                memo,
-
-                txid,
-                vtxindex,
-                block_height,
-                burn_header_hash,
-            }
-        };
-
-        let block_height = 123;
-        let vtxindex = 456;
-        let recipient = PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
-        let chain_tip = StacksBlockId([0; 32]);
-        let burn_header_hash = BurnchainHeaderHash([0x03; 32]);
-
-        let burn_header_hash_1 = BurnchainHeaderHash([0x01; 32]);
-        let burn_header_hash_2 = BurnchainHeaderHash([0x02; 32]);
-
-        let peg_out_fulfill_1 = peg_out_fulfill_op(burn_header_hash_1, 1337);
-        let peg_out_fulfill_2 = peg_out_fulfill_op(burn_header_hash_2, 42);
-
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-
-        let epochs = StacksEpoch::unit_test(StacksEpochId::Epoch21, block_height);
-        let mut db =
-            SortitionDB::connect_test_with_epochs(block_height, &first_burn_hash, epochs).unwrap();
-
-        let snapshot_1 = test_append_snapshot(
-            &mut db,
-            burn_header_hash_1,
-            &vec![BlockstackOperationType::PegOutFulfill(
-                peg_out_fulfill_1.clone(),
-            )],
-        );
-
-        let snapshot_2 = test_append_snapshot(
-            &mut db,
-            burn_header_hash_2,
-            &vec![BlockstackOperationType::PegOutFulfill(
-                peg_out_fulfill_2.clone(),
-            )],
-        );
-
-        let res_peg_out_fulfillments_1 =
-            SortitionDB::get_peg_out_fulfill_ops(db.conn(), &burn_header_hash_1)
-                .expect("Failed to get peg-out fulfill ops from sortition DB");
-
-        assert_eq!(res_peg_out_fulfillments_1.len(), 1);
-        assert_eq!(res_peg_out_fulfillments_1[0], peg_out_fulfill_1);
-
-        let res_peg_out_fulfillments_2 =
-            SortitionDB::get_peg_out_fulfill_ops(db.conn(), &burn_header_hash_2)
-                .expect("Failed to get peg-out fulfill ops from sortition DB");
-
-        assert_eq!(res_peg_out_fulfillments_2.len(), 1);
-        assert_eq!(res_peg_out_fulfillments_2[0], peg_out_fulfill_2);
     }
 
     #[test]
