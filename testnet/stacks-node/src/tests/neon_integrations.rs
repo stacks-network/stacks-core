@@ -742,9 +742,9 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     (stacks_tip_consensus_hash, block)
 }
 
-fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
+fn get_peg_ops(conf: &Config, height: u64, op: &str) -> BurnchainOps {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
+    let path = format!("{}/v2/burn_ops/{}/{}", &http_origin, height, op);
     let client = reqwest::blocking::Client::new();
 
     let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
@@ -10999,10 +10999,10 @@ fn test_submit_and_observe_peg_in_request() {
     // now test that the responses from the RPC endpoint match the data
     //  from the DB
 
-    let query_height_op_contract = parsed_peg_in_op_contract.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_contract);
+    let query_height_peg_in_contract = parsed_peg_in_op_contract.block_height;
+    let parsed_peg_in_contract_resp = get_peg_ops(&conf, query_height_peg_in_contract, "peg_in");
 
-    let parsed_peg_in_op_contract = match parsed_resp {
+    let parsed_peg_in_op_contract = match parsed_peg_in_contract_resp {
         BurnchainOps::PegIn(mut vec) => {
             assert_eq!(vec.len(), 1);
             vec.pop().unwrap()
@@ -11010,15 +11010,37 @@ fn test_submit_and_observe_peg_in_request() {
         _ => panic!("Response not peg in")
     };
 
-    let query_height_op_standard = parsed_peg_in_op_standard.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_standard);
+    let query_height_peg_in_standard = parsed_peg_in_op_standard.block_height;
+    let parsed_peg_in_standard_resp = get_peg_ops(&conf, query_height_peg_in_standard, "peg_in");
 
-    let parsed_peg_in_op_standard = match parsed_resp {
+    let parsed_peg_in_op_standard = match parsed_peg_in_standard_resp {
         BurnchainOps::PegIn(mut vec) => {
             assert_eq!(vec.len(), 1);
             vec.pop().unwrap()
         }
         _ => panic!("Response not peg in")
+    };
+    
+    let query_height_peg_out_request = parsed_peg_out_request_op.block_height;
+    let parsed_peg_out_request_resp = get_peg_ops(&conf, query_height_peg_out_request, "peg_out_request");
+
+    let parsed_peg_out_request_op = match parsed_peg_out_request_resp {
+        BurnchainOps::PegOutRequest(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+        _ => panic!("Response not peg out request")
+    };
+    
+    let query_height_peg_out_fulfill = parsed_peg_out_fulfill_op.block_height;
+    let parsed_peg_out_fulfill = get_peg_ops(&conf, query_height_peg_out_fulfill, "peg_out_fulfill");
+
+    let parsed_peg_out_fulfill = match parsed_peg_out_fulfill {
+        BurnchainOps::PegOutFulfill(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+        _ => panic!("Response not peg out fulfill")
     };
 
     assert_eq!(

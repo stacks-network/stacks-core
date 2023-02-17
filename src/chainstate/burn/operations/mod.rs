@@ -446,6 +446,8 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum BurnchainOpsVec {
     PegIn(Vec<PegInOp>),
+    PegOutRequest(Vec<PegOutRequestOp>),
+    PegOutFulfill(Vec<PegOutFulfillOp>),
 }
 
 impl BlockstackOperationType {
