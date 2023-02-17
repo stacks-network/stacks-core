@@ -11069,5 +11069,104 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_out_fulfill_op.chain_tip
     );
 
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let get_path = |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
+    let client = reqwest::blocking::Client::new();
+
+    // Test peg in
+    let response: serde_json::Value = client
+        .get(&get_path("peg_in", parsed_peg_in_op_standard.block_height))
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    eprintln!("{}", response);
+
+    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
+
+    let parsed_peg_in_op = match parsed_resp {
+        BurnchainOps::PegIn(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+        _ => panic!("Op not peg_in"),
+    };
+
+    // Test peg out request
+    let response: serde_json::Value = client
+        .get(&get_path("peg_out_request", parsed_peg_out_request_op.block_height))
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    eprintln!("{}", response);
+
+    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
+
+    let parsed_peg_out_request_op = match parsed_resp {
+        BurnchainOps::PegOutRequest(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+        _ => panic!("Op not peg_out_request"),
+    };
+    
+    // Test peg out fulfill
+    let response: serde_json::Value = client
+        .get(&get_path("peg_out_fulfill", parsed_peg_out_fulfill_op.block_height))
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    eprintln!("{}", response);
+
+    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
+
+    let parsed_peg_out_fulfill_op = match parsed_resp {
+        BurnchainOps::PegOutFulfill(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+        _ => panic!("Op not peg_out_fulfill"),
+    };
+
+    assert_eq!(
+        parsed_peg_in_op.recipient,
+        peg_in_op_standard.recipient
+    );
+    assert_eq!(parsed_peg_in_op.amount, peg_in_op_standard.amount);
+    assert_eq!(
+        parsed_peg_in_op.peg_wallet_address,
+        peg_in_op_standard.peg_wallet_address
+    );
+
+    assert_eq!(
+        parsed_peg_out_request_op.recipient,
+        peg_out_request_op.recipient
+    );
+    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
+    assert_eq!(
+        parsed_peg_out_request_op.signature,
+        peg_out_request_op.signature
+    );
+    assert_eq!(
+        parsed_peg_out_request_op.peg_wallet_address,
+        peg_out_request_op.peg_wallet_address
+    );
+    assert_eq!(
+        parsed_peg_out_request_op.fulfillment_fee,
+        peg_out_request_op.fulfillment_fee
+    );
+
+    assert_eq!(
+        parsed_peg_out_fulfill_op.recipient,
+        peg_out_fulfill_op.recipient
+    );
+    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
+    assert_eq!(
+        parsed_peg_out_fulfill_op.chain_tip,
+        peg_out_fulfill_op.chain_tip
+    );
+
     run_loop_coordinator_channel.stop_chains_coordinator();
 }
