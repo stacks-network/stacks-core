@@ -196,7 +196,8 @@ pub fn special_append(
                 assert_eq!(size, 0);
                 return Value::list_from(vec![element]);
             }
-            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type)
+            if let Ok(next_entry_type) =
+                TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
             {
                 let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
@@ -231,7 +232,9 @@ pub fn special_concat_v200(
     )?;
 
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => seq.append(other_seq),
+        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
+            seq.append(env.epoch(), other_seq)
+        }
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
 
@@ -256,7 +259,7 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.append(other_seq)
+            seq.append(env.epoch(), other_seq)
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
@@ -341,5 +344,103 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
         Value::some(result)
     } else {
         Ok(Value::none())
+    }
+}
+
+/// Executes the Clarity2 function `slice?`.
+pub fn special_slice(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    let seq = eval(&args[0], env, context)?;
+    let left_position = eval(&args[1], env, context)?;
+    let right_position = eval(&args[2], env, context)?;
+
+    let sliced_seq_res = (|| {
+        match (seq, left_position, right_position) {
+            (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
+                let (left_position, right_position) =
+                    match (u32::try_from(left_position), u32::try_from(right_position)) {
+                        (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                        _ => return Ok(Value::none()),
+                    };
+
+                // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+                if left_position as usize >= seq.len() || right_position as usize > seq.len() {
+                    return Ok(Value::none());
+                }
+                if right_position < left_position {
+                    return Ok(Value::none());
+                }
+
+                runtime_cost(
+                    ClarityCostFunction::Slice,
+                    env,
+                    (right_position - left_position) * seq.element_size(),
+                )?;
+                let seq_value = seq.slice(left_position as usize, right_position as usize)?;
+                Value::some(seq_value)
+            }
+            _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
+        }
+    })();
+
+    match sliced_seq_res {
+        Ok(sliced_seq) => Ok(sliced_seq),
+        Err(e) => {
+            runtime_cost(ClarityCostFunction::Slice, env, 0)?;
+            Err(e)
+        }
+    }
+}
+
+pub fn special_replace_at(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    let seq = eval(&args[0], env, context)?;
+    let seq_type = TypeSignature::type_of(&seq);
+
+    // runtime is the cost to copy over one element into its place
+    runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size())?;
+
+    let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
+        seq_subtype.unit_type()
+    } else {
+        return Err(CheckErrors::ExpectedSequence(seq_type).into());
+    };
+    let index_val = eval(&args[1], env, context)?;
+    let new_element = eval(&args[2], env, context)?;
+
+    if expected_elem_type != TypeSignature::NoType
+        && !expected_elem_type.admits(env.epoch(), &new_element)?
+    {
+        return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
+    }
+
+    let index = if let Value::UInt(index_u128) = index_val {
+        if let Ok(index_usize) = usize::try_from(index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index_val).into());
+    };
+
+    if let Value::Sequence(data) = seq {
+        let seq_len = data.len();
+        if index >= seq_len {
+            return Ok(Value::none());
+        }
+        data.replace_at(env.epoch(), index, new_element)
+    } else {
+        return Err(CheckErrors::ExpectedSequence(seq_type).into());
     }
 }

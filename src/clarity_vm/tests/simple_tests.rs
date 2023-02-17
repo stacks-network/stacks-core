@@ -1,3 +1,4 @@
+use clarity::types::StacksEpochId;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::errors::{Error, RuntimeErrorType};
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
@@ -33,8 +34,10 @@ where
             &StacksBlockId([1 as u8; 32]),
         );
 
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::latest(),
+        );
         // start an initial transaction.
         if !top_level {
             owned_env.begin();
@@ -54,6 +57,7 @@ fn test_at_unknown_block() {
             .initialize_contract(
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
+                None,
                 clarity::vm::ast::ASTRules::PrecheckSize,
             )
             .unwrap_err();

@@ -16,8 +16,10 @@
 
 pub mod analysis_costs;
 pub mod ast;
+pub mod contracts;
 pub mod costs;
 pub mod epoch_switch;
+pub mod events;
 pub mod forking;
 pub mod large_contract;
 pub mod simple_tests;

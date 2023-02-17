@@ -31,8 +31,8 @@ use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
-    query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
-    FromRow,
+    query_count, query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
+    FromColumn, FromRow,
 };
 use clarity::vm::costs::ExecutionCost;
 
@@ -116,6 +116,7 @@ impl StacksChainState {
         parent_id: &StacksBlockId,
         tip_info: &StacksHeaderInfo,
         anchored_block_cost: &ExecutionCost,
+        affirmation_weight: u64,
     ) -> Result<(), Error> {
         assert_eq!(
             tip_info.stacks_block_height,
@@ -164,6 +165,7 @@ impl StacksChainState {
             anchored_block_cost,
             &block_size_str,
             parent_id,
+            &u64_to_sql(affirmation_weight)?,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -187,8 +189,9 @@ impl StacksChainState {
                     index_root,
                     cost,
                     block_size,
-                    parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                    parent_block_id,
+                    affirmation_weight) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -330,5 +333,66 @@ impl StacksChainState {
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
             .is_some())
+    }
+
+    /// Load up the past N ancestors' index block hashes of a given block, *including* the given
+    /// index_block_hash.  The returned vector will contain the following hashes, in this order
+    ///     * index_block_hash
+    ///     * 1st ancestor of index_block_hash
+    ///     * 2nd ancestor of index_block_hash
+    ///     ...
+    ///     * Nth ancestor of index_block_hash
+    pub fn get_ancestor_index_hashes(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+        count: u64,
+    ) -> Result<Vec<StacksBlockId>, Error> {
+        let mut ret = vec![index_block_hash.clone()];
+        for _i in 0..count {
+            let parent_index_block_hash = {
+                let cur_index_block_hash = ret.last().expect("FATAL: empty list of ancestors");
+                match StacksChainState::get_parent_block_id(conn, &cur_index_block_hash)? {
+                    Some(ibhh) => ibhh,
+                    None => {
+                        // out of ancestors
+                        break;
+                    }
+                }
+            };
+            ret.push(parent_index_block_hash);
+        }
+        Ok(ret)
+    }
+
+    /// Get all headers at a given Stacks height
+    pub fn get_all_headers_at_height_and_weight(
+        conn: &Connection,
+        height: u64,
+        affirmation_weight: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let qry =
+            "SELECT * FROM block_headers WHERE block_height = ?1 AND affirmation_weight = ?2 ORDER BY burn_header_height DESC";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(affirmation_weight)?];
+        query_rows(conn, qry, args).map_err(|e| e.into())
+    }
+
+    /// Get the highest known header height
+    pub fn get_max_header_height(conn: &Connection) -> Result<u64, Error> {
+        let qry = "SELECT block_height FROM block_headers ORDER BY block_height DESC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
+            .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
+            .map_err(|e| e.into())
+    }
+
+    /// Get the highest known header affirmation weight
+    pub fn get_max_affirmation_weight_at_height(
+        conn: &Connection,
+        height: u64,
+    ) -> Result<u64, Error> {
+        let qry =
+            "SELECT affirmation_weight FROM block_headers WHERE block_height = ?1 ORDER BY affirmation_weight DESC LIMIT 1";
+        query_row(conn, qry, &[&u64_to_sql(height)?])
+            .map(|row_opt: Option<i64>| row_opt.map(|h| h as u64).unwrap_or(0))
+            .map_err(|e| e.into())
     }
 }

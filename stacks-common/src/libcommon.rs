@@ -59,4 +59,15 @@ pub mod consts {
     pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
     pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
+
+    pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
+    pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+
+    #[cfg(any(test, feature = "testing"))]
+    pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub const MINER_REWARD_MATURITY: u64 = 100;
+
+    pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
 }

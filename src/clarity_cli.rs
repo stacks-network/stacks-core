@@ -36,7 +36,7 @@ use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
-use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{
     vm::analysis,
@@ -55,6 +55,7 @@ use crate::clarity::{
     vm::errors::{Error, InterpreterResult, RuntimeErrorType},
     vm::eval_all,
     vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier},
+    vm::ClarityVersion,
     vm::ContractContext,
     vm::ContractName,
     vm::{SymbolicExpression, SymbolicExpressionType, Value},
@@ -65,7 +66,13 @@ use crate::burnchains::PoxConstants;
 use crate::burnchains::Txid;
 use stacks_common::types::chainstate::*;
 
-use crate::chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
+    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
+    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+};
+
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 use crate::burnchains::Address;
@@ -85,12 +92,40 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::StacksEpochId;
+use stacks_common::consts::CHAIN_ID_MAINNET;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
 use std::str::FromStr;
+
+lazy_static! {
+    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
+        ("pox", &BOOT_CODE_POX_MAINNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+        ("costs-2", BOOT_CODE_COSTS_2),
+        ("pox-2", &POX_2_MAINNET_CODE),
+        ("costs-3", BOOT_CODE_COSTS_3),
+    ];
+    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 9] = [
+        ("pox", &BOOT_CODE_POX_TESTNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+        ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
+        ("pox-2", &POX_2_TESTNET_CODE),
+        ("costs-3", BOOT_CODE_COSTS_3),
+    ];
+}
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -144,7 +179,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
 struct EvalInput {
     marf_kv: MarfedKV,
@@ -155,11 +190,14 @@ struct EvalInput {
 fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
+    clarity_version: ClarityVersion,
 ) -> Result<Vec<SymbolicExpression>, Error> {
     let ast = build_ast_with_rules(
         contract_identifier,
         source_code,
         &mut (),
+        clarity_version,
+        DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
     .map_err(|e| RuntimeErrorType::ASTError(e))?;
@@ -209,12 +247,15 @@ fn run_analysis_free<C: ClarityStorage>(
     marf_kv: &mut C,
     save_contract: bool,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
         expressions,
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        DEFAULT_CLI_EPOCH,
+        clarity_version,
     )
 }
 
@@ -226,8 +267,10 @@ fn run_analysis<C: ClarityStorage>(
     save_contract: bool,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mainnet = header_db.is_mainnet();
+    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
         mainnet,
+        default_chain_id(mainnet),
         if mainnet {
             BLOCK_LIMIT_MAINNET_205.clone()
         } else {
@@ -243,6 +286,8 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        DEFAULT_CLI_EPOCH,
+        clarity_version,
     )
 }
 
@@ -359,7 +404,7 @@ where
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<F, R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+fn at_chaintip<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
@@ -390,10 +435,20 @@ where
     result
 }
 
+fn default_chain_id(mainnet: bool) -> u32 {
+    let chain_id = if mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    };
+    chain_id
+}
+
 fn with_env_costs<F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
     marf: &mut WritableMarfStore,
+    coverage: Option<&mut CoverageReporter>,
     f: F,
 ) -> (R, ExecutionCost)
 where
@@ -402,6 +457,7 @@ where
     let mut db = marf.as_clarity_db(header_db, &NULL_BURN_STATE_DB);
     let cost_track = LimitedCostTracker::new(
         mainnet,
+        default_chain_id(mainnet),
         if mainnet {
             BLOCK_LIMIT_MAINNET_205.clone()
         } else {
@@ -411,7 +467,16 @@ where
         DEFAULT_CLI_EPOCH,
     )
     .unwrap();
-    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_cost_limited(
+        mainnet,
+        default_chain_id(mainnet),
+        db,
+        cost_track,
+        DEFAULT_CLI_EPOCH,
+    );
+    if let Some(coverage) = coverage {
+        vm_env.add_eval_hook(coverage);
+    }
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -419,22 +484,29 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
+pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
+        default_chain_id(false),
         conn,
         LimitedCostTracker::new_free(),
         DEFAULT_CLI_EPOCH,
     );
-    global_context.coverage_reporting = Some(CoverageReporter::new());
     global_context.execute(|g| {
-        let parsed = ast::build_ast_with_rules(&contract_id, program, &mut (), ASTRules::Typical)?
-            .expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        let parsed = ast::build_ast_with_rules(
+            &contract_id,
+            program,
+            &mut (),
+            clarity_version,
+            DEFAULT_CLI_EPOCH,
+            ASTRules::Typical,
+        )?
+        .expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -615,6 +687,17 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // mock it
+        let conn = self.conn();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            let hash_bytes = Hash160::from_data(&id_bhh.0);
+            Some(ConsensusHash(hash_bytes.0))
+        } else {
+            None
+        }
+    }
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -642,6 +725,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -650,6 +734,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -658,8 +743,24 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
     }
 }
 
@@ -755,10 +856,30 @@ fn consume_arg(
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
-        *STACKS_BOOT_CODE_MAINNET
+        *STACKS_BOOT_CODE_MAINNET_2_1
     } else {
-        *STACKS_BOOT_CODE_TESTNET
+        *STACKS_BOOT_CODE_TESTNET_2_1
     };
+
+    {
+        let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
+        let mut vm_env =
+            OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
+        vm_env
+            .execute_in_env(
+                QualifiedContractIdentifier::transient().issuer.into(),
+                None,
+                None,
+                |env| {
+                    let res: InterpreterResult<_> = Ok(env
+                        .global_context
+                        .database
+                        .set_clarity_epoch_version(DEFAULT_CLI_EPOCH));
+                    res
+                },
+            )
+            .unwrap();
+    }
 
     for (boot_code_name, boot_code_contract) in boot_code.iter() {
         let contract_identifier = QualifiedContractIdentifier::new(
@@ -774,7 +895,11 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         );
 
         let mut ast = friendly_expect(
-            parse(&contract_identifier, &contract_content),
+            parse(
+                &contract_identifier,
+                &contract_content,
+                ClarityVersion::Clarity2,
+            ),
             "Failed to parse program.",
         );
 
@@ -782,11 +907,18 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+                let mut vm_env = OwnedEnvironment::new_free(
+                    mainnet,
+                    default_chain_id(mainnet),
+                    db,
+                    DEFAULT_CLI_EPOCH,
+                );
                 vm_env
-                    .initialize_contract(
+                    .initialize_versioned_contract(
                         contract_identifier,
+                        ClarityVersion::Clarity2,
                         &contract_content,
+                        None,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -814,10 +946,12 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+    let mut vm_env =
+        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
     vm_env
         .execute_transaction(
             sender,
+            None,
             pox_contract,
             "set-burnchain-parameters",
             params.as_slice(),
@@ -1032,7 +1166,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             };
 
             // TODO: Add --clarity_version as command line argument
-            let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity2),
+                "Failed to parse program",
+            );
 
             let contract_analysis_res = {
                 if argv.len() >= 3 {
@@ -1108,9 +1245,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 true
             };
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
-            let mut exec_env = vm_env.get_exec_environment(None);
+            let mut vm_env = OwnedEnvironment::new_free(
+                mainnet,
+                default_chain_id(mainnet),
+                marf.as_clarity_db(),
+                DEFAULT_CLI_EPOCH,
+            );
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
+            let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1135,7 +1280,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
                 };
 
-                let mut ast = match parse(&contract_id, &content) {
+                let mut ast = match parse(&contract_id, &content, ClarityVersion::Clarity2) {
                     Ok(val) => val,
                     Err(error) => {
                         println!("Parse error:\n{}", error);
@@ -1175,17 +1320,27 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(true, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
+            let mut vm_env = OwnedEnvironment::new_free(
+                true,
+                default_chain_id(true),
+                marf.as_clarity_db(),
+                DEFAULT_CLI_EPOCH,
+            );
 
             let contract_id = QualifiedContractIdentifier::transient();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
 
-            let mut ast =
-                friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity2),
+                "Failed to parse program.",
+            );
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None, &mut placeholder_context)
                         .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
                     match result {
                         Ok(x) => (
@@ -1232,15 +1387,22 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.get_exec_environment(None).eval_read_only_with_rules(
-                        &evalInput.contract_identifier,
-                        &evalInput.content,
-                        ASTRules::PrecheckSize,
-                    )
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only_with_rules(
+                                &evalInput.contract_identifier,
+                                &evalInput.content,
+                                ASTRules::PrecheckSize,
+                            )
+                    });
                 (header_db, marf, result_and_cost)
             });
 
@@ -1294,27 +1456,38 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    if coverage_folder.is_some() {
-                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                    }
-                    (
-                        vm_env.get_exec_environment(None).eval_read_only_with_rules(
-                            &evalInput.contract_identifier,
-                            &evalInput.content,
-                            ASTRules::PrecheckSize,
-                        ),
-                        vm_env.take_coverage_reporter(),
-                    )
-                });
-                let ((result, coverage), cost) = result_and_cost;
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only_with_rules(
+                                &evalInput.contract_identifier,
+                                &evalInput.content,
+                                ASTRules::PrecheckSize,
+                            )
+                    },
+                );
+                let (result, cost) = result_and_cost;
 
-                (marf, (result, cost, coverage))
+                (marf, (result, cost))
             });
 
             match result_and_cost {
-                (Ok(result), cost, coverage) => {
+                (Ok(result), cost) => {
                     save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "output": serde_json::to_value(&result).unwrap(),
@@ -1326,7 +1499,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                     (0, Some(result_json))
                 }
-                (Err(error), cost, coverage) => {
+                (Err(error), cost) => {
                     save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "error": {
@@ -1379,14 +1552,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.get_exec_environment(None).eval_read_only_with_rules(
-                        &contract_identifier,
-                        &content,
-                        ASTRules::PrecheckSize,
-                    )
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only_with_rules(
+                                &contract_identifier,
+                                &content,
+                                ASTRules::PrecheckSize,
+                            )
+                    });
                 (marf, result_and_cost)
             });
 
@@ -1461,7 +1641,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             // TODO: Add --clarity_version as command line argument
             let mut ast = friendly_expect(
-                parse(&contract_identifier, &contract_content),
+                parse(
+                    &contract_identifier,
+                    &contract_content,
+                    ClarityVersion::Clarity2,
+                ),
                 "Failed to parse program.",
             );
 
@@ -1488,6 +1672,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
@@ -1495,28 +1684,29 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
-                            let result_and_cost =
-                                with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                                    if coverage_folder.is_some() {
-                                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                                    }
-                                    (
-                                        vm_env.initialize_contract(
-                                            contract_identifier,
-                                            &contract_content,
-                                            ASTRules::PrecheckSize,
-                                        ),
-                                        vm_env.take_coverage_reporter(),
+                            let result_and_cost = with_env_costs(
+                                mainnet,
+                                &header_db,
+                                &mut marf,
+                                coverage.as_mut(),
+                                |vm_env| {
+                                    vm_env.initialize_versioned_contract(
+                                        contract_identifier,
+                                        ClarityVersion::Clarity2,
+                                        &contract_content,
+                                        None,
+                                        ASTRules::PrecheckSize,
                                     )
-                                });
-                            let ((result, coverage), cost) = result_and_cost;
-                            (header_db, marf, Ok((analysis, (result, cost, coverage))))
+                                },
+                            );
+                            let (result, cost) = result_and_cost;
+                            (header_db, marf, Ok((analysis, (result, cost))))
                         }
                     }
                 });
 
             match analysis_result_and_cost {
-                Ok((contract_analysis, (Ok((_x, asset_map, events)), cost, coverage))) => {
+                Ok((contract_analysis, (Ok((_x, asset_map, events)), cost))) => {
                     let mut result = json!({
                         "message": "Contract initialized!"
                     });
@@ -1612,8 +1802,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let arguments: Vec<_> = argv[5..]
                 .iter()
                 .map(|argument| {
+                    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument),
+                        vm_execute(argument, clarity_version),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(
@@ -1624,27 +1815,33 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 })
                 .collect();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    if coverage_folder.is_some() {
-                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                    }
-                    (
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
                         vm_env.execute_transaction(
                             sender,
+                            None,
                             contract_identifier,
                             &tx_name,
                             &arguments,
-                        ),
-                        vm_env.take_coverage_reporter(),
-                    )
-                });
-                let ((result, coverage), cost) = result_and_cost;
-                (header_db, marf, (result, cost, coverage))
+                        )
+                    },
+                );
+                let (result, cost) = result_and_cost;
+                (header_db, marf, (result, cost))
             });
 
             match result_and_cost {
-                (Ok((x, asset_map, events)), cost, coverage) => {
+                (Ok((x, asset_map, events)), cost) => {
                     if let Value::Response(data) = x {
                         save_coverage(coverage_folder, coverage, "execute");
                         if data.committed {

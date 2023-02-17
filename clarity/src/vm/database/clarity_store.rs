@@ -28,6 +28,7 @@ use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
     InterpreterResult, RuntimeErrorType,
 };
+use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::QualifiedContractIdentifier;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
@@ -43,10 +44,14 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &mut GlobalContext,
     // the current sender
     Option<&PrincipalData>,
+    // the current sponsor
+    Option<&PrincipalData>,
     // the invoked contract
     &QualifiedContractIdentifier,
     // the invoked function name
     &str,
+    // the function parameters
+    &[Value],
     // the result of the function call
     &Value,
 ) -> Result<()>;
@@ -71,6 +76,7 @@ pub trait ClarityBackingStore {
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
+    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
     /// this function returns the current block height, as viewed by this marfed-kv structure,
@@ -305,7 +311,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        0
+        1
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {

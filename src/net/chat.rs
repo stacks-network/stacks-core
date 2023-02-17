@@ -310,7 +310,7 @@ pub struct ConversationP2P {
 
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
 
-    // highest block height and consensus hash this peer has seen
+    // highest burnchain block height and burnchain block hash this peer has seen
     pub burnchain_tip_height: u64,
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
     pub burnchain_stable_tip_height: u64,
@@ -716,14 +716,15 @@ impl ConversationP2P {
     }
 
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
-    /// Return Ok(()) if we can proceed
+    /// Return Ok(true) if we can proceed
+    /// Return Ok(false) if we can't proceed, but the remote peer is not in violation of the protocol
     /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
     ///     violation of the protocol
     pub fn is_preamble_valid(
         &self,
         msg: &StacksMessage,
         chain_view: &BurnchainView,
-    ) -> Result<(), net_error> {
+    ) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.network_id {
             // not on our network
             debug!(
@@ -788,7 +789,7 @@ impl ConversationP2P {
             return Err(net_error::InvalidMessage);
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Get next message sequence number
@@ -1074,7 +1075,6 @@ impl ConversationP2P {
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
-        // monitoring::increment_p2p_msg_nat_punch_request_received_counter();
         monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
         let natpunch_data = NatPunchData {
@@ -1474,7 +1474,6 @@ impl ConversationP2P {
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
         monitoring::increment_msg_counter("p2p_get_blocks_inv".to_string());
 
         let mut response = ConversationP2P::make_getblocksinv_response(
@@ -1626,7 +1625,7 @@ impl ConversationP2P {
 
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
-    fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
+    fn check_relayer_cycles(relayers: &[RelayData]) -> bool {
         let mut addrs = HashSet::new();
         for r in relayers.iter() {
             if addrs.contains(&r.peer.public_key_hash) {
@@ -1638,7 +1637,7 @@ impl ConversationP2P {
     }
 
     /// Verify that we aren't in this relayers list
-    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
+    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &[RelayData]) -> bool {
         let addr = local_peer.to_neighbor_addr();
         for r in relayers.iter() {
             if r.peer.public_key_hash == addr.public_key_hash {
@@ -1656,7 +1655,7 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         preamble: &Preamble,
-        relayers: &Vec<RelayData>,
+        relayers: &[RelayData],
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
             debug!(
@@ -2038,7 +2037,6 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
@@ -2110,7 +2108,6 @@ impl ConversationP2P {
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
@@ -2186,7 +2183,6 @@ impl ConversationP2P {
                     nack_payload,
                 );
 
-                // monitoring::increment_p2p_msg_nack_sent_counter();
                 monitoring::increment_msg_counter("p2p_nack_sent".to_string());
 
                 // unauthenticated, so don't forward it (but do consume it, and do nack it)
@@ -2400,7 +2396,6 @@ mod test {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
 
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;
@@ -2467,6 +2462,7 @@ mod test {
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
+            burnchain.pox_constants.clone(),
             true,
         )
         .unwrap();
@@ -4297,7 +4293,10 @@ mod test {
                 .unwrap();
 
             // considered valid as long as the stable burn header hash is valid
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
+                Ok(true)
+            );
         }
 
         // stable burn header hash mismatch
@@ -4388,7 +4387,10 @@ mod test {
                     StacksMessageType::Ping(ping_data.clone()),
                 )
                 .unwrap();
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_good, &chain_view),
+                Ok(true)
+            );
 
             // give ping a newer epoch than we support
             convo_bad.version = 0x18000006;
@@ -4400,7 +4402,10 @@ mod test {
                 )
                 .unwrap();
             convo_bad.version = 0x18000005;
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_good, &chain_view),
+                Ok(true)
+            );
 
             // give ping an older version, but test with a block in which the ping's version is
             // valid
@@ -4423,7 +4428,7 @@ mod test {
             );
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
-                Ok(())
+                Ok(true)
             );
         }
     }

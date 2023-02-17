@@ -18,6 +18,7 @@ use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::representations::PreSymbolicExpressionType::List;
 use crate::vm::representations::SymbolicExpressionCommon;
+use crate::vm::ClarityVersion;
 
 fn inner_relabel<T: SymbolicExpressionCommon>(args: &mut [T], index: u64) -> ParseResult<u64> {
     let mut current = index
@@ -44,11 +45,17 @@ pub fn update_expression_id<T: SymbolicExpressionCommon>(exprs: &mut [T]) -> Par
 pub struct ExpressionIdentifier;
 
 impl ExpressionIdentifier {
-    pub fn run_pre_expression_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+    pub fn run_pre_expression_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+    ) -> ParseResult<()> {
         update_expression_id(contract_ast.pre_expressions.as_mut_slice())?;
         Ok(())
     }
-    pub fn run_expression_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+    pub fn run_expression_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+    ) -> ParseResult<()> {
         update_expression_id(contract_ast.expressions.as_mut_slice())?;
         Ok(())
     }

@@ -34,7 +34,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: large_genesis
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Run unit tests with code coverage
   unit-tests:
@@ -52,7 +52,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: unit_tests
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   open-api-validation:
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: "Execute core contract unit tests in Clarinet"
-        uses: docker://hirosystems/clarinet:latest
+        uses: docker://hirosystems/clarinet:1.1.0
         with:
           args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
       - name: "Export code coverage"
@@ -94,6 +94,7 @@ jobs:
         with:
           files: ./coverage.lcov
           verbose: true
+          fail_ci_if_error: false
 
   # rustfmt checking
   rustfmt:

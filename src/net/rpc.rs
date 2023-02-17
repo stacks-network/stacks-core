@@ -31,6 +31,7 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
@@ -88,12 +89,16 @@ use crate::net::{
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
+use crate::net::{
+    RPCAffirmationData, RPCLastPoxAnchorData, RPCPeerInfoData, RPCPoxContractVersion,
+    RPCPoxInfoData,
+};
 use crate::net::{RPCNeighbor, RPCNeighborsInfo};
-use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::clarity_store::make_contract_hash_key;
 use clarity::vm::types::TraitIdentifier;
+use clarity::vm::ClarityVersion;
 use clarity::vm::{
     analysis::errors::CheckErrors,
     ast::ASTRules,
@@ -112,11 +117,14 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::StacksPublicKeyBuffer;
+
+use crate::clarity_vm::clarity::Error as clarity_error;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
@@ -255,6 +263,16 @@ impl RPCPeerInfoData {
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
+            affirmations: Some(RPCAffirmationData {
+                heaviest: network.heaviest_affirmation_map.clone(),
+                stacks_tip: network.stacks_tip_affirmation_map.clone(),
+                sortition_tip: network.sortition_tip_affirmation_map.clone(),
+                tentative_best: network.tentative_best_affirmation_map.clone(),
+            }),
+            last_pox_anchor: Some(RPCLastPoxAnchorData {
+                anchor_block_hash: network.last_anchor_block_hash.clone(),
+                anchor_block_txid: network.last_anchor_block_txid.clone(),
+            }),
         }
     }
 }
@@ -267,16 +285,49 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = boot_code_id("pox", mainnet);
+        let chain_id = chainstate.chain_id;
+        let current_burn_height =
+            SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?.block_height;
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(current_burn_height);
+
+        let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
 
+        debug!(
+            "Active PoX contract is '{}' (current_burn_height = {}, v1_unlock_height = {}",
+            &contract_identifier, current_burn_height, burnchain.pox_constants.v1_unlock_height
+        );
+
+        // Note: should always be 0 unless somehow configured to start later
+        let pox_1_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-1 first reward cycle begins before first burn block height".to_string(),
+            ))?;
+
+        let pox_2_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-2 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function, &vec![], true)
-                })
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    chain_id,
+                    ClarityVersion::Clarity2,
+                    sender,
+                    None,
+                    cost_track,
+                    |env| env.execute_contract(&contract_identifier, function, &vec![], true),
+                )
             })
             .map_err(|_| net_error::NotFoundError)?;
 
@@ -372,10 +423,35 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
-        let cur_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
+        let cur_block_pox_contract = pox_consts.active_pox_contract(burnchain_tip.block_height);
+        let cur_cycle_pox_contract =
+            pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
+        let next_cycle_pox_contract = pox_consts
+            .active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id + 1));
+
+        let cur_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
+            &sortdb,
+            tip,
+            reward_cycle_id as u128,
+            cur_cycle_pox_contract,
+        )?;
         let next_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
+            // next_cycle_pox_contract might not be instantiated yet
+            match chainstate.get_total_ustx_stacked(
+                &sortdb,
+                tip,
+                reward_cycle_id as u128 + 1,
+                next_cycle_pox_contract,
+            ) {
+                Ok(ustx) => ustx,
+                Err(chain_error::ClarityError(_)) => {
+                    // contract not instantiated yet
+                    0
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
 
         let reward_slots = pox_consts.reward_slots() as u64;
 
@@ -400,9 +476,10 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
+            current_burnchain_block_height: burnchain_tip.block_height,
             prepare_phase_block_length: prepare_cycle_length,
             reward_phase_block_length: reward_cycle_length - prepare_cycle_length,
             reward_slots,
@@ -431,6 +508,19 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             next_reward_cycle_in,
+            contract_versions: vec![
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_1_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.first_block_height,
+                    first_reward_cycle_id: pox_1_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_2_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
+                        as u64,
+                    first_reward_cycle_id: pox_2_first_cycle,
+                },
+            ],
         })
     }
 }
@@ -1169,6 +1259,7 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                    let v1_unlock_height = clarity_db.get_v1_unlock_height();
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
@@ -1194,9 +1285,10 @@ impl ConversationHttp {
                             .unwrap_or_else(|| (0, None))
                     };
 
-                    let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
-                    let (locked, unlock_height) =
-                        balance.get_locked_balance_at_burn_block(burn_block_height);
+                    let unlocked = balance
+                        .get_available_balance_at_burn_block(burn_block_height, v1_unlock_height);
+                    let (locked, unlock_height) = balance
+                        .get_locked_balance_at_burn_block(burn_block_height, v1_unlock_height);
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                     let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
@@ -1346,6 +1438,7 @@ impl ConversationHttp {
         contract_name: &ContractName,
         function: &ClarityName,
         sender: &PrincipalData,
+        sponsor: Option<&PrincipalData>,
         args: &[Value],
         options: &ConnectionOptions,
         canonical_stacks_tip_height: u64,
@@ -1360,6 +1453,7 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let chain_id = chainstate.chain_id;
         let mut cost_limit = options.read_only_call_limit.clone();
         cost_limit.write_length = 0;
         cost_limit.write_count = 0;
@@ -1369,21 +1463,42 @@ impl ConversationHttp {
                 let epoch = clarity_tx.get_epoch();
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db, epoch)
+                        LimitedCostTracker::new_mid_block(
+                            mainnet, chain_id, cost_limit, clarity_db, epoch,
+                        )
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
-                clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
-                    // we want to execute any function as long as no actual writes are made as
-                    // opposed to be limited to purely calling `define-read-only` functions,
-                    // so use `read_only = false`.  This broadens the number of functions that
-                    // can be called, and also circumvents limitations on `define-read-only`
-                    // functions that can not use `contrac-call?`, even when calling other
-                    // read-only functions
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
-                })
+                let clarity_version = clarity_tx
+                    .with_analysis_db_readonly(|analysis_db| {
+                        analysis_db.get_clarity_version(&contract_identifier)
+                    })
+                    .map_err(|_| {
+                        ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
+                            "{}",
+                            &contract_identifier
+                        )))
+                    })?;
+
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    chain_id,
+                    clarity_version,
+                    sender.clone(),
+                    sponsor.cloned(),
+                    cost_track,
+                    |env| {
+                        // we want to execute any function as long as no actual writes are made as
+                        // opposed to be limited to purely calling `define-read-only` functions,
+                        // so use `read_only = false`.  This broadens the number of functions that
+                        // can be called, and also circumvents limitations on `define-read-only`
+                        // functions that can not use `contrac-call?`, even when calling other
+                        // read-only functions
+                        env.execute_contract(&contract_identifier, function.as_str(), &args, false)
+                    },
+                )
             });
 
         let response = match data_opt_res {
@@ -1511,7 +1626,11 @@ impl ConversationHttp {
                         let trait_definition =
                             trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
-                            .check_trait_compliance(trait_id, trait_definition)
+                            .check_trait_compliance(
+                                &db.get_clarity_epoch_version(),
+                                trait_id,
+                                trait_definition,
+                            )
                             .is_ok();
                         Some(GetIsTraitImplementedResponse { is_implemented })
                     }
@@ -1555,8 +1674,9 @@ impl ConversationHttp {
 
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 clarity_tx.with_analysis_db_readonly(|db| {
-                    let contract = db.load_contract(&contract_identifier)?;
+                    let contract = db.load_contract(&contract_identifier, &epoch)?;
                     contract.contract_interface
                 })
             }) {
@@ -1940,9 +2060,26 @@ impl ConversationHttp {
                 false,
             )
         } else {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             if Relayer::do_static_problematic_checks()
-                && !Relayer::static_check_problematic_relayed_tx(chainstate.mainnet, &tx, ast_rules)
-                    .is_ok()
+                && !Relayer::static_check_problematic_relayed_tx(
+                    chainstate.mainnet,
+                    stacks_epoch.epoch_id,
+                    &tx,
+                    ast_rules,
+                )
+                .is_ok()
             {
                 debug!(
                     "Transaction {} is problematic in rules {:?}; will not store or relay",
@@ -1954,18 +2091,6 @@ impl ConversationHttp {
                     false,
                 )
             } else {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-                let stacks_epoch = sortdb
-                    .index_conn()
-                    .get_stacks_epoch(tip.block_height as u32)
-                    .ok_or_else(|| {
-                        warn!(
-                            "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                            tip.block_height
-                        );
-                        net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
-                    })?;
-
                 match mempool.submit(
                     chainstate,
                     &consensus_hash,
@@ -2169,9 +2294,14 @@ impl ConversationHttp {
             Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)?;
         let ast_rules =
             SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)?;
+        let epoch_id =
+            SortitionDB::get_stacks_epoch(&sort_handle, parent_block_snapshot.block_height)?
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
 
         let (response, accepted) = if !Relayer::static_check_problematic_relayed_microblock(
             chainstate.mainnet,
+            epoch_id,
             microblock,
             ast_rules,
         ) {
@@ -2543,6 +2673,7 @@ impl ConversationHttp {
                 ref ctrct_addr,
                 ref ctrct_name,
                 ref as_sender,
+                ref as_sponsor,
                 ref func_name,
                 ref args,
                 ref tip_req,
@@ -2567,6 +2698,7 @@ impl ConversationHttp {
                         ctrct_name,
                         func_name,
                         as_sender,
+                        as_sponsor.as_ref(),
                         args,
                         &self.connection.options,
                         network.burnchain_tip.canonical_stacks_tip_height,
@@ -3416,6 +3548,7 @@ impl ConversationHttp {
         contract_addr: StacksAddress,
         contract_name: ContractName,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         function_name: ClarityName,
         function_args: Vec<Value>,
         tip_req: TipRequest,
@@ -3425,6 +3558,7 @@ impl ConversationHttp {
             contract_addr,
             contract_name,
             sender,
+            sponsor,
             function_name,
             function_args,
             tip_req,
@@ -3464,6 +3598,7 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
     use crate::burnchains::*;
@@ -3589,6 +3724,9 @@ mod test {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
 
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
+        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
+
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -3641,7 +3779,7 @@ mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -3656,8 +3794,12 @@ mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::new_smart_contract(&format!("hello-world"), &contract.to_string())
-                .unwrap(),
+            TransactionPayload::new_smart_contract(
+                &format!("hello-world"),
+                &contract.to_string(),
+                None,
+            )
+            .unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3697,6 +3839,7 @@ mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-unconfirmed"),
                 &unconfirmed_contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3908,7 +4051,12 @@ mod test {
         let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -3917,7 +4065,12 @@ mod test {
         let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -3992,7 +4145,12 @@ mod test {
 
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
@@ -4040,7 +4198,12 @@ mod test {
 
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
@@ -4089,7 +4252,7 @@ mod test {
         let peer_server_info = RefCell::new(None);
         let client_stacks_height = 17;
         test_rpc(
-            "test_rpc_getinfo",
+            function_name!(),
             40000,
             40001,
             50000,
@@ -4157,7 +4320,7 @@ mod test {
         // Thus, the query for pox info will be against the canonical Stacks tip, which we expect to succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
-            "test_rpc_getpoxinfo",
+            function_name!(),
             40002,
             40003,
             50002,
@@ -4215,7 +4378,7 @@ mod test {
         // info against the unconfirmed state will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
-            "test_rpc_getpoxinfo_use_latest_tip",
+            function_name!(),
             40004,
             40005,
             50004,
@@ -4268,7 +4431,7 @@ mod test {
     #[ignore]
     fn test_rpc_getneighbors() {
         test_rpc(
-            "test_rpc_getneighbors",
+            function_name!(),
             40010,
             40011,
             50010,
@@ -4311,7 +4474,7 @@ mod test {
         let server_blocks_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_getheaders",
+            function_name!(),
             40012,
             40013,
             50012,
@@ -4404,7 +4567,7 @@ mod test {
         let server_block_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_unconfirmed_getblock",
+            function_name!(),
             40020,
             40021,
             50020,
@@ -4467,7 +4630,7 @@ mod test {
         let server_block_cell = RefCell::new(None);
 
         test_rpc(
-            "test_rpc_confirmed_getblock",
+            function_name!(),
             40030,
             40031,
             50030,
@@ -4536,7 +4699,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_indexed_microblocks",
+            function_name!(),
             40040,
             40041,
             50040,
@@ -4654,7 +4817,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_confirmed_microblocks",
+            function_name!(),
             40042,
             40043,
             50042,
@@ -4768,7 +4931,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_unconfirmed_microblocks",
+            function_name!(),
             40050,
             40051,
             50050,
@@ -4837,7 +5000,7 @@ mod test {
         let last_mblock = RefCell::new(BlockHeaderHash([0u8; 32]));
 
         test_rpc(
-            "test_rpc_unconfirmed_transaction",
+            function_name!(),
             40052,
             40053,
             50052,
@@ -4915,7 +5078,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_getblock() {
         test_rpc(
-            "test_rpc_missing_getblock",
+            function_name!(),
             40060,
             40061,
             50060,
@@ -4957,7 +5120,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_index_getmicroblocks() {
         test_rpc(
-            "test_rpc_missing_index_getmicroblocks",
+            function_name!(),
             40070,
             40071,
             50070,
@@ -4999,7 +5162,7 @@ mod test {
     #[ignore]
     fn test_rpc_missing_confirmed_getmicroblocks() {
         test_rpc(
-            "test_rpc_missing_confirmed_getmicroblocks",
+            function_name!(),
             40072,
             40073,
             50072,
@@ -5043,7 +5206,7 @@ mod test {
         let server_microblocks_cell = RefCell::new(vec![]);
 
         test_rpc(
-            "test_rpc_missing_unconfirmed_microblocks",
+            function_name!(),
             40080,
             40081,
             50080,
@@ -5107,7 +5270,7 @@ mod test {
         // The contract source we are querying for exists in the anchored state, so we expect the
         // query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src",
+            function_name!(),
             40090,
             40091,
             50090,
@@ -5155,7 +5318,7 @@ mod test {
         // The contract source we are querying for only exists in the unconfirmed state, so we
         // expect the query to fail.
         test_rpc(
-            "test_rpc_get_contract_src_unconfirmed_with_canonical_tip",
+            function_name!(),
             40100,
             40101,
             50100,
@@ -5202,7 +5365,7 @@ mod test {
         // The contract source we are querying for exists in the unconfirmed state, so we expect
         // the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_with_unconfirmed_tip",
+            function_name!(),
             40102,
             40103,
             50102,
@@ -5256,7 +5419,7 @@ mod test {
         // The contract source we are querying for exists in the unconfirmed state, so we expect
         // the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_use_latest_tip",
+            function_name!(),
             40104,
             40105,
             50104,
@@ -5299,7 +5462,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account() {
         test_rpc(
-            "test_rpc_get_account",
+            function_name!(),
             40110,
             40111,
             50110,
@@ -5347,7 +5510,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_account_use_latest_tip",
+            function_name!(),
             40112,
             40113,
             50112,
@@ -5396,7 +5559,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_use_latest_tip_no_microblocks() {
         test_rpc(
-            "test_rpc_get_account",
+            function_name!(),
             40114,
             40115,
             50114,
@@ -5441,7 +5604,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_unconfirmed() {
         test_rpc(
-            "test_rpc_get_account_unconfirmed",
+            function_name!(),
             40120,
             40121,
             50120,
@@ -5493,7 +5656,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var() {
         test_rpc(
-            "test_rpc_get_data_var",
+            function_name!(),
             40122,
             40123,
             50122,
@@ -5540,7 +5703,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var_unconfirmed() {
         test_rpc(
-            "test_rpc_get_data_var_unconfirmed",
+            function_name!(),
             40124,
             40125,
             50124,
@@ -5594,7 +5757,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_data_var_nonexistant() {
         test_rpc(
-            "test_rpc_get_data_var_nonexistant",
+            function_name!(),
             40125,
             40126,
             50125,
@@ -5641,7 +5804,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying for map data
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_get_map_entry",
+            function_name!(),
             40130,
             40131,
             50130,
@@ -5703,7 +5866,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for map data
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_get_map_entry_unconfirmed",
+            function_name!(),
             40140,
             40141,
             50140,
@@ -5769,7 +5932,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_map_entry_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_map_entry_use_latest_tip",
+            function_name!(),
             40142,
             40143,
             50142,
@@ -5831,7 +5994,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_get_contract_abi",
+            function_name!(),
             40150,
             40151,
             50150,
@@ -5876,7 +6039,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_get_contract_abi_unconfirmed",
+            function_name!(),
             40152,
             40153,
             50152,
@@ -5922,7 +6085,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_abi_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_contract_abi_use_latest_tip",
+            function_name!(),
             40154,
             40155,
             50154,
@@ -5964,7 +6127,7 @@ mod test {
         // In this test, we don't set any tip parameters, and we expect that querying
         // against the canonical Stacks tip will succeed.
         test_rpc(
-            "test_rpc_call_read_only",
+            function_name!(),
             40170,
             40171,
             50170,
@@ -5981,6 +6144,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::UseLatestAnchoredTip,
@@ -6017,7 +6181,7 @@ mod test {
         // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         // against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_call_read_only_use_latest_tip",
+            function_name!(),
             40172,
             40173,
             50172,
@@ -6034,6 +6198,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::UseLatestAnchoredTip,
@@ -6070,7 +6235,7 @@ mod test {
     #[ignore]
     fn test_rpc_call_read_only_unconfirmed() {
         test_rpc(
-            "test_rpc_call_read_only_unconfirmed",
+            function_name!(),
             40180,
             40181,
             50180,
@@ -6094,6 +6259,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::SpecificTip(unconfirmed_tip),
@@ -6130,7 +6296,7 @@ mod test {
     #[ignore]
     fn test_rpc_getattachmentsinv_limit_reached() {
         test_rpc(
-            "test_rpc_getattachmentsinv",
+            function_name!(),
             40190,
             40191,
             50190,
@@ -6169,7 +6335,7 @@ mod test {
     #[ignore]
     fn test_rpc_mempool_query_txtags() {
         test_rpc(
-            "test_rpc_mempool_query_txtags",
+            function_name!(),
             40813,
             40814,
             50813,
@@ -6208,7 +6374,7 @@ mod test {
     #[ignore]
     fn test_rpc_mempool_query_bloom() {
         test_rpc(
-            "test_rpc_mempool_query_bloom",
+            function_name!(),
             40815,
             40816,
             50815,

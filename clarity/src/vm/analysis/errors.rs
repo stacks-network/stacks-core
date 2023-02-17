@@ -17,7 +17,7 @@
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{TupleTypeSignature, TypeSignature, Value};
+use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 use std::error;
 use std::fmt;
 
@@ -68,6 +68,7 @@ pub enum CheckErrors {
     ExpectedOptionalOrResponseValue(Value),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
+    CouldNotDetermineSerializationType,
     UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
@@ -122,10 +123,13 @@ pub enum CheckErrors {
     PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
+    ExpectedCallableType(TypeSignature),
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
+    NoSuchBurnBlockInfoProperty(String),
     GetBlockInfoExpectPropertyName,
+    GetBurnBlockInfoExpectPropertyName,
 
     NameAlreadyUsed(String),
 
@@ -148,6 +152,7 @@ pub enum CheckErrors {
 
     // argument counts
     RequiresAtLeastArguments(usize, usize),
+    RequiresAtMostArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
     IfArmsMustMatch(TypeSignature, TypeSignature),
     MatchArmsMustMatch(TypeSignature, TypeSignature),
@@ -165,9 +170,11 @@ pub enum CheckErrors {
     TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
+    DefineTraitDuplicateMethod(String),
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
+    IncompatibleTrait(TraitIdentifier, TraitIdentifier),
 
     // strings
     InvalidCharactersDetected,
@@ -286,6 +293,14 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
+pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
+    if args.len() > expected {
+        Err(CheckErrors::RequiresAtMostArguments(expected, args.len()))
+    } else {
+        Ok(())
+    }
+}
+
 fn formatted_expected_types(expected_types: &Vec<TypeSignature>) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
@@ -328,7 +343,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),
             CheckErrors::UnknownListConstructionFailure => format!("invalid syntax for list definition"),
             CheckErrors::ListTypesMustMatch => format!("expecting elements of same type in a list"),
-            CheckErrors::ConstructedListTooLarge => format!("reached limit of elements in a list"),
+            CheckErrors::ConstructedListTooLarge => format!("reached limit of elements in a sequence"),
             CheckErrors::TypeError(expected_type, found_type) => format!("expecting expression of type '{}', found '{}'", expected_type, found_type),
             CheckErrors::TypeLiteralError(expected_type, found_type) => format!("expecting a literal of type '{}', found '{}'", expected_type, found_type),
             CheckErrors::TypeValueError(expected_type, found_value) => format!("expecting expression of type '{}', found '{}'", expected_type, found_value),
@@ -368,20 +383,24 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
+            CheckErrors::ExpectedCallableType(found_type) => format!("expected a callable contract, found {}", found_type),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
+            CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
+            CheckErrors::GetBurnBlockInfoExpectPropertyName => format!("missing property name for burn block info introspection"),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
-            CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
+            CheckErrors::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
             CheckErrors::UndefinedFunction(var_name) => format!("use of unresolved function '{}'", var_name),
-            CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} argument, got {}", expected, found),
+            CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} arguments, got {}", expected, found),
+            CheckErrors::RequiresAtMostArguments(expected, found) => format!("expecting < {} arguments, got {}", expected, found),
             CheckErrors::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {} arguments, got {}", expected_count, found_count),
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{}' and '{}')", type_1, type_2),
@@ -405,8 +424,10 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
             CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
+            CheckErrors::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{}' in trait definition", method_name),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{}' is not a compatible with expected trait, '{}'", actual_trait, expected_trait),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
@@ -415,6 +436,7 @@ impl DiagnosableError for CheckErrors {
             },
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
+            CheckErrors::CouldNotDetermineSerializationType => format!("could not determine the input type for the serialization function"),
         }
     }
 

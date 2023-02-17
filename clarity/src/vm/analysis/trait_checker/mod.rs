@@ -16,6 +16,8 @@
 
 use std::collections::HashMap;
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::AnalysisDatabase;
@@ -25,22 +27,27 @@ use crate::vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, 
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature, Value};
 
-pub struct TraitChecker {}
+pub struct TraitChecker {
+    epoch: StacksEpochId,
+}
 
 impl AnalysisPass for TraitChecker {
     fn run_pass(
+        epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
-        let mut command = TraitChecker::new();
+        let mut command = TraitChecker::new(epoch);
         command.run(contract_analysis, analysis_db)?;
         Ok(())
     }
 }
 
 impl TraitChecker {
-    fn new() -> Self {
-        Self {}
+    fn new(epoch: &StacksEpochId) -> Self {
+        Self {
+            epoch: epoch.clone(),
+        }
     }
 
     pub fn run(
@@ -51,7 +58,7 @@ impl TraitChecker {
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
-                .load_contract(&trait_identifier.contract_identifier)
+                .load_contract(&trait_identifier.contract_identifier, &self.epoch)
                 .ok_or(CheckErrors::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;
@@ -62,7 +69,11 @@ impl TraitChecker {
                     trait_identifier.name.to_string(),
                 ))?;
 
-            contract_analysis.check_trait_compliance(trait_identifier, trait_definition)?;
+            contract_analysis.check_trait_compliance(
+                &self.epoch,
+                trait_identifier,
+                trait_definition,
+            )?;
         }
         Ok(())
     }

@@ -14,11 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
+
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
+use crate::vm::{execute, ClarityVersion};
+use stacks_common::types::StacksEpochId;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
@@ -47,8 +60,8 @@ fn test_defines() {
     assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
 }
 
-#[test]
-fn test_accept_options() {
+#[apply(test_clarity_versions_defines)]
+fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let defun = "(define-private (f (b (optional int))) (* 10 (default-to 0 b)))";
     let tests = [
         format!("{} {}", defun, "(f none)"),
@@ -59,7 +72,7 @@ fn test_accept_options() {
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
         Err(CheckErrors::TypeValueError(
-            TypeSignature::from("(optional int)"),
+            TypeSignature::from_string("(optional int)", version, epoch),
             Value::some(Value::Bool(true)).unwrap(),
         )
         .into()),
@@ -180,15 +193,22 @@ fn test_stack_depth() {
     })
 }
 
-#[test]
-fn test_recursive_panic() {
+#[apply(test_clarity_versions_defines)]
+fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = "(define-private (factorial (a int))
           (if (is-eq a 0)
               1
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    let err = build_ast(&QualifiedContractIdentifier::transient(), tests, &mut ()).unwrap_err();
+    let err = build_ast(
+        &QualifiedContractIdentifier::transient(),
+        tests,
+        &mut (),
+        version,
+        epoch,
+    )
+    .unwrap_err();
     match err.err {
         ParseErrors::CircularReference(_) => {}
         _ => panic!("{:?}", err),

@@ -140,35 +140,9 @@ impl Keychain {
             .expect("FATAL: could not produce address from secret key")
     }
 
-    /// Create our address from a burnchain signer
-    /// (this is going to be removed in 2.1)
-    pub fn address_from_burnchain_signer(
-        signer: &BurnchainSigner,
-        is_mainnet: bool,
-    ) -> StacksAddress {
-        let version = if is_mainnet {
-            signer.hash_mode.to_version_mainnet()
-        } else {
-            signer.hash_mode.to_version_testnet()
-        };
-        StacksAddress::from_public_keys(
-            version,
-            &signer.hash_mode,
-            signer.num_sigs,
-            &signer.public_keys,
-        )
-        .expect("FATAL: could not make StacksAddress from BurnchainSigner")
-    }
-
     /// Get a BurnchainSigner representation of this keychain
-    /// (this is going to be removed in 2.1)
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {
-        let pubk = StacksPublicKey::from_private(&self.get_secret_key());
-        BurnchainSigner {
-            hash_mode: AddressHashMode::SerializeP2PKH,
-            num_sigs: 1,
-            public_keys: vec![pubk],
-        }
+        BurnchainSigner(format!("{}", &self.get_address(true)))
     }
 
     /// Convenience wrapper around make_stacks_keypair
@@ -217,7 +191,7 @@ mod tests {
     use std::collections::HashMap;
 
     use stacks::address::AddressHashMode;
-    use stacks::burnchains::{BurnchainSigner, PrivateKey};
+    use stacks::burnchains::PrivateKey;
     use stacks::chainstate::stacks::{
         StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
     };
@@ -407,37 +381,6 @@ mod tests {
             .unwrap()
         }
 
-        pub fn address_from_burnchain_signer(
-            signer: &BurnchainSigner,
-            is_mainnet: bool,
-        ) -> StacksAddress {
-            let version = if is_mainnet {
-                signer.hash_mode.to_version_mainnet()
-            } else {
-                signer.hash_mode.to_version_testnet()
-            };
-            StacksAddress::from_public_keys(
-                version,
-                &signer.hash_mode,
-                signer.num_sigs,
-                &signer.public_keys,
-            )
-            .unwrap()
-        }
-
-        pub fn get_burnchain_signer(&self) -> BurnchainSigner {
-            let public_keys = self
-                .secret_keys
-                .iter()
-                .map(|ref pk| StacksPublicKey::from_private(pk))
-                .collect();
-            BurnchainSigner {
-                hash_mode: self.hash_mode,
-                num_sigs: self.threshold as usize,
-                public_keys,
-            }
-        }
-
         pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
             match self.hash_mode {
                 AddressHashMode::SerializeP2PKH => {
@@ -587,64 +530,6 @@ mod tests {
             let tx_2 = signer_2.get_tx().unwrap();
 
             assert_eq!(tx_1, tx_2);
-        }
-    }
-
-    #[test]
-    fn test_get_burnchain_signer() {
-        // this is going to be deleted for 2.1
-        let seeds = [
-            [0u8; 32],
-            [
-                0xc2, 0x7e, 0x1d, 0x7e, 0x9a, 0x0d, 0x47, 0xfa, 0xa5, 0x10, 0xbe, 0x50, 0x9b, 0xce,
-                0xd4, 0x95, 0x99, 0x64, 0x40, 0x34, 0xbd, 0x5a, 0xf2, 0x2b, 0x51, 0x9c, 0x21, 0x19,
-                0xbd, 0xaa, 0x5d, 0x62,
-            ],
-        ];
-
-        for seed in seeds {
-            let k1 = Keychain::default(seed.to_vec());
-            let k2 = KeychainOld::default(seed.to_vec());
-
-            assert_eq!(k1.get_burnchain_signer(), k2.get_burnchain_signer());
-        }
-    }
-
-    #[test]
-    fn test_address_from_burnchain_signer() {
-        // this is going to be deleted for 2.1
-        let seeds = [
-            [0u8; 32],
-            [
-                0xc2, 0x7e, 0x1d, 0x7e, 0x9a, 0x0d, 0x47, 0xfa, 0xa5, 0x10, 0xbe, 0x50, 0x9b, 0xce,
-                0xd4, 0x95, 0x99, 0x64, 0x40, 0x34, 0xbd, 0x5a, 0xf2, 0x2b, 0x51, 0x9c, 0x21, 0x19,
-                0xbd, 0xaa, 0x5d, 0x62,
-            ],
-        ];
-
-        for seed in seeds {
-            let k1 = Keychain::default(seed.to_vec());
-            let k2 = KeychainOld::default(seed.to_vec());
-
-            let s1 = k1.get_burnchain_signer();
-            assert_eq!(
-                Keychain::address_from_burnchain_signer(&s1, false),
-                KeychainOld::address_from_burnchain_signer(&s1, false)
-            );
-            assert_eq!(
-                Keychain::address_from_burnchain_signer(&s1, true),
-                KeychainOld::address_from_burnchain_signer(&s1, true)
-            );
-
-            let s2 = k2.get_burnchain_signer();
-            assert_eq!(
-                Keychain::address_from_burnchain_signer(&s2, false),
-                KeychainOld::address_from_burnchain_signer(&s2, false)
-            );
-            assert_eq!(
-                Keychain::address_from_burnchain_signer(&s2, true),
-                KeychainOld::address_from_burnchain_signer(&s2, true)
-            );
         }
     }
 }

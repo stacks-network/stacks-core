@@ -14,9 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::ast::parser::v2::lexer::error::LexerError;
+use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::{CostErrors, ExecutionCost};
-use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
-use crate::vm::representations::PreSymbolicExpression;
+use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
+use crate::vm::representations::{PreSymbolicExpression, Span};
 use crate::vm::types::{TupleTypeSignature, TypeSignature};
 use crate::vm::MAX_CALL_STACK_DEPTH;
 use std::error;
@@ -40,6 +42,7 @@ pub enum ParseErrors {
     IllegalContractName(String),
     UnknownQuotedValue(String),
     FailedParsingIntValue(String),
+    FailedParsingUIntValue(String),
     FailedParsingBuffer(String),
     FailedParsingHexValue(String, String),
     FailedParsingPrincipal(String),
@@ -64,6 +67,30 @@ pub enum ParseErrors {
     InvalidCharactersDetected,
     InvalidEscaping,
     CostComputationFailed(String),
+
+    // V2 Errors
+    Lexer(LexerError),
+    ContractNameTooLong(String),
+    ExpectedContractIdentifier,
+    ExpectedTraitIdentifier,
+    IllegalTraitName(String),
+    InvalidPrincipalLiteral,
+    InvalidBuffer,
+    NameTooLong(String),
+    UnexpectedToken(Token),
+    ExpectedClosing(Token),
+    TupleColonExpectedv2,
+    TupleCommaExpectedv2,
+    TupleValueExpected,
+    IllegalClarityName(String),
+    IllegalASCIIString(String),
+    IllegalUtf8String(String),
+    ExpectedWhitespace,
+    // Notes
+    NoteToMatchThis(Token),
+
+    /// Should be an unreachable error
+    UnexpectedParserFailure,
 }
 
 #[derive(Debug, PartialEq)]
@@ -177,6 +204,9 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::FailedParsingIntValue(value) => {
                 format!("Failed to parse int literal '{}'", value)
             }
+            ParseErrors::FailedParsingUIntValue(value) => {
+                format!("Failed to parse uint literal 'u{}'", value)
+            }
             ParseErrors::FailedParsingHexValue(value, x) => {
                 format!("Invalid hex-string literal {}: {}", value, x)
             }
@@ -243,6 +273,31 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             ParseErrors::InvalidEscaping => format!("invalid escaping detected in string"),
             ParseErrors::CostComputationFailed(s) => format!("Cost computation failed: {}", s),
+
+            // Parser v2 errors
+            ParseErrors::Lexer(le) => le.message(),
+            ParseErrors::ContractNameTooLong(name) => {
+                format!("contract name '{}' is too long", name)
+            }
+            ParseErrors::ExpectedContractIdentifier => "expected contract identifier".to_string(),
+            ParseErrors::ExpectedTraitIdentifier => "expected trait identifier".to_string(),
+            ParseErrors::IllegalTraitName(name) => format!("illegal trait name, '{}'", name),
+            ParseErrors::InvalidPrincipalLiteral => "invalid principal literal".to_string(),
+            ParseErrors::InvalidBuffer => "invalid hex-string literal".to_string(),
+            ParseErrors::NameTooLong(name) => format!("illegal name (too long), '{}'", name),
+            ParseErrors::UnexpectedToken(token) => format!("unexpected '{}'", token),
+            ParseErrors::ExpectedClosing(token) => format!("expected closing '{}'", token),
+            ParseErrors::TupleColonExpectedv2 => "expected ':' after key in tuple".to_string(),
+            ParseErrors::TupleCommaExpectedv2 => {
+                "expected ',' separating key-value pairs in tuple".to_string()
+            }
+            ParseErrors::TupleValueExpected => "expected value expression for tuple".to_string(),
+            ParseErrors::IllegalClarityName(name) => format!("illegal clarity name, '{}'", name),
+            ParseErrors::IllegalASCIIString(s) => format!("illegal ascii string \"{}\"", s),
+            ParseErrors::IllegalUtf8String(s) => format!("illegal UTF8 string \"{}\"", s),
+            ParseErrors::ExpectedWhitespace => "expected whitespace before expression".to_string(),
+            ParseErrors::NoteToMatchThis(token) => format!("to match this '{}'", token),
+            ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
         }
     }
 
@@ -251,4 +306,18 @@ impl DiagnosableError for ParseErrors {
             _ => None,
         }
     }
+
+    fn level(&self) -> crate::vm::diagnostic::Level {
+        use self::ParseErrors::*;
+        match self {
+            ParseErrors::NoteToMatchThis(_) => Level::Note,
+            ParseErrors::Lexer(lexerError) => lexerError.level(),
+            _ => Level::Error,
+        }
+    }
+}
+
+pub struct PlacedError {
+    pub e: ParseErrors,
+    pub span: Span,
 }

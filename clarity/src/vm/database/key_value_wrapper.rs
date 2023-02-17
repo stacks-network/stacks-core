@@ -34,10 +34,10 @@ type RollbackValueCheck = String;
 type RollbackValueCheck = ();
 
 #[cfg(not(rollback_value_check))]
-fn rollback_value_check(_value: &String, _check: &RollbackValueCheck) {}
+fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 
 #[cfg(not(rollback_value_check))]
-fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &String) {
+fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
 // this function is used to check the lookup map when committing at the "bottom" of the
@@ -392,10 +392,12 @@ impl<'a> RollbackWrapper<'a> {
         })
     }
 
+    /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
 
+    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.store.get_block_at_height(block_height)
     }

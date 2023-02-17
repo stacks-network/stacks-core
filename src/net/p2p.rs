@@ -39,12 +39,18 @@ use rand::thread_rng;
 
 use url;
 
+use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::PublicKey;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::coordinator::{
+    static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
+    static_get_stacks_tip_affirmation_map,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -240,6 +246,14 @@ pub struct PeerNetwork {
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
 
+    // information about the state of the network's anchor blocks
+    pub heaviest_affirmation_map: AffirmationMap,
+    pub stacks_tip_affirmation_map: AffirmationMap,
+    pub sortition_tip_affirmation_map: AffirmationMap,
+    pub tentative_best_affirmation_map: AffirmationMap,
+    pub last_anchor_block_hash: BlockHeaderHash,
+    pub last_anchor_block_txid: Txid,
+
     // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
@@ -391,6 +405,12 @@ impl PeerNetwork {
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
+            heaviest_affirmation_map: AffirmationMap::empty(),
+            stacks_tip_affirmation_map: AffirmationMap::empty(),
+            sortition_tip_affirmation_map: AffirmationMap::empty(),
+            tentative_best_affirmation_map: AffirmationMap::empty(),
+            last_anchor_block_hash: BlockHeaderHash([0x00; 32]),
+            last_anchor_block_txid: Txid([0x00; 32]),
             burnchain_tip: BlockSnapshot::initial(
                 first_block_height,
                 &first_burn_header_hash,
@@ -2865,7 +2885,7 @@ impl PeerNetwork {
         );
 
         // go from latest to earliest reward cycle
-        for reward_cycle in (reward_cycle_finish..reward_cycle_start).rev() {
+        for reward_cycle in (reward_cycle_finish..reward_cycle_start + 1).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
@@ -4916,8 +4936,9 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view(
+    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
@@ -4965,7 +4986,65 @@ impl PeerNetwork {
 
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
+
+            // update heaviest affirmation map view
+            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+
+            self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
+                &self.burnchain,
+                indexer,
+                &burnchain_db,
+                sortdb,
+                &sn.sortition_id,
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query heaviest affirmation map".to_string())
+            })?;
+
+            self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
+                &self.burnchain,
+                indexer,
+                &burnchain_db,
+                sortdb,
+                chainstate,
+                &sn.sortition_id,
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query canonical affirmation map".to_string())
+            })?;
+
+            self.sortition_tip_affirmation_map =
+                SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id)?;
+
+            // update last anchor data
+            let ih = sortdb.index_handle(&sn.sortition_id);
+            self.last_anchor_block_hash = ih
+                .get_last_selected_anchor_block_hash()?
+                .unwrap_or(BlockHeaderHash([0x00; 32]));
+            self.last_anchor_block_txid = ih
+                .get_last_selected_anchor_block_txid()?
+                .unwrap_or(Txid([0x00; 32]));
         }
+
+        if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
+            || sn.canonical_stacks_tip_consensus_hash
+                != self.burnchain_tip.canonical_stacks_tip_consensus_hash
+        {
+            // update stacks tip affirmation map view
+            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
+            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
+                &burnchain_db,
+                sortdb,
+                &sn.sortition_id,
+                &sn.canonical_stacks_tip_consensus_hash,
+                &sn.canonical_stacks_tip_hash,
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
+            })?;
+        }
+
+        // can't fail after this point
 
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
             // try processing previously-buffered messages (best-effort)
@@ -4976,7 +5055,6 @@ impl PeerNetwork {
 
         // update cached stacks chain view for /v2/info
         self.burnchain_tip = sn;
-
         Ok(ret)
     }
 
@@ -5251,8 +5329,9 @@ impl PeerNetwork {
     ///
     /// This method can only fail if the internal network object (self.network) is not
     /// instantiated.
-    pub fn run(
+    pub fn run<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
@@ -5287,9 +5366,14 @@ impl PeerNetwork {
             .expect("FATAL: failed to read local peer from the peer DB");
 
         // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self
-            .refresh_burnchain_view(sortdb, chainstate, ibd)
-            .expect("FATAL: failed to refresh burnchain view");
+        let unsolicited_buffered_messages =
+            match self.refresh_burnchain_view(indexer, sortdb, chainstate, ibd) {
+                Ok(msgs) => msgs,
+                Err(e) => {
+                    warn!("Failed to refresh burnchain view: {:?}", &e);
+                    HashMap::new()
+                }
+            };
 
         let mut network_result = NetworkResult::new(
             self.num_state_machine_passes,
@@ -5733,8 +5817,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
             // ones
-            let mut peer_1_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2210, 2211);
-            let mut peer_2_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2212, 2213);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 2210, 2211);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -5996,10 +6080,8 @@ mod test {
     fn test_mempool_sync_2_peers_paginated() {
         with_timeout(600, || {
             // peer 1 gets some transactions; verify peer 2 gets them all
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2214, 2215);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2216, 2217);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 2214, 2215);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 2216, 2217);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -6188,10 +6270,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; peer 2 blacklists some of them;
             // verify peer 2 gets only the non-blacklisted ones.
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2218, 2219);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2220, 2221);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 2218, 2219);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 2220, 2221);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -6401,10 +6481,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; peer 2 blacklists them all due to being invalid.
             // verify peer 2 stores nothing.
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_problematic", 2218, 2219);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_problematic", 2220, 2221);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 2218, 2219);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 2220, 2221);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());

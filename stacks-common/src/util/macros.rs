@@ -100,7 +100,7 @@ macro_rules! define_versioned_named_enum {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
             pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
 
-            fn lookup_by_name(name: &str) -> Option<Self> {
+            pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
                     $(
                         $VarName => Some($Name::$Variant),
@@ -209,7 +209,7 @@ macro_rules! guarded_string {
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
-        #[derive(Debug, Clone, PartialEq, Copy)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[repr(u8)]
         pub enum $Name {
             $($Variant = $Val),*,
@@ -560,7 +560,7 @@ macro_rules! impl_byte_array_serde {
 #[macro_export]
 macro_rules! test_debug {
     ($($arg:tt)*) => (
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
@@ -588,7 +588,7 @@ pub fn is_trace() -> bool {
 #[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => (
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             if crate::util::macros::is_trace() {
                 debug!($($arg)*);
@@ -644,5 +644,16 @@ macro_rules! impl_byte_array_rusqlite_only {
                 Ok(hex_str.into())
             }
         }
+    };
+}
+
+// Test hepler to get the name of the current function.
+#[macro_export]
+macro_rules! function_name {
+    () => {
+        stdext::function_name!()
+            .rsplit_once("::")
+            .expect("Failed to split current function name")
+            .1
     };
 }

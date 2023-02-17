@@ -701,6 +701,15 @@ impl TransactionSpendingCondition {
         }
     }
 
+    /// Get the address for an account, given the network flag
+    pub fn get_address(&self, mainnet: bool) -> StacksAddress {
+        if mainnet {
+            self.address_mainnet()
+        } else {
+            self.address_testnet()
+        }
+    }
+
     /// Clear fee rate, nonces, signatures, and public keys
     pub fn clear(&mut self) -> () {
         match *self {
@@ -903,7 +912,7 @@ impl TransactionAuth {
         }
     }
 
-    pub fn from_p2sh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+    pub fn from_p2sh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
         let mut pubks = vec![];
         for privk in privks.iter() {
             pubks.push(StacksPublicKey::from_private(privk));
@@ -924,7 +933,7 @@ impl TransactionAuth {
         }
     }
 
-    pub fn from_p2wsh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+    pub fn from_p2wsh(privks: &[StacksPrivateKey], num_sigs: u16) -> Option<TransactionAuth> {
         let mut pubks = vec![];
         for privk in privks.iter() {
             pubks.push(StacksPublicKey::from_private(privk));

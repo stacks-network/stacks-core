@@ -32,6 +32,7 @@ use crate::burnchains::PublicKey;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::Error as db_error;
 use stacks_common::util::hash::Hash32;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -40,7 +41,6 @@ use stacks_common::util::log;
 use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 pub use stacks_common::types::chainstate::ConsensusHash;
@@ -74,6 +74,7 @@ pub enum Opcodes {
     StackStx = 'x' as u8,
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
+    DelegateStx = '#' as u8,
 }
 
 // a burnchain block snapshot
@@ -215,7 +216,7 @@ pub trait ConsensusHashExtensions {
         burn_header_hash: &BurnchainHeaderHash,
         opshash: &OpsHash,
         total_burn: u64,
-        prev_consensus_hashes: &Vec<ConsensusHash>,
+        prev_consensus_hashes: &[ConsensusHash],
         pox_id: &PoxId,
     ) -> ConsensusHash;
 
@@ -254,7 +255,7 @@ impl ConsensusHashExtensions for ConsensusHash {
         burn_header_hash: &BurnchainHeaderHash,
         opshash: &OpsHash,
         total_burn: u64,
-        prev_consensus_hashes: &Vec<ConsensusHash>,
+        prev_consensus_hashes: &[ConsensusHash],
         pox_id: &PoxId,
     ) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
@@ -300,6 +301,7 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());
+
         ConsensusHash(ch_bytes)
     }
 
@@ -487,6 +489,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();

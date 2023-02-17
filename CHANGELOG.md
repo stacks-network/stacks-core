@@ -5,6 +5,106 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.1]
+
+This is a **consensus-breaking** release that introduces a _lot_ of new
+functionality.  Details on the how and why can be found in [SIP-015](https://github.com/stacksgov/sips/blob/feat/sip-015/sips/sip-015/sip-015-network-upgrade.md),
+[SIP-018](https://github.com/MarvinJanssen/sips/blob/feat/signed-structured-data/sips/sip-018/sip-018-signed-structured-data.md),
+and [SIP-20](https://github.com/obycode/sips/blob/bitwise-ops/sips/sip-020/sip-020-bitwise-ops.md).
+
+The changelog for this release is a high-level summary of these SIPs.
+
+### Added
+
+- There is a new `.pox-2` contract for implementing proof-of-transfer.  This PoX
+  contract enables re-stacking while the user's STX are locked, and incrementing
+the amount stacked on top of a locked batch of STX.
+- The Clarity function `stx-account` has been added, which returns the account's
+  locked and unlocked balances.
+- The Clarity functions `principal-destruct` and `principal-construct?`
+  functions have been added, which provide the means to convert between a
+`principal` instance and the `buff`s and `string-ascii`s that constitute it.
+- The Clarity function `get-burn-block-info?` has been added to support
+  fetching the burnchain header hash of _any_ burnchain block starting from the
+sortition height of the Stacks genesis block, and to support fetching the PoX
+addresses and rewards paid by miners for a particular burnchain block height.
+- The Clarity function `slice` has been added for obtaining a sub-sequence of a
+  `buff`, `string-ascii`, `string-utf8`, or `list`.
+- Clarity functions for converting between `string-ascii`, `string-utf8`,
+  `uint`, and `int` have been added.
+- Clarity functions for converting between big- and little-endian
+`buff`  representations of `int` and `uint` have been added.
+- The Clarity function `stx-transfer-memo?` has been added, which behaves the
+  same as `stx-transfer?` but also takes a memo argument.
+- The Clarity function `is-standard` has been added to identify whether or not a
+  `principal` instance is a standard or contract principal.
+- Clarity functions have been added for converting an arbitrary Clarity type to
+  and from its canonical byte string representation.
+- The Clarity function `replace-at?` has been added for replacing a single item
+  in a `list`, `string-ascii`, `string-utf8`, or `buff`.
+- The Clarity global variable `tx-sponsor?` has been added, which evaluates to
+  the sponsor of the transaction if the transaction is sponsored.
+- The Clarity global variable `chain-id` has been added, which evaluates to the
+  4-byte chain ID of this Stacks network.
+- The Clarity parser has been rewritten to be about 3x faster than the parser in
+  Stacks 2.05.x.x.x.
+- Clarity trait semantics have been refined and made more explicit, so as to
+  avoid certain corner cases where a trait reference might be downgraded to a
+`principal` in Clarity 1.
+  * Trait values can be passed to compatible sub-trait types
+  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
+  * Traits can be assigned to a let-variable
+- Fixes to unexpected behavior in traits
+  * A trait with duplicate function names is now an error
+  * Aliased trait names do not interfere with local trait definitions
+- The comparison functions `<`, `<=`, `>`, and `>=` now work on `string-ascii`,
+  `string-utf8`, and `buff` based on byte-by-byte comparison (note that this is
+_not_ lexicographic comparison).
+- It is now possible to call `delegate-stx` from a burnchain transaction, just
+  as it is for `stack-stx` and `transfer-stx`.
+
+### Changed
+
+- The `delegate-stx` function in `.pox-2` can be called while the user's STX are
+  locked.
+- If a batch of STX is not enough to clinch even a single reward slot, then the
+  STX are automatically unlocked at the start of the reward cycle in which they
+are rendered useless in this capacity.
+- The PoX sunset has been removed.  PoX rewards will continue in perpetuity.
+- Support for segwit and taproot addresses (v0 and v1 witness programs) has been
+  added for Stacking.
+- The Clarity function `get-block-info?` now supports querying a block's total
+  burnchain spend by miners who tried to mine it, the spend by the winner, and
+the total block reward (coinbase plus transaction fees).
+- A block's coinbase transaction may specify an alternative recipient principal,
+  which can be either a standard or contract principal.
+- A smart contract transaction can specify which version of Clarity to use.  If
+  no version is given, then the epoch-default version will be used (in Stacks
+2.1, this is Clarity 2).
+- The Stacks node now includes the number of PoX anchor blocks in its
+  fork-choice rules. The best Stacks fork is the fork that (1) is on the best
+Bitcoin fork, (2) has the most PoX anchor blocks known, and (3) is the longest.
+- On-burnchain operations -- `stack-stx`, `delegate-stx`, and `transfer-stx` --
+  can take effect within six (6) burnchain blocks in which they are mined,
+instead of one.
+- Transaction fees are debited from accounts _before_ the transaction is
+  processed.
+- All smart contract analysis errors are now treated as runtime errors, meaning
+  that smart contract transactions which don't pass analysis will still be mined
+(so miners get paid for partially validating them).
+- The default Clarity version is now 2.  Users can opt for version 1 by using
+  the new smart contract transaction wire format and explicitly setting version
+
+### Fixed
+
+- The authorization of a `contract-caller` in `.pox-2` for stacking will now
+  expire at the user-specified height, if given.
+- The Clarity function `principal-of?` now works on mainnet.
+- One or more late block-commits no longer result in the miner losing its
+  sortition weight.
+- Documentation will indicate explicitly which Clarity version introduced each
+  keyword or function. 
+
 ## [2.05.0.6.0]
 
 ### Changed

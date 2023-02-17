@@ -18,7 +18,7 @@ use crate::burnchains::BurnchainBlock;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::*;
 
-use crate::core::StacksEpoch;
+use crate::core::{StacksEpoch, StacksEpochId};
 use crate::types::chainstate::BurnchainHeaderHash;
 
 // IPC messages between threads
@@ -52,6 +52,7 @@ pub trait BurnchainBlockParser {
     fn parse(
         &mut self,
         block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B,
+        epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error>;
 }
 
@@ -80,4 +81,9 @@ pub trait BurnchainIndexer {
 
     fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;
     fn parser(&self) -> Self::P;
+
+    /// Make an instance of the indexer to be consumed by a burnchain indexer thread, for reading
+    /// local state (but not downloading or parsing it).
+    /// This is different from `clone()` in that not all state needs to be copied.
+    fn reader(&self) -> Self;
 }

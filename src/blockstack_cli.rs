@@ -40,12 +40,16 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
-use blockstack_lib::util::{hash::hex_bytes, hash::to_hex, log, retry::LogReader};
+use blockstack_lib::util::hash::hex_bytes;
+use blockstack_lib::util::hash::to_hex;
+use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::util_lib::strings::StacksString;
+use blockstack_lib::vm::ClarityVersion;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
     types::PrincipalData,
@@ -68,6 +72,7 @@ This CLI has these methods:
   decode-header      used to decode a hex-encoded Stacks header into a human-readable representation
   decode-block       used to decode a hex-encoded Stacks block into a human-readable representation
   decode-microblock  used to decode a hex-encoded Stacks microblock into a human-readable representation
+  decode-microblocks used to decode a hex-encoded stream of Stacks microblocks into a human-readable representation
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
@@ -166,6 +171,15 @@ const DECODE_MICROBLOCK_USAGE: &str = "blockstack-cli (options) decode-microbloc
 The decode-microblock command decodes a serialized Stacks microblock and prints it to stdout as JSON.
 The microblock, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary microblock will be read from stdin.
+
+N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
+block's sqlite database.";
+
+const DECODE_MICROBLOCKS_USAGE: &str = "blockstack-cli (options) decode-microblocks [microblocks-path-or-stdin]
+
+The decode-microblocks command decodes a serialized list of Stacks microblocks and prints it to stdout as JSON.
+The microblocks, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
+raw binary microblocks will be read from stdin.
 
 N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
 block's sqlite database.";
@@ -416,6 +430,7 @@ fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
     chain_id: u32,
+    clarity_version: ClarityVersion,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
     if args.len() >= 1 && args[0] == "-h" {
@@ -454,7 +469,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity_cli::vm_execute(input)?
+                vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {
@@ -782,6 +797,45 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     }
 }
 
+fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_MICROBLOCKS_USAGE
+        )));
+    }
+    let mblock_data = if args[0] == "-" {
+        // read from stdin
+        let mut block_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut block_str)
+            .expect("Failed to read block from stdin");
+        block_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode microblock: must be a hex string")
+    };
+
+    let mut cursor = io::Cursor::new(&mblock_data);
+    let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+    match Vec::<StacksMicroblock>::consensus_deserialize(&mut debug_cursor) {
+        Ok(blocks) => {
+            Ok(serde_json::to_string(&blocks).expect("Failed to serialize microblock to JSON"))
+        }
+        Err(e) => {
+            let mut ret = String::new();
+            ret.push_str(&format!("Failed to decode microblocks: {:?}\n", &e));
+            ret.push_str("Bytes consumed:\n");
+            for buf in debug_cursor.log().iter() {
+                ret.push_str(&format!("   {}\n", to_hex(buf)));
+            }
+            ret.push_str("\n");
+            Ok(ret)
+        }
+    }
+}
+
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
 
@@ -814,7 +868,9 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
     if let Some((method, args)) = argv.split_first() {
         match method.as_str() {
-            "contract-call" => handle_contract_call(args, tx_version, chain_id),
+            "contract-call" => {
+                handle_contract_call(args, tx_version, chain_id, ClarityVersion::Clarity2)
+            }
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
@@ -823,6 +879,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "decode-header" => decode_header(args, tx_version),
             "decode-block" => decode_block(args, tx_version),
             "decode-microblock" => decode_microblock(args, tx_version),
+            "decode-microblocks" => decode_microblocks(args, tx_version),
             _ => Err(CliError::Usage),
         }
     } else {

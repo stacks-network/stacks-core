@@ -38,6 +38,8 @@ use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::bitcoin::Error as btc_error;
 use crate::burnchains::bitcoin::PeerMessage;
 
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
@@ -54,21 +56,21 @@ use stacks_common::util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
-const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &'static str =
     "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
     "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
 
-const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &'static str =
     "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943";
 
-const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &'static str =
     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
-pub const SPV_DB_VERSION: &'static str = "2";
+pub const SPV_DB_VERSION: &'static str = "3";
 
 const SPV_INITIAL_SCHEMA: &[&'static str] = &[
     r#"
@@ -96,6 +98,31 @@ const SPV_SCHEMA_2: &[&'static str] = &[r#"
     );
     "#];
 
+// force the node to go and store the burnchain block header hash as well
+const SPV_SCHEMA_3: &[&'static str] = &[
+    r#"
+    DROP TABLE headers;
+    "#,
+    r#"
+    DELETE FROM chain_work;
+    "#,
+    r#"
+    CREATE TABLE headers(
+        version INTEGER NOT NULL,
+        prev_blockhash TEXT NOT NULL,
+        merkle_root TEXT NOT NULL,
+        time INTEGER NOT NULL,
+        bits INTEGER NOT NULL,
+        nonce INTEGER NOT NULL,
+        height INTEGER PRIMARY KEY NOT NULL,    -- not part of BlockHeader, but used by us internally
+        hash TEXT NOT NULL                      -- not part of BlockHeader, but derived from the data that is
+    );
+    "#,
+    r#"
+    CREATE INDEX index_headers_by_hash ON headers(hash);
+    "#,
+];
+
 pub struct SpvClient {
     pub headers_path: String,
     pub start_block_height: u64,
@@ -105,6 +132,7 @@ pub struct SpvClient {
     readwrite: bool,
     reverse_order: bool,
     headers_db: DBConn,
+    check_txcount: bool,
 }
 
 impl FromColumn<Sha256dHash> for Sha256dHash {
@@ -142,6 +170,7 @@ impl SpvClient {
         readwrite: bool,
         reverse_order: bool,
     ) -> Result<SpvClient, btc_error> {
+        let exists = fs::metadata(headers_path).is_ok();
         let conn = SpvClient::db_open(headers_path, readwrite, true)?;
         let mut client = SpvClient {
             headers_path: headers_path.to_owned(),
@@ -152,9 +181,11 @@ impl SpvClient {
             readwrite: readwrite,
             reverse_order: reverse_order,
             headers_db: conn,
+            check_txcount: true,
         };
 
-        if readwrite {
+        let empty = client.is_empty()?;
+        if readwrite && (!exists || empty) {
             client.init_block_headers(true)?;
         }
 
@@ -180,6 +211,7 @@ impl SpvClient {
             readwrite: readwrite,
             reverse_order: reverse_order,
             headers_db: conn,
+            check_txcount: true,
         };
 
         if readwrite {
@@ -187,6 +219,11 @@ impl SpvClient {
         }
 
         Ok(client)
+    }
+
+    #[cfg(test)]
+    pub fn disable_check_txcount(&mut self) {
+        self.check_txcount = false;
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -215,6 +252,9 @@ impl SpvClient {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
         for row_text in SPV_SCHEMA_2 {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        for row_text in SPV_SCHEMA_3 {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
@@ -265,6 +305,16 @@ impl SpvClient {
                     }
 
                     SpvClient::db_set_version(&tx, "2")?;
+                    tx.commit().map_err(db_error::SqliteError)?;
+                }
+                "2" => {
+                    debug!("Migrate SPV DB from schema 2 to 3");
+                    let tx = tx_begin_immediate(conn)?;
+                    for row_text in SPV_SCHEMA_3 {
+                        tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+                    }
+
+                    SpvClient::db_set_version(&tx, "3")?;
                     tx.commit().map_err(db_error::SqliteError)?;
                 }
                 SPV_DB_VERSION => {
@@ -331,7 +381,7 @@ impl SpvClient {
     }
 
     /// Calculate the total work over a given interval of headers.
-    fn get_interval_work(interval_headers: &Vec<LoneBlockHeader>) -> Uint256 {
+    fn get_interval_work(interval_headers: &[LoneBlockHeader]) -> Uint256 {
         let mut work = Uint256::from_u64(0);
         for hdr in interval_headers.iter() {
             work = work + hdr.header.work();
@@ -487,15 +537,21 @@ impl SpvClient {
     fn validate_header_integrity(
         start_height: u64,
         headers: &Vec<LoneBlockHeader>,
+        check_txcount: bool,
     ) -> Result<(), btc_error> {
         if headers.len() == 0 {
             return Ok(());
         }
 
-        for i in 0..headers.len() {
-            if headers[i].tx_count != VarInt(0) {
-                warn!("Non-zero tx count on header offset {}", i);
-                return Err(btc_error::InvalidReply);
+        if check_txcount {
+            for i in 0..headers.len() {
+                if headers[i].tx_count != VarInt(0) {
+                    warn!(
+                        "Non-zero tx count on header offset {}: {:?}",
+                        i, &headers[i].tx_count
+                    );
+                    return Err(btc_error::InvalidReply);
+                }
             }
         }
 
@@ -604,12 +660,17 @@ impl SpvClient {
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
-            "SELECT MAX(height) FROM headers",
+            "SELECT IFNULL(MAX(height),0) FROM headers",
             NO_PARAMS,
         )? {
             Some(max) => Ok(max),
             None => Ok(0),
         }
+    }
+
+    /// Is the DB devoid of headers?  Used during migrations
+    pub fn is_empty(&self) -> Result<bool, btc_error> {
+        Ok(self.get_highest_header_height()? == 0)
     }
 
     /// Read the block header at a particular height
@@ -627,6 +688,19 @@ impl SpvClient {
             header: h,
             tx_count: VarInt(0),
         }))
+    }
+
+    /// Find a block header height with a given burnchain header hash, if it is present
+    pub fn find_block_header_height(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, btc_error> {
+        query_row(
+            &self.headers_db,
+            "SELECT height FROM headers WHERE hash = ?1",
+            &[burn_header_hash],
+        )
+        .map_err(|e| e.into())
     }
 
     /// Get a range of block headers from a file.
@@ -683,8 +757,8 @@ impl SpvClient {
         height: u64,
     ) -> Result<(), btc_error> {
         let sql = "INSERT OR REPLACE INTO headers 
-        (version, prev_blockhash, merkle_root, time, bits, nonce, height)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+        (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args: &[&dyn ToSql] = &[
             &header.version,
             &header.prev_blockhash,
@@ -693,7 +767,9 @@ impl SpvClient {
             &header.bits,
             &header.nonce,
             &u64_to_sql(height)?,
+            &BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()),
         ];
+
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
             .and_then(|_x| Ok(()))
@@ -833,7 +909,7 @@ impl SpvClient {
 
     /// Write a run of continuous headers to a particular location.
     /// Does _not_ check for continuity!
-    fn write_block_headers(
+    pub fn write_block_headers(
         &mut self,
         height: u64,
         headers: Vec<LoneBlockHeader>,
@@ -886,10 +962,11 @@ impl SpvClient {
             start_height
         );
 
-        SpvClient::validate_header_integrity(start_height, &block_headers).map_err(|e| {
-            error!("Received invalid headers: {:?}", &e);
-            e
-        })?;
+        SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
+            .map_err(|e| {
+                error!("Received invalid headers: {:?}", &e);
+                e
+            })?;
 
         let parent_header = match self.read_block_header(start_height)? {
             Some(header) => header,
@@ -939,10 +1016,11 @@ impl SpvClient {
             end_height
         );
 
-        SpvClient::validate_header_integrity(start_height, &block_headers).map_err(|e| {
-            error!("Received invalid headers: {:?}", &e);
-            e
-        })?;
+        SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
+            .map_err(|e| {
+                error!("Received invalid headers: {:?}", &e);
+                e
+            })?;
 
         match self.read_block_header(end_height)? {
             Some(child_header) => {
