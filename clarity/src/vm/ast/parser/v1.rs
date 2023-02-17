@@ -492,7 +492,7 @@ enum ParseStackItem {
 }
 
 fn handle_expression(
-    parse_stack: &mut Vec<(Vec<ParseStackItem>, u32, u32, ParseContext)>,
+    parse_stack: &mut [(Vec<ParseStackItem>, u32, u32, ParseContext)],
     outputs: &mut Vec<PreSymbolicExpression>,
     expr: PreSymbolicExpression,
 ) {

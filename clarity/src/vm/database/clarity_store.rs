@@ -49,7 +49,7 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     // the invoked function name
     &str,
     // the function parameters
-    &Vec<Value>,
+    &[Value],
     // the result of the function call
     &Value,
 ) -> Result<()>;

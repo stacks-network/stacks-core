@@ -404,7 +404,7 @@ where
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<F, R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+fn at_chaintip<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
