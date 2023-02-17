@@ -1,4 +1,3 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -31,6 +30,11 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::types::StandardPrincipalData;
 use crate::vm::ContractName;
 
+/// Transaction structure:
+///
+/// Output 0: data output (see PegInOp::parse_data())
+/// Output 1: payment to peg wallet address
+///
 impl PegInOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
@@ -116,7 +120,7 @@ impl PegInOp {
     pub fn check(&self) -> Result<(), OpError> {
         if self.amount == 0 {
             warn!("PEG_IN Invalid: Peg amount must be positive");
-            return Err(OpError::PegInAmountMustBePositive);
+            return Err(OpError::AmountMustBePositive);
         }
 
         Ok(())
@@ -186,40 +190,26 @@ impl From<ClarityRuntimeError> for ParseError {
 
 #[cfg(test)]
 mod tests {
-    use clarity::util::hash::Hash160;
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
-
-    use crate::burnchains::{
-        bitcoin::{
-            address::{
-                BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
-                SegwitBitcoinAddress,
-            },
-            BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
-            BitcoinTxOutput,
-        },
-        Txid,
-    };
+    use crate::chainstate::burn::operations::test;
 
     use super::*;
 
     #[test]
     fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_without_memo() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
 
         let mut data = vec![1];
-        let addr_bytes = random_bytes(&mut rng);
+        let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
@@ -230,23 +220,23 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_with_memo() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let output2 = test::Output::new(amount, peg_wallet_address);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes = random_bytes(&mut rng);
+        let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
@@ -258,25 +248,25 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_succeed_given_a_contract_recipient() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
         let contract_name = "This_is_a_valid_contract_name";
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let output2 = test::Output::new(amount, peg_wallet_address);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes = random_bytes(&mut rng);
+        let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
         data.extend_from_slice(&[0; 11]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation");
 
@@ -291,25 +281,25 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_return_error_given_invalid_contract_name() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
         let contract_name = "Mårten_is_not_a_valid_contract_name";
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let output2 = test::Output::new(amount, peg_wallet_address);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes = random_bytes(&mut rng);
+        let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(contract_name.as_bytes());
         data.extend_from_slice(&[0; 4]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
 
@@ -321,22 +311,23 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_return_error_given_wrong_opcode() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::StackStx;
 
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+
+        let output2 = test::Output::new(amount, peg_wallet_address);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes: [u8; 20] = random_bytes(&mut rng);
+        let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
 
@@ -350,23 +341,23 @@ mod tests {
     fn test_parse_peg_in_should_return_error_given_invalid_utf8_contract_name() {
         let invalid_utf8_byte_sequence = [255, 255];
 
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let output2 = test::Output::new(amount, peg_wallet_address);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes: [u8; 20] = random_bytes(&mut rng);
+        let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&invalid_utf8_byte_sequence);
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
 
@@ -378,19 +369,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_return_error_given_no_second_output() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes: [u8; 20] = random_bytes(&mut rng);
+        let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
-        let tx = burnchain_transaction(data, None, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, None, opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
 
@@ -402,19 +393,19 @@ mod tests {
 
     #[test]
     fn test_parse_peg_in_should_return_error_given_too_short_data_array() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegIn;
 
-        let peg_wallet_address = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
-        let output2 = Output2Data::new_as_option(amount, peg_wallet_address);
+        let output2 = test::Output::new(amount, peg_wallet_address);
 
         let mut data = vec![1];
-        let addr_bytes: [u8; 19] = random_bytes(&mut rng);
+        let addr_bytes: [u8; 19] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
 
-        let tx = burnchain_transaction(data, output2, opcode);
-        let header = burnchain_block_header();
+        let tx = test::burnchain_transaction(data, Some(output2), opcode);
+        let header = test::burnchain_block_header();
 
         let op = PegInOp::from_tx(&header, &tx);
 
@@ -426,13 +417,13 @@ mod tests {
 
     #[test]
     fn test_check_should_return_error_on_zero_amount_and_ok_on_any_other_values() {
-        let mut rng = seeded_rng();
+        let mut rng = test::seeded_rng();
 
-        let peg_wallet_address = random_bytes(&mut rng);
-        let memo: [u8; 6] = random_bytes(&mut rng);
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let memo: [u8; 6] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
-        let addr_bytes = random_bytes(&mut rng);
+        let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.extend_from_slice(&[0; 40]); // Padding contract name
@@ -440,16 +431,16 @@ mod tests {
 
         let create_op = move |amount| {
             let opcode = Opcodes::PegIn;
-            let output2 = Output2Data::new_as_option(amount, peg_wallet_address.clone());
+            let output2 = test::Output::new(amount, peg_wallet_address.clone());
 
-            let tx = burnchain_transaction(data.clone(), output2, opcode);
-            let header = burnchain_block_header();
+            let tx = test::burnchain_transaction(data.clone(), Some(output2), opcode);
+            let header = test::burnchain_block_header();
 
             PegInOp::from_tx(&header, &tx).expect("Failed to construct peg-in operation")
         };
 
         match create_op(0).check() {
-            Err(OpError::PegInAmountMustBePositive) => (),
+            Err(OpError::AmountMustBePositive) => (),
             result => panic!(
                 "Expected OpError::PegInAmountMustBePositive, got {:?}",
                 result
@@ -463,79 +454,5 @@ mod tests {
         create_op(u64::MAX)
             .check()
             .expect("Any strictly positive amounts should be ok");
-    }
-
-    fn seeded_rng() -> StdRng {
-        SeedableRng::from_seed([0; 32])
-    }
-
-    fn random_bytes<Rng: rand::Rng, const N: usize>(rng: &mut Rng) -> [u8; N] {
-        [rng.gen(); N]
-    }
-
-    fn burnchain_block_header() -> BurnchainBlockHeader {
-        BurnchainBlockHeader {
-            block_height: 0,
-            block_hash: [0; 32].into(),
-            parent_block_hash: [0; 32].into(),
-            num_txs: 0,
-            timestamp: 0,
-        }
-    }
-
-    fn burnchain_transaction(
-        data: Vec<u8>,
-        output2: Option<Output2Data>,
-        opcode: Opcodes,
-    ) -> BurnchainTransaction {
-        BurnchainTransaction::Bitcoin(bitcoin_transaction(data, output2, opcode))
-    }
-
-    fn bitcoin_transaction(
-        data: Vec<u8>,
-        output2: Option<Output2Data>,
-        opcode: Opcodes,
-    ) -> BitcoinTransaction {
-        BitcoinTransaction {
-            txid: Txid([0; 32]),
-            vtxindex: 0,
-            opcode: opcode as u8,
-            data,
-            data_amt: 0,
-            inputs: vec![BitcoinTxInputStructured {
-                keys: vec![],
-                num_required: 0,
-                in_type: BitcoinInputType::Standard,
-                tx_ref: (Txid([0; 32]), 0),
-            }
-            .into()],
-            outputs: output2
-                .into_iter()
-                .map(|output2data| output2data.as_bitcoin_tx_output())
-                .collect(),
-        }
-    }
-
-    struct Output2Data {
-        amount: u64,
-        peg_wallet_address: [u8; 32],
-    }
-
-    impl Output2Data {
-        fn new_as_option(amount: u64, peg_wallet_address: [u8; 32]) -> Option<Self> {
-            Some(Self {
-                amount,
-                peg_wallet_address,
-            })
-        }
-        fn as_bitcoin_tx_output(&self) -> BitcoinTxOutput {
-            BitcoinTxOutput {
-                units: self.amount,
-                address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(
-                    true,
-                    self.peg_wallet_address,
-                )),
-            }
-        }
     }
 }

@@ -113,6 +113,20 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 BurnchainError::OpError(e)
             }),
+            BlockstackOperationType::PegOutRequest(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) peg out request op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PegOutFulfill(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) peg out fulfill op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
         }
     }
 
