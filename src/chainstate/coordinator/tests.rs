@@ -418,10 +418,10 @@ impl BlockEventDispatcher for NullEventDispatcher {
         &self,
         _block: &StacksBlock,
         _metadata: &StacksHeaderInfo,
-        _receipts: &Vec<StacksTransactionReceipt>,
+        _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
         _winner_txid: Txid,
-        _rewards: &Vec<MinerReward>,
+        _rewards: &[MinerReward],
         _rewards_info: Option<&MinerRewardInfo>,
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
@@ -450,10 +450,19 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()> {
+) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
+{
     let (tx, _) = sync_channel(100000);
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
-    ChainsCoordinator::test_new(&burnchain, 0x80000000, path, OnChainRewardSetProvider(), tx)
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+    ChainsCoordinator::test_new(
+        &burnchain,
+        0x80000000,
+        path,
+        OnChainRewardSetProvider(),
+        tx,
+        indexer,
+    )
 }
 
 struct StubbedRewardSetProvider(Vec<PoxAddress>);
@@ -480,14 +489,18 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<PoxAddress>,
     pox_consts: Option<PoxConstants>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), ()> {
+) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), (), BitcoinIndexer>
+{
     let (tx, _) = sync_channel(100000);
+    let burnchain = get_burnchain(path, None);
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
         0x80000000,
         path,
         StubbedRewardSetProvider(addrs),
         tx,
+        indexer,
     )
 }
 
@@ -3295,6 +3308,9 @@ fn test_sbtc_peg_in_btc_op() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
     let mut burnchain_block_hashes = vec![];
 
+    let first_peg_in_memo = vec![1, 3, 3, 7];
+    let second_peg_in_memo = vec![4, 2];
+
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
         let miner = &committers[ix];
@@ -3354,6 +3370,7 @@ fn test_sbtc_peg_in_btc_op() {
                 recipient: stacker.into(),
                 peg_wallet_address,
                 amount: 1337,
+                memo: first_peg_in_memo.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3365,6 +3382,7 @@ fn test_sbtc_peg_in_btc_op() {
                 recipient: stacker.into(),
                 peg_wallet_address,
                 amount: 0,
+                memo: second_peg_in_memo.clone(),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3400,15 +3418,16 @@ fn test_sbtc_peg_in_btc_op() {
         coord.handle_new_stacks_block().unwrap();
     }
 
-    let total_number_of_peg_in_ops = burnchain_block_hashes
+    let peg_in_ops: Vec<_> = burnchain_block_hashes
         .into_iter()
         .flat_map(|block_hash| {
             SortitionDB::get_peg_in_ops(&sort_db.conn(), &block_hash)
                 .expect("Failed to get peg in ops")
         })
-        .count();
+        .collect();
 
-    assert_eq!(total_number_of_peg_in_ops, 1);
+    assert_eq!(peg_in_ops.len(), 1);
+    assert_eq!(peg_in_ops[0].memo, first_peg_in_memo);
 }
 
 // This helper function retrieves the delegation info from the delegate address
@@ -6300,7 +6319,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
     chainstate_path: &str,
     sort_db: &SortitionDB,
-    coord: &mut ChainsCoordinator<T, N, U, (), ()>,
+    coord: &mut ChainsCoordinator<T, N, U, (), (), BitcoinIndexer>,
     my_sortition: &SortitionId,
     block: &StacksBlock,
 ) {

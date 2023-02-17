@@ -33,6 +33,10 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
+[[bin]]
+name = "relay-server"
+path = "contrib/tools/relay-server/src/main.rs"
+
 [[bench]]
 name = "marf_bench"
 harness = false
@@ -87,7 +91,7 @@ version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.secp256k1]
-version = "0.21.0"
+version = "0.24.2"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
@@ -139,4 +143,5 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "contrib/tools/relay-server"]

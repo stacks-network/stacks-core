@@ -2418,10 +2418,10 @@ pub mod test {
             &self,
             block: &StacksBlock,
             metadata: &StacksHeaderInfo,
-            receipts: &Vec<events::StacksTransactionReceipt>,
+            receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
             winner_txid: Txid,
-            matured_rewards: &Vec<accounts::MinerReward>,
+            matured_rewards: &[accounts::MinerReward],
             matured_rewards_info: Option<&MinerRewardInfo>,
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
@@ -2433,10 +2433,10 @@ pub mod test {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
                 metadata: metadata.clone(),
-                receipts: receipts.clone(),
+                receipts: receipts.to_owned(),
                 parent: parent.clone(),
                 winner_txid,
-                matured_rewards: matured_rewards.clone(),
+                matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
             })
         }
@@ -2621,7 +2621,15 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider,
+            (),
+            (),
+            BitcoinIndexer,
+        >,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2799,6 +2807,7 @@ pub mod test {
 
             let (tx, _) = sync_channel(100000);
 
+            let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
             let mut coord = ChainsCoordinator::test_new_with_observer(
                 &config.burnchain,
                 config.network_id,
@@ -2806,6 +2815,7 @@ pub mod test {
                 OnChainRewardSetProvider(),
                 tx,
                 observer,
+                indexer,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -2963,8 +2973,10 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
+                &indexer,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
@@ -2987,6 +2999,7 @@ pub mod test {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -3002,8 +3015,10 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
+                &indexer,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,

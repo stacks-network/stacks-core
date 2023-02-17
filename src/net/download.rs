@@ -2184,15 +2184,25 @@ impl PeerNetwork {
                 // NOTE: microblock streams are served in reverse order, since they're forks
                 microblock_stream.reverse();
 
-                let block_header = StacksChainState::load_block_header(
+                let block_header = match StacksChainState::load_block_header(
                     &chainstate.blocks_path,
                     &request_key.consensus_hash,
                     &request_key.anchor_block_hash,
-                )?
-                .expect(&format!(
-                    "BUG: missing Stacks block header for {}/{}",
-                    &request_key.consensus_hash, &request_key.anchor_block_hash
-                ));
+                ) {
+                    Ok(Some(hdr)) => hdr,
+                    Ok(None) => {
+                        warn!("Missing Stacks blcok header for {}/{}.  Possibly invalidated due to PoX reorg", &request_key.consensus_hash, &request_key.anchor_block_hash);
+
+                        // don't try again
+                        downloader
+                            .microblocks_to_try
+                            .remove(&request_key.sortition_height);
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e.into());
+                    }
+                };
 
                 assert!(
                     request_key.parent_block_header.is_some()

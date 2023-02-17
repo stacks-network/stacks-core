@@ -169,7 +169,7 @@ pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
-enum MerklePathOrder {
+pub enum MerklePathOrder {
     Left = 0x02,
     Right = 0x03,
 }
@@ -373,7 +373,7 @@ impl DoubleSha256 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MerkleTree<H: MerkleHashFunc> {
     // nodes[0] is the list of leaves
     // nodes[-1][0] is the root
@@ -382,8 +382,8 @@ pub struct MerkleTree<H: MerkleHashFunc> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerklePathPoint<H: MerkleHashFunc> {
-    order: MerklePathOrder,
-    hash: H,
+    pub order: MerklePathOrder,
+    pub hash: H,
 }
 
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
@@ -399,6 +399,10 @@ impl<H> MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
 {
+    pub fn empty() -> MerkleTree<H> {
+        MerkleTree { nodes: vec![] }
+    }
+
     pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
         if data.len() == 0 {
             return MerkleTree { nodes: vec![] };
@@ -447,12 +451,12 @@ where
     }
 
     /// Get the leaf hash
-    fn get_leaf_hash(leaf_data: &[u8]) -> H {
+    pub fn get_leaf_hash(leaf_data: &[u8]) -> H {
         H::from_tagged_data(MERKLE_PATH_LEAF_TAG, leaf_data)
     }
 
     /// Get a non-leaf hash
-    fn get_node_hash(left: &H, right: &H) -> H {
+    pub fn get_node_hash(left: &H, right: &H) -> H {
         let mut buf = vec![];
         buf.extend_from_slice(left.bits());
         buf.extend_from_slice(right.bits());
@@ -542,7 +546,7 @@ where
 
     /// Get the path from the given data's leaf up to the root.
     /// will be None if the data isn't a leaf.
-    pub fn path(&self, data: &Vec<u8>) -> Option<MerklePath<H>> {
+    pub fn path(&self, data: &[u8]) -> Option<MerklePath<H>> {
         let leaf_hash = MerkleTree::get_leaf_hash(&data[..]);
         let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
             None => {
@@ -585,7 +589,7 @@ where
     }
 
     /// Verify a datum and its Merkle path against a Merkle root
-    pub fn path_verify(data: &Vec<u8>, path: &MerklePath<H>, root: &H) -> bool {
+    pub fn path_verify(data: &[u8], path: &MerklePath<H>, root: &H) -> bool {
         if path.len() < 1 {
             // invalid path
             return false;
@@ -676,7 +680,7 @@ pub fn to_bin(s: &[u8]) -> String {
 }
 
 /// Convert a vec of u8 to a hex string
-pub fn bytes_to_hex(s: &Vec<u8>) -> String {
+pub fn bytes_to_hex(s: &[u8]) -> String {
     to_hex(&s[..])
 }
 

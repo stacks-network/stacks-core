@@ -40,12 +40,17 @@ use rand::thread_rng;
 use url;
 
 use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::PublicKey;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::coordinator::{
+    static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
+    static_get_stacks_tip_affirmation_map,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -4931,8 +4936,9 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view(
+    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
@@ -4983,20 +4989,32 @@ impl PeerNetwork {
 
             // update heaviest affirmation map view
             let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-            self.heaviest_affirmation_map = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
-                burnchain_db.conn(),
+
+            self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
                 &self.burnchain,
-            )?;
-            self.tentative_best_affirmation_map = StacksChainState::find_canonical_affirmation_map(
-                &self.burnchain,
-                &burnchain_db,
-                chainstate,
-            )?;
-            self.sortition_tip_affirmation_map = SortitionDB::find_sortition_tip_affirmation_map(
+                indexer,
                 &burnchain_db,
                 sortdb,
                 &sn.sortition_id,
-            )?;
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query heaviest affirmation map".to_string())
+            })?;
+
+            self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
+                &self.burnchain,
+                indexer,
+                &burnchain_db,
+                sortdb,
+                chainstate,
+                &sn.sortition_id,
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query canonical affirmation map".to_string())
+            })?;
+
+            self.sortition_tip_affirmation_map =
+                SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id)?;
 
             // update last anchor data
             let ih = sortdb.index_handle(&sn.sortition_id);
@@ -5014,12 +5032,16 @@ impl PeerNetwork {
         {
             // update stacks tip affirmation map view
             let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-            self.stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
+            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
                 &burnchain_db,
-                sortdb.conn(),
+                sortdb,
+                &sn.sortition_id,
                 &sn.canonical_stacks_tip_consensus_hash,
                 &sn.canonical_stacks_tip_hash,
-            )?;
+            )
+            .map_err(|_| {
+                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
+            })?;
         }
 
         // can't fail after this point
@@ -5307,8 +5329,9 @@ impl PeerNetwork {
     ///
     /// This method can only fail if the internal network object (self.network) is not
     /// instantiated.
-    pub fn run(
+    pub fn run<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
@@ -5344,7 +5367,7 @@ impl PeerNetwork {
 
         // update burnchain view, before handling any HTTP connections
         let unsolicited_buffered_messages =
-            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
+            match self.refresh_burnchain_view(indexer, sortdb, chainstate, ibd) {
                 Ok(msgs) => msgs,
                 Err(e) => {
                     warn!("Failed to refresh burnchain view: {:?}", &e);

@@ -17,7 +17,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressT
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, PegInOp, PreStxOp, TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PegInOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address;
@@ -30,7 +30,6 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use stacks::net::BurnchainOps;
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
@@ -46,6 +45,8 @@ use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::types::PrincipalData;
+use stacks::vm::types::QualifiedContractIdentifier;
+use stacks::vm::types::StandardPrincipalData;
 use stacks::vm::ClarityVersion;
 use stacks::vm::Value;
 use stacks::{
@@ -738,18 +739,6 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     (stacks_tip_consensus_hash, block)
 }
 
-fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
-    let client = reqwest::blocking::Client::new();
-
-    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
-
-    eprintln!("{}", response);
-
-    serde_json::from_value(response).unwrap()
-}
-
 fn find_microblock_privkey(
     conf: &Config,
     pubkey_hash: &Hash160,
@@ -972,6 +961,7 @@ pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128
 #[derive(Debug)]
 pub struct Account {
     pub balance: u128,
+    pub locked: u128,
     pub nonce: u64,
 }
 
@@ -987,6 +977,7 @@ pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Acco
     info!("Account response: {:#?}", res);
     Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
+        locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
         nonce: res.nonce,
     }
 }
@@ -1517,6 +1508,12 @@ fn stx_transfer_btc_integration_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
         amount: 100300,
@@ -1558,6 +1555,8 @@ fn stx_transfer_btc_integration_test() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    test_observer::clear();
 
     // let's query the spender's account:
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
@@ -1698,6 +1697,283 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
 
+    let mut found_btc_tx = false;
+    let blocks = test_observer::get_blocks();
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
+                if !burnchain_op.contains_key("transfer_stx") {
+                    panic!("unexpected btc transaction type");
+                }
+                found_btc_tx = true;
+            }
+        }
+    }
+    assert!(found_btc_tx);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn stx_delegate_btc_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
+
+    let recipient_sk = StacksPrivateKey::new();
+    let recipient_addr = to_addr(&recipient_sk);
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 100300,
+    });
+    conf.initial_balances.push(InitialBalance {
+        address: recipient_addr.clone().into(),
+        amount: 300,
+    });
+
+    // update epoch info so that Epoch 2.1 takes effect
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
+    conf.burnchain.pox_2_activation = Some(3);
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    // reward cycle length = 5, so 3 reward cycle slots + 2 prepare-phase burns
+    let reward_cycle_len = 5;
+    let prepare_phase_len = 2;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        2,
+        5,
+        15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
+        u32::MAX,
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    test_observer::clear();
+
+    // Mine a few more blocks so that Epoch 2.1 (and thus pox-2) can take effect.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // okay, let's send a pre-stx op.
+    let pre_stx_op = PreStxOp {
+        output: spender_stx_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Pre-stx operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's fire off our delegate op.
+    let del_stx_op = DelegateStxOp {
+        sender: spender_stx_addr.clone(),
+        delegate_to: recipient_addr.clone(),
+        reward_addr: None,
+        delegated_ustx: 100_000,
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        until_burn_height: None,
+    };
+
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::DelegateStx(del_stx_op),
+                &mut spender_signer,
+                1
+            )
+            .is_some(),
+        "Delegate operation should submit successfully"
+    );
+
+    // the second block should process the delegation, after which the balaces should be unchanged
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
+    assert_eq!(get_balance(&http_origin, &recipient_addr), 300);
+
+    // send a delegate-stack-stx transaction
+    let sort_height = channel.get_sortitions_processed();
+    let tx = make_contract_call(
+        &recipient_sk,
+        0,
+        293,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "delegate-stack-stx",
+        &[
+            Value::Principal(spender_addr.clone()),
+            Value::UInt(100_000),
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                ClarityVersion::Clarity2,
+            )
+            .unwrap()
+            .unwrap(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(6),
+        ],
+    );
+
+    // push the stacking transaction
+    submit_tx(&http_origin, &tx);
+
+    // let's mine until the next reward cycle starts ...
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // check the locked amount for the spender account
+    let account = get_account(&http_origin, &spender_stx_addr);
+    assert_eq!(account.locked, 100_000);
+
+    let mut delegate_stack_stx_found = false;
+    let mut delegate_stx_found = false;
+    let blocks = test_observer::get_blocks();
+    for block in blocks.iter() {
+        let events = block.get("events").unwrap().as_array().unwrap();
+        for event in events.iter() {
+            let event_type = event.get("type").unwrap().as_str().unwrap();
+            if event_type == "contract_event" {
+                let contract_event = event.get("contract_event").unwrap().as_object().unwrap();
+
+                // Check that it is a print event
+                let sub_type = contract_event.get("topic").unwrap().as_str().unwrap();
+                assert_eq!(sub_type, "print");
+
+                // Ensure that the function name is as expected
+                // This verifies that there were print events for delegate-stack-stx and delegate-stx
+                let name_field =
+                    &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
+                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
+                    .as_array()
+                    .unwrap();
+                let ascii_vec = name_data
+                    .iter()
+                    .map(|num| num.as_u64().unwrap() as u8)
+                    .collect();
+                let name = String::from_utf8(ascii_vec).unwrap();
+                if name == "delegate-stack-stx" {
+                    delegate_stack_stx_found = true;
+                } else if name == "delegate-stx" {
+                    delegate_stx_found = true;
+                }
+            }
+        }
+    }
+    assert!(delegate_stx_found);
+    assert!(delegate_stack_stx_found);
+
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -5552,7 +5828,7 @@ fn pox_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
-        u32::max_value(),
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -6019,6 +6295,8 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
+    conf_bootstrap_node.node.always_use_affirmation_maps = false;
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6040,6 +6318,8 @@ fn atlas_integration_test() {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
         });
+
+    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -6554,6 +6834,8 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
+    conf_bootstrap_node.node.always_use_affirmation_maps = false;
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6585,6 +6867,8 @@ fn antientropy_integration_test() {
     conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
+
+    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -6827,6 +7111,8 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
+
+    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -8302,6 +8588,10 @@ fn spawn_follower_node(
     conf.burnchain.ast_precheck_size_height =
         initial_conf.burnchain.ast_precheck_size_height.clone();
 
+    conf.connection_options.inv_sync_interval = 3;
+
+    conf.node.always_use_affirmation_maps = false;
+
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
@@ -9516,6 +9806,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     conf.miner.microblock_attempt_time_ms = 1_000;
     conf.node.wait_time_for_microblocks = 0;
 
+    conf.connection_options.inv_sync_interval = 3;
+
     test_observer::spawn();
 
     conf.events_observers.push(EventObserverConfig {
@@ -10437,7 +10729,17 @@ fn microblock_miner_multiple_attempts() {
 #[test]
 #[ignore]
 fn test_submit_and_observe_peg_in_request() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
     let receiver_stx_addr = StacksAddress::new(0, Hash160([0; 20]));
+    let receiver_contract_name = ContractName::from("awesome_contract");
+    let receiver_contract_principal: PrincipalData =
+        QualifiedContractIdentifier::new(receiver_stx_addr.into(), receiver_contract_name).into();
+    let receiver_standard_principal: PrincipalData =
+        StandardPrincipalData::from(receiver_stx_addr).into();
+
     let peg_wallet_address =
         address::PoxAddress::Addr32(false, address::PoxAddressType32::P2TR, [0; 32]);
 
@@ -10480,11 +10782,24 @@ fn test_submit_and_observe_peg_in_request() {
     wait_for_runloop(&blocks_processed);
 
     // Let's send a Peg-in op.
-    let peg_in_op = PegInOp {
-        recipient: receiver_stx_addr.into(),
+    let peg_in_op_standard = PegInOp {
+        recipient: receiver_standard_principal,
+        peg_wallet_address: peg_wallet_address.clone(),
+        amount: 1337,
+        memo: Vec::new(),
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    // Let's send a Peg-in op with a contract principal.
+    let peg_in_op_contract = PegInOp {
+        recipient: receiver_contract_principal,
         peg_wallet_address,
         amount: 1337,
-        txid: Txid([0u8; 32]),
+        memo: Vec::new(),
+        txid: Txid([1u8; 32]),
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
@@ -10495,7 +10810,7 @@ fn test_submit_and_observe_peg_in_request() {
         btc_regtest_controller
             .submit_operation(
                 StacksEpochId::Epoch21,
-                BlockstackOperationType::PegIn(peg_in_op.clone()),
+                BlockstackOperationType::PegIn(peg_in_op_standard.clone()),
                 &mut miner_signer,
                 1
             )
@@ -10505,34 +10820,59 @@ fn test_submit_and_observe_peg_in_request() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let sortdb = btc_regtest_controller.sortdb_mut();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-    let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-        .expect("Failed to get peg in ops");
+    let parsed_peg_in_op_standard = {
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
+            .expect("Failed to get peg in ops");
+        assert_eq!(ops.len(), 1);
 
-    assert_eq!(ops.len(), 1);
-
-    let parsed_peg_in_op = ops.first().unwrap();
-
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op.peg_wallet_address
-    );
-
-    let parsed_peg_in_op = match get_peg_in_ops(&conf, parsed_peg_in_op.block_height) {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
+        ops.into_iter().next().unwrap()
     };
 
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op.amount);
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PegIn(peg_in_op_contract.clone()),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Peg-in operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let parsed_peg_in_op_contract = {
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
+            .expect("Failed to get peg in ops");
+        assert_eq!(ops.len(), 1);
+
+        ops.into_iter().next().unwrap()
+    };
+
     assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op.peg_wallet_address
+        parsed_peg_in_op_standard.recipient,
+        peg_in_op_standard.recipient
+    );
+    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
+    assert_eq!(
+        parsed_peg_in_op_standard.peg_wallet_address,
+        peg_in_op_standard.peg_wallet_address
+    );
+
+    assert_eq!(
+        parsed_peg_in_op_contract.recipient,
+        peg_in_op_contract.recipient
+    );
+    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
+    assert_eq!(
+        parsed_peg_in_op_contract.peg_wallet_address,
+        peg_in_op_contract.peg_wallet_address
     );
 
     run_loop_coordinator_channel.stop_chains_coordinator();
