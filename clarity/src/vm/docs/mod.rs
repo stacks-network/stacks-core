@@ -320,7 +320,7 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
-const principal_destruct_API: SimpleFunctionAPI = SimpleFunctionAPI {
+const PRINCPIPAL_DESTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "principal-destruct? ${1:principal-address}",
     signature: "(principal-destruct? principal-address)",
@@ -353,58 +353,6 @@ Note: This function is only available starting with Stacks 2.1.",
 (principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
 (principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
 (principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
-"#,
-};
-
-const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
-    signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
-    description: "A principal value represents either a set of keys, or a smart contract.
-The former, called a _standard principal_,
-is encoded as a `(buff 1)` *version byte*, indicating the type of account
-and the type of network that this principal can spend tokens on,
-and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
-The latter, a _contract principal_, is encoded as a standard principal concatenated with
-a `(string-ascii 40)` *contract name* that identifies the code body.
-
-The `principal-construct?` function allows users to create either standard or contract principals,
-depending on which form is used.  To create a standard principal, 
-`principal-construct?` would be called with two arguments: it
-takes as input a `(buff 1)` which encodes the principal address's
-`version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
-To create a contract principal, `principal-construct?` would be called with
-three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
-that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
-On success, this function returns either a standard principal or contract principal, 
-depending on whether or not the third `(string-ascii 40)` argument is given.
-
-This function returns a `Response`. On success, the `ok` value is a `Principal`.
-The `err` value is a value tuple with the form `{ error_code: uint, value: (optional principal) }`.
-
-If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
-version byte for the current network, then the error will be `u0`, and `value` will contain
-`(some principal)`, where the wrapped value is the principal.  If the `version-byte` is not in this range, 
-however, then the `value` will be `none`.
-
-If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
-value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_code`
-will be `u1` and `value` will be `None`.
-
-If a name is given, and the name is either an empty string or contains ASCII characters
-that are not allowed in contract names, then `error_code` will be `u2`.
-
-Note: This function is only available starting with Stacks 2.1.",
-    example: r#"
-(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
-(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
-(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
-(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
-(principal-construct? 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct? 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
-(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
 "#,
 };
 
@@ -893,7 +841,7 @@ fn make_for_simple_native(
         } else {
             panic!(
                 "Attempted to auto-generate docs for non-simple native function: {:?}",
-                api.name
+                name
             )
         }
     };
@@ -1818,6 +1766,59 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 "
 };
 
+const PRINCIPAL_CONSTRUCT_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 1), (buff 20), [(string-ascii 40)]",
+    output_type: "(response principal { error_code: uint, principal: (option principal) })",
+    snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
+    signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
+    description: "A principal value represents either a set of keys, or a smart contract.
+The former, called a _standard principal_,
+is encoded as a `(buff 1)` *version byte*, indicating the type of account
+and the type of network that this principal can spend tokens on,
+and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
+The latter, a _contract principal_, is encoded as a standard principal concatenated with
+a `(string-ascii 40)` *contract name* that identifies the code body.
+
+The `principal-construct?` function allows users to create either standard or contract principals,
+depending on which form is used.  To create a standard principal, 
+`principal-construct?` would be called with two arguments: it
+takes as input a `(buff 1)` which encodes the principal address's
+`version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
+To create a contract principal, `principal-construct?` would be called with
+three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
+that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
+On success, this function returns either a standard principal or contract principal, 
+depending on whether or not the third `(string-ascii 40)` argument is given.
+
+This function returns a `Response`. On success, the `ok` value is a `Principal`.
+The `err` value is a value tuple with the form `{ error_code: uint, value: (optional principal) }`.
+
+If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
+version byte for the current network, then the error will be `u0`, and `value` will contain
+`(some principal)`, where the wrapped value is the principal.  If the `version-byte` is not in this range, 
+however, then the `value` will be `none`.
+
+If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
+value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_code`
+will be `u1` and `value` will be `None`.
+
+If a name is given, and the name is either an empty string or contains ASCII characters
+that are not allowed in contract names, then `error_code` will be `u2`.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
+(principal-construct? 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
+"#,
+};
+
 const DEFINE_TOKEN_API: DefineAPI = DefineAPI {
     input_type: "TokenName, <uint>",
     snippet: "define-fungible-token ${1:token-name} ${2:total-supply}",
@@ -2415,35 +2416,35 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
-        Add => make_for_simple_native(&ADD_API, &Add, name),
-        ToUInt => make_for_simple_native(&TO_UINT_API, &ToUInt, name),
-        ToInt => make_for_simple_native(&TO_INT_API, &ToInt, name),
-        Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
-        Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
-        Divide => make_for_simple_native(&DIV_API, &Divide, name),
-        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &BuffToIntLe, name),
-        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
-        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
-        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
-        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
-        PrincipalDestruct => make_for_simple_native(&principal_destruct_API, &IsStandard, name),
-        PrincipalConstruct => make_for_simple_native(&PRINCIPAL_CONSTRUCT_API, &IsStandard, name),
-        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
-        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
-        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
-        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &IntToUtf8, name),
-        CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
-        CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
-        CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
-        CmpGreater => make_for_simple_native(&GREATER_API, &CmpGreater, name),
-        Modulo => make_for_simple_native(&MOD_API, &Modulo, name),
-        Power => make_for_simple_native(&POW_API, &Power, name),
-        Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
-        Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
-        BitwiseXor => make_for_simple_native(&XOR_API, &BitwiseXor, name),
-        And => make_for_simple_native(&AND_API, &And, name),
-        Or => make_for_simple_native(&OR_API, &Or, name),
-        Not => make_for_simple_native(&NOT_API, &Not, name),
+        Add => make_for_simple_native(&ADD_API, &function, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, &function, name),
+        ToInt => make_for_simple_native(&TO_INT_API, &function, name),
+        Subtract => make_for_simple_native(&SUB_API, &function, name),
+        Multiply => make_for_simple_native(&MUL_API, &function, name),
+        Divide => make_for_simple_native(&DIV_API, &function, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &function, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &function, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &function, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &function, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &function, name),
+        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, &function, name),
+        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, &function),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &function, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &function, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &function, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &function, name),
+        CmpGeq => make_for_simple_native(&GEQ_API, &function, name),
+        CmpLeq => make_for_simple_native(&LEQ_API, &function, name),
+        CmpLess => make_for_simple_native(&LESS_API, &function, name),
+        CmpGreater => make_for_simple_native(&GREATER_API, &function, name),
+        Modulo => make_for_simple_native(&MOD_API, &function, name),
+        Power => make_for_simple_native(&POW_API, &function, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, &function, name),
+        Log2 => make_for_simple_native(&LOG2_API, &function, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, &function, name),
+        And => make_for_simple_native(&AND_API, &function, name),
+        Or => make_for_simple_native(&OR_API, &function, name),
+        Not => make_for_simple_native(&NOT_API, &function, name),
         Equals => make_for_special(&EQUALS_API, function),
         If => make_for_special(&IF_API, function),
         Let => make_for_special(&LET_API, function),
@@ -2507,20 +2508,20 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BurnAsset => make_for_special(&BURN_ASSET, function),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, function),
         AtBlock => make_for_special(&AT_BLOCK, function),
-        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
-        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &StxGetAccount, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &function, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &function, name),
         StxTransfer => make_for_special(&STX_TRANSFER, function),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, function),
-        StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        StxBurn => make_for_simple_native(&STX_BURN, &function, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
-        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXor2, name),
-        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &BitwiseAnd, name),
-        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &BitwiseOr, name),
-        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNot, name),
-        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
-        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &function, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &function, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &function, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &function, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &function, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &function, name),
     }
 }
 
