@@ -1,19 +1,14 @@
 {
-  "PegIn": [
+  "peg_in": [
     {
       "amount": 1337,
-      "block_height": 217,
-      "burn_header_hash": "7ce0139a3fe356316409fe704dbdb9ac8f1847c168fe68bd913d0df75c359fe1",
-      "peg_wallet_address": {
-        "Addr32": [
-          false,
-          "P2TR",
-          [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
-        ]
-      },
-      "recipient": "S0000000000000000000002AA028H",
-      "txid": "84808f747841fb26e74f171487e56eda1a51373581eb04a8c87a421a77bd46d2",
-      "vtxindex": 1
+      "block_height": 218,
+      "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+      "memo": "",
+      "peg_wallet_address": "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkgkkf5",
+      "recipient": "S0000000000000000000002AA028H.awesome_contract",
+      "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+      "vtxindex": 2
     }
   ]
 }
