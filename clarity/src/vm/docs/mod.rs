@@ -1767,7 +1767,7 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 };
 
 const PRINCIPAL_CONSTRUCT_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff 1) (buff 20) [(string-ascii 40)]",
+    input_type: "(buff 1), (buff 20), [(string-ascii 40)]",
     output_type: "(response principal { error_code: uint, principal: (option principal) })",
     snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
     signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
