@@ -38,7 +38,7 @@ use time;
 use url::{form_urlencoded, Url};
 
 use crate::burnchains::{Address, Txid};
-use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
 };
@@ -158,6 +158,8 @@ lazy_static! {
         Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
+    static ref PATH_GET_BURN_OPS: Regex =
+        Regex::new(r#"^/v2/burn_ops/(?P<height>[0-9]{1,20})/(?P<op>[a-z_]{1,20})$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1602,6 +1604,11 @@ impl HttpRequestType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpRequestType::parse_post_mempool_query,
             ),
+            (
+                "GET",
+                &PATH_GET_BURN_OPS,
+                &HttpRequestType::parse_get_burn_ops,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1985,6 +1992,25 @@ impl HttpRequestType {
             contract_addr,
             contract_name,
         ))
+    }
+
+    fn parse_get_burn_ops<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let height = u64::from_str(&captures["height"])
+            .map_err(|_| net_error::DeserializeError("Failed to parse u64 height".into()))?;
+
+        let opcode = Opcodes::from_http_str(&captures["op"]).ok_or_else(|| {
+            net_error::DeserializeError(format!("Unsupported burn operation: {}", &captures["op"]))
+        })?;
+
+        let md = HttpRequestMetadata::from_preamble(preamble);
+
+        Ok(HttpRequestType::GetBurnOps { md, height, opcode })
     }
 
     fn parse_get_contract_abi<R: Read>(
@@ -2705,6 +2731,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
+            HttpRequestType::GetBurnOps { ref md, .. } => md,
         }
     }
 
@@ -2735,6 +2762,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
+            HttpRequestType::GetBurnOps { ref mut md, .. } => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2909,6 +2937,11 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+            HttpRequestType::GetBurnOps {
+                height, ref opcode, ..
+            } => {
+                format!("/v2/burn_ops/{}/{}", height, opcode.to_http_str())
+            }
         }
     }
 
@@ -2944,6 +2977,7 @@ impl HttpRequestType {
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
+            HttpRequestType::GetBurnOps { .. } => "/v2/burn_ops/:height/:opname",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
@@ -4021,6 +4055,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::GetBurnchainOps(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -4273,6 +4308,10 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, unconfirmed_status)?;
             }
+            HttpResponseType::GetBurnchainOps(ref md, ref ops) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, ops)?;
+            }
             HttpResponseType::MemPoolTxStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the tx data itself.
@@ -4438,6 +4477,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
+                HttpRequestType::GetBurnOps { .. } => "HTTP(GetBurnOps)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4479,6 +4519,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TransactionFeeEstimation(_, _) => {
                     "HTTP(TransactionFeeEstimation)"
                 }
+                HttpResponseType::GetBurnchainOps(_, _) => "HTTP(GetBurnchainOps)",
             },
         }
     }
