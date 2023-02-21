@@ -9,7 +9,7 @@ use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::DelegateStxOp;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    LeaderKeyRegisterOp, PegInOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
@@ -57,7 +57,7 @@ impl MocknetController {
             current_block.block_height + 1,
             &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(),
             &current_block.burn_header_hash,
-            &vec![],
+            vec![],
             get_epoch_time_secs(),
         ));
         block.header()
@@ -240,6 +240,13 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegIn(payload) => {
+                    BlockstackOperationType::PegIn(PegInOp {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload

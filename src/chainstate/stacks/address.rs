@@ -32,8 +32,10 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::net::Error as net_error;
+use clarity::address::b58::{check_encode_slice, from_check};
 use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
+use serde::{Deserialize, Deserializer, Serializer};
 use stacks_common::address::b58;
 use stacks_common::address::c32::c32_address;
 use stacks_common::address::c32::c32_address_decode;
@@ -90,6 +92,21 @@ pub enum PoxAddress {
     /// representation.  This includes Bitcoin p2wsh and p2tr.
     /// Fields are (mainnet, address type ID, bytes)
     Addr32(bool, PoxAddressType32, [u8; 32]),
+}
+
+/// Serializes a PoxAddress as a B58 check encoded address or a bech32 address
+pub fn pox_addr_b58_serialize<S: Serializer>(
+    input: &PoxAddress,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(&input.clone().to_b58())
+}
+
+/// Deserializes a PoxAddress from a B58 check encoded address or a bech32 address
+pub fn pox_addr_b58_deser<'de, D: Deserializer<'de>>(deser: D) -> Result<PoxAddress, D::Error> {
+    let string_repr = String::deserialize(deser)?;
+    PoxAddress::from_b58(&string_repr)
+        .ok_or_else(|| serde::de::Error::custom("Failed to decode PoxAddress from string"))
 }
 
 impl std::fmt::Display for PoxAddress {
@@ -405,6 +422,15 @@ impl PoxAddress {
                 }
             },
         }
+    }
+
+    // Convert from a B58 encoded bitcoin address
+    pub fn from_b58(input: &str) -> Option<Self> {
+        let btc_addr = BitcoinAddress::from_string(input)?;
+        PoxAddress::try_from_bitcoin_output(&BitcoinTxOutput {
+            address: btc_addr,
+            units: 0,
+        })
     }
 
     /// Convert this PoxAddress into a Bitcoin tx output
@@ -1186,6 +1212,63 @@ mod test {
             hex_bytes("51200101010101010101010101010101010101010101010101010101010101010101")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn test_pox_addr_from_b58() {
+        // representative test PoxAddresses
+        let pox_addrs: Vec<PoxAddress> = vec![
+            PoxAddress::Standard(
+                StacksAddress {
+                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                    bytes: Hash160([0x01; 20]),
+                },
+                Some(AddressHashMode::SerializeP2PKH),
+            ),
+            PoxAddress::Addr20(true, PoxAddressType20::P2WPKH, [0x01; 20]),
+            PoxAddress::Addr20(false, PoxAddressType20::P2WPKH, [0x01; 20]),
+            PoxAddress::Addr32(true, PoxAddressType32::P2WSH, [0x01; 32]),
+            PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [0x01; 32]),
+            PoxAddress::Addr32(true, PoxAddressType32::P2TR, [0x01; 32]),
+            PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x01; 32]),
+            PoxAddress::Standard(
+                StacksAddress {
+                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                    bytes: Hash160([0x01; 20]),
+                },
+                Some(AddressHashMode::SerializeP2SH),
+            ),
+            PoxAddress::Standard(
+                StacksAddress {
+                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                    bytes: Hash160([0x01; 20]),
+                },
+                Some(AddressHashMode::SerializeP2SH),
+            ),
+            PoxAddress::Standard(
+                StacksAddress {
+                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                    bytes: Hash160([0x01; 20]),
+                },
+                Some(AddressHashMode::SerializeP2WSH),
+            ),
+            PoxAddress::Standard(
+                StacksAddress {
+                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                    bytes: Hash160([0x01; 20]),
+                },
+                Some(AddressHashMode::SerializeP2WPKH),
+            ),
+        ];
+        for addr in pox_addrs.iter() {
+            let addr_str = addr.clone().to_b58();
+            let addr_parsed = PoxAddress::from_b58(&addr_str).unwrap();
+            let mut addr_checked = addr.clone();
+            if let PoxAddress::Standard(_, ref mut hash_mode) = addr_checked {
+                hash_mode.take();
+            }
+            assert_eq!(&addr_parsed, &addr_checked);
+        }
     }
 
     #[test]

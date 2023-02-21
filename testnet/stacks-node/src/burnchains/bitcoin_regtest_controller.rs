@@ -39,8 +39,8 @@ use stacks::burnchains::{
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp,
+    PreStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
@@ -50,12 +50,14 @@ use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks::vm::types::PrincipalData;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+use stacks_common::types::chainstate::StacksAddress;
 
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
@@ -129,6 +131,37 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
 #[cfg(not(test))]
 pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     format!("{}", &btc_addr)
+}
+
+/// Helper method to create a BitcoinIndexer
+pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
+    let (network, _) = config.burnchain.get_bitcoin_network();
+    let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
+        .expect("Bitcoin network unsupported");
+    let indexer_config = {
+        let burnchain_config = config.burnchain.clone();
+        BitcoinIndexerConfig {
+            peer_host: burnchain_config.peer_host,
+            peer_port: burnchain_config.peer_port,
+            rpc_port: burnchain_config.rpc_port,
+            rpc_ssl: burnchain_config.rpc_ssl,
+            username: burnchain_config.username,
+            password: burnchain_config.password,
+            timeout: burnchain_config.timeout,
+            spv_headers_path: config.get_spv_headers_file_path(),
+            first_block: burnchain_params.first_block_height,
+            magic_bytes: burnchain_config.magic_bytes,
+            epochs: burnchain_config.epochs,
+        }
+    };
+
+    let (_, network_type) = config.burnchain.get_bitcoin_network();
+    let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+    let burnchain_indexer = BitcoinIndexer {
+        config: indexer_config.clone(),
+        runtime: indexer_runtime,
+    };
+    burnchain_indexer
 }
 
 impl LeaderBlockCommitFees {
@@ -834,6 +867,17 @@ impl BitcoinRegtestController {
         unimplemented!()
     }
 
+    #[cfg(not(test))]
+    fn build_delegate_stacks_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: DelegateStxOp,
+        _signer: &mut BurnchainOpSigner,
+        _utxo: Option<UTXO>,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
     #[cfg(test)]
     pub fn submit_manual(
         &mut self,
@@ -847,7 +891,8 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
             | BlockstackOperationType::DelegateStx(_)
-            | BlockstackOperationType::UserBurnSupport(_) => {
+            | BlockstackOperationType::UserBurnSupport(_)
+            | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
             }
             BlockstackOperationType::PreStx(payload) => {
@@ -950,6 +995,89 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
+    #[cfg(test)]
+    /// Build a delegate stacks tx.
+    ///   this *only* works if the only existant UTXO is from a PreStx Op
+    ///   this is okay for testing, but obviously not okay for actual use.
+    ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
+    ///     and signing logic are fairly intertwined, and untangling the two seems excessive
+    ///     for a functionality that won't be implemented for production via this controller.
+    fn build_delegate_stacks_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: DelegateStxOp,
+        signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
+            (
+                Transaction {
+                    input: vec![],
+                    output: vec![],
+                    version: 1,
+                    lock_time: 0,
+                },
+                UTXOSet {
+                    bhh: BurnchainHeaderHash::zero(),
+                    utxos: vec![utxo],
+                },
+            )
+        } else {
+            self.prepare_tx(
+                epoch_id,
+                &public_key,
+                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                None,
+                None,
+                0,
+            )?
+        };
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            payload.consensus_serialize(&mut bytes).ok()?;
+            bytes
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+        tx.output.push(
+            PoxAddress::Standard(payload.delegate_to.clone(), None)
+                .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
+        );
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            DUST_UTXO_LIMIT,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting stacks delegate op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
@@ -1010,6 +1138,78 @@ impl BitcoinRegtestController {
             "Miner node: submitting pre_stacks op - {}",
             public_key.to_hex()
         );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_peg_in_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: PegInOp,
+        _signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_peg_in_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: PegInOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, payload.amount, None, None, 0)?;
+
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PegIn as u8);
+            let (recipient_address, contract_name): (StacksAddress, String) =
+                match payload.recipient {
+                    PrincipalData::Standard(standard_principal) => {
+                        (standard_principal.into(), String::new())
+                    }
+                    PrincipalData::Contract(contract_identifier) => (
+                        contract_identifier.issuer.into(),
+                        contract_identifier.name.into(),
+                    ),
+                };
+            bytes.push(recipient_address.version);
+            bytes.extend_from_slice(recipient_address.bytes.as_bytes());
+            bytes.extend_from_slice(contract_name.as_bytes());
+            bytes
+        };
+
+        let peg_in_address_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![peg_in_address_output];
+        tx.output
+            .push(payload.peg_wallet_address.to_bitcoin_tx_out(payload.amount));
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            payload.amount,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!("Miner node: submitting peg-in op - {}", public_key.to_hex());
 
         Some(tx)
     }
@@ -1139,7 +1339,7 @@ impl BitcoinRegtestController {
         let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
-            let mined_op = burnchain_db.get_burnchain_op(txid);
+            let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
             if mined_op.is_some() {
                 // Good to go, the transaction in progress was mined
                 debug!("Was able to retrieve ongoing TXID - {}", txid);
@@ -1686,8 +1886,13 @@ impl BitcoinRegtestController {
             BlockstackOperationType::TransferStx(payload) => {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
             }
+            BlockstackOperationType::PegIn(payload) => {
+                self.build_peg_in_tx(epoch_id, payload, op_signer)
+            }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
-            BlockstackOperationType::DelegateStx(_payload) => unimplemented!(),
+            BlockstackOperationType::DelegateStx(payload) => {
+                self.build_delegate_stacks_tx(epoch_id, payload, op_signer, None)
+            }
         };
 
         transaction.map(|tx| SerializedTx::new(tx))

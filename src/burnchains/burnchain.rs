@@ -52,7 +52,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, Sort
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PreStxOp, StackStxOp, TransferStxOp,
     UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
@@ -118,7 +118,7 @@ impl BurnchainStateTransition {
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        missed_commits: &[MissedBlockCommit],
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
@@ -148,6 +148,9 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegIn(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
@@ -731,8 +734,9 @@ impl Burnchain {
     /// Try to parse a burnchain transaction into a Blockstack operation
     /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
     ///   the currently-being-evaluated tx in the same burn block.
-    pub fn classify_transaction(
+    pub fn classify_transaction<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
+        indexer: &B,
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
@@ -805,7 +809,7 @@ impl Burnchain {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
-                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                    None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
                     let sender = &pre_stx.output;
@@ -834,7 +838,7 @@ impl Burnchain {
                 let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
-                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                    None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
@@ -869,7 +873,7 @@ impl Burnchain {
                 let pre_stx_txid = DelegateStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
-                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                    None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
                     let sender = &pre_stx.output;
@@ -894,6 +898,19 @@ impl Burnchain {
                     None
                 }
             }
+
+            x if x == Opcodes::PegIn as u8 => match PegInOp::from_tx(block_header, burn_tx) {
+                Ok(op) => Some(BlockstackOperationType::PegIn(op)),
+                Err(e) => {
+                    warn!("Failed to parse peg in tx";
+                        "txid" => %burn_tx.txid(),
+                        "data" => %to_hex(&burn_tx.data()),
+                        "error" => ?e,
+                    );
+                    None
+                }
+            },
+
             _ => None,
         }
     }

@@ -37,6 +37,7 @@ use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{
     blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
@@ -60,6 +61,7 @@ use crate::net::p2p::PeerMap;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
 use crate::net::BlocksDatum;
+use crate::net::BurnchainOps;
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -423,6 +425,7 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
+        let cur_block_pox_contract = pox_consts.active_pox_contract(burnchain_tip.block_height);
         let cur_cycle_pox_contract =
             pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
         let next_cycle_pox_contract = pox_consts
@@ -475,7 +478,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             current_burnchain_block_height: burnchain_tip.block_height,
@@ -743,6 +746,70 @@ impl ConversationHttp {
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
+        response.send(http, fd)
+    }
+
+    fn response_get_burn_ops(
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<HttpResponseType, net_error> {
+        let response_metadata = HttpResponseMetadata::from_http_request_type(req, None);
+        let handle = sortdb.index_handle_at_tip();
+        let burn_header_hash = match handle.get_block_snapshot_by_height(burn_block_height) {
+            Ok(Some(snapshot)) => snapshot.burn_header_hash,
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!("Could not find burn block at height {}", burn_block_height),
+                ));
+            }
+        };
+
+        let response = match op_type {
+            Opcodes::PegIn => {
+                SortitionDB::get_peg_in_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegIn(ops),
+                    )
+                })
+            }
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!(
+                        "Burnchain operation {:?} is not supported by this endpoint",
+                        op_type
+                    ),
+                ));
+            }
+        };
+
+        response.or_else(|e| {
+            Ok(HttpResponseType::NotFound(
+                response_metadata,
+                format!(
+                    "Failure fetching {:?} operations from the sortition db: {}",
+                    op_type, e
+                ),
+            ))
+        })
+    }
+
+    /// Handle a GET for the burnchain operations at a particular
+    /// burn block height
+    fn handle_get_burn_ops<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<(), net_error> {
+        let response = Self::response_get_burn_ops(req, sortdb, burn_block_height, op_type)?;
+
         response.send(http, fd)
     }
 
@@ -1673,8 +1740,9 @@ impl ConversationHttp {
 
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 clarity_tx.with_analysis_db_readonly(|db| {
-                    let contract = db.load_contract(&contract_identifier)?;
+                    let contract = db.load_contract(&contract_identifier, &epoch)?;
                     contract.contract_interface
                 })
             }) {
@@ -2942,6 +3010,19 @@ impl ConversationHttp {
                     .map(|_| ())?;
                 None
             }
+            HttpRequestType::GetBurnOps {
+                height, ref opcode, ..
+            } => {
+                Self::handle_get_burn_ops(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    height,
+                    opcode,
+                )?;
+                None
+            }
         };
 
         match stream_opt {
@@ -3596,6 +3677,7 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
     use crate::burnchains::*;
@@ -3720,6 +3802,9 @@ mod test {
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
+        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
 
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
@@ -4045,7 +4130,12 @@ mod test {
         let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -4054,7 +4144,12 @@ mod test {
         let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -4129,7 +4224,12 @@ mod test {
 
         let _ = peer_2
             .network
-            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_2_indexer,
+                &peer_2_sortdb,
+                &peer_2_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
@@ -4177,7 +4277,12 @@ mod test {
 
         let _ = peer_1
             .network
-            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .refresh_burnchain_view(
+                &peer_1_indexer,
+                &peer_1_sortdb,
+                &peer_1_stacks_node.chainstate,
+                false,
+            )
             .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
