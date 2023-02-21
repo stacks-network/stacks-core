@@ -11070,7 +11070,8 @@ fn test_submit_and_observe_sbtc_ops() {
     );
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let get_path = |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
+    let get_path =
+        |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
     let client = reqwest::blocking::Client::new();
 
     // Test peg in
@@ -11094,7 +11095,10 @@ fn test_submit_and_observe_sbtc_ops() {
 
     // Test peg out request
     let response: serde_json::Value = client
-        .get(&get_path("peg_out_request", parsed_peg_out_request_op.block_height))
+        .get(&get_path(
+            "peg_out_request",
+            parsed_peg_out_request_op.block_height,
+        ))
         .send()
         .unwrap()
         .json()
@@ -11110,10 +11114,13 @@ fn test_submit_and_observe_sbtc_ops() {
         }
         _ => panic!("Op not peg_out_request"),
     };
-    
+
     // Test peg out fulfill
     let response: serde_json::Value = client
-        .get(&get_path("peg_out_fulfill", parsed_peg_out_fulfill_op.block_height))
+        .get(&get_path(
+            "peg_out_fulfill",
+            parsed_peg_out_fulfill_op.block_height,
+        ))
         .send()
         .unwrap()
         .json()
@@ -11130,10 +11137,7 @@ fn test_submit_and_observe_sbtc_ops() {
         _ => panic!("Op not peg_out_fulfill"),
     };
 
-    assert_eq!(
-        parsed_peg_in_op.recipient,
-        peg_in_op_standard.recipient
-    );
+    assert_eq!(parsed_peg_in_op.recipient, peg_in_op_standard.recipient);
     assert_eq!(parsed_peg_in_op.amount, peg_in_op_standard.amount);
     assert_eq!(
         parsed_peg_in_op.peg_wallet_address,

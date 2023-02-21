@@ -187,8 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_peg_out_request_should_succeed_given_a_conforming_transaction_with_extra_memo_bytes(
-    ) {
+    fn test_parse_peg_out_request_should_succeed_given_a_transaction_with_extra_memo_bytes() {
         let mut rng = test::seeded_rng();
         let opcode = Opcodes::PegOutRequest;
 
