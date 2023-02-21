@@ -188,6 +188,46 @@ impl SortitionHash {
     }
 }
 
+impl Opcodes {
+    const HTTP_BLOCK_COMMIT: &'static str = "block_commit";
+    const HTTP_KEY_REGISTER: &'static str = "key_register";
+    const HTTP_BURN_SUPPORT: &'static str = "burn_support";
+    const HTTP_STACK_STX: &'static str = "stack_stx";
+    const HTTP_PRE_STX: &'static str = "pre_stx";
+    const HTTP_TRANSFER_STX: &'static str = "transfer_stx";
+    const HTTP_DELEGATE_STX: &'static str = "delegate_stx";
+    const HTTP_PEG_IN: &'static str = "peg_in";
+
+    pub fn to_http_str(&self) -> &'static str {
+        match self {
+            Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
+            Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
+            Opcodes::UserBurnSupport => Self::HTTP_BURN_SUPPORT,
+            Opcodes::StackStx => Self::HTTP_STACK_STX,
+            Opcodes::PreStx => Self::HTTP_PRE_STX,
+            Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
+            Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
+            Opcodes::PegIn => Self::HTTP_PEG_IN,
+        }
+    }
+
+    pub fn from_http_str(input: &str) -> Option<Opcodes> {
+        let opcode = match input {
+            Self::HTTP_PEG_IN => Opcodes::PegIn,
+            Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
+            Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
+            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
+            Self::HTTP_STACK_STX => Opcodes::StackStx,
+            Self::HTTP_PRE_STX => Opcodes::PreStx,
+            Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
+            Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
+            _ => return None,
+        };
+
+        Some(opcode)
+    }
+}
+
 impl OpsHash {
     pub fn from_txids(txids: &Vec<Txid>) -> OpsHash {
         // NOTE: unlike stacks v1, we calculate the ops hash simply

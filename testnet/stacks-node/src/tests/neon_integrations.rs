@@ -31,6 +31,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use stacks::net::BurnchainOps;
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
@@ -739,6 +740,18 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
     (stacks_tip_consensus_hash, block)
+}
+
+fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
+    let client = reqwest::blocking::Client::new();
+
+    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
+
+    eprintln!("{}", response);
+
+    serde_json::from_value(response).unwrap()
 }
 
 fn find_microblock_privkey(
@@ -10855,6 +10868,49 @@ fn test_submit_and_observe_peg_in_request() {
         assert_eq!(ops.len(), 1);
 
         ops.into_iter().next().unwrap()
+    };
+
+    assert_eq!(
+        parsed_peg_in_op_standard.recipient,
+        peg_in_op_standard.recipient
+    );
+    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
+    assert_eq!(
+        parsed_peg_in_op_standard.peg_wallet_address,
+        peg_in_op_standard.peg_wallet_address
+    );
+
+    assert_eq!(
+        parsed_peg_in_op_contract.recipient,
+        peg_in_op_contract.recipient
+    );
+    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
+    assert_eq!(
+        parsed_peg_in_op_contract.peg_wallet_address,
+        peg_in_op_contract.peg_wallet_address
+    );
+
+    // now test that the responses from the RPC endpoint match the data
+    //  from the DB
+
+    let query_height_op_contract = parsed_peg_in_op_contract.block_height;
+    let parsed_resp = get_peg_in_ops(&conf, query_height_op_contract);
+
+    let parsed_peg_in_op_contract = match parsed_resp {
+        BurnchainOps::PegIn(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
+    };
+
+    let query_height_op_standard = parsed_peg_in_op_standard.block_height;
+    let parsed_resp = get_peg_in_ops(&conf, query_height_op_standard);
+
+    let parsed_peg_in_op_standard = match parsed_resp {
+        BurnchainOps::PegIn(mut vec) => {
+            assert_eq!(vec.len(), 1);
+            vec.pop().unwrap()
+        }
     };
 
     assert_eq!(
