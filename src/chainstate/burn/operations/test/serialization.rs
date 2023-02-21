@@ -483,7 +483,7 @@ fn serialization_peg_out_request_in_ops() {
 }
 
 #[test]
-/// Test the serialization of PegIn operations via
+/// Test the serialization of PegOutRequest operations via
 /// `blockstack_op_to_json()` using JSON string fixtures
 fn serialization_peg_out_request() {
     let test_cases = [(
@@ -597,7 +597,7 @@ fn serialization_peg_out_fulfill_in_ops() {
 }
 
 #[test]
-/// Test the serialization of PegIn operations via
+/// Test the serialization of PegOutFulfill operations via
 /// `blockstack_op_to_json()` using JSON string fixtures
 fn serialization_peg_out_fulfill() {
     let test_cases = [(
