@@ -1,17 +1,20 @@
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PreStxOp, StackStxOp, TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
+    StackStxOp, TransferStxOp,
 };
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::net::BurnchainOps;
 use clarity::vm::types::PrincipalData;
 use serde_json::Value;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed,
 };
 use stacks_common::types::Address;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 
 #[test]
 fn test_serialization_transfer_stx_op() {
@@ -416,6 +419,234 @@ fn serialization_peg_in() {
         assert_json_diff::assert_json_eq!(
             serde_json::from_str::<Value>(expected_json).unwrap(),
             BlockstackOperationType::PegIn(op).blockstack_op_to_json()
+        );
+    }
+}
+
+#[test]
+/// Test the serialization and deserialization of PegOutRequest operations in `BurnchainOps`
+///  using JSON string fixtures
+fn serialization_peg_out_request_in_ops() {
+    let test_cases = [(
+        r#"
+            {
+                "peg_out_request": [{
+                    "amount": 1337,
+                    "recipient": "1BixGeiRyKT7NTkJAHpWuP197KXUNqhCU9",
+                    "block_height": 218,
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "peg_wallet_address": "tb1qqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvps3f3cyq",
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "vtxindex": 2,
+                    "signature": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+                    "fulfillment_fee": 0,
+                    "memo": "00010203"
+                }]
+            }
+        "#,
+        PegOutRequestOp {
+            amount: 1337,
+            recipient: PoxAddress::Standard(
+                StacksAddress::from_string("SP1TT0WQYZMEBX1XJ8QF4BH4A93TWZK7X9R76Z3SZ").unwrap(),
+                None,
+            ),
+            signature: MessageSignature([13; 65]),
+            peg_wallet_address: PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [3; 32]),
+            fulfillment_fee: 0,
+            memo: vec![0, 1, 2, 3],
+            txid: Txid::from_hex(
+                "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: 218,
+            burn_header_hash: BurnchainHeaderHash::from_hex(
+                "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+            )
+            .unwrap(),
+        },
+    )];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BurnchainOps::PegOutRequest(vec![op.clone()])
+        );
+
+        // Test that expected JSON deserializes into a BurnchainOps that is equal to op
+        assert_eq!(
+            serde_json::from_str::<BurnchainOps>(expected_json).unwrap(),
+            BurnchainOps::PegOutRequest(vec![op])
+        );
+    }
+}
+
+#[test]
+/// Test the serialization of PegIn operations via
+/// `blockstack_op_to_json()` using JSON string fixtures
+fn serialization_peg_out_request() {
+    let test_cases = [(
+        r#"
+            {
+                "peg_out_request":
+                {
+                    "amount": 1337,
+                    "recipient": "1BixGeiRyKT7NTkJAHpWuP197KXUNqhCU9",
+                    "block_height": 218,
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "peg_wallet_address": "tb1qqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcrqvps3f3cyq",
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "vtxindex": 2,
+                    "signature": "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+                    "fulfillment_fee": 0,
+                    "memo": "00010203"
+                }
+            }
+        "#,
+        PegOutRequestOp {
+            amount: 1337,
+            recipient: PoxAddress::Standard(
+                StacksAddress::from_string("SP1TT0WQYZMEBX1XJ8QF4BH4A93TWZK7X9R76Z3SZ").unwrap(),
+                None,
+            ),
+            signature: MessageSignature([13; 65]),
+            peg_wallet_address: PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [3; 32]),
+            fulfillment_fee: 0,
+            memo: vec![0, 1, 2, 3],
+            txid: Txid::from_hex(
+                "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: 218,
+            burn_header_hash: BurnchainHeaderHash::from_hex(
+                "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+            )
+            .unwrap(),
+        },
+    )];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BlockstackOperationType::PegOutRequest(op).blockstack_op_to_json()
+        );
+    }
+}
+
+#[test]
+/// Test the serialization and deserialization of PegOutFulfill operations in `BurnchainOps`
+///  using JSON string fixtures
+fn serialization_peg_out_fulfill_in_ops() {
+    let test_cases = [(
+        r#"
+            {
+                "peg_out_fulfill": [{
+                    "chain_tip": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+                    "amount": 1337,
+                    "recipient": "1BixGeiRyKT7NTkJAHpWuP197KXUNqhCU9",
+                    "request_ref": "e81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157772",
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "block_height": 218,
+                    "vtxindex": 2,
+                    "memo": "00010203"
+                }]
+            }
+        "#,
+        PegOutFulfillOp {
+            chain_tip: StacksBlockId([14; 32]),
+            amount: 1337,
+            recipient: PoxAddress::Standard(
+                StacksAddress::from_string("SP1TT0WQYZMEBX1XJ8QF4BH4A93TWZK7X9R76Z3SZ").unwrap(),
+                None,
+            ),
+            request_ref: Txid::from_hex(
+                "e81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157772",
+            )
+            .unwrap(),
+            memo: vec![0, 1, 2, 3],
+            txid: Txid::from_hex(
+                "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: 218,
+            burn_header_hash: BurnchainHeaderHash::from_hex(
+                "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+            )
+            .unwrap(),
+        },
+    )];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BurnchainOps::PegOutFulfill(vec![op.clone()])
+        );
+
+        // Test that expected JSON deserializes into a BurnchainOps that is equal to op
+        assert_eq!(
+            serde_json::from_str::<BurnchainOps>(expected_json).unwrap(),
+            BurnchainOps::PegOutFulfill(vec![op])
+        );
+    }
+}
+
+#[test]
+/// Test the serialization of PegIn operations via
+/// `blockstack_op_to_json()` using JSON string fixtures
+fn serialization_peg_out_fulfill() {
+    let test_cases = [(
+        r#"
+            {
+                "peg_out_fulfill":
+                {
+                    "chain_tip": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+                    "amount": 1337,
+                    "recipient": "1BixGeiRyKT7NTkJAHpWuP197KXUNqhCU9",
+                    "request_ref": "e81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157772",
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "block_height": 218,
+                    "vtxindex": 2,
+                    "memo": "00010203"
+                }
+            }
+        "#,
+        PegOutFulfillOp {
+            chain_tip: StacksBlockId([14; 32]),
+            amount: 1337,
+            recipient: PoxAddress::Standard(
+                StacksAddress::from_string("SP1TT0WQYZMEBX1XJ8QF4BH4A93TWZK7X9R76Z3SZ").unwrap(),
+                None,
+            ),
+            request_ref: Txid::from_hex(
+                "e81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157772",
+            )
+            .unwrap(),
+            memo: vec![0, 1, 2, 3],
+            txid: Txid::from_hex(
+                "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: 218,
+            burn_header_hash: BurnchainHeaderHash::from_hex(
+                "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+            )
+            .unwrap(),
+        },
+    )];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BlockstackOperationType::PegOutFulfill(op).blockstack_op_to_json()
         );
     }
 }

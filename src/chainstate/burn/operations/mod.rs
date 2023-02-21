@@ -382,17 +382,24 @@ pub struct PegInOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PegOutRequestOp {
-    pub amount: u64,                 // sBTC amount to peg out, in satoshis
-    pub recipient: PoxAddress,       // Address to receive the BTC when the request is fulfilled
+    pub amount: u64, // sBTC amount to peg out, in satoshis
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
+    pub recipient: PoxAddress, // Address to receive the BTC when the request is fulfilled
     pub signature: MessageSignature, // Signature from sBTC owner as per SIP-021
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
     pub peg_wallet_address: PoxAddress,
     pub fulfillment_fee: u64, // Funding the fulfillment tx fee
-    pub memo: Vec<u8>,        // extra unused bytes
+    #[serde(serialize_with = "hex_ser_memo")]
+    #[serde(deserialize_with = "hex_deser_memo")]
+    pub memo: Vec<u8>, // extra unused bytes
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -400,15 +407,20 @@ pub struct PegOutRequestOp {
 pub struct PegOutFulfillOp {
     pub chain_tip: StacksBlockId, // The Stacks chain tip whose state view was used to validate the peg-out request
 
-    pub amount: u64,           // Transferred BTC amount, in satoshis
+    pub amount: u64, // Transferred BTC amount, in satoshis
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
     pub recipient: PoxAddress, // Address to receive the BTC
-    pub request_ref: Txid,     // The peg out request which is fulfilled by this op
-    pub memo: Vec<u8>,         // extra unused bytes
+    pub request_ref: Txid, // The peg out request which is fulfilled by this op
+    #[serde(serialize_with = "hex_ser_memo")]
+    #[serde(deserialize_with = "hex_deser_memo")]
+    pub memo: Vec<u8>, // extra unused bytes
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -630,6 +642,8 @@ impl BlockstackOperationType {
             BlockstackOperationType::TransferStx(op) => Self::transfer_stx_to_json(op),
             BlockstackOperationType::DelegateStx(op) => Self::delegate_stx_to_json(op),
             BlockstackOperationType::PegIn(op) => json!({ "peg_in": op }),
+            BlockstackOperationType::PegOutRequest(op) => json!({ "peg_out_request": op }),
+            BlockstackOperationType::PegOutFulfill(op) => json!({ "peg_out_fulfill": op }),
             // json serialization for the remaining op types is not implemented for now. This function
             // is currently only used to json-ify burnchain ops executed as Stacks transactions (so,
             // stack_stx, transfer_stx, and delegate_stx).
