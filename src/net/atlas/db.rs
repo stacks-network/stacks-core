@@ -88,10 +88,15 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 ];
 
 const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
+    // We have to allow status to be null, because SQLite won't let us add
+    //  a not null column without a default. The default defeats the point of
+    //  having not-null here anyways, so we leave this field nullable.
     r#"
     ALTER TABLE attachment_instances
-    ADD    status INTEGER NOT NULL
+    ADD status INTEGER
     ;"#,
+    // All of the attachment instances that previously existed in the database
+    //  already were "checked"
     r#"
     UPDATE attachment_instances SET status = 2;
     "#,
@@ -128,6 +133,7 @@ impl FromRow<Attachment> for Attachment {
 
 impl FromRow<AttachmentInstance> for AttachmentInstance {
     fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
+        eprintln!("{:?}", row.get_raw("index_block_hash"));
         let hex_content_hash: String = row.get_unwrap("content_hash");
         let attachment_index: u32 = row.get_unwrap("attachment_index");
         let block_height =
@@ -269,7 +275,7 @@ impl AtlasDB {
     // If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(
         atlas_config: AtlasConfig,
-        path: &String,
+        path: &str,
         readwrite: bool,
     ) -> Result<AtlasDB, db_error> {
         let mut create_flag = false;
@@ -289,8 +295,17 @@ impl AtlasDB {
                 OpenFlags::SQLITE_OPEN_READ_ONLY
             }
         };
-
         let conn = sqlite_open(path, open_flags, false)?;
+        Self::check_instantiate_db(atlas_config, conn, readwrite, create_flag)
+    }
+
+    /// Inner method for instantiating the db if necessary, updating the schema, or adding indexes
+    fn check_instantiate_db(
+        atlas_config: AtlasConfig,
+        conn: Connection,
+        readwrite: bool,
+        create_flag: bool,
+    ) -> Result<AtlasDB, db_error> {
         let mut db = AtlasDB {
             atlas_config,
             conn,
@@ -300,8 +315,8 @@ impl AtlasDB {
             db.instantiate()?;
         }
         if readwrite {
-            db.add_indexes()?;
             db.check_schema_version_and_update()?;
+            db.add_indexes()?;
         } else {
             db.check_schema_version_or_error()?;
         }
@@ -371,6 +386,56 @@ impl AtlasDB {
 
         db.instantiate()?;
         Ok(db)
+    }
+
+    #[cfg(test)]
+    /// Only ever to be used in testing, open and instantiate a V1 atlasdb
+    pub fn connect_memory_db_v1(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
+        let conn = Connection::open_in_memory()?;
+        let mut db = AtlasDB {
+            atlas_config,
+            conn,
+            readwrite: true,
+        };
+
+        let genesis_attachments = db.atlas_config.genesis_attachments.take();
+
+        let tx = db.tx_begin()?;
+
+        for row_text in ATLASDB_INITIAL_SCHEMA {
+            tx.execute_batch(row_text)?;
+        }
+
+        tx.execute("INSERT INTO db_config (version) VALUES (?1)", &["1"])?;
+
+        if let Some(attachments) = genesis_attachments {
+            let now = util::get_epoch_time_secs() as i64;
+            for attachment in attachments {
+                tx.execute(
+                    "INSERT INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
+                    rusqlite::params![
+                        &attachment.hash(),
+                        &attachment.content,
+                        &now,
+                    ],
+                )?;
+            }
+        }
+
+        tx.commit()?;
+
+        db.add_indexes()?;
+
+        Ok(db)
+    }
+
+    #[cfg(test)]
+    /// Only ever to be used in testing, connect to db, but using existing sqlconn
+    pub fn connect_with_sqlconn(
+        atlas_config: AtlasConfig,
+        conn: Connection,
+    ) -> Result<AtlasDB, db_error> {
+        Self::check_instantiate_db(atlas_config, conn, true, false)
     }
 
     pub fn conn(&self) -> &Connection {
@@ -564,7 +629,7 @@ impl AtlasDB {
     }
 
     pub fn find_all_attachment_instances(
-        &mut self,
+        &self,
         content_hash: &Hash160,
     ) -> Result<Vec<AttachmentInstance>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);

@@ -28,6 +28,7 @@ use crate::net::{
     PeerHost, Requestable,
 };
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -771,6 +772,89 @@ fn test_keep_uninstantiated_attachments() {
             &new_attachment_from("facadefacadefacade02")
         ),
         false
+    );
+}
+
+#[test]
+fn schema_2_migration() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 10,
+        uninstantiated_attachments_expire_after: 0,
+        unresolved_attachment_instances_expire_after: 10,
+        genesis_attachments: None,
+    };
+
+    let atlas_db = AtlasDB::connect_memory_db_v1(atlas_config.clone()).unwrap();
+    let conn = atlas_db.conn;
+
+    let attachments = [
+        AttachmentInstance {
+            // content_hash, index_block_hash, and txid must contain hex letters!
+            //  because their fields are declared `STRING`, if you supply all numerals,
+            //  sqlite assigns the field a REAL affinity (instead of TEXT)
+            content_hash: Hash160([0xa0; 20]),
+            attachment_index: 1,
+            stacks_block_height: 1,
+            index_block_hash: StacksBlockId([0x1b; 32]),
+            metadata: "".into(),
+            contract_id: QualifiedContractIdentifier::transient(),
+            tx_id: Txid([0x2f; 32]),
+            canonical_stacks_tip_height: Some(1),
+        },
+        AttachmentInstance {
+            content_hash: Hash160([0x00; 20]),
+            attachment_index: 1,
+            stacks_block_height: 1,
+            index_block_hash: StacksBlockId([0x01; 32]),
+            metadata: "".into(),
+            contract_id: QualifiedContractIdentifier::transient(),
+            tx_id: Txid([0x02; 32]),
+            canonical_stacks_tip_height: Some(1),
+        },
+    ];
+
+    for attachment in attachments {
+        // need to manually insert data, because the insertion routine in the codebase
+        //  sets `status` which doesn't exist in v1
+        conn.execute(
+            "INSERT OR REPLACE INTO attachment_instances (
+               content_hash, created_at, index_block_hash,
+               attachment_index, block_height, is_available,
+                metadata, contract_id, tx_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                &attachment.content_hash,
+                &0,
+                &attachment.index_block_hash,
+                &attachment.attachment_index,
+                &u64_to_sql(attachment.stacks_block_height).unwrap(),
+                &true,
+                &attachment.metadata,
+                &attachment.contract_id.to_string(),
+                &attachment.tx_id,
+            ],
+        )
+        .unwrap();
+    }
+
+    // perform the migration and unwrap() to assert that it runs okay
+    let atlas_db = AtlasDB::connect_with_sqlconn(atlas_config, conn).unwrap();
+
+    assert_eq!(
+        atlas_db
+            .find_all_attachment_instances(&Hash160([0xa0; 20]))
+            .unwrap()
+            .len(),
+        1,
+        "Should have one attachment instance marked 'checked' with hash `0xa0a0a0..`"
+    );
+
+    assert_eq!(
+        atlas_db.queued_attachments().unwrap().len(),
+        0,
+        "Should have no attachment instance marked 'queued'"
     );
 }
 
