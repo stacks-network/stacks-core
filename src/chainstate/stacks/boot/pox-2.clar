@@ -346,7 +346,7 @@
                            (update-list (unwrap-panic (replace-at? moved-reward-list moved-cycle-index set-index))))
                           (map-set stacking-state { stacker: moved-stacker }
                                    (merge moved-state { reward-set-indexes: update-list })))
-                     ;; otherwise, we dont need to update stacking-state after move
+                     ;; otherwise, we don't need to update stacking-state after move
                      true))
                 ;; if not moving, just noop
                 true)
@@ -636,7 +636,7 @@
 ;;  to issue the stacking lock.
 ;; The caller specifies:
 ;;   * amount-ustx: the total amount of ustx the delegate may be allowed to lock
-;;   * until-burn-ht: an optional burn height at which this delegation expiration
+;;   * until-burn-ht: an optional burn height at which this delegation expires
 ;;   * pox-addr: an optional address to which any rewards *must* be sent
 (define-public (delegate-stx (amount-ustx uint)
                              (delegate-to principal)
@@ -765,7 +765,7 @@
 
     (let ((amount-ustx (get stacked-amount partial-stacked))
           ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
-          ;; infallable; getting something from partial-stacked-by-cycle succeeded so this must succeed
+          ;; infallible; getting something from partial-stacked-by-cycle succeeded so this must succeed
           (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
           ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
           (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
@@ -1279,7 +1279,7 @@
     (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
 )
 
-;; How any uSTX have voted to reject PoX in a given reward cycle?
+;; How many uSTX have voted to reject PoX in a given reward cycle?
 ;; *New in Stacks 2.1*
 (define-read-only (get-total-pox-rejection (reward-cycle uint))
     (match (map-get? stacking-rejection { reward-cycle: reward-cycle })

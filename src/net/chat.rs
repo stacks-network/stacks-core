@@ -1075,7 +1075,6 @@ impl ConversationP2P {
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
-        // monitoring::increment_p2p_msg_nat_punch_request_received_counter();
         monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
         let natpunch_data = NatPunchData {
@@ -1244,7 +1243,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> {
-        // monitoring::increment_p2p_msg_ping_received_counter();
         monitoring::increment_msg_counter("p2p_ping".to_string());
 
         let ping_data = match message.payload {
@@ -1268,7 +1266,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_neighbors_received_counter();
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
         let epoch = self.get_current_epoch(chain_view.burn_block_height);
@@ -1477,7 +1474,6 @@ impl ConversationP2P {
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
         monitoring::increment_msg_counter("p2p_get_blocks_inv".to_string());
 
         let mut response = ConversationP2P::make_getblocksinv_response(
@@ -2041,7 +2037,6 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
@@ -2113,7 +2108,6 @@ impl ConversationP2P {
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
@@ -2189,7 +2183,6 @@ impl ConversationP2P {
                     nack_payload,
                 );
 
-                // monitoring::increment_p2p_msg_nack_sent_counter();
                 monitoring::increment_msg_counter("p2p_nack_sent".to_string());
 
                 // unauthenticated, so don't forward it (but do consume it, and do nack it)
