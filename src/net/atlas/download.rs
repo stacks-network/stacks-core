@@ -231,6 +231,18 @@ impl AttachmentsDownloader {
         Ok((resolved_attachments, events_to_deregister))
     }
 
+    /// Given a list of `AttachmentInstance`, check if the content corresponding to that
+    ///  instance is (1) already validated (2) inboxed or (3) unknown.
+    ///
+    /// In the event of (1) or (2), `do_if_found` is invoked, and the attachment instance will
+    ///  be returned (with the attachment data) in the result set. If the attachment was inboxed (case 2),
+    ///  the attachment is marked as instantiated in the atlas db.
+    ///
+    /// In the event of (3), `do_if_not_found` is invoked, and the attachment instance is added
+    ///  to `self.priority_queue`.
+    ///
+    /// The return value of this function is a vector of all the instances from `iterator` which
+    ///  resolved to Attachment data, paired with that data.
     fn check_attachment_instances<F, G>(
         &mut self,
         atlas_db: &mut AtlasDB,

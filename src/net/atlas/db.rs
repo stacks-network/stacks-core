@@ -96,7 +96,7 @@ const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
     ADD status INTEGER
     ;"#,
     // All of the attachment instances that previously existed in the database
-    //  already were "checked"
+    //  already were "checked", so set status to 2 (which corresponds to "checked").
     r#"
     UPDATE attachment_instances SET status = 2;
     "#,
