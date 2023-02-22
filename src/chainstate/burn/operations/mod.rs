@@ -618,8 +618,8 @@ pub fn parse_u16_from_be(bytes: &[u8]) -> Option<u16> {
 
 #[cfg(test)]
 mod test {
-    use serde_json::json;
     use assert_json_diff::assert_json_eq;
+    use serde_json::json;
 
     use crate::burnchains::Txid;
     use crate::chainstate::burn::operations::{
