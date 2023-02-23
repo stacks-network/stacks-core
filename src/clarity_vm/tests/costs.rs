@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use lazy_static::lazy_static;
+
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityInstance;

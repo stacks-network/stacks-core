@@ -2,6 +2,8 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::sync::Mutex;
 
+use lazy_static::lazy_static;
+
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
     StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,

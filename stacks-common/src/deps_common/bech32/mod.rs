@@ -59,9 +59,6 @@ assert_eq!(variant, Variant::Bech32);
 #[cfg(all(not(feature = "std"), not(test)))]
 extern crate alloc;
 
-#[cfg(any(test, feature = "std"))]
-extern crate core;
-
 #[cfg(all(not(feature = "std"), not(test)))]
 use alloc::{string::String, vec::Vec};
 

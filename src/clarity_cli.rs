@@ -26,6 +26,7 @@ use std::process;
 
 use clarity::util::get_epoch_time_ms;
 use clarity::vm::coverage::CoverageReporter;
+use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::Row;

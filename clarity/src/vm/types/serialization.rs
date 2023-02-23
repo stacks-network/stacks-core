@@ -20,6 +20,7 @@ use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
+use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::types::StacksEpochId;
 

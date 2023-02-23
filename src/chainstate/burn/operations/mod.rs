@@ -22,6 +22,8 @@ use std::fmt;
 use std::fs;
 use std::io;
 
+use serde_json::json;
+
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Error as BurnchainError;
@@ -614,7 +616,11 @@ pub fn parse_u16_from_be(bytes: &[u8]) -> Option<u16> {
     bytes.try_into().ok().map(u16::from_be_bytes)
 }
 
+#[cfg(test)]
 mod test {
+    use assert_json_diff::assert_json_eq;
+    use serde_json::json;
+
     use crate::burnchains::Txid;
     use crate::chainstate::burn::operations::{
         BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,

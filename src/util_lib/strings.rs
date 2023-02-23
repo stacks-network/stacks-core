@@ -23,6 +23,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use lazy_static::lazy_static;
 use regex::Regex;
 use url;
 

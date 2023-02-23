@@ -22,6 +22,8 @@ use stacks_common::util::log;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
+use lazy_static::lazy_static;
+
 pub use self::mempool::MemPoolDB;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};

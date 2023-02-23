@@ -30,6 +30,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 
 use clarity::vm::representations::MAX_STRING_LEN;
+use lazy_static::lazy_static;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};

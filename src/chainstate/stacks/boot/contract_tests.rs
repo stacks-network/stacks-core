@@ -2,6 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use lazy_static::lazy_static;
+
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;

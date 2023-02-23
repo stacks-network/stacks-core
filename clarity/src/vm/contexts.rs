@@ -19,6 +19,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
+use serde_json::json;
+
 use crate::vm::ast;
 use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;

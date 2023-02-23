@@ -16,6 +16,7 @@
 
 use std::{fmt, fs, path::PathBuf};
 
+use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
 
 use crate::burnchains::BurnchainSigner;

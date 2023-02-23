@@ -12,6 +12,7 @@ use std::{
 use std::{env, thread};
 
 use rusqlite::types::ToSql;
+use serde_json::json;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -206,6 +207,7 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use lazy_static::lazy_static;
     use tokio;
     use warp;
     use warp::Filter;

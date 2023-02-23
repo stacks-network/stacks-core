@@ -20,13 +20,8 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate blockstack_lib;
-extern crate rusqlite;
 #[macro_use]
 extern crate stacks_common;
-
-#[macro_use]
-extern crate serde_json;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -44,6 +39,7 @@ use blockstack_lib::cost_estimates::UnitEstimator;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
+use serde_json::json;
 
 use blockstack_lib::burnchains::bitcoin::indexer::BitcoinIndexer;
 use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};

@@ -26,6 +26,8 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
+use lazy_static::lazy_static;
+
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;

@@ -1,17 +1,7 @@
-extern crate libc;
-extern crate rand;
-extern crate serde;
-
-#[macro_use]
-extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
-extern crate serde_json;
-#[macro_use]
 extern crate stacks_common;
-
-extern crate stacks;
 
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]

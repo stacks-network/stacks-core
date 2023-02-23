@@ -164,6 +164,13 @@ All contributions should use the same whitespacing as the rest of the project.
 Moreover, Pull requests where a large number of changes only deal with whitespace will be
 rejected.
 
+### Import Ordering 
+
+Try to split imports into at least three groups, in this order: 
+- std, core, alloc 
+- external crates
+- imports from within crate (self, super, crate)
+
 ## Comments
 Comments are very important for the readability and correctness of the codebase. The purpose of comments is:
 

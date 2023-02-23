@@ -2,6 +2,7 @@ use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+use lazy_static::lazy_static;
 use rand::RngCore;
 
 use stacks::chainstate::burn::ConsensusHash;
