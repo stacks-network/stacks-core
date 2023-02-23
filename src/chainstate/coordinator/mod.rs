@@ -419,35 +419,36 @@ impl<
 impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
     ChainsCoordinator<'a, T, (), U, (), (), B>
 {
+    /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         indexer: B,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
-        ChainsCoordinator::test_new_with_observer(
+        ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
             path,
             reward_set_provider,
-            attachments_tx,
             None,
             indexer,
+            None,
         )
     }
 
+    /// Create a coordinator for testing allowing for all configurable params
     #[cfg(test)]
-    pub fn test_new_with_observer(
+    pub fn test_new_full(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        _attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
+        atlas_config: Option<AtlasConfig>,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
@@ -472,6 +473,10 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
+        let atlas_config = atlas_config.unwrap_or(AtlasConfig::default(false));
+        let atlas_db =
+            AtlasDB::connect(atlas_config.clone(), &format!("{}/atlas", path), true).unwrap();
+
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
             burnchain_blocks_db,
@@ -483,8 +488,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             fee_estimator: None,
             reward_set_provider,
             notifier: (),
-            atlas_config: AtlasConfig::default(false),
-            atlas_db: None,
+            atlas_config,
+            atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
         }

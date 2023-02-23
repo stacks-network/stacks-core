@@ -2788,17 +2788,15 @@ pub mod test {
             )
             .unwrap();
 
-            let (tx, _) = sync_channel(100000);
-
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
-            let mut coord = ChainsCoordinator::test_new_with_observer(
+            let mut coord = ChainsCoordinator::test_new_full(
                 &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
-                tx,
                 observer,
                 indexer,
+                None,
             );
             coord.handle_new_burnchain_block().unwrap();
 
