@@ -47,6 +47,8 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::PegInOp;
+use crate::chainstate::burn::operations::PegOutFulfillOp;
+use crate::chainstate::burn::operations::PegOutRequestOp;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
@@ -1703,6 +1705,8 @@ pub enum StacksMessageID {
 #[serde(rename_all = "snake_case")]
 pub enum BurnchainOps {
     PegIn(Vec<PegInOp>),
+    PegOutRequest(Vec<PegOutRequestOp>),
+    PegOutFulfill(Vec<PegOutFulfillOp>),
 }
 
 /// Message type for all P2P Stacks network messages
@@ -2203,7 +2207,9 @@ pub mod test {
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_)
-                | BlockstackOperationType::PegIn(_) => Ok(()),
+                | BlockstackOperationType::PegIn(_)
+                | BlockstackOperationType::PegOutRequest(_)
+                | BlockstackOperationType::PegOutFulfill(_) => Ok(()),
             }
         }
 
