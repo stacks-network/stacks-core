@@ -831,6 +831,11 @@ impl SpvClient {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         let num_headers = block_headers.len();
+        if num_headers == 0 {
+            // nothing to do
+            return Ok(());
+        }
+
         let first_header_hash = block_headers[0].header.bitcoin_hash();
         let last_header_hash = block_headers[block_headers.len() - 1].header.bitcoin_hash();
         let total_work_before = self.update_chain_work()?;
