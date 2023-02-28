@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Fixed
+
+- The transaction receipts for smart contract publish transactions now indicate
+  a result of `(err none)` if the top-level code of the smart contract contained
+  runtime error. Fixes issue #3154.
+
 ## [2.1]
 
 This is a **consensus-breaking** release that introduces a _lot_ of new
