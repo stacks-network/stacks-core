@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use rand::thread_rng;
+use rand::RngCore;
 use secp256k1;
 use secp256k1::constants as LibSecp256k1Constants;
 use secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
@@ -24,18 +26,14 @@ use secp256k1::Message as LibSecp256k1Message;
 use secp256k1::PublicKey as LibSecp256k1PublicKey;
 use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
-
-use crate::types::PrivateKey;
-use crate::types::PublicKey;
-use crate::util::hash::{hex_bytes, to_hex};
-
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
-use rand::thread_rng;
-use rand::RngCore;
+use crate::types::PrivateKey;
+use crate::types::PublicKey;
+use crate::util::hash::{hex_bytes, to_hex};
 
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
@@ -404,15 +402,13 @@ pub fn secp256k1_verify(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::util::hash::hex_bytes;
-
     use secp256k1;
     use secp256k1::PublicKey as LibSecp256k1PublicKey;
     use secp256k1::Secp256k1;
 
+    use super::*;
     use crate::util::get_epoch_time_ms;
+    use crate::util::hash::hex_bytes;
     use crate::util::log;
 
     struct KeyFixture<I, R> {

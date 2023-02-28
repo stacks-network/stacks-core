@@ -1,3 +1,7 @@
+use std::fmt;
+
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis;
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
@@ -15,8 +19,6 @@ use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::ClarityVersion;
 use crate::vm::ContractContext;
 use crate::vm::{ast, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
-use std::fmt;
 
 #[derive(Debug)]
 pub enum Error {

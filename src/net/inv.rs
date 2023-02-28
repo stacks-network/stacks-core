@@ -30,6 +30,12 @@ use rand;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -37,6 +43,7 @@ use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::asn::ASEntry4;
 use crate::net::chat::ConversationP2P;
@@ -56,17 +63,9 @@ use crate::net::PeerAddress;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -2657,20 +2656,19 @@ impl PeerNetwork {
 mod test {
     use std::collections::HashMap;
 
-    use crate::burnchains::PoxConstants;
-    use crate::chainstate::stacks::*;
-    use crate::net::test::*;
-    use crate::net::*;
-    use crate::util_lib::test::*;
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 
     use super::*;
-
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::db::BurnchainHeaderReader;
     use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
     use crate::burnchains::BurnchainBlockHeader;
+    use crate::burnchains::PoxConstants;
     use crate::chainstate::coordinator::tests::get_burnchain;
-    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
 
     #[test]
     fn peerblocksinv_has_ith_block() {

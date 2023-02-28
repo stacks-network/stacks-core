@@ -21,6 +21,11 @@ use std::io::{Read, Write};
 
 use sha2::Digest;
 use sha2::Sha512_256;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
 use crate::burnchains::PrivateKey;
 use crate::burnchains::PublicKey;
@@ -28,24 +33,18 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::core::*;
-use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::*;
-
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::*;
+use crate::codec::MAX_MESSAGE_LEN;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
+use crate::types::StacksPublicKeyBuffer;
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -920,6 +919,12 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
+    use std::error::Error;
+
+    use stacks_common::address::*;
+    use stacks_common::util::hash::*;
+
+    use super::*;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -935,13 +940,7 @@ mod test {
     use crate::net::codec::test::*;
     use crate::net::codec::*;
     use crate::net::*;
-    use stacks_common::address::*;
-    use stacks_common::util::hash::*;
-    use std::error::Error;
-
     use crate::types::chainstate::StacksAddress;
-
-    use super::*;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {

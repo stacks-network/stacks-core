@@ -23,8 +23,11 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
+use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::PrincipalData;
+use clarity::vm::types::Value;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -33,6 +36,17 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512_256};
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId, VRFSeed,
+};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -49,18 +63,21 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp,
     PegOutRequestOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::chainstate::stacks::*;
@@ -78,25 +95,6 @@ use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
     query_rows, sql_pragma, u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
-};
-use clarity::vm::ast::ASTRules;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::Value;
-
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::*;
-
-use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId, VRFSeed,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -5981,35 +5979,33 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::chainstate::stacks::index::TrieHashExtension;
-    use crate::core::StacksEpochExtension;
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::vrf::*;
+
+    use super::*;
+    use crate::burnchains::affirmation::AffirmationMap;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::StacksEpochExtension;
     use crate::core::*;
-    use crate::util_lib::db::Error as db_error;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::vrf::*;
-
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
-
-    use crate::burnchains::affirmation::AffirmationMap;
-    use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
-
-    use super::*;
+    use crate::util_lib::db::Error as db_error;
 
     #[test]
     fn test_instantiate() {

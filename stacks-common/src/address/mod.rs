@@ -14,20 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
-
-use crate::types::PublicKey;
-
-use crate::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use crate::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
-
-use crate::util::hash::Hash160;
 
 use sha2::Digest;
 use sha2::Sha256;
 
-use std::convert::TryFrom;
+use crate::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use crate::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
+use crate::types::PublicKey;
+use crate::util::hash::Hash160;
 
 pub mod b58;
 pub mod c32;

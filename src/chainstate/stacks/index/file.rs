@@ -37,6 +37,9 @@ use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
     Transaction, NO_PARAMS,
 };
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
@@ -52,7 +55,6 @@ use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
-
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::sql_vacuum;
 use crate::util_lib::db::sqlite_open;
@@ -60,10 +62,6 @@ use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::SQLITE_MMAP_SIZE;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// Mapping between block IDs and trie offsets
 pub type TrieIdOffsets = HashMap<u32, u64>;

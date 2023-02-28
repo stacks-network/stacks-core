@@ -14,48 +14,39 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::core::PEER_VERSION_TESTNET;
-
-use crate::net::asn::ASEntry4;
-use crate::net::db::PeerDB;
-use crate::net::Error as net_error;
-use crate::net::Neighbor;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-
-use crate::net::codec::*;
-use crate::net::*;
-
-use crate::net::connection::ConnectionOptions;
-use crate::net::connection::ReplyHandleP2P;
-
-use crate::net::db::LocalPeer;
-
-use crate::net::p2p::*;
-
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as db_error;
-
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
 use std::cmp;
-use std::mem;
-use std::net::SocketAddr;
-
 use std::collections::HashMap;
 use std::collections::HashSet;
-
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::burnchains::PublicKey;
+use std::mem;
+use std::net::SocketAddr;
 
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::*;
 use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::net::asn::ASEntry4;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::LocalPeer;
+use crate::net::db::PeerDB;
+use crate::net::p2p::*;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
 
 #[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
@@ -3101,6 +3092,9 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
+
     use super::*;
     use crate::core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -3111,8 +3105,6 @@ mod test {
     use crate::net::db::*;
     use crate::net::test::*;
     use crate::util_lib::test::*;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 

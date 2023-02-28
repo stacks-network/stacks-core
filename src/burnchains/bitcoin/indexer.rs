@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rand::{thread_rng, Rng};
 use std::cmp;
+use std::convert::TryFrom;
 use std::fs;
 use std::net;
 use std::net::Shutdown;
@@ -26,25 +26,7 @@ use std::path::PathBuf;
 use std::time;
 use std::time::Duration;
 
-use crate::burnchains::bitcoin::blocks::BitcoinHeaderIPC;
-use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
-use crate::burnchains::bitcoin::spv::*;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::db::BurnchainHeaderReader;
-use crate::burnchains::indexer::BurnchainIndexer;
-use crate::burnchains::indexer::*;
-use crate::burnchains::Burnchain;
-use crate::util_lib::db::Error as DBError;
-
-use crate::burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::Error as burnchain_error;
-use crate::burnchains::MagicBytes;
-use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use crate::types::chainstate::BurnchainHeaderHash;
-
+use rand::{thread_rng, Rng};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
@@ -54,10 +36,25 @@ use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::log;
 
+use crate::burnchains::bitcoin::blocks::BitcoinHeaderIPC;
+use crate::burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
+use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::spv::*;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::db::BurnchainHeaderReader;
+use crate::burnchains::indexer::BurnchainIndexer;
+use crate::burnchains::indexer::*;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::MagicBytes;
+use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use crate::core::{
     StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
 };
-use std::convert::TryFrom;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::util_lib::db::Error as DBError;
 
 pub const USER_AGENT: &'static str = "Stacks/2.1";
 
@@ -1188,11 +1185,7 @@ impl BurnchainHeaderReader for BitcoinIndexer {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::burnchains::bitcoin::Error as btc_error;
-    use crate::burnchains::bitcoin::*;
-    use crate::burnchains::Error as burnchain_error;
-    use crate::burnchains::*;
+    use std::env;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
@@ -1203,7 +1196,11 @@ mod test {
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
 
-    use std::env;
+    use super::*;
+    use crate::burnchains::bitcoin::Error as btc_error;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::Error as burnchain_error;
+    use crate::burnchains::*;
 
     #[test]
     fn test_indexer_find_bitcoin_reorg_genesis() {

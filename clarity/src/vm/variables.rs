@@ -16,13 +16,12 @@
 use std::convert::TryFrom;
 
 use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::types::BuffData;
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::runtime_cost;
 
 define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     ContractCaller("contract-caller", ClarityVersion::Clarity1),

@@ -22,24 +22,10 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
-    Error as clarity_error,
-};
-use crate::net::Error as net_error;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{query_count, query_rows, DBConn};
-use clarity::vm::ast::ASTRules;
-use stacks_common::util::hash::to_hex;
-
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::util_lib::strings::{StacksString, VecDisplay};
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::contracts::Contract;
@@ -57,8 +43,21 @@ use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use stacks_common::util::hash::to_hex;
 
-use clarity::vm::ast::errors::ParseErrors;
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
+    Error as clarity_error,
+};
+use crate::net::Error as net_error;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{query_count, query_rows, DBConn};
+use crate::util_lib::strings::{StacksString, VecDisplay};
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -1398,8 +1397,18 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    use clarity::vm::clarity::TransactionConnection;
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::representations::ClarityName;
+    use clarity::vm::representations::ContractName;
+    use clarity::vm::test_util::UnitTestBurnStateDB;
+    use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::types::*;
     use rand::Rng;
+    use stacks_common::types::chainstate::SortitionId;
+    use stacks_common::util::hash::*;
 
+    use super::*;
     use crate::burnchains::Address;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::test::*;
@@ -1408,17 +1417,6 @@ pub mod test {
     use crate::chainstate::stacks::Error;
     use crate::chainstate::stacks::*;
     use crate::chainstate::*;
-    use clarity::vm::clarity::TransactionConnection;
-    use clarity::vm::contracts::Contract;
-    use clarity::vm::representations::ClarityName;
-    use clarity::vm::representations::ContractName;
-    use clarity::vm::test_util::UnitTestBurnStateDB;
-    use clarity::vm::test_util::TEST_BURN_STATE_DB;
-    use clarity::vm::types::*;
-    use stacks_common::types::chainstate::SortitionId;
-    use stacks_common::util::hash::*;
-
-    use super::*;
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,

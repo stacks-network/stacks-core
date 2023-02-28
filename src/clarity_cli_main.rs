@@ -20,9 +20,10 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-use blockstack_lib::{clarity_cli as clarity, util::log};
 use std::env;
 use std::process;
+
+use blockstack_lib::{clarity_cli as clarity, util::log};
 
 fn main() {
     let argv: Vec<String> = env::args().collect();

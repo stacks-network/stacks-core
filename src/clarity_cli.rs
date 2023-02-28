@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::env;
 use std::ffi::OsStr;
@@ -23,6 +24,7 @@ use std::io::{Read, Write};
 use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 
 use clarity::util::get_epoch_time_ms;
 use clarity::vm::coverage::CoverageReporter;
@@ -32,13 +34,33 @@ use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-
-use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::FromColumn;
+use serde::Serialize;
+use serde_json::json;
 use stacks_common::address::c32::c32_address;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::consts::CHAIN_ID_MAINNET;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::types::chainstate::*;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::log;
 
+use crate::burnchains::Address;
+use crate::burnchains::PoxConstants;
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
+    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
+    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::clarity::{
     vm::analysis,
     vm::analysis::contract_interface_builder::build_contract_interface,
@@ -61,47 +83,16 @@ use crate::clarity::{
     vm::ContractName,
     vm::{SymbolicExpression, SymbolicExpressionType, Value},
 };
-use stacks_common::util::log;
-
-use crate::burnchains::PoxConstants;
-use crate::burnchains::Txid;
-use stacks_common::types::chainstate::*;
-
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
-    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
-    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
-};
-
-use crate::util_lib::boot::{boot_code_addr, boot_code_id};
-
-use crate::burnchains::Address;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::core::BLOCK_LIMIT_MAINNET_205;
-use crate::core::HELIUM_BLOCK_LIMIT_20;
-
-use crate::util_lib::strings::StacksString;
-use serde::Serialize;
-use serde_json::json;
-
-use stacks_common::codec::StacksMessageCodec;
-
-use std::convert::TryFrom;
-
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::StacksEpochId;
-use stacks_common::consts::CHAIN_ID_MAINNET;
-use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::VRFSeed;
-use std::str::FromStr;
+use crate::core::BLOCK_LIMIT_MAINNET_205;
+use crate::core::HELIUM_BLOCK_LIMIT_20;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::FromColumn;
+use crate::util_lib::strings::StacksString;
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [

@@ -1288,8 +1288,9 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn test_std_error() {
-        use super::Error;
         use std::error::Error as StdError;
+
+        use super::Error;
         let err = Error::HeaderName;
         assert_eq!(err.to_string(), err.description_str());
     }

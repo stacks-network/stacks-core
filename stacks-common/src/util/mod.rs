@@ -97,9 +97,10 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 }
 
 pub mod db_common {
-    use rand::{thread_rng, Rng};
     use std::thread;
     use std::time;
+
+    use rand::{thread_rng, Rng};
 
     pub fn tx_busy_handler(run_count: i32) -> bool {
         let mut sleep_count = 10;

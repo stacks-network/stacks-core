@@ -61,10 +61,10 @@ impl<T: Stream> ServerEx for T {}
 
 #[cfg(test)]
 mod test {
-    use crate::{server::ServerEx, state::State};
     use std::{io::Cursor, str::from_utf8};
 
     use super::Stream;
+    use crate::{server::ServerEx, state::State};
 
     struct MockStream {
         i: Cursor<&'static str>,

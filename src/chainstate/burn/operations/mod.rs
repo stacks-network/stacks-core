@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use serde::Deserialize;
 use std::convert::From;
 use std::convert::TryInto;
 use std::error;
@@ -22,7 +21,14 @@ use std::fmt;
 use std::fs;
 use std::io;
 
+use clarity::vm::types::PrincipalData;
+use serde::Deserialize;
 use serde_json::json;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
@@ -34,27 +40,17 @@ use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::VRFSeed;
-
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::VRFSeed;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::VRFPublicKey;
-
-use clarity::vm::types::PrincipalData;
-
-use crate::types::chainstate::BurnchainHeaderHash;
 
 pub mod delegate_stx;
 pub mod leader_block_commit;

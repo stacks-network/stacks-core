@@ -2,6 +2,7 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
+use clarity::vm::costs::ExecutionCost;
 use rusqlite::Transaction as SqlTransaction;
 use rusqlite::{
     types::{FromSql, FromSqlError},
@@ -9,22 +10,17 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use crate::chainstate::stacks::TransactionPayload;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate_sqlite;
-use crate::util_lib::db::u64_to_sql;
-
-use clarity::vm::costs::ExecutionCost;
-
-use crate::chainstate::stacks::db::StacksEpochReceipt;
-use crate::chainstate::stacks::events::TransactionOrigin;
-
-use crate::util_lib::db::sql_pragma;
-use crate::util_lib::db::table_exists;
-
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
+use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::table_exists;
+use crate::util_lib::db::tx_begin_immediate_sqlite;
+use crate::util_lib::db::u64_to_sql;
 
 const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &'static str = "

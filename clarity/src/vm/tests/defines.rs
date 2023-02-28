@@ -26,12 +26,13 @@ use rstest_reuse::{self, *};
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
 fn test_clarity_versions_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 use crate::vm::{execute, ClarityVersion};
-use stacks_common::types::StacksEpochId;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();

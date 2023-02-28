@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
-
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
     StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
@@ -12,27 +11,26 @@ use stacks::chainstate::stacks::{
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::StacksEpochId;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::{hash::*, secp256k1::*};
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
 use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 
-use crate::helium::RunLoop;
-use crate::Keychain;
-use stacks::core::StacksEpochId;
-use stacks::vm::costs::ExecutionCost;
-
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
     serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
+use crate::helium::RunLoop;
+use crate::Keychain;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";

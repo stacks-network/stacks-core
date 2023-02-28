@@ -17,11 +17,11 @@ use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EP
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
+use stacks::vm::costs::ExecutionCost;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use stacks::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {

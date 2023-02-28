@@ -14,15 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(any(test, feature = "testing"))]
 use rstest_reuse::{self, *};
+use stacks_common::types::chainstate::{ConsensusHash, SortitionId};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
 
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
 use crate::vm::ast;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
@@ -30,6 +31,7 @@ use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::ClarityDatabase;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::execute as vm_execute;
 use crate::vm::representations::SymbolicExpression;
@@ -37,20 +39,15 @@ use crate::vm::tests::{
     execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
     with_memory_environment, BurnStateDB, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
+use crate::vm::types::serialization::TypePrefix::Buffer;
+use crate::vm::types::BuffData;
 use crate::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::types::chainstate::{ConsensusHash, SortitionId};
-use stacks_common::util::hash::hex_bytes;
-
-use crate::vm::types::serialization::TypePrefix::Buffer;
-use crate::vm::types::BuffData;
 use crate::vm::ContractContext;
 use crate::vm::Value::Sequence;
-
-use crate::vm::database::MemoryBackingStore;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))

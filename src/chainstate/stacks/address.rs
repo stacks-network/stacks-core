@@ -19,19 +19,6 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
 
-use crate::burnchains::bitcoin::address::{
-    legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
-    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
-    SegwitBitcoinAddress,
-};
-use crate::burnchains::bitcoin::BitcoinTxOutput;
-use crate::burnchains::{Address, PublicKey};
-use crate::chainstate::stacks::StacksPublicKey;
-use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use crate::net::Error as net_error;
 use clarity::address::b58::{check_encode_slice, from_check};
 use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
@@ -48,7 +35,20 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 
+use crate::burnchains::bitcoin::address::{
+    legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
+    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+    SegwitBitcoinAddress,
+};
+use crate::burnchains::bitcoin::BitcoinTxOutput;
+use crate::burnchains::{Address, PublicKey};
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::net::Error as net_error;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 use crate::util_lib::boot::boot_code_addr;
@@ -552,15 +552,16 @@ impl StacksAddressExtensions for StacksAddress {
 
 #[cfg(test)]
 mod test {
+    use clarity::vm::types::BuffData;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey as PubKey;
+
     use super::*;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::chainstate::stacks::*;
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
     use crate::net::*;
-    use clarity::vm::types::BuffData;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::secp256k1::Secp256k1PublicKey as PubKey;
 
     #[test]
     fn tx_stacks_address_codec() {

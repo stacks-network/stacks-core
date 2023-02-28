@@ -24,9 +24,26 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use clarity::vm::contexts::GlobalContext;
+use clarity::vm::costs::CostErrors;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as clarity_interpreter_error;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
+use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::util::secp256k1;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::LeaderBlockCommitOp;
@@ -38,32 +55,14 @@ use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::codec::MAX_MESSAGE_LEN;
-use crate::net::Error as net_error;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::strings::StacksString;
-use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::CostErrors;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::Error as clarity_interpreter_error;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
-};
-use clarity::vm::ClarityVersion;
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::hash::HASH160_ENCODED_SIZE;
-use stacks_common::util::secp256k1;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::VRFProof;
-
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::net::Error as net_error;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
 };
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::strings::StacksString;
 
 pub mod address;
 pub mod auth;
@@ -78,12 +77,11 @@ pub mod transaction;
 #[cfg(test)]
 pub mod tests;
 
-pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 pub const STACKS_BLOCK_VERSION: u8 = 4;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
@@ -908,18 +906,18 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use crate::chainstate::stacks::StacksPublicKey as PubKey;
-    use crate::chainstate::stacks::*;
-    use crate::core::*;
-    use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
     use super::*;
+    use crate::chainstate::stacks::StacksPublicKey as PubKey;
+    use crate::chainstate::stacks::*;
+    use crate::core::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
 
     /// Make a representative of each kind of transaction we support
     pub fn codec_all_transactions(

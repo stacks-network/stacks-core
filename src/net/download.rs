@@ -37,6 +37,12 @@ use std::sync::mpsc::TrySendError;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::RngCore;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -70,16 +76,9 @@ use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -2588,8 +2587,16 @@ pub mod test {
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
+    use clarity::vm::clarity::ClarityConnection;
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::execute;
+    use clarity::vm::representations::*;
     use rand::Rng;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
+    use super::*;
     use crate::burnchains::tests::TestMiner;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
@@ -2605,15 +2612,6 @@ pub mod test {
     use crate::stacks_common::types::PublicKey;
     use crate::util_lib::strings::*;
     use crate::util_lib::test::*;
-    use clarity::vm::clarity::ClarityConnection;
-    use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::execute;
-    use clarity::vm::representations::*;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::sleep_ms;
-    use stacks_common::util::vrf::VRFProof;
-
-    use super::*;
 
     fn get_peer_availability(
         peer: &mut TestPeer,

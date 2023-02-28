@@ -21,7 +21,9 @@ use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 
+use clarity::vm::costs::ExecutionCost;
 use rusqlite::{types::ToSql, OptionalExtension, Row};
+use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::*;
@@ -34,9 +36,6 @@ use crate::util_lib::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
     FromColumn, FromRow,
 };
-use clarity::vm::costs::ExecutionCost;
-
-use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {

@@ -22,16 +22,16 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 
+use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
+use stacks_common::util::HexError as btc_hex_error;
+
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::deps;
-use crate::util_lib::db::Error as db_error;
-use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
-use stacks_common::util::HexError as btc_hex_error;
-
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::util_lib::db::Error as db_error;
 
 pub mod address;
 pub mod bits;

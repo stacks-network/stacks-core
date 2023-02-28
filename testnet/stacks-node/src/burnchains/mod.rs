@@ -1,11 +1,6 @@
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
 
-pub use self::bitcoin_regtest_controller::BitcoinRegtestController;
-pub use self::mocknet_controller::MocknetController;
-
-use super::operations::BurnchainOpSigner;
-
 use std::fmt;
 use std::time::Instant;
 
@@ -15,10 +10,12 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
-
 use stacks::core::{StacksEpoch, StacksEpochId};
 
 pub use self::bitcoin_regtest_controller::make_bitcoin_indexer;
+pub use self::bitcoin_regtest_controller::BitcoinRegtestController;
+pub use self::mocknet_controller::MocknetController;
+use super::operations::BurnchainOpSigner;
 
 #[derive(Debug)]
 pub enum Error {

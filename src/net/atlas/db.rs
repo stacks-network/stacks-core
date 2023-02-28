@@ -14,24 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::ToSql;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-
 use std::collections::HashSet;
 use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{
-    query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
-};
-
+use clarity::vm::types::QualifiedContractIdentifier;
+use rusqlite::types::ToSql;
+use rusqlite::Row;
+use rusqlite::Transaction;
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use stacks_common::util;
 use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
 use stacks_common::util::log;
@@ -39,13 +31,17 @@ use stacks_common::util::macros::is_big_endian;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use clarity::vm::types::QualifiedContractIdentifier;
-
+use super::{AtlasConfig, Attachment, AttachmentInstance};
 use crate::burnchains::Txid;
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksBlockId;
-
-use super::{AtlasConfig, Attachment, AttachmentInstance};
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
+    query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
+};
 
 pub const ATLASDB_VERSION: &'static str = "1";
 

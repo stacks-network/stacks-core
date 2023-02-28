@@ -20,12 +20,11 @@ use stacks_common::types::chainstate::StacksBlockId;
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
 use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::Error as OpError;
+use crate::chainstate::burn::operations::PegOutFulfillOp;
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
-
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegOutFulfillOp;
 
 /// Transaction structure:
 ///
@@ -149,9 +148,8 @@ impl From<ParseError> for OpError {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::test;
-
     use super::*;
+    use crate::chainstate::burn::operations::test;
 
     #[test]
     fn test_parse_peg_out_fulfill_should_succeed_given_a_conforming_transaction() {

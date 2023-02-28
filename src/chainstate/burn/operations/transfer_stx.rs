@@ -16,6 +16,11 @@
 
 use std::io::{Read, Write};
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
@@ -35,11 +40,6 @@ use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::core::POX_MAX_NUM_CYCLES;
 use crate::net::Error as net_error;
 use crate::types::chainstate::TrieHash;
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-
 use crate::types::chainstate::VRFSeed;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 
@@ -245,6 +245,14 @@ impl TransferStxOp {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::vrf::VRFPublicKey;
+
+    use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -257,17 +265,8 @@ mod tests {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::vrf::VRFPublicKey;
-
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
-
-    use super::*;
 
     #[test]
     fn test_parse_transfer_stx() {

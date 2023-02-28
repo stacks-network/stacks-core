@@ -26,14 +26,7 @@ use ripemd::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 use sha2::Sha256;
-
-use crate::burnchains::Address;
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::core::SYSTEM_FORK_SET_VERSION;
-use crate::types::chainstate::TrieHash;
-use crate::util_lib::db::Error as db_error;
+pub use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Hash32;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -41,9 +34,14 @@ use stacks_common::util::log;
 use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
 
+use crate::burnchains::Address;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
-
-pub use stacks_common::types::chainstate::ConsensusHash;
+use crate::util_lib::db::Error as db_error;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -434,19 +432,18 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::stacks::index::TrieHashExtension;
-    use crate::util_lib::db::Error as db_error;
     use rusqlite::Connection;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::log;
 
-    use crate::types::chainstate::BurnchainHeaderHash;
-
     use super::*;
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use crate::util_lib::db::Error as db_error;
 
     #[test]
     fn get_prev_consensus_hashes() {

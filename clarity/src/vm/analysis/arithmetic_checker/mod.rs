@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
+pub use super::errors::{
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+};
+use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::tuples;
@@ -25,16 +31,8 @@ use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpres
 use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
 };
-
 use crate::vm::variables::NativeVariables;
-use std::collections::HashMap;
-
 use crate::vm::ClarityVersion;
-
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
-use super::AnalysisDatabase;
 
 #[cfg(test)]
 mod tests;

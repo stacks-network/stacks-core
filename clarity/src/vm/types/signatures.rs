@@ -21,6 +21,9 @@ use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
 use lazy_static::lazy_static;
+use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash;
 
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
@@ -33,9 +36,6 @@ use crate::vm::types::{
     StandardPrincipalData, TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
     WRAPPER_VALUE_SIZE,
 };
-use stacks_common::address::c32;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash;
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
@@ -1921,13 +1921,14 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use super::CheckErrors::*;
-    use super::*;
-    use crate::vm::{execute, ClarityVersion};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
     use rstest_reuse::{self, *};
+
+    use super::CheckErrors::*;
+    use super::*;
+    use crate::vm::{execute, ClarityVersion};
 
     #[template]
     #[rstest]

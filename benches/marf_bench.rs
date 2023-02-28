@@ -3,14 +3,14 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
-use blockstack_lib::chainstate::stacks::Error;
-use blockstack_lib::types::proof::ClarityMarfTrieId;
-use criterion::Criterion;
-use rand::prelude::*;
 use std::fs;
 
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
+use blockstack_lib::chainstate::stacks::Error;
 use blockstack_lib::types::chainstate::{MARFValue, StacksBlockId};
+use blockstack_lib::types::proof::ClarityMarfTrieId;
+use criterion::Criterion;
+use rand::prelude::*;
 
 pub fn begin(
     marf: &mut MARF<StacksBlockId>,

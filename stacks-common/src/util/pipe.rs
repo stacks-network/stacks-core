@@ -19,7 +19,6 @@
 
 use std::io;
 use std::io::{Read, Write};
-
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::SyncSender;
@@ -322,14 +321,16 @@ impl Write for PipeWrite {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::util::*;
-    use rand;
-    use rand::RngCore;
     use std::io;
     use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::thread;
+
+    use rand;
+    use rand::RngCore;
+
+    use super::*;
+    use crate::util::*;
 
     #[test]
     fn test_connection_pipe_oneshot() {

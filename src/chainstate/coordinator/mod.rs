@@ -24,6 +24,16 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::{
+    costs::ExecutionCost,
+    types::{PrincipalData, QualifiedContractIdentifier},
+    Value,
+};
+use stacks_common::util::get_epoch_time_secs;
+
+pub use self::comm::CoordinatorCommunication;
+use super::stacks::boot::RewardSet;
 use crate::burnchains::{
     affirmation::{AffirmationMap, AffirmationMapEntry},
     bitcoin::indexer::BitcoinIndexer,
@@ -44,6 +54,7 @@ use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     db::{
@@ -54,35 +65,20 @@ use crate::chainstate::stacks::{
     miner::{signal_mining_blocked, signal_mining_ready, MinerStatus},
     Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
 };
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::core::{StacksEpoch, StacksEpochId};
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };
 use crate::net::atlas::{AtlasConfig, AttachmentInstance};
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as DBError;
-use clarity::vm::{
-    costs::ExecutionCost,
-    types::{PrincipalData, QualifiedContractIdentifier},
-    Value,
-};
-
-use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
-use clarity::vm::database::BurnStateDB;
-
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-
-pub use self::comm::CoordinatorCommunication;
-
-use super::stacks::boot::RewardSet;
-use stacks_common::util::get_epoch_time_secs;
-
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as DBError;
 
 pub mod comm;
 #[cfg(test)]

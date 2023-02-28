@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 use std::collections::{BTreeMap, HashMap, HashSet};
-
-use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::contexts::MAX_CONTEXT_DEPTH;
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 
 pub struct ContractContext {
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,

@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::util_lib::db;
-
 use crate::util_lib::db::Error as db_error;
 
 pub trait ChainstateDB {

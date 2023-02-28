@@ -14,10 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::clarity_vm::clarity::ClarityInstance;
-use crate::clarity_vm::tests::costs::get_simple_test;
-use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
@@ -30,21 +26,25 @@ use clarity::vm::execute as vm_execute;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::tests::{
     execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB,
 };
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use clarity::vm::ClarityVersion;
 use stacks_common::util::hash::hex_bytes;
 
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
-use clarity::vm::tests::test_only_mainnet_to_chain_id;
-use clarity::vm::ClarityVersion;
 
 pub fn test_tracked_costs(
     prog: &str,

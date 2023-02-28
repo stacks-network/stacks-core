@@ -37,6 +37,9 @@ use rusqlite::{
     Transaction, NO_PARAMS,
 };
 use sha2::Digest;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
@@ -53,8 +56,12 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieHasher;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;
@@ -62,15 +69,6 @@ use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::SQLITE_MARF_PAGE_SIZE;
 use crate::util_lib::db::SQLITE_MMAP_SIZE;
-
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-
-use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.

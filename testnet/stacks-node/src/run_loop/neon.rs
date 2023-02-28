@@ -1,9 +1,8 @@
 use std::cmp;
-use std::sync::atomic::{AtomicBool, Ordering};
-
+use std::collections::HashSet;
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
-
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -11,11 +10,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
-use std::collections::HashSet;
-
-use stacks::deps::ctrlc as termination;
-use stacks::deps::ctrlc::SignalId;
-
+use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -27,9 +22,16 @@ use stacks::chainstate::coordinator::{
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
+use stacks::deps::ctrlc as termination;
+use stacks::deps::ctrlc::SignalId;
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
+use stacks::util::hash::Hash160;
 use stacks::util_lib::db::Error as db_error;
+use stacks_common::types::PublicKey;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::sleep_ms;
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
@@ -45,13 +47,6 @@ use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
-use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::sleep_ms;
-
-use libc;
-use stacks::util::hash::Hash160;
-use stacks_common::types::PublicKey;
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]

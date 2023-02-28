@@ -14,21 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::burnchains::Burnchain;
-use crate::burnchains::Error as burnchain_error;
-use crate::chainstate::burn::ConsensusHash;
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::log;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
+use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
-
-pub use self::mempool::MemPoolDB;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
+use stacks_common::util::log;
+
+pub use self::mempool::MemPoolDB;
+use crate::burnchains::Burnchain;
+use crate::burnchains::Error as burnchain_error;
+use crate::chainstate::burn::ConsensusHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 pub mod mempool;
 
 #[cfg(test)]

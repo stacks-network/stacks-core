@@ -18,6 +18,7 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
@@ -27,7 +28,6 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
 
 #[template]
 #[rstest]

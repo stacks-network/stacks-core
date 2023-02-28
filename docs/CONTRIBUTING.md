@@ -31,14 +31,16 @@ This project and everyone participating in it is governed by this [Code of Condu
 - For consensus breaking changes, branch off of the `next` branch.
 - For hotfixes, branch off of `master`.
 
+For up-to-date information on development norms and best practices, refer to [this document](https://github.com/stacks-network/stacks-blockchain/wiki/Development-Process:-Norms-and-Best-Practices).
+
 ### Documentation Updates
 
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
 - Mention any required documentation changes in the description of your pull request.
 - If adding an RPC endpoint, add an entry for the new endpoint to the OpenAPI spec `./docs/rpc/openapi.yaml`.
 - If your code adds or modifies any major features (struct, trait, test, module, function, etc.), each should be documented according to our [style rules](#comments).
-  - To generate HTML documentation for the library, run `cargo doc --no-deps --open`.
-  - It's possible to check the percentage of code coverage by (a) switching to the nightly version of rust (can run `rustup default nightly`, and also might need to edit `rust-toolchain` file to say "nightly" instead of "stable"), and (b) running `RUSTDOCFLAGS='-Z unstable-options --show-coverage' cargo doc`.
+- To generate HTML documentation for the library, run `cargo doc --no-deps --open`.
+- It's possible to check the percentage of code coverage by (a) switching to the nightly version of rust (can run `rustup default nightly`, and also might need to edit `rust-toolchain` file to say "nightly" instead of "stable"), and (b) running `RUSTDOCFLAGS='-Z unstable-options --show-coverage' cargo doc`.
 
 ### Each file should include relevant unit tests
 
@@ -46,10 +48,22 @@ Each Rust file should contain a `mod test {}` definition, in which unit tests
 should be supplied for the file's methods.  Unit tests should cover a maximal
 amount of code paths.
 
-### GitHub Workflows and Actions 
-We run our CI pipeline using GitHub workflows. The main workflows are CI (at `.github/workflows/ci.yml`), 
-and stacks-bitcoin-integration-tests (at `.github/workflows/bitcoin-tests.yml`). These 
-workflows can be manually triggered on the Actions tab in the GitHub UI on any branch. 
+### GitHub Workflows and Actions
+We run our CI pipeline using GitHub workflows. The main workflows are CI (at `.github/workflows/ci.yml`),
+and stacks-bitcoin-integration-tests (at `.github/workflows/bitcoin-tests.yml`). These
+workflows can be manually triggered on the Actions tab in the GitHub UI on any branch.
+
+### Guidance for Slow/Non-Parallelizable Tests
+PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
+(which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
+If you add `#[ignore]` tests, you should add your branch to the filters for the `all_tests` job in our circle.yml
+(or if you are working on net code or marf code, your branch should be named such that it matches the existing
+filters there).
+
+A test should be marked `#[ignore]` if:
+
+1. It does not _always_ pass `cargo test` in a vanilla environment (i.e., it does not need to run with `--test-threads 1`).
+2. Or, it runs for over a minute via a normal `cargo test` execution (the `cargo test` command will warn if this is not the case).
 
 
 ## Contributing Conventions
@@ -125,6 +139,30 @@ Common types include build, ci, docs, fix, feat, test, refactor, etc.
 
 ## Rust styleguide
 
+### Rust formatting tools
+This repository uses the default rustfmt formatting style. PRs will be checked against `rustfmt` and will _fail_ if not
+properly formatted.
+
+You can check the formatting locally via:
+
+```bash
+cargo fmt --all -- --check --config group_imports=StdExternalCrate
+```
+
+You can automatically reformat your commit via:
+
+```bash
+cargo fmt --all -- --config group_imports=StdExternalCrate
+```
+
+### Import order
+Code files should have a maximum of three import groups:
+1. A group with std/alloc/core imports
+2. A group with external crate imports
+3. A group for internal imports: self, super, and crate.
+
+This grouping and ordering is enforced by the rustfmt flag, `group_imports`.
+
 ### Code block consistency
 
 Surrounding code blocks with `{` and `}` is encouraged, even when the enclosed
@@ -133,28 +171,28 @@ consistent conventions.  For example, consider the following:
 
 ```
 match foo {
-   1..2 => {
-      // this is a single statement, but it is surrounded
-      // with { and } because the other blocks in the match
-      // statement need them.
-      Ok(true)
-   },
-   3..4 => {
-      error!("Bad value for foo");
-      Err(Error::BadFoo)
-   },
-   _ => {
-      // similarly, this block uses { }
-      Ok(true)
-   }
+1..2 => {
+// this is a single statement, but it is surrounded
+// with { and } because the other blocks in the match
+// statement need them.
+Ok(true)
+},
+3..4 => {
+error!("Bad value for foo");
+Err(Error::BadFoo)
+},
+_ => {
+// similarly, this block uses { }
+Ok(true)
+}
 }
 
 // conversely, all of the arms of this match statement
 // have one-statement blocks, so { and } can be elided.
 match bar {
-   1..2 => Some("abc"),
-   3..4 => Some("def"),
-   _ => None
+1..2 => Some("abc"),
+3..4 => Some("def"),
+_ => None
 }
 ```
 
@@ -163,13 +201,6 @@ match bar {
 All contributions should use the same whitespacing as the rest of the project.
 Moreover, Pull requests where a large number of changes only deal with whitespace will be
 rejected.
-
-### Import Ordering 
-
-Try to split imports into at least three groups, in this order: 
-- std, core, alloc 
-- external crates
-- imports from within crate (self, super, crate)
 
 ## Comments
 Comments are very important for the readability and correctness of the codebase. The purpose of comments is:
@@ -209,13 +240,12 @@ Comments for a component (`struct`, `trait`, or `enum`) should explain what the 
 purpose of that component is. This is usually a concept, and not a formal contract. Include anything that is not obvious about this component.
 
 **Example:**
-
 ```rust
-/// The `ReadOnlyChecker` analyzes a contract to determine whether
-/// there are any violations of read-only declarations. By a "violation"
-/// we mean a function that is marked as "read only" but which tries
-/// to modify chainstate.
-pub struct ReadOnlyChecker<'a, 'b> {
+    /// The `ReadOnlyChecker` analyzes a contract to determine whether
+    /// there are any violations of read-only declarations. By a "violation"
+    /// we mean a function that is marked as "read only" but which tries
+    /// to modify chainstate.
+    pub struct ReadOnlyChecker<'a, 'b> {
 ```
 
 This comment is considered positive because it explains the concept behind the class at a glance, so that the reader has some idea about what the methods will achieve, without reading each method declaration and comment. It also defines some terms that can be used in the comments on the method names.
@@ -235,22 +265,22 @@ or return an empty value.
 /// A contract that does not violate its read-only declarations is called
 /// *read-only correct*.
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    /// Checks each top-level expression in `contract_analysis.expressions`
-    /// for read-only correctness.
-    ///
-    /// Returns successfully iff this function is read-only correct.
-    ///
-    /// # Errors
-    ///
-    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
-    ///   violation, i.e. if some function marked read-only attempts to modify
-    ///   the chainstate.
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
+/// Checks each top-level expression in `contract_analysis.expressions`
+/// for read-only correctness.
+///
+/// Returns successfully iff this function is read-only correct.
+///
+/// # Errors
+///
+/// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
+///   violation, i.e. if some function marked read-only attempts to modify
+///   the chainstate.
+pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
 ```
 
 This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.
 
-#### Comments on Implementations of Virtual Methods 
+#### Comments on Implementations of Virtual Methods
 
 Note that, if a function implements a virtual function on an interface, the comments should not
 repeat what was specified on the interface declaration. The comment should only add information specific to that implementation.
@@ -265,10 +295,10 @@ name and type.
 
 ```rust
 pub struct ReadOnlyChecker<'a, 'b> {
-    /// Mapping from function name to a boolean indicating whether
-    /// the function with that name is read-only.
-    /// This map contains all functions in the contract analyzed.
-    defined_functions: HashMap<ClarityName, bool>,
+/// Mapping from function name to a boolean indicating whether
+/// the function with that name is read-only.
+/// This map contains all functions in the contract analyzed.
+defined_functions: HashMap<ClarityName, bool>,
 ```
 
 This comment is considered positive because it clarifies users might have about the content and role of this member. E.g., it explains that the `bool` indicates whether the function is *read-only*, whereas this cannot be gotten from the signature alone.
@@ -289,16 +319,16 @@ or because the test is very simple. Often though, comments are necessary.
 #[test]
 #[ignore]
 fn transaction_validation_integration_test() {
-    /// The purpose of this test is to check if the mempool admission checks
-    /// for the post tx endpoint are working as expected wrt the optional
-    /// `mempool_admission_check` query parameter.
-    ///
-    /// In this test, we are manually creating a microblock as well as
-    /// reloading the unconfirmed state of the chainstate, instead of relying
-    /// on `next_block_and_wait` to generate microblocks. We do this because
-    /// the unconfirmed state is not automatically being initialized
-    /// on the node, so attempting to validate any transactions against the
-    /// expected unconfirmed state fails.
+/// The purpose of this test is to check if the mempool admission checks
+/// for the post tx endpoint are working as expected wrt the optional
+/// `mempool_admission_check` query parameter.
+///
+/// In this test, we are manually creating a microblock as well as
+/// reloading the unconfirmed state of the chainstate, instead of relying
+/// on `next_block_and_wait` to generate microblocks. We do this because
+/// the unconfirmed state is not automatically being initialized
+/// on the node, so attempting to validate any transactions against the
+/// expected unconfirmed state fails.
 ```
 
 This comment is considered positive because it explains the purpose of the test (checking the case of an optional parameter), it also guides the reader to understand the low-level details about why a microblock is created manually.
@@ -337,7 +367,7 @@ This is considered bad because the function name already says "append transactio
 fn append_transaction_to_block(transaction:Transaction, block:&mut Block) -> Result<()>
 ```
 
-This is considered good because the reader builds on the context created by the function and variable names. Rather than restating them, the function just adds elements of the contract that are not implicit in the declaration. 
+This is considered good because the reader builds on the context created by the function and variable names. Rather than restating them, the function just adds elements of the contract that are not implicit in the declaration.
 
 #### Do's and Dont's
 

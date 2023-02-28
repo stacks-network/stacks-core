@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
@@ -22,8 +24,6 @@ use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
 use crate::vm::ClarityName;
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::vm::ClarityVersion;
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
