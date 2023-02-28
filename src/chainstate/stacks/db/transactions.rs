@@ -1190,7 +1190,7 @@ impl StacksChainState {
                                 execution_cost: total_cost,
                                 microblock_header: None,
                                 tx_index: 0,
-                                vm_error: None,
+                                vm_error: Some(error.to_string()),
                             };
                             return Ok(receipt);
                         }
@@ -1533,6 +1533,7 @@ pub mod test {
         .unwrap();
 
         assert_eq!(receipt.result, Value::err_none());
+        assert!(receipt.vm_error.unwrap().starts_with("DivisionByZero"));
     }
 
     #[test]
