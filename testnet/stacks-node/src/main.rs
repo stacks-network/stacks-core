@@ -24,6 +24,14 @@ pub mod run_loop;
 pub mod syncctl;
 pub mod tenure;
 
+use std::convert::TryInto;
+use std::env;
+use std::panic;
+use std::process;
+
+use backtrace::Backtrace;
+use pico_args::Arguments;
+
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };
@@ -33,15 +41,6 @@ pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-
-use pico_args::Arguments;
-use std::env;
-
-use std::convert::TryInto;
-use std::panic;
-use std::process;
-
-use backtrace::Backtrace;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {

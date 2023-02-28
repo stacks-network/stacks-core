@@ -19,16 +19,15 @@
 //! It also defines (de)serialization routines for many primitives.
 //!
 
-use crate::util::hash::to_hex as hex_encode;
 use std::error;
 use std::fmt;
 use std::io;
 use std::io::{Cursor, Read, Write};
 
 use crate::address;
-
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::util::hash::to_hex as hex_encode;
 
 /// Serialization error
 #[derive(Debug)]

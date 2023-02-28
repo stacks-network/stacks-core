@@ -11,9 +11,10 @@
 
 mod error;
 mod platform;
-pub use self::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+pub use self::error::Error;
 
 #[cfg(test)]
 mod tests;

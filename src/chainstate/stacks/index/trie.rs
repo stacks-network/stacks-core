@@ -22,6 +22,13 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 
 use sha2::Digest;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, get_nodetype_hash_bytes,
@@ -35,17 +42,9 @@ use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::macros::is_trace;
-
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
+use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.

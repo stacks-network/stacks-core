@@ -26,20 +26,15 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
+use std::io::BufReader;
 use std::process;
 use std::thread;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
-
-use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use blockstack_lib::clarity_cli;
-use blockstack_lib::cost_estimates::UnitEstimator;
-use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use serde_json::json;
 
 use blockstack_lib::burnchains::bitcoin::indexer::BitcoinIndexer;
 use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
@@ -49,6 +44,7 @@ use blockstack_lib::burnchains::db::BurnchainDB;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::Burnchain;
 use blockstack_lib::burnchains::Txid;
+use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
@@ -63,10 +59,12 @@ use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
+use blockstack_lib::clarity_cli;
 use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
+use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
 use blockstack_lib::types::chainstate::StacksAddress;
@@ -89,10 +87,11 @@ use blockstack_lib::{
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
+use rusqlite::types::ToSql;
+use rusqlite::Connection;
+use rusqlite::OpenFlags;
+use serde_json::json;
 use serde_json::Value;
-use std::collections::HashSet;
-use std::fs::{File, OpenOptions};
-use std::io::BufReader;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

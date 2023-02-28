@@ -23,28 +23,24 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
-use crate::types::StacksEpochId;
-use crate::vm::database::MemoryBackingStore;
-
-pub use self::types::{AnalysisPass, ContractAnalysis};
-
-use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
-use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::ClarityVersion;
-
 pub use self::analysis_db::AnalysisDatabase;
-pub use self::errors::{CheckError, CheckErrors, CheckResult};
-
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
+pub use self::errors::{CheckError, CheckErrors, CheckResult};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
+pub use self::types::{AnalysisPass, ContractAnalysis};
+use crate::types::StacksEpochId;
 use crate::vm::ast::build_ast_with_rules;
 use crate::vm::ast::ASTRules;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::ClarityVersion;
 
 /// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(

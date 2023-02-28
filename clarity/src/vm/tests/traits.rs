@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckError;
@@ -27,8 +29,6 @@ use crate::vm::tests::{
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, ResponseData, TypeSignature, Value,
 };
-use std::convert::TryInto;
-
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
 

@@ -135,12 +135,11 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Inventory {
 
 #[cfg(test)]
 mod tests {
-    use super::{GetBlocksMessage, GetHeadersMessage};
-
-    use crate::util::hash::hex_bytes as hex_decode;
-
-    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
     use std::default::Default;
+
+    use super::{GetBlocksMessage, GetHeadersMessage};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn getblocks_message_test() {

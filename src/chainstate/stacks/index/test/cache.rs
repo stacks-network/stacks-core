@@ -14,23 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
+use std::collections::VecDeque;
+use std::fs;
+use std::time::SystemTime;
+
+use rand::thread_rng;
+use rand::Rng;
+use sha2::Digest;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+
+use super::*;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::*;
-use std::cmp;
-use std::collections::VecDeque;
-use std::fs;
-
-use super::*;
-
-use rand::thread_rng;
-use rand::Rng;
-
-use sha2::Digest;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-
-use std::time::SystemTime;
 
 /// Deterministic random keys to insert
 pub fn make_test_insert_data(

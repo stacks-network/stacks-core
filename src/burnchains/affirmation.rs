@@ -238,6 +238,10 @@ use std::fmt::Write;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
+use serde::de::Error as de_Error;
+use serde::ser::Error as ser_Error;
+use serde::{Deserialize, Serialize};
+
 use crate::burnchains::{
     db::{BurnchainBlockData, BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader},
     Address, Burnchain, BurnchainBlockHeader, Error, PoxConstants, Txid,
@@ -250,19 +254,13 @@ use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash,
 };
 use crate::chainstate::stacks::StacksBlockHeader;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as DBError;
-
 use crate::core::StacksEpochId;
-
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
 use crate::util_lib::boot::boot_code_id;
-
-use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
-use serde::{Deserialize, Serialize};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as DBError;
 
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),

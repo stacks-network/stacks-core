@@ -7,7 +7,6 @@ use std::sync::Mutex;
 
 use lazy_static::lazy_static;
 use rand::RngCore;
-
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};

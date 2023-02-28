@@ -4,31 +4,26 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
-use sha2::Sha256;
-use sha2::{Digest as Sha2Digest, Sha512_256};
-
-use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::MessageSignature;
-use crate::util::uint::Uint256;
-use crate::util::vrf::VRFProof;
-
+use rand::Rng;
+use rand::SeedableRng;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
-
-use crate::util::secp256k1::Secp256k1PrivateKey;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
+use sha2::Sha256;
+use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
-
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use rand::Rng;
-use rand::SeedableRng;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-
 use crate::util::hash::DoubleSha256;
+use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use crate::util::secp256k1::MessageSignature;
+use crate::util::secp256k1::Secp256k1PrivateKey;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::uint::Uint256;
+use crate::util::vrf::VRFProof;
+use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;

@@ -18,24 +18,21 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
+use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use lazy_static::lazy_static;
 use regex::Regex;
-
-use crate::codec::StacksMessageCodec;
-use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
-
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::ConsensusHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::util_lib::boot::boot_code_id;
-use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc};
-
-use crate::types::chainstate::BlockHeaderHash;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::codec::StacksMessageCodec;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::util_lib::boot::boot_code_id;
 
 /// Implements AtlasDB and associated API. Stores information about attachments and attachment
 /// instances.

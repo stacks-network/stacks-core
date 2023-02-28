@@ -1,25 +1,23 @@
 pub mod helium;
 pub mod neon;
 
-use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
-
-use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::{
-    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
-};
-use stacks::util::vrf::VRFPublicKey;
-
-use stacks::vm::database::BurnStateDB;
-
-use crate::EventDispatcher;
 use clarity::vm::costs::ExecutionCost;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::chainstate::stacks::StacksBlock;
+use stacks::chainstate::stacks::{
+    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
+};
+use stacks::util::vrf::VRFPublicKey;
+use stacks::vm::database::BurnStateDB;
 use stacks_common::types::chainstate::StacksBlockId;
+
+use crate::EventDispatcher;
+use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
 
 macro_rules! info_blue {
     ($($arg:tt)*) => ({

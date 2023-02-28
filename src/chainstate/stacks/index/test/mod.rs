@@ -17,10 +17,12 @@
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
 
-use std::fs;
-
 use std::collections::HashMap;
+use std::fs;
 use std::io::{Cursor, Seek, SeekFrom};
+
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::bits::*;
 use crate::chainstate::stacks::index::marf::*;
@@ -33,10 +35,6 @@ use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::TrieMerkleProof;
-
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::to_hex;
-
 use crate::chainstate::stacks::BlockHeaderHash;
 use crate::chainstate::stacks::TrieHash;
 use crate::types::chainstate::StacksBlockId;

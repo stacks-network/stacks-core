@@ -17,7 +17,6 @@
 use crate::burnchains::BurnchainBlock;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::*;
-
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::types::chainstate::BurnchainHeaderHash;
 

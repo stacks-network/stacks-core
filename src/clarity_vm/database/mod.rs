@@ -1,5 +1,17 @@
+use std::ops::{Deref, DerefMut};
+
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::SpecialCaseHandler;
+use clarity::vm::database::{
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 use clarity::vm::types::PrincipalData;
+use clarity::vm::types::TupleData;
 use rusqlite::{Connection, OptionalExtension, Row, ToSql};
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::Address;
 
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
@@ -7,35 +19,21 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksChainState, StacksHeaderInfo};
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::util_lib::db::FromColumn;
-use crate::util_lib::db::{DBConn, FromRow};
-use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
-
 use crate::chainstate::stacks::db::ChainstateTx;
+use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::Error as ChainstateError;
+use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::core::StacksEpoch;
+use crate::core::StacksEpochId;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::util::vrf::VRFProof;
-
-use crate::core::StacksEpoch;
-use crate::core::StacksEpochId;
-use std::ops::{Deref, DerefMut};
-
-use crate::clarity_vm::special::handle_contract_call_special_cases;
-use clarity::vm::database::SpecialCaseHandler;
-use clarity::vm::types::TupleData;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::Address;
+use crate::util_lib::db::FromColumn;
+use crate::util_lib::db::{DBConn, FromRow};
 
 pub mod marf;
 

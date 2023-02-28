@@ -17,10 +17,10 @@
 //! This module (`c32_old`) is only here to test compatibility with the new `c32`
 //! module. It will be removed in the next network upgrade.
 
-use super::Error;
-
 use sha2::Digest;
 use sha2::Sha256;
+
+use super::Error;
 
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 

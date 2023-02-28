@@ -19,25 +19,11 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use lazy_static::lazy_static;
-
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::Burnchain;
-use crate::burnchains::{Address, PoxConstants};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::Error;
-use crate::clarity_vm::clarity::ClarityConnection;
-use crate::clarity_vm::clarity::ClarityTransactionConnection;
-use crate::core::StacksEpochId;
-use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
-use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
 use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
@@ -53,22 +39,34 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use clarity::vm::ClarityVersion;
 use clarity::vm::Environment;
+use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::Burnchain;
+use crate::burnchains::{Address, PoxConstants};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::Error;
+use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::clarity_vm::database::HeadersDBConn;
+use crate::core::StacksEpochId;
+use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use crate::core::CHAIN_ID_MAINNET;
+use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::types;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
+use crate::util_lib::strings::VecDisplay;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
-use clarity::vm::clarity::Error as ClarityError;
-use clarity::vm::ClarityVersion;
-
-use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::core::CHAIN_ID_MAINNET;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -887,6 +885,12 @@ pub mod test {
     use std::convert::From;
     use std::fs;
 
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::types::*;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::*;
+
+    use super::*;
     use crate::burnchains::Address;
     use crate::burnchains::PublicKey;
     use crate::chainstate::burn::db::sortdb::*;
@@ -898,19 +902,12 @@ pub mod test {
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::Error as chainstate_error;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::chainstate::stacks::*;
     use crate::core::StacksEpochId;
     use crate::core::*;
     use crate::net::test::*;
-    use clarity::vm::contracts::Contract;
-    use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
-    use stacks_common::util::*;
-
-    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
-
-    use super::*;
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 

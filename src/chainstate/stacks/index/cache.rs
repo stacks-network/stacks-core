@@ -36,6 +36,9 @@ use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
     Transaction, NO_PARAMS,
 };
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
@@ -54,10 +57,6 @@ use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::SQLITE_MMAP_SIZE;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
@@ -342,21 +341,18 @@ impl<T: MarfTrieId> TrieCache<T> {
 pub mod test {
     use std::collections::VecDeque;
     use std::fs;
+    use std::time::SystemTime;
 
+    use rand::thread_rng;
+    use rand::Rng;
+    use sha2::Digest;
+    use stacks_common::util::hash::Sha512Trunc256Sum;
+
+    use super::*;
     use crate::chainstate::stacks::index::marf::*;
     use crate::chainstate::stacks::index::node::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
-
-    use super::*;
-
-    use rand::thread_rng;
-    use rand::Rng;
-
-    use sha2::Digest;
-    use stacks_common::util::hash::Sha512Trunc256Sum;
-
-    use std::time::SystemTime;
 
     /// Deterministic random keys to insert
     pub fn make_test_insert_data(

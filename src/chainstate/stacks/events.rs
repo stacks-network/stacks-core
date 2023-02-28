@@ -1,17 +1,17 @@
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksAddress;
 use clarity::util::hash::to_hex;
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
+pub use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 
+use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-pub use clarity::vm::events::StacksTransactionEvent;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::codec::StacksMessageCodec;
+use crate::types::chainstate::StacksAddress;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionOrigin {

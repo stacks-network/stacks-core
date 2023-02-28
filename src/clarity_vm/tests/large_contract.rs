@@ -14,17 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-#[cfg(test)]
-use rstest::rstest;
-#[cfg(test)]
-use rstest_reuse::{self, *};
-
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::{self, ASTRules};
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
@@ -37,24 +30,26 @@ use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
-use stacks_common::util::hash::hex_bytes;
-
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::MemoryBackingStore;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::clarity::TransactionConnection;
-
-use crate::vm::tests::with_memory_environment;
-
-use clarity::vm::version::ClarityVersion;
-
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot::boot_code_id;
+use crate::vm::tests::with_memory_environment;
 
 #[template]
 #[rstest]

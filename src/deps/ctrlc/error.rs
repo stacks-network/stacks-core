@@ -1,5 +1,6 @@
-use crate::deps::ctrlc::platform;
 use std::fmt;
+
+use crate::deps::ctrlc::platform;
 
 /// Ctrl-C error.
 #[derive(Debug)]

@@ -19,16 +19,6 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time;
 
-use crate::burnchains::Txid;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::connection::ConnectionOptions;
-use crate::net::{
-    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
-    PeerHost, Requestable,
-};
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -39,6 +29,16 @@ use super::download::{
     BatchedRequestsResult, ReliabilityReport,
 };
 use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::connection::ConnectionOptions;
+use crate::net::{
+    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
+    PeerHost, Requestable,
+};
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::strings::UrlString;
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {

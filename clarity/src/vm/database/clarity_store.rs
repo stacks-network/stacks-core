@@ -18,8 +18,11 @@ use std::convert::TryInto;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -29,12 +32,8 @@ use crate::vm::errors::{
     InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::types::QualifiedContractIdentifier;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
-use crate::vm::contexts::GlobalContext;
 use crate::vm::types::PrincipalData;
+use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::Value;
 
 pub struct NullBackingStore {}

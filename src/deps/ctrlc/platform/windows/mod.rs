@@ -9,6 +9,7 @@
 
 use std::io;
 use std::ptr;
+
 use winapi::ctypes::c_long;
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, TRUE};
 use winapi::shared::ntdef::HANDLE;

@@ -1,12 +1,12 @@
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,

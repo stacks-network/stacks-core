@@ -14,11 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::contracts::type_check;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+
+use super::contracts::type_check;
 
 #[template]
 #[rstest]
@@ -26,6 +27,10 @@ use rstest_reuse::{self, *};
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
 fn test_clarity_versions_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
+
+use std::convert::TryInto;
+
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
@@ -36,8 +41,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
-use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
@@ -30,7 +32,6 @@ use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TupleTypeSignature, TypeSignature, Value,
 };
-use std::collections::{BTreeMap, HashMap};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),

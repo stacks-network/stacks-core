@@ -16,6 +16,9 @@
 
 use std::collections::HashMap;
 
+use clarity::vm::database::clarity_store::*;
+use clarity::vm::database::*;
+use clarity::vm::types::*;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 
@@ -26,15 +29,10 @@ use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::core::StacksEpochId;
+use crate::types::chainstate::{StacksAddress, StacksBlockId};
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::*;
-use clarity::vm::database::clarity_store::*;
-use clarity::vm::database::*;
-use clarity::vm::types::*;
-
-use crate::types::chainstate::{StacksAddress, StacksBlockId};
-
-use crate::core::StacksEpochId;
 
 /// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
 /// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
@@ -1225,6 +1223,11 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::StacksAddressExtensions;
+    use stacks_common::util::hash::*;
+
+    use super::*;
     use crate::burnchains::*;
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
@@ -1232,13 +1235,7 @@ mod test {
     use crate::chainstate::stacks::Error;
     use crate::chainstate::stacks::*;
     use crate::core::StacksEpochId;
-    use clarity::vm::costs::ExecutionCost;
-    use stacks_common::util::hash::*;
-
     use crate::types::chainstate::BurnchainHeaderHash;
-    use clarity::vm::types::StacksAddressExtensions;
-
-    use super::*;
 
     fn make_dummy_miner_payment_schedule(
         addr: &StacksAddress,

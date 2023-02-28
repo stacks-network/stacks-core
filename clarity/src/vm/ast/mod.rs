@@ -23,12 +23,6 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use crate::vm::errors::{Error, RuntimeErrorType};
-
-use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::QualifiedContractIdentifier;
-
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
 use self::expression_identifier::ExpressionIdentifier;
@@ -43,8 +37,12 @@ use self::types::BuildASTPass;
 pub use self::types::ContractAST;
 use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use crate::vm::diagnostic::{Diagnostic, Level};
+use crate::vm::errors::{Error, RuntimeErrorType};
 use crate::vm::representations::PreSymbolicExpression;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
 /// Legacy function
@@ -324,6 +322,10 @@ pub fn build_ast<T: CostTracker>(
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
+    use stacks_common::types::StacksEpochId;
+
     use crate::vm::ast::errors::ParseErrors;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::ast::{build_ast, build_ast_with_rules, ASTRules};
@@ -335,8 +337,6 @@ mod test {
     use crate::vm::ClarityName;
     use crate::vm::ClarityVersion;
     use crate::vm::MAX_CALL_STACK_DEPTH;
-    use stacks_common::types::StacksEpochId;
-    use std::collections::HashMap;
 
     #[derive(PartialEq, Debug)]
     struct UnitTestTracker {

@@ -4,11 +4,11 @@ use std::{
     io::Write,
 };
 
-use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::SymbolicExpression;
 use serde_json::Value as JsonValue;
 
 use super::{functions::define::DefineFunctionsParsed, EvalHook};
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::SymbolicExpression;
 
 pub struct CoverageReporter {
     executed_lines: HashMap<QualifiedContractIdentifier, HashMap<u32, u64>>,

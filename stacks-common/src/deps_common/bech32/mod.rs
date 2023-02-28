@@ -60,14 +60,12 @@ assert_eq!(variant, Variant::Bech32);
 extern crate alloc;
 
 #[cfg(all(not(feature = "std"), not(test)))]
-use alloc::{string::String, vec::Vec};
-
-#[cfg(all(not(feature = "std"), not(test)))]
 use alloc::borrow::Cow;
+#[cfg(all(not(feature = "std"), not(test)))]
+use alloc::{string::String, vec::Vec};
+use core::{fmt, mem};
 #[cfg(any(feature = "std", test))]
 use std::borrow::Cow;
-
-use core::{fmt, mem};
 
 /// Integer in the range `0..32`
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Default, PartialOrd, Ord, Hash)]

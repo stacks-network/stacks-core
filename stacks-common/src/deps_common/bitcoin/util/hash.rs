@@ -15,8 +15,6 @@
 //!
 //! Utility functions related to hashing data, including merkleization
 
-#[cfg(feature = "serde")]
-use serde;
 use std::char::from_digit;
 use std::cmp::min;
 use std::default::Default;
@@ -26,6 +24,8 @@ use std::io::{Cursor, Write};
 use std::mem;
 
 use ripemd::Ripemd160;
+#[cfg(feature = "serde")]
+use serde;
 use sha2::Digest;
 use sha2::Sha256;
 

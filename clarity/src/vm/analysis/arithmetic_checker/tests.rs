@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ClarityVersion;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -32,6 +31,7 @@ use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
+use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]

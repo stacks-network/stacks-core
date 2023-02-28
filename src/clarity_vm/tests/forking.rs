@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::types::StacksEpochId;
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -33,6 +31,8 @@ use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::database::marf::MarfedKV;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";

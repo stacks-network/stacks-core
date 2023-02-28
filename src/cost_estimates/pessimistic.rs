@@ -2,24 +2,22 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
-use super::metrics::PROPORTION_RESOLUTION;
+use clarity::vm::costs::ExecutionCost;
 use rusqlite::{
     types::{FromSql, FromSqlError},
     Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction,
 };
 use serde_json::Value as JsonValue;
 
+use super::metrics::PROPORTION_RESOLUTION;
+use super::{CostEstimator, EstimatorError};
 use crate::chainstate::stacks::TransactionPayload;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::u64_to_sql;
-use clarity::vm::costs::ExecutionCost;
-
+use crate::core::StacksEpochId;
 use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::table_exists;
 use crate::util_lib::db::tx_begin_immediate_sqlite;
-
-use super::{CostEstimator, EstimatorError};
-use crate::core::StacksEpochId;
+use crate::util_lib::db::u64_to_sql;
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
 ///

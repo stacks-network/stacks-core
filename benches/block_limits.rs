@@ -8,22 +8,20 @@ use std::process;
 use std::{env, time::Instant};
 
 use blockstack_lib::clarity_vm::clarity::ClarityInstance;
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use blockstack_lib::clarity_vm::database::MemoryBackingStore;
 use blockstack_lib::core::StacksEpochId;
 use blockstack_lib::types::chainstate::BlockHeaderHash;
 use blockstack_lib::types::chainstate::BurnchainHeaderHash;
 use blockstack_lib::types::chainstate::VRFSeed;
+use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
 use blockstack_lib::types::proof::ClarityMarfTrieId;
+use blockstack_lib::util::boot::boot_code_id;
 use blockstack_lib::vm::ast::build_ast;
 use blockstack_lib::vm::contexts::GlobalContext;
 use blockstack_lib::vm::costs::LimitedCostTracker;
 use blockstack_lib::vm::errors::InterpreterResult;
 use blockstack_lib::vm::{eval_all, ContractContext};
-use rand::Rng;
-
-use blockstack_lib::clarity_vm::database::marf::MarfedKV;
-use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
-use blockstack_lib::util::boot::boot_code_id;
 use blockstack_lib::{
     vm::costs::ExecutionCost,
     vm::{
@@ -32,6 +30,7 @@ use blockstack_lib::{
         Value,
     },
 };
+use rand::Rng;
 
 struct TestHeadersDB;
 

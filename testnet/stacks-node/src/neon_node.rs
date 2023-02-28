@@ -149,6 +149,8 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
+use clarity::vm::ast::ASTRules;
+use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -182,6 +184,7 @@ use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::cost_estimates::{CostEstimator, FeeEstimator};
+use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
@@ -204,25 +207,19 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::util::vrf::VRFProof;
 
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
-
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
-use stacks::monitoring;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::util::vrf::VRFProof;
-
-use clarity::vm::ast::ASTRules;
-use clarity::vm::types::PrincipalData;
+use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;

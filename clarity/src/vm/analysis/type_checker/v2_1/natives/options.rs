@@ -16,19 +16,17 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::TypeSignature;
-use crate::vm::ClarityVersion;
-
 use super::{
     check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
     TypeResult,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::CallableSubtype;
+use crate::vm::types::TypeSignature;
+use crate::vm::ClarityVersion;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,

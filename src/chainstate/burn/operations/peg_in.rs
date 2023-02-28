@@ -17,13 +17,11 @@ use stacks_common::codec::StacksMessageCodec;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
+use crate::chainstate::burn::operations::Error as OpError;
+use crate::chainstate::burn::operations::PegInOp;
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
-
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegInOp;
-
 use crate::vm::errors::RuntimeErrorType as ClarityRuntimeError;
 use crate::vm::types::PrincipalData;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -190,9 +188,8 @@ impl From<ClarityRuntimeError> for ParseError {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::test;
-
     use super::*;
+    use crate::chainstate::burn::operations::test;
 
     #[test]
     fn test_parse_peg_in_should_succeed_given_a_conforming_transaction_without_memo() {

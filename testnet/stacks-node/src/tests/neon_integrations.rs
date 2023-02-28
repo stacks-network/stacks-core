@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
@@ -11,19 +12,27 @@ use std::{
 };
 use std::{env, thread};
 
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::MAX_CALL_STACK_DEPTH;
+use rand::Rng;
 use rusqlite::types::ToSql;
 use serde_json::json;
-
 use stacks::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
     TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address;
+use stacks::chainstate::stacks::miner::{
+    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
+    TransactionSuccessEvent,
+};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -34,6 +43,7 @@ use stacks::core::{
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::BurnchainOps;
+use stacks::net::RPCFeeEstimateResponse;
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
@@ -51,7 +61,9 @@ use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::types::StandardPrincipalData;
+use stacks::vm::ClarityName;
 use stacks::vm::ClarityVersion;
+use stacks::vm::ContractName;
 use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
@@ -73,43 +85,24 @@ use stacks::{
     util_lib::db::u64_to_sql,
 };
 
-use crate::{
-    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
-};
-
-use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
-
-use crate::neon_node::StacksNode;
-
-use rand::Rng;
-
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-
 use crate::config::FeeEstimatorName;
-use crate::tests::SK_3;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::MAX_CALL_STACK_DEPTH;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
-    TransactionSuccessEvent,
-};
-use stacks::net::RPCFeeEstimateResponse;
-use stacks::vm::ClarityName;
-use stacks::vm::ContractName;
-use std::convert::TryFrom;
-
+use crate::neon_node::StacksNode;
 use crate::stacks_common::types::PrivateKey;
+use crate::tests::SK_3;
+use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use crate::util::secp256k1::MessageSignature;
+use crate::{
+    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
+    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
+    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
+    ConfigFile, Keychain,
+};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();

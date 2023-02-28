@@ -14,38 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{CostTracker, MemoryConsumer};
-use clarity::vm::{ast, eval_all};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
-use crate::chainstate::stacks::boot::POX_1_NAME;
-use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::util_lib::boot::boot_code_id;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::Error as clarity_interpreter_error;
 use clarity::vm::contexts::{Environment, GlobalContext};
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{CostTracker, MemoryConsumer};
 use clarity::vm::errors::Error;
 use clarity::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
+use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     TupleData, TypeSignature, Value,
 };
-
-use clarity::vm::clarity::Error as clarity_interpreter_error;
-use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::ClarityVersion;
-
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::core::StacksEpochId;
+use clarity::vm::{ast, eval_all};
 use stacks_common::util::hash::Hash160;
 
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::POX_1_NAME;
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::Error as ChainstateError;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::core::StacksEpochId;
+use crate::util_lib::boot::boot_code_id;
 use crate::vm::costs::runtime_cost;
 
 /// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions

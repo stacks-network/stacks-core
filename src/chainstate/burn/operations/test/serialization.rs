@@ -1,10 +1,3 @@
-use crate::burnchains::Txid;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    StackStxOp, TransferStxOp,
-};
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
-use crate::net::BurnchainOps;
 use clarity::vm::types::PrincipalData;
 use serde_json::Value;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
@@ -15,6 +8,14 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::MessageSignature;
+
+use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::{
+    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
+    StackStxOp, TransferStxOp,
+};
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::net::BurnchainOps;
 
 #[test]
 fn test_serialization_transfer_stx_op() {

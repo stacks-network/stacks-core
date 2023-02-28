@@ -19,13 +19,17 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
+use serde::Serialize;
 use serde_json::json;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 
+use super::EvalHook;
 use crate::vm::ast;
 use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
     ExecutionCost, LimitedCostTracker,
@@ -45,17 +49,9 @@ use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, OptionalData, PrincipalData,
     QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
+use crate::vm::version::ClarityVersion;
 use crate::vm::{eval, is_reserved};
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::version::ClarityVersion;
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
-
-use serde::Serialize;
-
-use super::EvalHook;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -1978,6 +1974,7 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::vm::{
         callables::DefineType,
         types::{
@@ -1985,8 +1982,6 @@ mod test {
             StandardPrincipalData,
         },
     };
-
-    use super::*;
 
     #[test]
     fn test_asset_map_abort() {

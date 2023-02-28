@@ -19,12 +19,11 @@ use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
+use crate::chainstate::burn::operations::Error as OpError;
+use crate::chainstate::burn::operations::PegOutRequestOp;
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
-
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegOutRequestOp;
 
 /// Transaction structure:
 ///
@@ -152,9 +151,8 @@ impl From<std::array::TryFromSliceError> for ParseError {
 
 #[cfg(test)]
 mod tests {
-    use crate::chainstate::burn::operations::test;
-
     use super::*;
+    use crate::chainstate::burn::operations::test;
 
     #[test]
     fn test_parse_peg_out_request_should_succeed_given_a_conforming_transaction() {

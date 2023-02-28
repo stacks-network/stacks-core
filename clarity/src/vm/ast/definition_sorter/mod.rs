@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
+
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -26,9 +29,6 @@ use crate::vm::representations::PreSymbolicExpressionType::{
 };
 use crate::vm::representations::{ClarityName, PreSymbolicExpression};
 use crate::vm::types::Value;
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]

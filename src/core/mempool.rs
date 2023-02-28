@@ -22,7 +22,9 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
+use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
@@ -34,50 +36,29 @@ use rusqlite::Row;
 use rusqlite::Rows;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
-
 use siphasher::sip::SipHasher; // this is SipHash-2-4
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::miner::TransactionEvent;
+use crate::chainstate::stacks::StacksBlock;
 use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
     index::Error as MarfError, Error as ChainstateError, StacksTransaction,
 };
 use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
+use crate::clarity_vm::clarity::ClarityConnection;
+use crate::codec::Error as codec_error;
+use crate::codec::StacksMessageCodec;
 use crate::core::ExecutionCost;
 use crate::core::StacksEpochId;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::monitoring::increment_stx_mempool_gc;
-use crate::util_lib::db::query_int;
-use crate::util_lib::db::query_row_columns;
-use crate::util_lib::db::query_rows;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::tx_busy_handler;
-use crate::util_lib::db::u64_to_sql;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::FromColumn;
-use crate::util_lib::db::{query_row, Error};
-use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
-use clarity::vm::types::PrincipalData;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use std::time::Instant;
-
-use crate::net::MemPoolSyncData;
-
-use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
-
-use crate::clarity_vm::clarity::ClarityConnection;
-
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::miner::TransactionEvent;
-use crate::chainstate::stacks::StacksBlock;
-use crate::codec::Error as codec_error;
-use crate::codec::StacksMessageCodec;
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::metrics::UnitMetric;
@@ -85,8 +66,22 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
+use crate::monitoring::increment_stx_mempool_gc;
+use crate::net::MemPoolSyncData;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use crate::util_lib::db::query_int;
+use crate::util_lib::db::query_row_columns;
+use crate::util_lib::db::query_rows;
+use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::table_exists;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::FromColumn;
+use crate::util_lib::db::{query_row, Error};
+use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
