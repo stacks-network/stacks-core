@@ -308,6 +308,9 @@ impl AttachmentsDownloader {
     ///  returning a vector of (instance, attachment) pairs for any of the queued attachments
     ///  which already had the associated data
     /// Marks any processed attachments as checked
+    ///
+    /// This method is invoked in the thread managing the AttachmentDownloader. This is currently
+    ///  the P2P thread.
     pub fn check_queued_attachment_instances(
         &mut self,
         atlas_db: &mut AtlasDB,

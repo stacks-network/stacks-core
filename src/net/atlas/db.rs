@@ -14,6 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//!
+//! The `AtlasDB` stores `Attachment` and `AttachmentInstance` objects.
+//! `AttachmentInstance` objects indicate what corresponding `Attachment`
+//! data a node is interesting in fetching and storing.
+//!
+//! In the `AtlasDB`, `AttachmentInstance` objects have a status field
+//! and an availability field. The status field indicates whether or
+//! not the attachment instance has been checked by the
+//! `AttachmentDownloader`. The `AttachmentDownloader` does not
+//! immediately check entries before insertion in the database:
+//! Atlas event processing and downloader logic proceed in
+//! different threads.
+//!
+//! Once the `AttachmentDownloader` checks an attachment instance, it
+//! either marks the instance as available (if the content data is
+//! already stored on the node) or it adds the attachment instance
+//! to its download queue.
+//!
+
 use rusqlite::types::FromSql;
 use rusqlite::types::FromSqlError;
 use rusqlite::types::ToSql;
@@ -117,7 +136,7 @@ const ATLASDB_INDEXES: &'static [&'static str] =
 /// is completed, any checked instances are updated to `Checked`.
 pub enum AttachmentInstanceStatus {
     /// This variant indicates that the attachments instance has been written,
-    /// but the downloader has not yet checked that the attachment matched
+    /// but the AtlasDownloader has not yet checked that the attachment matched
     Queued,
     /// This variant indicates that the attachments instance has been written,
     /// and checked for whether or not an already existing attachment matched
@@ -652,7 +671,10 @@ impl AtlasDB {
     }
 
     /// Queue a new attachment instance, status will be set to "queued",
-    /// and the is_available field set to false
+    /// and the is_available field set to false.
+    ///
+    /// This is invoked after block processing by the coordinator thread (which
+    /// handles atlas event logic).
     pub fn queue_attachment_instance(
         &mut self,
         attachment: &AttachmentInstance,
@@ -662,6 +684,9 @@ impl AtlasDB {
 
     /// Insert an attachment instance from an initial batch.
     /// All such instances are marked "checked", and is_available = true
+    ///
+    /// This is invoked by the AtlasDownloader when it first runs. The AtlasDownloader
+    /// is currently managed in the P2P thread.
     pub fn insert_initial_attachment_instance(
         &mut self,
         attachment: &AttachmentInstance,

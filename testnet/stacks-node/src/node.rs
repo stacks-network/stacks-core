@@ -544,7 +544,6 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let _atlas_config = Self::make_atlas_config();
         let atlasdb = self.make_atlas_db();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
