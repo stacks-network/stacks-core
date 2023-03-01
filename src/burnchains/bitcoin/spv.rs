@@ -1832,4 +1832,24 @@ mod test {
 
         let deserialized: Vec<Vec<u8>> = deserialize(&encoded_tx).unwrap();
     }
+
+    #[test]
+    fn test_handle_headers_empty() {
+        let headers_path = "/tmp/test-spv-handle_headers_empty.dat";
+        if fs::metadata(headers_path).is_ok() {
+            fs::remove_file(headers_path).unwrap();
+        }
+
+        let mut spv_client = SpvClient::new(
+            headers_path,
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+
+        spv_client.handle_headers(1, vec![]).unwrap();
+    }
 }
