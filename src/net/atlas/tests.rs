@@ -797,25 +797,25 @@ fn schema_2_migration() {
             content_hash: Hash160([0xa0; 20]),
             attachment_index: 1,
             stacks_block_height: 1,
-            index_block_hash: StacksBlockId([0x1b; 32]),
+            index_block_hash: StacksBlockId([0xb1; 32]),
             metadata: "".into(),
             contract_id: QualifiedContractIdentifier::transient(),
             tx_id: Txid([0x2f; 32]),
-            canonical_stacks_tip_height: Some(1),
+            canonical_stacks_tip_height: None,
         },
         AttachmentInstance {
             content_hash: Hash160([0x00; 20]),
             attachment_index: 1,
             stacks_block_height: 1,
-            index_block_hash: StacksBlockId([0x01; 32]),
+            index_block_hash: StacksBlockId([0x0a; 32]),
             metadata: "".into(),
             contract_id: QualifiedContractIdentifier::transient(),
-            tx_id: Txid([0x02; 32]),
-            canonical_stacks_tip_height: Some(1),
+            tx_id: Txid([0x0b; 32]),
+            canonical_stacks_tip_height: None,
         },
     ];
 
-    for attachment in attachments {
+    for attachment in attachments.iter() {
         // need to manually insert data, because the insertion routine in the codebase
         //  sets `status` which doesn't exist in v1
         conn.execute(
@@ -842,14 +842,29 @@ fn schema_2_migration() {
     // perform the migration and unwrap() to assert that it runs okay
     let atlas_db = AtlasDB::connect_with_sqlconn(atlas_config, conn).unwrap();
 
+    let mut attachments_fetched_a0 = atlas_db
+        .find_all_attachment_instances(&Hash160([0xa0; 20]))
+        .unwrap();
     assert_eq!(
-        atlas_db
-            .find_all_attachment_instances(&Hash160([0xa0; 20]))
-            .unwrap()
-            .len(),
+        attachments_fetched_a0.len(),
         1,
         "Should have one attachment instance marked 'checked' with hash `0xa0a0a0..`"
     );
+
+    let attachment_a0 = attachments_fetched_a0.pop().unwrap();
+    assert_eq!(&attachment_a0, &attachments[0]);
+
+    let mut attachments_fetched_00 = atlas_db
+        .find_all_attachment_instances(&Hash160([0x00; 20]))
+        .unwrap();
+    assert_eq!(
+        attachments_fetched_00.len(),
+        1,
+        "Should have one attachment instance marked 'checked' with hash `0x000000..`"
+    );
+
+    let attachment_00 = attachments_fetched_00.pop().unwrap();
+    assert_eq!(&attachment_00, &attachments[1]);
 
     assert_eq!(
         atlas_db.queued_attachments().unwrap().len(),

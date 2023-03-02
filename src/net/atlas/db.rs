@@ -119,13 +119,12 @@ const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
     r#"
     UPDATE attachment_instances SET status = 2;
     "#,
-    r#"
-    CREATE INDEX IF NOT EXISTS index_instance_status ON attachment_instances(status);
-    "#,
 ];
 
-const ATLASDB_INDEXES: &'static [&'static str] =
-    &["CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);"];
+const ATLASDB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);",
+    "CREATE INDEX IF NOT EXISTS index_instance_status ON attachment_instances(status);",
+];
 
 /// Attachment instances pass through different states once written to the AtlasDB.
 /// These instances are initially written as a new Stacks block is processed, and marked
@@ -152,7 +151,6 @@ impl FromRow<Attachment> for Attachment {
 
 impl FromRow<AttachmentInstance> for AttachmentInstance {
     fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
-        eprintln!("{:?}", row.get_raw("index_block_hash"));
         let hex_content_hash: String = row.get_unwrap("content_hash");
         let attachment_index: u32 = row.get_unwrap("attachment_index");
         let block_height =
@@ -350,10 +348,10 @@ impl AtlasDB {
                 if version == expected_version {
                     Ok(())
                 } else {
-                    Err(db_error::Other(format!(
-                        "The version of the Atlas DB {} does not match the expected {} and cannot be updated from AtlasDB::open()",
-                        version, expected_version
-                    )))
+                    let version = version.parse().expect(
+                        "Invalid schema version for AtlasDB: should be a parseable integer",
+                    );
+                    Err(db_error::OldSchema(version))
                 }
             }
             Err(e) => panic!("Error obtaining the version of the Atlas DB: {:?}", e),
@@ -443,7 +441,11 @@ impl AtlasDB {
 
         tx.commit()?;
 
-        db.add_indexes()?;
+        let tx = db.tx_begin()?;
+        for row_text in &ATLASDB_INDEXES[0..1] {
+            tx.execute_batch(row_text)?;
+        }
+        tx.commit()?;
 
         Ok(db)
     }
