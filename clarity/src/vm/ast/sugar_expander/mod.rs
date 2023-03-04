@@ -579,7 +579,7 @@ mod test {
         expander.run(&mut contract_ast).unwrap();
         assert_eq!(
             contract_ast.expressions, ast,
-            "`foo` should have the post-comment attached"
+            "`foo` should have the end-line comment attached"
         );
     }
 
