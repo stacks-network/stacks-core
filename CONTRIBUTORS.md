@@ -12,6 +12,7 @@ You can find information on joining online community forums (Discord, mailing li
 [How Can I Contribute?](#how-can-i-contribute)
 * [Development Workflow](#development-workflow)
 * [Contributing Conventions](#contributing-conventions)
+* [Developer Setup](#recommended-developer-setup)
 
 [Style](#style)
 * [Git Commit Messages](#git-commit-messages)
@@ -104,6 +105,35 @@ Contributions should not contain `unsafe` blocks if at all possible.
 Each module should include an `Error` enumeration in its `mod.rs` that encodes
 errors specific to the module.  All error code paths in the module should return
 an `Err` type with one of the module's errors.
+
+## Recommended developer setup
+
+### Recommended githooks
+It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues are caught before 
+you push your code. Follow these instruction to set it up: 
+1. Rename `.git/hooks/pre-commit.sample` to `.git/hooks/pre-commit`
+2. Change the content of `.git/hooks/pre-commit` to be the following 
+```bash
+#!/bin/sh
+
+HAS_ISSUES=0
+for file in $(git diff --name-only --staged); do
+    FMT_RESULT="$(cargo fmt -- $file --check --config group_imports=StdExternalCrate 2>/dev/null || true)"
+    if [ "$FMT_RESULT" != "" ]; then
+        HAS_ISSUES=1
+    fi
+done
+
+if [ $HAS_ISSUES -eq 1 ]
+then
+    echo 'rustfmt failed: run "cargo fmt --all -- --config group_imports=StdExternalCrate"'
+fi
+
+exit $HAS_ISSUES
+```
+3. Make it executable by running `chmod +x .git/hooks/pre-commit`
+
+That's it! Now your pre-commit hook should be configured on your local machine. 
 
 # Style
 ## Git Commit Messages
