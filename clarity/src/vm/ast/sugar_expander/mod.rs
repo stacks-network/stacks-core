@@ -663,7 +663,7 @@ mod test {
             make_pre_atom("bar", 4, 1, 4, 3),
         ];
         let foo = make_atom("foo", 1, 1, 1, 3);
-        let mut bar = make_atom("bar", 3, 1, 3, 3);
+        let mut bar = make_atom("bar", 4, 1, 4, 3);
         bar.pre_comments = vec![
             (
                 "this is a comment".to_string(),
@@ -710,7 +710,7 @@ mod test {
             make_pre_atom("bar", 5, 1, 5, 3),
         ];
         let foo = make_atom("foo", 1, 1, 1, 3);
-        let mut bar = make_atom("bar", 3, 1, 3, 3);
+        let mut bar = make_atom("bar", 5, 1, 5, 3);
         bar.pre_comments = vec![
             (
                 "this is a comment".to_string(),
