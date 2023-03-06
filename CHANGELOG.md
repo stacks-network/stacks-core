@@ -258,6 +258,10 @@ this version of the software on it.
 - The `blockstack-core` binary has been renamed to `stacks-inspect`.
   This binary provides CLI tools for chain and mempool inspection.
 
+### Fixed
+- The AtlasDB previously could lose `AttachmentInstance` data during shutdown
+  or crashes (#3082). This release resolves that.
+
 ## [2.05.0.1.0]
 
 ### Added 
