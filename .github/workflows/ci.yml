@@ -88,7 +88,8 @@ jobs:
   build-source:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Build Binaries
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    # uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ${{ env.GITHUB_REPOSITORY }}/.github/workflows/build-source-binary.yml@master
     needs:
       - rustfmt
       - release-tests
@@ -109,7 +110,8 @@ jobs:
   github-release:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Github Release
-    uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
+    # uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
+    uses: ${{ env.GITHUB_REPOSITORY }}/.github/workflows/github-release.yml@master
     needs: build-source
     with:
       tag: ${{ inputs.tag }}
@@ -128,7 +130,8 @@ jobs:
   docker-alpine:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Alpine (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
+    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
+    uses: ${{ env.GITHUB_REPOSITORY }}/.github/workflows/image-build-alpine-binary.yml@master
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -147,7 +150,8 @@ jobs:
   docker-debian:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Debian (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
+    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
+    uses: ${{ env.GITHUB_REPOSITORY }}/.github/workflows/image-build-debian-binary.yml@master
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -167,7 +171,8 @@ jobs:
   build-branch:
     if: ${{ inputs.tag == '' }}
     name: Docker Debian (Source)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    uses: ${{ env.GITHUB_REPOSITORY }}/.github/workflows/image-build-debian-source.yml@master
     needs:
       - rustfmt
       - leaked-cred-test
@@ -178,3 +183,6 @@ jobs:
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+# repo_name: ${{ github.event.repository.name }}
+# GITHUB_REPOSITORY_OWNER
+# GITHUB_REPOSITORY
