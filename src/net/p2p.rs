@@ -5340,7 +5340,6 @@ impl PeerNetwork {
         ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-        attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -5393,7 +5392,7 @@ impl PeerNetwork {
         // enqueue them.
         PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
             let mut known_attachments = attachments_downloader
-                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb, false)
+                .check_queued_attachment_instances(&mut network.atlasdb)
                 .expect("FATAL: failed to store new attachments to the atlas DB");
             network_result.attachments.append(&mut known_attachments);
             Ok(())

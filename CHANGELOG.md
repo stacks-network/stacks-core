@@ -11,7 +11,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - The transaction receipts for smart contract publish transactions now indicate
   a result of `(err none)` if the top-level code of the smart contract contained
-  runtime error. Fixes issue #3154.
+  runtime error and include details about the error in the `vm_error` field of
+  the receipt. Fixes issues #3154, #3328.
 
 ## [2.1]
 
@@ -257,6 +258,10 @@ this version of the software on it.
   of network congestion (#3098)
 - The `blockstack-core` binary has been renamed to `stacks-inspect`.
   This binary provides CLI tools for chain and mempool inspection.
+
+### Fixed
+- The AtlasDB previously could lose `AttachmentInstance` data during shutdown
+  or crashes (#3082). This release resolves that.
 
 ## [2.05.0.1.0]
 
