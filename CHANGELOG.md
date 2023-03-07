@@ -18,7 +18,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - The transaction receipts for smart contract publish transactions now indicate
   a result of `(err none)` if the top-level code of the smart contract contained
-  runtime error. Fixes issue #3154.
+  runtime error and include details about the error in the `vm_error` field of
+  the receipt. Fixes issues #3154, #3328.
 
 ## [2.1]
 
