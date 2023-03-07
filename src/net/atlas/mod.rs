@@ -80,6 +80,7 @@ impl AtlasConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+/// Attachments are the content associated with an AttachmentInstance
 pub struct Attachment {
     pub content: Vec<u8>,
 }
@@ -99,6 +100,10 @@ impl Attachment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+/// An attachment instance is a reference to atlas data: a commitment
+/// to track the content that is the inverse of `content_hash`.
+/// Attachment instances are created by atlas events issued by contracts
+/// specified in a node's `AtlasConfig`.
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
