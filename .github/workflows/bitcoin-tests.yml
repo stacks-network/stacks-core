@@ -141,7 +141,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Run atlas integration tests
   atlas-test:
@@ -180,4 +180,4 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
