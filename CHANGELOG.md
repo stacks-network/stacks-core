@@ -7,6 +7,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+- When the Clarity library is built with feature flag `developer-mode`, comments
+  from the source code are now attached to the `SymbolicExpression` nodes. This
+  will be useful for tools that use the Clarity library to analyze and
+  manipulate Clarity source code, e.g. a formatter.
+
 ### Fixed
 
 - The transaction receipts for smart contract publish transactions now indicate
