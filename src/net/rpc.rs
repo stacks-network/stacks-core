@@ -3098,7 +3098,7 @@ impl ConversationHttp {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
-                    warn!("Received response: not a HTTP response");
+                    warn!("Received request: not a HTTP response");
                     return Err(Err(net_error::InvalidMessage));
                 }
                 StacksHttpMessage::Response(http_response) => Ok(http_response),

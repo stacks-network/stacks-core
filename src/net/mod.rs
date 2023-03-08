@@ -1940,7 +1940,7 @@ pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
+    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confirmed microblocks we downloaded, and time taken
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
@@ -1949,6 +1949,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
+    pub synced_microblocks: Option<(ConsensusHash, Vec<StacksMicroblock>)>, // microblocks we downloaded via microblock tip sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1975,6 +1976,7 @@ impl NetworkResult {
             uploaded_microblocks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
+            synced_microblocks: None,
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1990,6 +1992,8 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
+            || self.synced_microblocks.as_ref().map_or(
+            false, |(_, mbs)| mbs.len() > 0)
     }
 
     pub fn has_transactions(&self) -> bool {

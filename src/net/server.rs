@@ -593,12 +593,14 @@ impl HttpPeer {
             }
 
             let client_sock_opt = self.sockets.get_mut(&event_id);
-            if client_sock_opt.is_none() {
-                test_debug!("No such socket event {}", event_id);
-                to_remove.push(*event_id);
-                continue;
-            }
-            let client_sock = client_sock_opt.unwrap();
+            let client_sock = match client_sock_opt {
+                None => {
+                    test_debug!("No such socket event {}", event_id);
+                    to_remove.push(*event_id);
+                    continue;
+                }
+                Some(client_sock) => client_sock
+            };
 
             match self.peers.get_mut(event_id) {
                 Some(ref mut convo) => {

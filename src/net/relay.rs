@@ -101,6 +101,7 @@ pub struct ProcessedNetReceipts {
     pub num_new_blocks: u64,
     pub num_new_confirmed_microblocks: u64,
     pub num_new_unconfirmed_microblocks: u64,
+    pub num_new_synced_microblocks: u64,
 }
 
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
@@ -909,14 +910,15 @@ impl Relayer {
         Ok((new_blocks, bad_neighbors))
     }
 
-    /// Preprocess all downloaded, confirmed microblock streams.
+    /// Preprocess all downloaded, confirmed microblock streams and streams downloaded through
+    ///  the microblock tip sync protocol
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
+    ) -> (HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>, u64) {
         let mut ret = HashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
@@ -1008,7 +1010,93 @@ impl Relayer {
                 );
             }
         }
-        ret
+
+        let mut num_synced_microblocks = 0;
+        // we don't relay any microblocks obtained through the microblock tip sync protocol
+        if let Some((consensus_hash, microblock_stream)) = &network_result.synced_microblocks
+        {
+            if microblock_stream.len() == 0 {
+                return (ret, num_synced_microblocks);
+            }
+            let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
+
+            let block_snapshot =
+                match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
+                    Ok(Some(sn)) => sn,
+                    Ok(None) => {
+                        warn!(
+                            "Failed to load parent anchored block snapshot for {}/{}",
+                            consensus_hash, &anchored_block_hash
+                        );
+                        return (ret, num_synced_microblocks);
+                    }
+                    Err(e) => {
+                        warn!("Failed to load parent stacks block snapshot: {:?}", &e);
+                        return (ret, num_synced_microblocks);
+                    }
+                };
+
+            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
+                Ok(rules) => rules,
+                Err(e) => {
+                    error!("Failed to load current AST rules: {:?}", &e);
+                    return (ret, num_synced_microblocks);
+                }
+            };
+            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
+            {
+                Ok(Some(epoch)) => epoch.epoch_id,
+                Ok(None) => {
+                    panic!("FATAL: no epoch defined");
+                }
+                Err(e) => {
+                    error!("Failed to load epoch: {:?}", &e);
+                    return (ret, num_synced_microblocks);
+                }
+            };
+
+            for microblock in microblock_stream.iter() {
+                debug!(
+                    "Preprocess downloaded microblock {}/{}-{}",
+                    consensus_hash,
+                    &anchored_block_hash,
+                    &microblock.block_hash()
+                );
+                if !Relayer::static_check_problematic_relayed_microblock(
+                    chainstate.mainnet,
+                    epoch_id,
+                    microblock,
+                    ast_rules,
+                ) {
+                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &anchored_block_hash);
+                    // TODO(map): should we try to ban the peer that sent this to us?
+                    break;
+                }
+                match chainstate.preprocess_streamed_microblock(
+                    consensus_hash,
+                    &anchored_block_hash,
+                    microblock,
+                ) {
+                    Ok(stored) => {
+                        if stored {
+                            num_synced_microblocks+=1;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Invalid downloaded microblock {}/{}-{}: {:?}",
+                            consensus_hash,
+                            &anchored_block_hash,
+                            microblock.block_hash(),
+                            &e
+                        );
+                    }
+                }
+            }
+        }
+
+
+        (ret, num_synced_microblocks)
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
@@ -1334,11 +1422,12 @@ impl Relayer {
         cur_ast_rules != processed_ast_rules
     }
 
-    /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
-    /// (unconfirmed). Returns:
+    /// Process blocks and microblocks that we recieved: downloaded (confirmed), streamed
+    /// (unconfirmed), and obtained through microblock tip sync protocol (unconfirmed). Returns:
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
+    /// * the number of microblocks synced through the microblock tip sync protocol
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
@@ -1350,6 +1439,7 @@ impl Relayer {
             HashMap<ConsensusHash, StacksBlock>,
             HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
             Vec<(Vec<RelayData>, MicroblocksData)>,
+            u64,
             Vec<NeighborKey>,
         ),
         net_error,
@@ -1414,7 +1504,7 @@ impl Relayer {
         }
 
         // process microblocks we downloaded
-        let new_confirmed_microblocks =
+        let (new_downloaded_microblocks, num_synced_microblocks) =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
 
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
@@ -1424,13 +1514,13 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_confirmed_microblocks.len() > 0
+        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_downloaded_microblocks.len() > 0
         {
             info!(
-                "Processing newly received Stacks blocks: {}, microblocks: {}, confirmed microblocks: {}",
+                "Processing newly received Stacks blocks: {}, microblocks: {}, downloaded microblocks: {}",
                 new_blocks.len(),
                 new_microblocks.len(),
-                new_confirmed_microblocks.len()
+                new_downloaded_microblocks.len()
             );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
@@ -1441,8 +1531,9 @@ impl Relayer {
 
         Ok((
             new_blocks,
-            new_confirmed_microblocks,
+            new_downloaded_microblocks,
             new_microblocks,
+            num_synced_microblocks,
             bad_neighbors,
         ))
     }
@@ -1722,12 +1813,14 @@ impl Relayer {
         let mut num_new_blocks = 0;
         let mut num_new_confirmed_microblocks = 0;
         let mut num_new_unconfirmed_microblocks = 0;
+        let mut num_new_synced_microblocks = 0;
         match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
-            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
+            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, num_synced_microblocks, bad_block_neighbors)) => {
                 // report quantities of new data in the receipts
                 num_new_blocks = new_blocks.len() as u64;
                 num_new_confirmed_microblocks = new_confirmed_microblocks.len() as u64;
                 num_new_unconfirmed_microblocks = new_microblocks.len() as u64;
+                num_new_synced_microblocks = num_synced_microblocks;
 
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
@@ -1852,6 +1945,7 @@ impl Relayer {
             num_new_blocks,
             num_new_confirmed_microblocks,
             num_new_unconfirmed_microblocks,
+            num_new_synced_microblocks,
         };
 
         Ok(receipts)
@@ -5299,7 +5393,7 @@ pub mod test {
         ));
 
         let mut sortdb = peer.sortdb.take().unwrap();
-        let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
+        let (processed_blocks, processed_mblocks, relay_mblocks, num_synced_microblocks, bad_neighbors) =
             Relayer::process_new_blocks(
                 &mut network_result,
                 &mut sortdb,
@@ -5313,6 +5407,7 @@ pub mod test {
         assert_eq!(processed_blocks.len(), 0);
         assert_eq!(processed_mblocks.len(), 0);
         assert_eq!(relay_mblocks.len(), 0);
+        assert_eq!(num_synced_microblocks, 0);
         assert_eq!(bad_neighbors.len(), 0);
 
         let txs_relayed = Relayer::process_transactions(
