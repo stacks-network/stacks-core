@@ -44,7 +44,6 @@ jobs:
 
   ## Release tests: Execute on every run
   release-tests:
-    if: ${{ false }} # testingg disable
     name: Release Tests
     # uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
     uses: ./.github/workflows/stacks-blockchain-tests.yml
