@@ -1056,8 +1056,8 @@ impl Relayer {
             };
 
             for microblock in microblock_stream.iter() {
-                debug!(
-                    "Preprocess downloaded microblock {}/{}-{}",
+                info!(
+                    "Preprocess synced microblock {}/{}-{}",
                     consensus_hash,
                     &anchored_block_hash,
                     &microblock.block_hash()
@@ -1084,7 +1084,7 @@ impl Relayer {
                     }
                     Err(e) => {
                         warn!(
-                            "Invalid downloaded microblock {}/{}-{}: {:?}",
+                            "Invalid synced microblock {}/{}-{}: {:?}",
                             consensus_hash,
                             &anchored_block_hash,
                             microblock.block_hash(),

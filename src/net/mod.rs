@@ -2927,12 +2927,12 @@ pub mod test {
             let ibd =
                 last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
             if ibd {
-                debug!(
+                info!(
                     "PoX watchdog: {} + {} < {}, so initial block download",
                     last_processed_height, burnchain.stable_confirmations, burnchain_height
                 );
             } else {
-                debug!(
+                info!(
                     "PoX watchdog: {} + {} >= {}, so steady-state",
                     last_processed_height, burnchain.stable_confirmations, burnchain_height
                 );

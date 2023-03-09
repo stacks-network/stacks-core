@@ -2252,9 +2252,11 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Option<Vec<StacksTransaction>> {
+        #[cfg(not(test))]
         if ibd {
             return None;
         }
+        info!("value of ibd in network_mempool_sync: {}", ibd);
 
         return match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
             (true, txs_opt) => {
@@ -2302,6 +2304,8 @@ impl PeerNetwork {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Option<(ConsensusHash, Vec<StacksMicroblock>)> {
+        // TODO(map): figure out how to switch ibd = false in test ....
+        #[cfg(not(test))]
         if ibd {
             return None;
         }
@@ -3308,6 +3312,7 @@ impl PeerNetwork {
 
     /// Reset a microblock tip sync
     fn microblock_tip_sync_reset(&mut self) {
+        info!("MAP: calling microblock tip sync reset");
         self.microblock_tip_sync_state = MicroblockTipSyncState::CollectPeerURL;
         self.microblock_tip_sync_timeout = 0;
     }
@@ -3870,7 +3875,7 @@ impl PeerNetwork {
                 match http.get_conversation(event_id) {
                     None => {
                         if http.is_connecting(event_id) {
-                            debug!(
+                            info!(
                               "{:?}: Microblock sync event {} is not connected yet",
                                 &network.local_peer,
                                 event_id
@@ -3879,15 +3884,15 @@ impl PeerNetwork {
                         } else {
                             // conversation died
                             faulty_peers.dead_connections.push(event_id);
-                            debug!("{:?}: Microblock tip sync peer hung up", &network.local_peer);
+                            info!("{:?}: Microblock tip sync peer hung up", &network.local_peer);
                         }
                     }
                     Some(ref mut convo) => {
                         match convo.try_get_response() {
                             None => {
                                 // still waiting
-                                debug!(
-                                    "{:?}: Mempool sync event {} still waiting for a response",
+                                info!(
+                                    "{:?}: Microblock tip sync event {} still waiting for a response",
                                     &network.local_peer,
                                     event_id,
                                 );
@@ -3895,17 +3900,17 @@ impl PeerNetwork {
                             }
                             Some(http_response) => match http_response {
                                 HttpResponseType::PeerInfo(_, peer_data) => {
+                                    info!("MAP: got peer info response");
                                     // check to see the chain tip matches before storing data
                                     if canonical_consensus_hash == &peer_data.stacks_tip_consensus_hash &&
                                         canonical_block_hash == &peer_data.stacks_tip {
                                         if let Some(seq) = peer_data.unanchored_seq {
                                             tip_data.push((url_str, addr, seq));
                                         }
-                                        // TODO(map): still query peers where unanchored_seq=None?
                                     }
                                 }
                                 _ => {
-                                    warn!("{:?}: Microblock tip sync request v2/info, but received unexpected response type {:?}",
+                                    info!("{:?}: Microblock tip sync request v2/info, but received unexpected response type {:?}",
                                     &network.local_peer, &http_response);
                                     faulty_peers.broken_connections.push(event_id);
                                 }
@@ -3930,15 +3935,16 @@ impl PeerNetwork {
     ) -> Result<usize, net_error> {
         let url_str = tip_data.0;
         let addr = tip_data.1;
-        let seq_num = tip_data.2;
 
+        // TODO(map): q - should I start the request from the local peer's last seq num? YES
+        // NOTE - if requesting a later microblock height, need to change logic in `preprocess_downloaded_microblocks` so that anchored_block_hash is set correctly
         let request = HttpRequestType::GetMicroblocksUnconfirmed(
             HttpRequestMetadata::from_host(
                 PeerHost::from_socketaddr(&addr),
                 Some(canonical_tip_height)
             ),
             canonical_tip_block_id,
-            seq_num
+            0
         );
 
         let event_id = self.connect_or_send_http_request(
@@ -4069,7 +4075,6 @@ impl PeerNetwork {
     }
 
 
-    // TODO(map): look at `can_download_microblock_stream` and `get_microblock_stream_availability`
     fn do_microblock_tip_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -4080,7 +4085,6 @@ impl PeerNetwork {
             broken_connections: vec![],
             dead_connections: vec![],
         };
-
         if get_epoch_time_secs() <= self.microblock_tip_sync_deadline {
             debug!(
                 "{:?}: Wait until {} to do a microblock tip sync",
@@ -4114,6 +4118,7 @@ impl PeerNetwork {
 
         // Try advancing states until we get blocked.
         // Once we get blocked, return.
+        info!("MAP: about to enter loop.., state: {:?}", self.microblock_tip_sync_state);
         loop {
             let curr_state = self.microblock_tip_sync_state.clone();
             debug!(
@@ -4164,7 +4169,7 @@ impl PeerNetwork {
                             Ok(res) => res,
                             Err(e) => {
                                 // failed
-                                warn!("microblock_tip_sync_resolve_url failed: {:?}", &e);
+                                info!("microblock_tip_sync_resolve_url failed: {:?}", &e);
                                 self.microblock_tip_sync_reset();
                                 return (true, faulty_peers, None)
                             }
@@ -4174,19 +4179,22 @@ impl PeerNetwork {
                     if still_resolving.len() > 0 {
                         self.microblock_tip_sync_state = MicroblockTipSyncState::ResolvePeerURL((resolved, still_resolving));
                         // check back later, still resolving!
+                        info!("MAP: check back later, still resolving");
                         return (false, faulty_peers, None)
                     } else {
                         if resolved.len() > 0 {
+                            info!("MAP: change state to send info");
                             self.microblock_tip_sync_state = MicroblockTipSyncState::SendInfoQuery(resolved);
                         } else {
                             // reset the sync since we have no addresses to query
+                            info!("reset microblock tip sync since we have no addresses to query");
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None)
                         }
                     }
                 }
                 MicroblockTipSyncState::SendInfoQuery(dns_lookups) => {
-                    debug!(
+                    info!(
                         "{:?}: Microblock tip sync will query its peers for v2/info",
                         &self.local_peer
                     );
@@ -4197,8 +4205,8 @@ impl PeerNetwork {
                     ) {
                         Ok(convo_info) => {
                             // success! advance
-                            debug!(
-                                "{:?}: Microblock tip sync query {:?} for mempool transaction on events {:?}",
+                            info!(
+                                "{:?}: Microblock tip sync query {:?} on events {:?}",
                                 &self.local_peer,
                                 dns_lookups,
                                 convo_info
@@ -4227,14 +4235,17 @@ impl PeerNetwork {
                             tip_data.extend(retrieved_tip_data.into_iter());
                             if ongoing_convos.len() > 0 {
                                 // still receiving; try again later
+                                info!("MAP: still receiving; try again later");
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::ResolveLatestTip((ongoing_convos, tip_data));
                                 return (false, faulty_peers, None);
                             } else {
                                 if tip_data.len() > 0 {
                                     // received all the tip data, move on to the next state
+                                    info!("MAP: move on to process tip data");
                                     self.microblock_tip_sync_state = MicroblockTipSyncState::ProcessTipData(tip_data);
                                 } else {
                                     // we have no data from any peer, end the sync
+                                    info!("MAP: no data from any peer");
                                     self.microblock_tip_sync_reset();
                                     return (true, faulty_peers, None);
                                 }
@@ -4242,7 +4253,7 @@ impl PeerNetwork {
                         }
                         Err(e) => {
                             // end sync
-                            warn!("microblock_tip_sync_recv_response returned {:?}", &e);
+                            info!("microblock_tip_sync_recv_response returned {:?}", &e);
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
                         }
@@ -4259,18 +4270,23 @@ impl PeerNetwork {
                         .sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| {
                             Ord::cmp(seq_num_a, seq_num_b)
                         });
+
                     let mut sorted_tip_data: VecDeque<(UrlString, SocketAddr, u16)> = tip_data
                         .into_iter()
                         .filter(|(_, _, seq_num)| seq_num > &local_unconfirmed_height)
                         .collect();
 
+                    info!("MAP: in processTip, sorted={:?}", sorted_tip_data);
+
                     match self.get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
                         Some(next_seq_num_data) => {
+                            info!("MAP: requesting mbs, next: {:?}, sorted: {:?}", next_seq_num_data, sorted_tip_data);
                             self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(
                                 next_seq_num_data, sorted_tip_data
                             );
                         }
                         None => {
+                            info!("MAP: in process, no requests to send");
                             // we have no requests to try to send, end the sync
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
@@ -4281,12 +4297,13 @@ impl PeerNetwork {
                     if let Some(tip_data) = next_seq_num_data.pop() {
                         match self.microblock_tip_sync_send_microblock_query(tip_data, mempool, chainstate, canonical_tip_block_id, canonical_tip_height) {
                             Ok( event_id) => {
+                                info!("MAP: request mbs, going to wait.");
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::WaitForMicroblocks(
                                     event_id, next_seq_num_data, sorted_tip_data
                                 );
                             }
                             Err(e) => {
-                                debug!(
+                                info!(
                                     "{:?}: Failed to connect or send HTTP request to fetch unconfirmed microblocks: {:?}",
                                     &self.local_peer, &e
                                 );
@@ -4318,8 +4335,7 @@ impl PeerNetwork {
                                 microblocks.len()
                             );
                             // done, got data
-                            // TODO(map) - q - might we want to keep requesting peers if height is lower ...
-                            // TODO(map) - need to verify the stream ?!
+                            // TODO(map) - pass along current peer data in case stream is corrupt?
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, Some((canonical_consensus_hash, microblocks)))
                         }
@@ -5877,6 +5893,7 @@ impl PeerNetwork {
         // In parallel, do a neighbor walk
         self.do_network_neighbor_walk(ibd);
 
+        info!("ibd in network dispatch: {}", ibd);
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
         if let Some(mut txs) =
@@ -7404,16 +7421,17 @@ mod test {
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
+        for i in 0..5 {
+            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
-        let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+            let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
+            peer_2.next_burnchain_block(burn_ops.clone());
 
-        let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
-        peer_2.next_burnchain_block(burn_ops.clone());
-
-        // do not process the microblocks on peer 1
-        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        info!("BHH 1: {:?}; CH 1: {:?}", bhh, ch);
+            // do not process the microblocks on peer 1
+            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            info!("BHH 1: {:?}; CH 1: {:?}, # mbs: {:?}", bhh, ch, microblocks.len());
+        }
 
         let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
@@ -7423,36 +7441,121 @@ mod test {
         // do not process the microblocks on peer 1
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        info!("BHH 1: {:?}; CH 1: {:?}", bhh, ch);
+        info!("BHH 2: {:?}; CH 2: {:?}, # mbs: {:?}", bhh, ch, microblocks.len());
 
-        let (consensus_hash, bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(
-                peer_1.sortdb.as_ref().unwrap().conn(),
-            ).unwrap();
-        let peer_1_chainstate = peer_1.chainstate();
-        let header_info = StacksChainState::get_anchored_block_header_info(
-            peer_1_chainstate.db(),
-            &consensus_hash,
-            &bhh
-        )
-            .unwrap()
+        peer_1
+            .with_db_state(|sortdb, peer_1_chainstate, relayer, mempool| {
+                let (consensus_hash, bhh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        sortdb.conn(),
+                    ).unwrap();
+
+                let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &bhh,
+                );
+                assert_eq!(peer_1_chainstate
+                               .has_microblocks_indexed(&index_block_hash)
+                               .unwrap(), false);
+                peer_1_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
+                Ok(())
+            })
             .unwrap();
 
-        info!("header info peer 1: {:?}", header_info);
 
-        let (consensus_hash, bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(
-                peer_2.sortdb.as_ref().unwrap().conn(),
-            ).unwrap();
-        let peer_2_chainstate = peer_2.chainstate();
-        let header_info = StacksChainState::get_anchored_block_header_info(
-            peer_2_chainstate.db(),
-            &consensus_hash,
-            &bhh
-        )
-            .unwrap()
+
+        // let (consensus_hash, bhh) =
+        //     SortitionDB::get_canonical_stacks_chain_tip_hash(
+        //         peer_2.sortdb.as_ref().unwrap().conn(),
+        //     ).unwrap();
+        // let peer_2_chainstate = peer_2.chainstate();
+        // let header_info = StacksChainState::get_anchored_block_header_info(
+        //     peer_2_chainstate.db(),
+        //     &consensus_hash,
+        //     &bhh
+        // )
+        //     .unwrap()
+        //     .unwrap();
+        //
+        // let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
+        //     &consensus_hash,
+        //     &bhh,
+        // );
+        // assert!(peer_2_chainstate
+        //     .has_microblocks_indexed(&parent_index_block_hash)
+        //     .unwrap());
+        // peer_2_chainstate.reload_unconfirmed_state(&peer_2.sortdb().index_conn(), index_block_hash).unwrap();
+        peer_2
+            .with_db_state(|sortdb, peer_2_chainstate, relayer, mempool| {
+                let (consensus_hash, bhh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        sortdb.conn(),
+                    ).unwrap();
+
+                let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &bhh,
+                );
+                assert!(peer_2_chainstate
+                    .has_microblocks_indexed(&index_block_hash)
+                    .unwrap());
+                peer_2_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
+                Ok(())
+            })
             .unwrap();
 
-        info!("header info peer 2: {:?}", header_info);
+        // now we know peer 2 has microblocks at the tip, and peer 1 does not
+        // remember to check the value of num_synced_microblocks somewhere ...
+
+
+        let round = 0;
+        let mut peer_1_num_synced = 0;
+        let mut peer_2_num_synced = 0;
+        for i in 0..20 {
+            if let Ok(mut result) = peer_1.step() {
+                let lp = peer_1.network.local_peer.clone();
+                let net_reciepts = peer_1
+                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                        relayer.process_network_result(
+                            &lp,
+                            &mut result,
+                            sortdb,
+                            chainstate,
+                            mempool,
+                            false,
+                            None,
+                            None,
+                        )
+                    })
+                    .unwrap();
+                if net_reciepts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                }
+            }
+
+            if let Ok(mut result) = peer_2.step() {
+                let lp = peer_2.network.local_peer.clone();
+                let net_reciepts = peer_2
+                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                        relayer.process_network_result(
+                            &lp,
+                            &mut result,
+                            sortdb,
+                            chainstate,
+                            mempool,
+                            false,
+                            None,
+                            None,
+                        )
+                    })
+                    .unwrap();
+                if net_reciepts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                }
+            }
+        }
+
+        info!("FINAL: {:?} / {:?}", peer_1_num_synced, peer_2_num_synced);
+
     }
 }
