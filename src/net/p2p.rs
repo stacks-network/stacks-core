@@ -2185,12 +2185,11 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Option<Vec<StacksTransaction>> {
-        #[cfg(not(test))]
         if ibd {
             return None;
         }
 
-        match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
+        return match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -2204,9 +2203,9 @@ impl PeerNetwork {
                         get_epoch_time_secs() + self.connection_opts.mempool_sync_interval;
                     self.mempool_sync_completions = self.mempool_sync_completions.saturating_add(1);
                     self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
-                    return Some(txs);
+                    Some(txs)
                 } else {
-                    return None;
+                    None
                 }
             }
             (false, txs_opt) => {
@@ -2219,9 +2218,9 @@ impl PeerNetwork {
                     );
 
                     self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
-                    return Some(txs);
+                    Some(txs)
                 } else {
-                    return None;
+                    None
                 }
             }
         }
@@ -6004,7 +6003,7 @@ mod test {
         let mut peer_2_mempool_txs = 0;
 
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6022,7 +6021,7 @@ mod test {
                     .unwrap();
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6191,7 +6190,7 @@ mod test {
         let mut peer_2_mempool_txs = 0;
 
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6209,7 +6208,7 @@ mod test {
                     .unwrap();
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6395,7 +6394,7 @@ mod test {
         let mut peer_2_mempool_txs = 0;
 
         while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6413,7 +6412,7 @@ mod test {
                     .unwrap();
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6579,7 +6578,7 @@ mod test {
         let mut peer_1_mempool_txs = 0;
 
         while peer_1_mempool_txs < num_txs || peer_2.network.mempool_sync_txs < (num_txs as u64) {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -6597,7 +6596,7 @@ mod test {
                     .unwrap();
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
