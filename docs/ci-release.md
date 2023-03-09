@@ -43,10 +43,10 @@ The following workflow steps are currently disabled:
    1. CI Workflow is automatically triggered, resulting in a pushed docker image tagged with the **branch name** and **PR number**
 4. Merge `develop` branch to the default branch
    1. CI Workflow is triggered, resulting in a pushed docker image tagged with the **default branch name**
-5. CI workflow is manually triggered on **non-default branch** with a version, i.e. `2.05.0.3.0-rc0`
+5. CI workflow is manually triggered on **non-default branch** with a version, i.e. `2.1.0.0.0-rc0`
    1. Github release for the manually input version is created with binaries
    2. Docker image pushed with tags of the **input version** and **branch**
-6. CI workflow is manually triggered on **default branch** with a version, i.e. `2.05.0.3.0`
+6. CI workflow is manually triggered on **default branch** with a version, i.e. `2.1.0.0.0`
    1. Github release for the manually input version is created with binaries
    2. Docker image pushed with tags of the **input version** and **latest**
 
@@ -116,7 +116,7 @@ ex: Branch is named `develop` and the PR is numbered `113`
   - No github release
   - No docker images built from binary artifacts
 
-## Manually triggering workflow with tag on a non-default branch (i.e. tag of `2.05.0.3.0-rc0`):
+## Manually triggering workflow with tag on a non-default branch (i.e. tag of `2.1.0.0.0-rc0`):
 
 - Steps executed:
   - Rust format
@@ -127,11 +127,11 @@ ex: Branch is named `develop` and the PR is numbered `113`
   - Github release (with artifacts/checksum) is created using the manually input tag
   - Docker image built from binaries on debian/alpine distributions and pushed with the provided input tag and `latest`
   - ex:
-    - `stacks-blockchain:2.05.0.3.0-rc0`
+    - `stacks-blockchain:2.1.0.0.0-rc0`
 - Steps _not_ executed:
   - No docker images built from source
 
-## Manually triggering workflow with tag on default branch (i.e. tag of `2.05.0.3.0`):
+## Manually triggering workflow with tag on default branch (i.e. tag of `2.1.0.0.0`):
 
 - Steps executed:
   - Rust format
@@ -142,9 +142,9 @@ ex: Branch is named `develop` and the PR is numbered `113`
   - Github release (with artifacts/checksum) is created using the manually input tag
   - Docker image built from binaries on debian/alpine distributions and pushed with the provided input tag and `latest`
   - ex:
-    - `stacks-blockchain:2.05.0.3.0-debian`
+    - `stacks-blockchain:2.1.0.0.0-debian`
     - `stacks-blockchain:latest-debian`
-    - `stacks-blockchain:2.05.0.3.0`
+    - `stacks-blockchain:2.1.0.0.0`
     - `stacks-blockchain:latest`
 - Steps _not_ executed:
   - No docker images built from source
