@@ -183,7 +183,31 @@ impl StacksTransactionReceipt {
     pub fn from_analysis_failure(
         tx: StacksTransaction,
         analysis_cost: ExecutionCost,
+        error: clarity::vm::clarity::Error,
     ) -> StacksTransactionReceipt {
+        let error_string = match error {
+            clarity_error::Analysis(ref check_error) => {
+                if let Some(span) = check_error.diagnostic.spans.first() {
+                    format!(
+                        ":{}:{}: {}",
+                        span.start_line, span.start_column, check_error.diagnostic.message
+                    )
+                } else {
+                    format!("{}", check_error.diagnostic.message)
+                }
+            }
+            clarity_error::Parse(ref parse_error) => {
+                if let Some(span) = parse_error.diagnostic.spans.first() {
+                    format!(
+                        ":{}:{}: {}",
+                        span.start_line, span.start_column, parse_error.diagnostic.message
+                    )
+                } else {
+                    format!("{}", parse_error.diagnostic.message)
+                }
+            }
+            _ => error.to_string(),
+        };
         StacksTransactionReceipt {
             transaction: tx.into(),
             events: vec![],
@@ -194,7 +218,7 @@ impl StacksTransactionReceipt {
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: None,
+            vm_error: Some(error_string),
         }
     }
 
@@ -1124,6 +1148,7 @@ impl StacksChainState {
                                 let receipt = StacksTransactionReceipt::from_analysis_failure(
                                     tx.clone(),
                                     analysis_cost,
+                                    other_error,
                                 );
 
                                 // abort now -- no burns
@@ -2144,6 +2169,90 @@ pub mod test {
                     continue;
                 }
             }
+            conn.commit_block();
+        }
+    }
+
+    #[test]
+    fn process_smart_contract_transaction_syntax_error() {
+        let contracts = [
+            "(define-data-var bar int 0)) ;; oops",
+            ";; `Int` instead of `int`
+             (define-data-var bar Int 0)",
+        ];
+        let contract_names = ["hello-world-0", "hello-world-1"];
+        let expected_errors = [
+            "Tried to close list which isn't open.",
+            ":2:14: invalid variable definition",
+        ];
+        let expected_errors_2_1 = ["unexpected ')'", ":2:14: invalid variable definition"];
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+            let mut conn = chainstate.block_begin(
+                burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+
+            let mut next_nonce = 0;
+            for i in 0..contracts.len() {
+                let contract_name = contract_names[i];
+                let contract = contracts[i].to_string();
+
+                test_debug!("\ninstantiate contract\n{}\n", &contract);
+
+                let mut tx_contract = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    auth.clone(),
+                    TransactionPayload::new_smart_contract(&contract_name, &contract, None)
+                        .unwrap(),
+                );
+
+                tx_contract.chain_id = 0x80000000;
+                tx_contract.set_tx_fee(0);
+                tx_contract.set_origin_nonce(next_nonce);
+
+                let mut signer = StacksTransactionSigner::new(&tx_contract);
+                signer.sign_origin(&privk).unwrap();
+
+                let signed_tx = signer.get_tx().unwrap();
+
+                let _contract_id = QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr.clone()),
+                    ContractName::from(contract_name),
+                );
+
+                let (fee, receipt) = StacksChainState::process_transaction(
+                    &mut conn,
+                    &signed_tx,
+                    false,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+                // Verify that the syntax error is recorded in the receipt
+                let expected_error =
+                    if burn_db.get_stacks_epoch(0).unwrap().epoch_id == StacksEpochId::Epoch21 {
+                        expected_errors_2_1[i].to_string()
+                    } else {
+                        expected_errors[i].to_string()
+                    };
+                assert_eq!(receipt.vm_error.unwrap(), expected_error);
+
+                next_nonce += 1;
+            }
+
             conn.commit_block();
         }
     }
