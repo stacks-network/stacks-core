@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod contexts;
-//mod maps;
 pub mod natives;
 
 use stacks_common::types::StacksEpochId;

@@ -54,6 +54,13 @@ $ cargo build
 $ cargo test testnet  -- --test-threads=1
 ```
 
+**Run all unit tests in parallel using [nextest](https://nexte.st/):**
+
+_Warning, this typically takes a few minutes_
+```bash
+$ cargo nextest run
+```
+
 ## Run the testnet
 
 You can observe the state machine in action locally by running:

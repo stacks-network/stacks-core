@@ -34,10 +34,10 @@ type RollbackValueCheck = String;
 type RollbackValueCheck = ();
 
 #[cfg(not(rollback_value_check))]
-fn rollback_value_check(_value: &String, _check: &RollbackValueCheck) {}
+fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 
 #[cfg(not(rollback_value_check))]
-fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &String) {
+fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
 // this function is used to check the lookup map when committing at the "bottom" of the

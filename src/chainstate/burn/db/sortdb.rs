@@ -5087,7 +5087,7 @@ impl<'a> SortitionHandleTx<'a> {
         &mut self,
         parent_snapshot: &mut BlockSnapshot,
         snapshot: &BlockSnapshot,
-        block_ops: &Vec<BlockstackOperationType>,
+        block_ops: &[BlockstackOperationType],
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
@@ -5674,7 +5674,7 @@ impl<'a> SortitionHandleTx<'a> {
 }
 
 impl ChainstateDB for SortitionDB {
-    fn backup(_backup_path: &String) -> Result<(), db_error> {
+    fn backup(_backup_path: &str) -> Result<(), db_error> {
         return Err(db_error::NotImplemented);
     }
 }
@@ -9597,7 +9597,10 @@ pub mod tests {
                 delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
                 reward_addr: Some((
                     123,
-                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])), None),
+                    PoxAddress::Standard(
+                        StacksAddress::new(8, Hash160([8u8; 20])),
+                        Some(AddressHashMode::SerializeP2PKH),
+                    ),
                 )),
                 delegated_ustx: 789,
                 until_burn_height: Some(1000),

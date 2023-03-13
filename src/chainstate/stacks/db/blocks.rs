@@ -194,10 +194,10 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         &self,
         _block: &StacksBlock,
         _metadata: &StacksHeaderInfo,
-        _receipts: &Vec<StacksTransactionReceipt>,
+        _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
         _winner_txid: Txid,
-        _rewards: &Vec<MinerReward>,
+        _rewards: &[MinerReward],
         _rewards_info: Option<&MinerRewardInfo>,
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
@@ -854,7 +854,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    pub fn atomic_file_write(path: &str, bytes: &Vec<u8>) -> Result<(), Error> {
+    pub fn atomic_file_write(path: &str, bytes: &[u8]) -> Result<(), Error> {
         StacksChainState::atomic_file_store(path, false, |ref mut fd| {
             fd.write_all(bytes)
                 .map_err(|e| Error::DBError(db_error::IOError(e)))
@@ -2050,7 +2050,7 @@ impl StacksChainState {
         tx: &mut DBTx<'a>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        burn_supports: &Vec<UserBurnSupportOp>,
+        burn_supports: &[UserBurnSupportOp],
     ) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
             assert!(burn_support.burn_fee < i64::MAX as u64);
@@ -3730,7 +3730,7 @@ impl StacksChainState {
 
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
     ) -> Vec<StacksMicroblock> {
         let mut signed_microblocks = vec![];
         for microblock in microblocks.iter() {
@@ -3764,7 +3764,7 @@ impl StacksChainState {
     pub fn validate_parent_microblock_stream(
         parent_anchored_block_header: &StacksBlockHeader,
         anchored_block_header: &StacksBlockHeader,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
         verify_signatures: bool,
     ) -> Option<(usize, Option<TransactionPayload>)> {
         if anchored_block_header.is_first_mined() {
@@ -3785,7 +3785,7 @@ impl StacksChainState {
         let signed_microblocks = if verify_signatures {
             StacksChainState::extract_signed_microblocks(&parent_anchored_block_header, microblocks)
         } else {
-            microblocks.clone()
+            microblocks.to_owned()
         };
 
         if signed_microblocks.len() == 0 {
@@ -4813,7 +4813,7 @@ impl StacksChainState {
     /// Return the fees and burns.
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
         ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
@@ -4920,23 +4920,23 @@ impl StacksChainState {
                 txid,
                 burn_header_hash,
                 ..
-            } = stack_stx_op;
+            } = &stack_stx_op;
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.into(),
+                    &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
                     &[
-                        Value::UInt(stacked_ustx),
+                        Value::UInt(*stacked_ustx),
                         // this .expect() should be unreachable since we coerce the hash mode when
                         // we parse the StackStxOp from a burnchain transaction
                         reward_addr
                             .as_clarity_tuple()
                             .expect("FATAL: stack-stx operation has no hash mode")
                             .into(),
-                        Value::UInt(u128::from(block_height)),
-                        Value::UInt(u128::from(num_cycles)),
+                        Value::UInt(u128::from(*block_height)),
+                        Value::UInt(u128::from(*num_cycles)),
                     ],
                     |_, _| false,
                 )
@@ -4958,7 +4958,9 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(txid),
+                            transaction: TransactionOrigin::Burn(
+                                BlockstackOperationType::StackStx(stack_stx_op),
+                            ),
                             events,
                             result: value,
                             post_condition_aborted: false,
@@ -5009,7 +5011,7 @@ impl StacksChainState {
                             burn_header_hash,
                             memo,
                             ..
-                        } = transfer_stx_op;
+                        } = transfer_stx_op.clone();
                         let result = clarity_tx.connection().as_transaction(|tx| {
                             tx.run_stx_transfer(
                                 &sender.into(),
@@ -5022,7 +5024,7 @@ impl StacksChainState {
                             Ok((value, _, events)) => {
                                 debug!("Processed TransferStx burnchain op"; "transfered_ustx" => transfered_ustx, "sender" => %sender, "recipient" => %recipient, "txid" => %txid);
                                 Some(StacksTransactionReceipt {
-                                    transaction: TransactionOrigin::Burn(txid),
+                                    transaction: TransactionOrigin::Burn(BlockstackOperationType::TransferStx(transfer_stx_op)),
                                     events,
                                     result: value,
                                     post_condition_aborted: false,
@@ -5071,7 +5073,7 @@ impl StacksChainState {
                 txid,
                 burn_header_hash,
                 ..
-            } = delegate_stx_op;
+            } = &delegate_stx_op;
             let reward_addr_val = if let Some((_, addr)) = &reward_addr {
                 // this .expect() should be unreachable since we coerce the hash mode when
                 // we parse the DelegateStxOp from a burnchain transaction
@@ -5087,20 +5089,20 @@ impl StacksChainState {
             };
 
             let until_burn_height_val = if let Some(height) = until_burn_height {
-                Value::some(Value::UInt(u128::from(height)))
+                Value::some(Value::UInt(u128::from(*height)))
                     .expect("FATAL: construction of an optional uint Clarity value should succeed.")
             } else {
                 Value::none()
             };
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.into(),
+                    &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
                     &[
-                        Value::UInt(delegated_ustx),
-                        Value::Principal(delegate_to.into()),
+                        Value::UInt(*delegated_ustx),
+                        Value::Principal(delegate_to.clone().into()),
                         until_burn_height_val,
                         reward_addr_val,
                     ],
@@ -5126,7 +5128,9 @@ impl StacksChainState {
                             .expect("BUG: cost declined between executions");
 
                         let receipt = StacksTransactionReceipt {
-                            transaction: TransactionOrigin::Burn(txid),
+                            transaction: TransactionOrigin::Burn(
+                                BlockstackOperationType::DelegateStx(delegate_stx_op),
+                            ),
                             events,
                             result: value,
                             post_condition_aborted: false,
@@ -5235,7 +5239,7 @@ impl StacksChainState {
     pub fn process_matured_miner_rewards<'a, 'b>(
         clarity_tx: &mut ClarityTx<'a, 'b>,
         miner_share: &MinerReward,
-        users_share: &Vec<MinerReward>,
+        users_share: &[MinerReward],
         parent_share: &MinerReward,
     ) -> Result<u128, Error> {
         let mut coinbase_reward = miner_share.coinbase;
@@ -5308,7 +5312,7 @@ impl StacksChainState {
     pub fn get_parent_matured_miner(
         conn: &DBConn,
         mainnet: bool,
-        latest_matured_miners: &Vec<MinerPaymentSchedule>,
+        latest_matured_miners: &[MinerPaymentSchedule],
     ) -> Result<MinerPaymentSchedule, Error> {
         let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
             StacksChainState::get_scheduled_block_rewards_at_block(
@@ -5897,7 +5901,7 @@ impl StacksChainState {
         microblocks: &Vec<StacksMicroblock>, // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
@@ -7977,8 +7981,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store_empty() {
-        let chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store_empty");
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         let path = StacksChainState::get_block_path(
             &chainstate.blocks_path,
@@ -8022,8 +8025,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8184,11 +8186,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_accept",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8239,11 +8237,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_reject() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_reject",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8294,8 +8288,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_load_store_microblock_stream() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_load_store_microblock_stream");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8355,11 +8348,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_confirm_all() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_store_confirm_all",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8580,11 +8569,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_store_partial_confirm",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8842,11 +8827,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_continuous_streams() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_continuous_streams",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9292,11 +9273,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_accept_attachable",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9432,11 +9409,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_reversed() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stx_db_staging_block_load_store_accept_attachable_r",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9573,11 +9546,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_fork() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stx_db_staging_block_load_store_accept_attachable_f",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9759,11 +9728,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_multiple_descendants() {
         // multiple anchored blocks build off of different microblock parents
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblocks_multiple_descendants",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9899,8 +9864,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_blocks_orphaned() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_staging_blocks_orphaned");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10070,8 +10034,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_drop_staging_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_drop_staging_microblocks_1");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10162,8 +10125,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_has_blocks_and_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_has_blocks_and_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10506,7 +10468,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_blocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_stream_blocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10586,7 +10548,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_headers() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_stream_headers");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10839,8 +10801,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_staging_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_stream_staging_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10958,8 +10919,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_confirmed_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_stream_confirmed_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -11071,8 +11031,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_get_blocks_inventory");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         let mut blocks: Vec<StacksBlock> = vec![];
         let mut privks = vec![];
@@ -11715,8 +11674,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_fork() {
         // multiple anchored blocks build off of a forked microblock stream
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblocks_fork");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -11876,11 +11834,7 @@ pub mod test {
     fn stacks_db_staging_microblocks_multiple_forks() {
         // multiple anchored blocks build off of a microblock stream that gets forked multiple
         // times
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblocks_multiple_fork",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -12091,8 +12045,7 @@ pub mod test {
     /// there are empty sortitions.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210() {
-        let mut peer_config =
-            TestPeerConfig::new("test_stacking_and_transfer_burn_ops_v210", 21315, 21316);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21315, 21316);
         let num_blocks = 10;
 
         let privk = StacksPrivateKey::from_hex(
@@ -12406,11 +12359,7 @@ pub mod test {
     /// between when they are mined and when the next Stacks block is mined.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210_expiration() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_stacking_and_transfer_burn_ops_v210_expiration",
-            21317,
-            21318,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21317, 21318);
         let num_blocks = 20;
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
