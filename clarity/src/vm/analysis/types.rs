@@ -54,6 +54,7 @@ pub struct ContractAnalysis {
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     pub is_cost_contract_eligible: bool,
+    pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
@@ -68,6 +69,7 @@ impl ContractAnalysis {
         contract_identifier: QualifiedContractIdentifier,
         expressions: Vec<SymbolicExpression>,
         cost_track: LimitedCostTracker,
+        epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> ContractAnalysis {
         ContractAnalysis {
@@ -87,6 +89,7 @@ impl ContractAnalysis {
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
             is_cost_contract_eligible: false,
+            epoch,
             clarity_version,
         }
     }
@@ -187,13 +190,29 @@ impl ContractAnalysis {
         self.defined_traits.get(name)
     }
 
-    /// Canonicalize all outward-facing types in the contract analysis.
+    /// Canonicalize all types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        for (_, function_type) in self.private_function_types.iter_mut() {
+            *function_type = function_type.canonicalize(epoch);
+        }
+        for (_, variable_type) in self.variable_types.iter_mut() {
+            *variable_type = variable_type.canonicalize(epoch);
+        }
         for (_, function_type) in self.public_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
         }
         for (_, function_type) in self.read_only_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
+        }
+        for (_, (key_type, value_type)) in self.map_types.iter_mut() {
+            *key_type = key_type.canonicalize(epoch);
+            *value_type = value_type.canonicalize(epoch);
+        }
+        for (_, var_type) in self.persisted_variable_types.iter_mut() {
+            *var_type = var_type.canonicalize(epoch);
+        }
+        for (_, nft_type) in self.non_fungible_tokens.iter_mut() {
+            *nft_type = nft_type.canonicalize(epoch);
         }
         for (_, trait_definition) in self.defined_traits.iter_mut() {
             for (_, function_signature) in trait_definition.iter_mut() {
@@ -265,6 +284,7 @@ mod test {
             QualifiedContractIdentifier::local("foo").unwrap(),
             vec![],
             LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch20,
             ClarityVersion::Clarity1,
         );
         let trait_id = TraitIdentifier::new(

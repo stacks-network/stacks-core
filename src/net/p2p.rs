@@ -40,6 +40,7 @@ use rand::thread_rng;
 use url;
 
 use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -4935,8 +4936,9 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view(
+    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         ibd: bool,
@@ -4990,6 +4992,7 @@ impl PeerNetwork {
 
             self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
                 &self.burnchain,
+                indexer,
                 &burnchain_db,
                 sortdb,
                 &sn.sortition_id,
@@ -5000,6 +5003,7 @@ impl PeerNetwork {
 
             self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
                 &self.burnchain,
+                indexer,
                 &burnchain_db,
                 sortdb,
                 chainstate,
@@ -5325,8 +5329,9 @@ impl PeerNetwork {
     ///
     /// This method can only fail if the internal network object (self.network) is not
     /// instantiated.
-    pub fn run(
+    pub fn run<B: BurnchainHeaderReader>(
         &mut self,
+        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
@@ -5362,7 +5367,7 @@ impl PeerNetwork {
 
         // update burnchain view, before handling any HTTP connections
         let unsolicited_buffered_messages =
-            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
+            match self.refresh_burnchain_view(indexer, sortdb, chainstate, ibd) {
                 Ok(msgs) => msgs,
                 Err(e) => {
                     warn!("Failed to refresh burnchain view: {:?}", &e);

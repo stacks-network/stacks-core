@@ -1258,12 +1258,19 @@ fn test_update_pox_affirmation_maps_3_forks() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: before update: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1272,30 +1279,45 @@ fn test_update_pox_affirmation_maps_3_forks() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("n").unwrap());
 
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block in the chain so far
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
 
     // the anchor block itself affirms nothing, since it isn't built on an anchor block
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: after update: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1304,10 +1326,11 @@ fn test_update_pox_affirmation_maps_3_forks() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("p").unwrap());
 
-    let anchor_block_0 = BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .unwrap()
-        .0;
+    let anchor_block_0 =
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .unwrap()
+            .0;
     eprintln!("anchor block 1 at height {}", anchor_block_0.block_height);
     assert!(anchor_block_0.block_height < commits_0[7][0].as_ref().unwrap().block_height);
 
@@ -1322,22 +1345,35 @@ fn test_update_pox_affirmation_maps_3_forks() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // there's two anchor blocks so far -- one for reward cycle 1, and one for reward cycle 2.
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1359,27 +1395,42 @@ fn test_update_pox_affirmation_maps_3_forks() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 2, &burnchain).unwrap();
 
     // there's three anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
 
     // there are two equivalently heavy affirmation maps, but the affirmation map discovered later
     // is the heaviest.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=2: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1402,12 +1453,19 @@ fn test_update_pox_affirmation_maps_3_forks() {
 
     // there are three equivalently heavy affirmation maps, but the affirmation map discovered last
     // is the heaviest.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=3: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1450,12 +1508,19 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: before update: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1464,30 +1529,45 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("n").unwrap());
 
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
 
     // the anchor block itself affirms nothing, since it isn't built on an anchor block
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: after update: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1496,10 +1576,11 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("p").unwrap());
 
-    let anchor_block_0 = BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .unwrap()
-        .0;
+    let anchor_block_0 =
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .unwrap()
+            .0;
     eprintln!("anchor block 1 at height {}", anchor_block_0.block_height);
     assert!(anchor_block_0.block_height < commits_0[7][0].as_ref().unwrap().block_height);
 
@@ -1545,22 +1626,35 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // there's still only one anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_none()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1607,42 +1701,60 @@ fn test_update_pox_affirmation_maps_absent() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
     assert_eq!(heaviest_am, AffirmationMap::empty());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block, and it's at vtxindex 1 (not 0)
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
-        BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
             .unwrap()
             .unwrap()
             .0
             .vtxindex,
         1
     );
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_none()
+    );
 
     // the anchor block itself affirms nothing
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1654,6 +1766,7 @@ fn test_update_pox_affirmation_maps_absent() {
     for i in 5..10 {
         let block_commit = BurnchainDB::get_block_commit(
             burnchain_db.conn(),
+            &commits_0[i][0].as_ref().unwrap().burn_header_hash,
             &commits_0[i][0].as_ref().unwrap().txid,
         )
         .unwrap()
@@ -1682,12 +1795,19 @@ fn test_update_pox_affirmation_maps_absent() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // the second anchor block affirms that the first anchor block is missing.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1708,23 +1828,36 @@ fn test_update_pox_affirmation_maps_absent() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 2, &burnchain).unwrap();
 
     // there isn't a third anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
 
     // heaviest _anchor block_ affirmation map is unchanged.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=2: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1746,26 +1879,41 @@ fn test_update_pox_affirmation_maps_absent() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 3, &burnchain).unwrap();
 
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_none()
+    );
 
     // heaviest _anchor block_ affirmation map is unchanged.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=3: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1786,29 +1934,46 @@ fn test_update_pox_affirmation_maps_absent() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 4, &burnchain).unwrap();
 
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 4)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 4)
+            .unwrap()
+            .is_none()
+    );
 
     // heaviest _anchor block_ affirmation map advances
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=4: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1830,36 +1995,57 @@ fn test_update_pox_affirmation_maps_absent() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 5, &burnchain).unwrap();
 
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 4)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 5)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 6)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 4)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 5)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 6)
+            .unwrap()
+            .is_some()
+    );
 
     // heaviest _anchor block_ affirmation map advances, since the new anchor block affirms the
     // last 4 reward cycles, including the anchor block mined in the first reward cycle
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=5: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1886,14 +2072,19 @@ fn test_update_pox_affirmation_maps_absent() {
         update_pox_affirmation_maps(&mut burnchain_db, &headers, 6 + i, &burnchain).unwrap();
         start = vec![commits[5][0].clone()];
 
-        let heaviest_am =
-            BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-                .unwrap();
-        let canonical_am =
-            BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| {
-                true
-            })
-            .unwrap();
+        let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+            burnchain_db.conn(),
+            &burnchain,
+            &headers,
+        )
+        .unwrap();
+        let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+            burnchain_db.conn(),
+            &burnchain,
+            &headers,
+            |_, _| true,
+        )
+        .unwrap();
         eprintln!(
             "rc={}: heaviest = {}, canonical = {}",
             6 + i,
@@ -1902,12 +2093,19 @@ fn test_update_pox_affirmation_maps_absent() {
         );
     }
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=11: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -1966,34 +2164,52 @@ fn test_update_pox_affirmation_maps_nothing() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
     assert_eq!(heaviest_am, AffirmationMap::empty());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
 
     // the anchor block itself affirms nothing, since it isn't built on an anchor block
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2014,24 +2230,37 @@ fn test_update_pox_affirmation_maps_nothing() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // there's still one anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_none()
+    );
 
     // second reward cycle doesn't have an anchor block, so there's no heaviest anchor block
     // affirmation map yet
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2061,29 +2290,46 @@ fn test_update_pox_affirmation_maps_nothing() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 2, &burnchain).unwrap();
 
     // there's two anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 4)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 4)
+            .unwrap()
+            .is_none()
+    );
 
     // there's no anchor block in rc 1
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=2: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2106,12 +2352,19 @@ fn test_update_pox_affirmation_maps_nothing() {
     // there are three equivalently heavy affirmation maps, but the affirmation map discovered last
     // is the heaviest.  BUT THIS TIME, MAKE THE UNCONFIRMED ORACLE DENY THAT THIS LAST
     // ANCHORED BLOCK EXISTS.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| false)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| false,
+    )
+    .unwrap();
     eprintln!(
         "rc=3 (deny): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2120,12 +2373,19 @@ fn test_update_pox_affirmation_maps_nothing() {
     assert_eq!(heaviest_am, AffirmationMap::decode("pn").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("pnan").unwrap());
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=3 (exist): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2171,34 +2431,52 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
     assert_eq!(heaviest_am, AffirmationMap::empty());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
 
     // the anchor block itself affirms nothing, since it isn't built on an anchor block
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0 (true): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2207,9 +2485,13 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("p").unwrap());
 
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| false)
-            .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| false,
+    )
+    .unwrap();
     eprintln!(
         "rc=0 (false): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2228,24 +2510,37 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // there's two anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
 
     // the network affirms two anchor blocks, but the second anchor block only affirms the
     // first anchor block.
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1 (true): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2254,9 +2549,13 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     assert_eq!(heaviest_am, AffirmationMap::decode("p").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("pp").unwrap());
 
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| false)
-            .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| false,
+    )
+    .unwrap();
     eprintln!(
         "rc=1 (false): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2275,25 +2574,40 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 2, &burnchain).unwrap();
 
     // there's four anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=2 (true): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2302,9 +2616,13 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     assert_eq!(heaviest_am, AffirmationMap::decode("p").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("ppp").unwrap());
 
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| false)
-            .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| false,
+    )
+    .unwrap();
     eprintln!(
         "rc=2 (false): heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2323,28 +2641,45 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 3, &burnchain).unwrap();
 
     // there's four anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 4)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 4)
+            .unwrap()
+            .is_some()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=3: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2388,34 +2723,52 @@ fn test_update_pox_affirmation_fork_duel() {
     );
 
     // no anchor blocks recorded, yet!
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
     assert_eq!(heaviest_am, AffirmationMap::empty());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_none());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_none()
+    );
 
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 0, &burnchain).unwrap();
 
     // there's only one anchor block
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
 
     // the anchor block itself affirms nothing, since it isn't built on an anchor block
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=0: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2436,23 +2789,36 @@ fn test_update_pox_affirmation_fork_duel() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
     // there's two anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
 
     // the network affirms two anchor blocks, but the second one wins
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=1: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2473,25 +2839,40 @@ fn test_update_pox_affirmation_fork_duel() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 2, &burnchain).unwrap();
 
     // there's four anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=2: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am
@@ -2512,28 +2893,45 @@ fn test_update_pox_affirmation_fork_duel() {
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 3, &burnchain).unwrap();
 
     // there's four anchor blocks
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 0)
-        .unwrap()
-        .is_none());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 2)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 3)
-        .unwrap()
-        .is_some());
-    assert!(BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 4)
-        .unwrap()
-        .is_some());
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 1)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 2)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 3)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 4)
+            .unwrap()
+            .is_some()
+    );
 
-    let heaviest_am =
-        BurnchainDB::get_heaviest_anchor_block_affirmation_map(burnchain_db.conn(), &burnchain)
-            .unwrap();
-    let canonical_am =
-        BurnchainDB::get_canonical_affirmation_map(burnchain_db.conn(), &burnchain, |_, _| true)
-            .unwrap();
+    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+    )
+    .unwrap();
+    let canonical_am = BurnchainDB::get_canonical_affirmation_map(
+        burnchain_db.conn(),
+        &burnchain,
+        &headers,
+        |_, _| true,
+    )
+    .unwrap();
     eprintln!(
         "rc=3: heaviest = {}, canonical = {}",
         &heaviest_am, &canonical_am

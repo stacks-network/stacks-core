@@ -1507,6 +1507,12 @@ fn stx_transfer_btc_integration_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
         amount: 100300,
@@ -1548,6 +1554,8 @@ fn stx_transfer_btc_integration_test() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    test_observer::clear();
 
     // let's query the spender's account:
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
@@ -1687,6 +1695,23 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
+
+    let mut found_btc_tx = false;
+    let blocks = test_observer::get_blocks();
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
+                if !burnchain_op.contains_key("transfer_stx") {
+                    panic!("unexpected btc transaction type");
+                }
+                found_btc_tx = true;
+            }
+        }
+    }
+    assert!(found_btc_tx);
 
     channel.stop_chains_coordinator();
 }

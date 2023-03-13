@@ -1567,8 +1567,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// If the path doesn't resolve, return an error (NotFoundError)
     pub fn from_entry(
         storage: &mut TrieStorageConnection<T>,
-        key: &String,
-        value: &String,
+        key: &str,
+        value: &str,
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
         let marf_value = MARFValue::from_value(value);

@@ -70,7 +70,7 @@ pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &'static str =
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
-pub const SPV_DB_VERSION: &'static str = "2";
+pub const SPV_DB_VERSION: &'static str = "3";
 
 const SPV_INITIAL_SCHEMA: &[&'static str] = &[
     r#"
@@ -97,6 +97,31 @@ const SPV_SCHEMA_2: &[&'static str] = &[r#"
         work TEXT NOT NULL  -- 32-byte (256-bit) integer
     );
     "#];
+
+// force the node to go and store the burnchain block header hash as well
+const SPV_SCHEMA_3: &[&'static str] = &[
+    r#"
+    DROP TABLE headers;
+    "#,
+    r#"
+    DELETE FROM chain_work;
+    "#,
+    r#"
+    CREATE TABLE headers(
+        version INTEGER NOT NULL,
+        prev_blockhash TEXT NOT NULL,
+        merkle_root TEXT NOT NULL,
+        time INTEGER NOT NULL,
+        bits INTEGER NOT NULL,
+        nonce INTEGER NOT NULL,
+        height INTEGER PRIMARY KEY NOT NULL,    -- not part of BlockHeader, but used by us internally
+        hash TEXT NOT NULL                      -- not part of BlockHeader, but derived from the data that is
+    );
+    "#,
+    r#"
+    CREATE INDEX index_headers_by_hash ON headers(hash);
+    "#,
+];
 
 pub struct SpvClient {
     pub headers_path: String,
@@ -159,7 +184,8 @@ impl SpvClient {
             check_txcount: true,
         };
 
-        if readwrite && !exists {
+        let empty = client.is_empty()?;
+        if readwrite && (!exists || empty) {
             client.init_block_headers(true)?;
         }
 
@@ -228,6 +254,9 @@ impl SpvClient {
         for row_text in SPV_SCHEMA_2 {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
+        for row_text in SPV_SCHEMA_3 {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
@@ -276,6 +305,16 @@ impl SpvClient {
                     }
 
                     SpvClient::db_set_version(&tx, "2")?;
+                    tx.commit().map_err(db_error::SqliteError)?;
+                }
+                "2" => {
+                    debug!("Migrate SPV DB from schema 2 to 3");
+                    let tx = tx_begin_immediate(conn)?;
+                    for row_text in SPV_SCHEMA_3 {
+                        tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+                    }
+
+                    SpvClient::db_set_version(&tx, "3")?;
                     tx.commit().map_err(db_error::SqliteError)?;
                 }
                 SPV_DB_VERSION => {
@@ -342,7 +381,7 @@ impl SpvClient {
     }
 
     /// Calculate the total work over a given interval of headers.
-    fn get_interval_work(interval_headers: &Vec<LoneBlockHeader>) -> Uint256 {
+    fn get_interval_work(interval_headers: &[LoneBlockHeader]) -> Uint256 {
         let mut work = Uint256::from_u64(0);
         for hdr in interval_headers.iter() {
             work = work + hdr.header.work();
@@ -621,12 +660,17 @@ impl SpvClient {
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
-            "SELECT MAX(height) FROM headers",
+            "SELECT IFNULL(MAX(height),0) FROM headers",
             NO_PARAMS,
         )? {
             Some(max) => Ok(max),
             None => Ok(0),
         }
+    }
+
+    /// Is the DB devoid of headers?  Used during migrations
+    pub fn is_empty(&self) -> Result<bool, btc_error> {
+        Ok(self.get_highest_header_height()? == 0)
     }
 
     /// Read the block header at a particular height
@@ -644,6 +688,19 @@ impl SpvClient {
             header: h,
             tx_count: VarInt(0),
         }))
+    }
+
+    /// Find a block header height with a given burnchain header hash, if it is present
+    pub fn find_block_header_height(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, btc_error> {
+        query_row(
+            &self.headers_db,
+            "SELECT height FROM headers WHERE hash = ?1",
+            &[burn_header_hash],
+        )
+        .map_err(|e| e.into())
     }
 
     /// Get a range of block headers from a file.
@@ -700,8 +757,8 @@ impl SpvClient {
         height: u64,
     ) -> Result<(), btc_error> {
         let sql = "INSERT OR REPLACE INTO headers 
-        (version, prev_blockhash, merkle_root, time, bits, nonce, height)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+        (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args: &[&dyn ToSql] = &[
             &header.version,
             &header.prev_blockhash,
@@ -710,6 +767,7 @@ impl SpvClient {
             &header.bits,
             &header.nonce,
             &u64_to_sql(height)?,
+            &BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()),
         ];
 
         tx.execute(sql, args)
@@ -773,6 +831,11 @@ impl SpvClient {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         let num_headers = block_headers.len();
+        if num_headers == 0 {
+            // nothing to do
+            return Ok(());
+        }
+
         let first_header_hash = block_headers[0].header.bitcoin_hash();
         let last_header_hash = block_headers[block_headers.len() - 1].header.bitcoin_hash();
         let total_work_before = self.update_chain_work()?;
@@ -1768,5 +1831,25 @@ mod test {
         println!("witness size serialized {}", encoded_tx.len());
 
         let deserialized: Vec<Vec<u8>> = deserialize(&encoded_tx).unwrap();
+    }
+
+    #[test]
+    fn test_handle_headers_empty() {
+        let headers_path = "/tmp/test-spv-handle_headers_empty.dat";
+        if fs::metadata(headers_path).is_ok() {
+            fs::remove_file(headers_path).unwrap();
+        }
+
+        let mut spv_client = SpvClient::new(
+            headers_path,
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+
+        spv_client.handle_headers(1, vec![]).unwrap();
     }
 }

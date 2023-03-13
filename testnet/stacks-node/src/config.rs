@@ -486,19 +486,6 @@ impl Config {
                 "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {:?}",
                 burnchain
             );
-        } else if epoch21_rc == v1_unlock_rc {
-            // if v1_unlock_height and epoch_21 are in the same reward cycle, then epoch_21 must be
-            // instantiated before the prepare phase.  This is because pox-2 must exist in the
-            // PoX anchor block for the subsequent reward cycle.
-            //
-            // Ideally, the epoch_21 start height would be at the very beginning of the reward
-            // cycle, but this is not a hard requirement.  However, it is highly recommended to
-            // de-risk the chance that the anchor block is picked before the block in which pox-2
-            // is instantiated.
-            assert!(!burnchain.is_in_prepare_phase(epoch21.start_height));
-            if !burnchain.is_reward_cycle_start(epoch21.start_height) {
-                warn!("DANGEROUS CONFIG: Epoch 2.1 starts at {}, which is _NOT_ the beginning of the reward cycle.", epoch21.start_height);
-            }
         }
     }
 
@@ -1749,7 +1736,7 @@ impl NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: true,
+            always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
         }

@@ -840,10 +840,6 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
 
-pub const MINER_FEE_MINIMUM_BLOCK_USAGE: u64 = 80; // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
-
-pub const MINER_FEE_WINDOW: u64 = 24; // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
-
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
@@ -2384,7 +2380,7 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
@@ -2581,7 +2577,7 @@ pub mod test {
 
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -2657,7 +2653,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate-test");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -2747,7 +2743,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();

@@ -613,21 +613,21 @@ fn test_process_block_ops() {
         121,
         &block_121_hash,
         &first_burn_hash,
-        &vec![],
+        vec![],
         121,
     ));
     let block122 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         122,
         &block_122_hash,
         &block_121_hash,
-        &vec![],
+        vec![],
         122,
     ));
     let block123 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         123,
         &block_123_hash,
         &block_122_hash,
-        &vec![],
+        vec![],
         123,
     ));
 
@@ -786,7 +786,7 @@ fn test_process_block_ops() {
             124,
             &block_124_hash,
             &block_123_hash,
-            &vec![],
+            vec![],
             124,
         ));
 
@@ -1026,7 +1026,7 @@ fn test_burn_snapshot_sequence() {
             first_block_height + (i + 1) as u64,
             &burn_block_hash,
             &parent_burn_block_hash,
-            &vec![],
+            vec![],
             get_epoch_time_secs(),
         ));
 

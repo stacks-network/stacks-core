@@ -3143,7 +3143,7 @@ impl HttpResponseType {
         regex: &Regex,
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
-        request_path: &String,
+        request_path: &str,
         fd: &mut R,
         len_hint: Option<usize>,
         parser: F,

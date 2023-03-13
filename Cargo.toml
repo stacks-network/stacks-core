@@ -33,22 +33,6 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
-[[bench]]
-name = "marf_bench"
-harness = false
-
-[[bench]]
-name = "large_contract_bench"
-harness = false
-
-[[bench]]
-name = "block_limits"
-harness = false
-
-[[bench]]
-name = "c32_bench"
-harness = false
-
 [dependencies]
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
