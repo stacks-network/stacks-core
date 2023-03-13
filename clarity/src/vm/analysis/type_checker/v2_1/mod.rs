@@ -872,7 +872,7 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
-    fn new(
+    pub fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
         contract_identifier: &QualifiedContractIdentifier,
