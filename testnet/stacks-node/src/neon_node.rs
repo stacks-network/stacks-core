@@ -139,7 +139,7 @@
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::collections::HashMap;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::mem;
@@ -184,7 +184,7 @@ use stacks::cost_estimates::UnitEstimator;
 use stacks::cost_estimates::{CostEstimator, FeeEstimator};
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
+    atlas::{AtlasConfig, AtlasDB},
     db::{LocalPeer, PeerDB},
     dns::DNSClient,
     dns::DNSResolver,
@@ -3524,8 +3524,6 @@ pub struct PeerThread {
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
     poll_timeout: u64,
-    /// receiver for attachments discovered by the chains coordinator thread
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     /// handle to the sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// handle to the chainstate DB (optional so we can take/replace it)
@@ -3577,11 +3575,7 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(
-        runloop: &RunLoop,
-        mut net: PeerNetwork,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
-    ) -> PeerThread {
+    pub fn new(runloop: &RunLoop, mut net: PeerNetwork) -> PeerThread {
         let config = runloop.config().clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
@@ -3611,7 +3605,6 @@ impl PeerThread {
             net: Some(net),
             globals: runloop.get_globals(),
             poll_timeout,
-            attachments_rx,
             sortdb: Some(sortdb),
             chainstate: Some(chainstate),
             mempool: Some(mempool),
@@ -3693,17 +3686,6 @@ impl PeerThread {
             self.poll_timeout
         };
 
-        let mut expected_attachments = match self.attachments_rx.try_recv() {
-            Ok(expected_attachments) => {
-                debug!("Atlas: received attachments: {:?}", &expected_attachments);
-                expected_attachments
-            }
-            _ => {
-                debug!("Atlas: attachment channel is empty");
-                HashSet::new()
-            }
-        };
-
         // move over unconfirmed state obtained from the relayer
         self.with_chainstate(|p2p_thread, sortdb, chainstate, _mempool| {
             let _ = Relayer::setup_unconfirmed_state_readonly(chainstate, sortdb);
@@ -3739,7 +3721,6 @@ impl PeerThread {
                     ibd,
                     poll_ms,
                     &handler_args,
-                    &mut expected_attachments,
                 )
             })
         });
@@ -4133,9 +4114,6 @@ impl StacksNode {
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
-        // attachments receiver endpoint for the p2p thread, so the chains coordinator can feed it
-        // attachments it discovers
-        attachments_receiver: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
@@ -4195,7 +4173,7 @@ impl StacksNode {
             .expect("FATAL: failed to start relayer thread");
 
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
-        let p2p_thread = PeerThread::new(runloop, p2p_net, attachments_receiver);
+        let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name(format!(

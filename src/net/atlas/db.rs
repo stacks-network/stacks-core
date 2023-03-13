@@ -14,7 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//!
+//! The `AtlasDB` stores `Attachment` and `AttachmentInstance` objects.
+//! `AttachmentInstance` objects indicate what corresponding `Attachment`
+//! data a node is interesting in fetching and storing.
+//!
+//! In the `AtlasDB`, `AttachmentInstance` objects have a status field
+//! and an availability field. The status field indicates whether or
+//! not the attachment instance has been checked by the
+//! `AttachmentDownloader`. The `AttachmentDownloader` does not
+//! immediately check entries before insertion in the database:
+//! Atlas event processing and downloader logic proceed in
+//! different threads.
+//!
+//! Once the `AttachmentDownloader` checks an attachment instance, it
+//! either marks the instance as available (if the content data is
+//! already stored on the node) or it adds the attachment instance
+//! to its download queue.
+//!
+
+use rusqlite::types::FromSql;
+use rusqlite::types::FromSqlError;
 use rusqlite::types::ToSql;
+use rusqlite::types::ToSqlOutput;
+use rusqlite::types::ValueRef;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags};
@@ -47,7 +71,16 @@ use crate::types::chainstate::StacksBlockId;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 
-pub const ATLASDB_VERSION: &'static str = "1";
+pub const ATLASDB_VERSION: &'static str = "2";
+
+/// The maximum number of atlas attachment instances that should be
+/// checked at once (this is used to limit the return size of
+/// `queued_attachments`). Because these checks will sometimes surface
+/// existing attachment data associated with those instances, the
+/// memory impact of these checks is not limited to the
+/// AttachmentInstance size (which is small), but can include the
+/// Attachment as well (which is larger).
+pub const MAX_PROCESS_PER_ROUND: u32 = 1_000;
 
 const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -73,8 +106,41 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
 
-const ATLASDB_INDEXES: &'static [&'static str] =
-    &["CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);"];
+const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
+    // We have to allow status to be null, because SQLite won't let us add
+    //  a not null column without a default. The default defeats the point of
+    //  having not-null here anyways, so we leave this field nullable.
+    r#"
+    ALTER TABLE attachment_instances
+    ADD status INTEGER
+    ;"#,
+    // All of the attachment instances that previously existed in the database
+    //  already were "checked", so set status to 2 (which corresponds to "checked").
+    r#"
+    UPDATE attachment_instances SET status = 2;
+    "#,
+];
+
+const ATLASDB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);",
+    "CREATE INDEX IF NOT EXISTS index_instance_status ON attachment_instances(status);",
+];
+
+/// Attachment instances pass through different states once written to the AtlasDB.
+/// These instances are initially written as a new Stacks block is processed, and marked
+/// as `Queued`. These queued instances contain all the data of the new attachment instance,
+/// but they have not yet been checked against the AtlasDB to determine if there is extant
+/// Attachment content/data associated with them. The network run loop (`p2p` thread) checks
+/// for any queued attachment instances on each pass, and performs that check. Once the check
+/// is completed, any checked instances are updated to `Checked`.
+pub enum AttachmentInstanceStatus {
+    /// This variant indicates that the attachments instance has been written,
+    /// but the AtlasDownloader has not yet checked that the attachment matched
+    Queued,
+    /// This variant indicates that the attachments instance has been written,
+    /// and checked for whether or not an already existing attachment matched
+    Checked,
+}
 
 impl FromRow<Attachment> for Attachment {
     fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
@@ -117,6 +183,27 @@ impl FromRow<(u32, u32)> for (u32, u32) {
     }
 }
 
+impl ToSql for AttachmentInstanceStatus {
+    fn to_sql(&self) -> Result<ToSqlOutput<'_>, rusqlite::Error> {
+        let integer_rep: i64 = match self {
+            AttachmentInstanceStatus::Queued => 1,
+            AttachmentInstanceStatus::Checked => 2,
+        };
+        Ok(integer_rep.into())
+    }
+}
+
+impl FromSql for AttachmentInstanceStatus {
+    fn column_result(value: ValueRef<'_>) -> Result<Self, FromSqlError> {
+        let integer_rep: i64 = value.as_i64()?;
+        match integer_rep {
+            1 => Ok(AttachmentInstanceStatus::Queued),
+            2 => Ok(AttachmentInstanceStatus::Checked),
+            x => Err(FromSqlError::OutOfRange(x)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AtlasDB {
     pub atlas_config: AtlasConfig,
@@ -134,20 +221,32 @@ impl AtlasDB {
         Ok(())
     }
 
+    /// Get the database schema version, given a DB connection
+    fn get_schema_version(conn: &Connection) -> Result<String, db_error> {
+        let version = conn.query_row(
+            "SELECT MAX(version) from db_config",
+            rusqlite::NO_PARAMS,
+            |row| row.get(0),
+        )?;
+        Ok(version)
+    }
+
     fn instantiate(&mut self) -> Result<(), db_error> {
         let genesis_attachments = self.atlas_config.genesis_attachments.take();
 
         let tx = self.tx_begin()?;
 
         for row_text in ATLASDB_INITIAL_SCHEMA {
-            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+            tx.execute_batch(row_text)?;
+        }
+        for row_text in ATLASDB_SCHEMA_2 {
+            tx.execute_batch(row_text)?;
         }
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
             &[&ATLASDB_VERSION],
-        )
-        .map_err(db_error::SqliteError)?;
+        )?;
 
         if let Some(attachments) = genesis_attachments {
             let now = util::get_epoch_time_secs() as i64;
@@ -193,7 +292,7 @@ impl AtlasDB {
     // If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(
         atlas_config: AtlasConfig,
-        path: &String,
+        path: &str,
         readwrite: bool,
     ) -> Result<AtlasDB, db_error> {
         let mut create_flag = false;
@@ -213,8 +312,17 @@ impl AtlasDB {
                 OpenFlags::SQLITE_OPEN_READ_ONLY
             }
         };
-
         let conn = sqlite_open(path, open_flags, false)?;
+        Self::check_instantiate_db(atlas_config, conn, readwrite, create_flag)
+    }
+
+    /// Inner method for instantiating the db if necessary, updating the schema, or adding indexes
+    fn check_instantiate_db(
+        atlas_config: AtlasConfig,
+        conn: Connection,
+        readwrite: bool,
+        create_flag: bool,
+    ) -> Result<AtlasDB, db_error> {
         let mut db = AtlasDB {
             atlas_config,
             conn,
@@ -224,9 +332,63 @@ impl AtlasDB {
             db.instantiate()?;
         }
         if readwrite {
+            db.check_schema_version_and_update()?;
             db.add_indexes()?;
+        } else {
+            db.check_schema_version_or_error()?;
         }
+
         Ok(db)
+    }
+
+    fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
+        match Self::get_schema_version(self.conn()) {
+            Ok(version) => {
+                let expected_version = ATLASDB_VERSION.to_string();
+                if version == expected_version {
+                    Ok(())
+                } else {
+                    let version = version.parse().expect(
+                        "Invalid schema version for AtlasDB: should be a parseable integer",
+                    );
+                    Err(db_error::OldSchema(version))
+                }
+            }
+            Err(e) => panic!("Error obtaining the version of the Atlas DB: {:?}", e),
+        }
+    }
+
+    fn apply_schema_2(db_conn: &Connection) -> Result<(), db_error> {
+        for row_text in ATLASDB_SCHEMA_2 {
+            db_conn.execute_batch(row_text)?;
+        }
+
+        db_conn.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["2"],
+        )?;
+
+        Ok(())
+    }
+
+    fn check_schema_version_and_update(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        match AtlasDB::get_schema_version(&tx) {
+            Ok(version) => {
+                let expected_version = ATLASDB_VERSION.to_string();
+                if version == expected_version {
+                    return Ok(());
+                }
+                if version == "1" {
+                    Self::apply_schema_2(&tx)?;
+                    tx.commit()?;
+                    Ok(())
+                } else {
+                    panic!("The schema version of the Atlas DB is invalid.")
+                }
+            }
+            Err(e) => panic!("Error obtaining the version of the Atlas DB: {:?}", e),
+        }
     }
 
     // Open an atlas database in memory (used for testing)
@@ -241,6 +403,60 @@ impl AtlasDB {
 
         db.instantiate()?;
         Ok(db)
+    }
+
+    #[cfg(test)]
+    /// Only ever to be used in testing, open and instantiate a V1 atlasdb
+    pub fn connect_memory_db_v1(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
+        let conn = Connection::open_in_memory()?;
+        let mut db = AtlasDB {
+            atlas_config,
+            conn,
+            readwrite: true,
+        };
+
+        let genesis_attachments = db.atlas_config.genesis_attachments.take();
+
+        let tx = db.tx_begin()?;
+
+        for row_text in ATLASDB_INITIAL_SCHEMA {
+            tx.execute_batch(row_text)?;
+        }
+
+        tx.execute("INSERT INTO db_config (version) VALUES (?1)", &["1"])?;
+
+        if let Some(attachments) = genesis_attachments {
+            let now = util::get_epoch_time_secs() as i64;
+            for attachment in attachments {
+                tx.execute(
+                    "INSERT INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
+                    rusqlite::params![
+                        &attachment.hash(),
+                        &attachment.content,
+                        &now,
+                    ],
+                )?;
+            }
+        }
+
+        tx.commit()?;
+
+        let tx = db.tx_begin()?;
+        for row_text in &ATLASDB_INDEXES[0..1] {
+            tx.execute_batch(row_text)?;
+        }
+        tx.commit()?;
+
+        Ok(db)
+    }
+
+    #[cfg(test)]
+    /// Only ever to be used in testing, connect to db, but using existing sqlconn
+    pub fn connect_with_sqlconn(
+        atlas_config: AtlasConfig,
+        conn: Connection,
+    ) -> Result<AtlasDB, db_error> {
+        Self::check_instantiate_db(atlas_config, conn, true, false)
     }
 
     pub fn conn(&self) -> &Connection {
@@ -387,19 +603,13 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         tx.execute(
             "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
-            &[
-                &attachment.hash() as &dyn ToSql,
-                &attachment.content as &dyn ToSql,
-                &now as &dyn ToSql,
-            ],
-        )
-        .map_err(db_error::SqliteError)?;
+            rusqlite::params![&attachment.hash(), &attachment.content, &now],
+        )?;
         tx.execute(
-            "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1",
-            &[&attachment.hash() as &dyn ToSql],
-        )
-        .map_err(db_error::SqliteError)?;
-        tx.commit().map_err(db_error::SqliteError)?;
+            "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1 AND status = ?2",
+            rusqlite::params![&attachment.hash(), &AttachmentInstanceStatus::Checked],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -434,19 +644,19 @@ impl AtlasDB {
     pub fn find_unresolved_attachment_instances(
         &mut self,
     ) -> Result<Vec<AttachmentInstance>, db_error> {
-        let qry = "SELECT * FROM attachment_instances WHERE is_available = 0".to_string();
-        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, [])?;
+        let qry = "SELECT * FROM attachment_instances WHERE is_available = 0 AND status = ?";
+        let rows = query_rows(&self.conn, qry, &[&AttachmentInstanceStatus::Checked])?;
         Ok(rows)
     }
 
     pub fn find_all_attachment_instances(
-        &mut self,
+        &self,
         content_hash: &Hash160,
     ) -> Result<Vec<AttachmentInstance>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
-        let qry = "SELECT * FROM attachment_instances WHERE content_hash = ?1".to_string();
-        let args = [&hex_content_hash as &dyn ToSql];
-        let rows = query_rows::<AttachmentInstance, _>(&self.conn, &qry, &args)?;
+        let qry = "SELECT * FROM attachment_instances WHERE content_hash = ?1 AND status = ?2";
+        let args = rusqlite::params![&hex_content_hash, &AttachmentInstanceStatus::Checked];
+        let rows = query_rows(&self.conn, qry, args)?;
         Ok(rows)
     }
 
@@ -462,31 +672,88 @@ impl AtlasDB {
         Ok(row)
     }
 
-    pub fn insert_uninstantiated_attachment_instance(
+    /// Queue a new attachment instance, status will be set to "queued",
+    /// and the is_available field set to false.
+    ///
+    /// This is invoked after block processing by the coordinator thread (which
+    /// handles atlas event logic).
+    pub fn queue_attachment_instance(
+        &mut self,
+        attachment: &AttachmentInstance,
+    ) -> Result<(), db_error> {
+        self.insert_attachment_instance(attachment, AttachmentInstanceStatus::Queued, false)
+    }
+
+    /// Insert an attachment instance from an initial batch.
+    /// All such instances are marked "checked", and is_available = true
+    ///
+    /// This is invoked by the AtlasDownloader when it first runs. The AtlasDownloader
+    /// is currently managed in the P2P thread.
+    pub fn insert_initial_attachment_instance(
+        &mut self,
+        attachment: &AttachmentInstance,
+    ) -> Result<(), db_error> {
+        self.insert_attachment_instance(attachment, AttachmentInstanceStatus::Checked, true)
+    }
+
+    /// Return all the queued attachment instances, limited by `MAX_PROCESS_PER_ROUND`
+    pub fn queued_attachments(&self) -> Result<Vec<AttachmentInstance>, db_error> {
+        query_rows(
+            &self.conn,
+            "SELECT * FROM attachment_instances WHERE status = ?1 LIMIT ?2",
+            rusqlite::params![&AttachmentInstanceStatus::Queued, MAX_PROCESS_PER_ROUND],
+        )
+    }
+
+    /// Update a queued attachment to "checked", setting the `is_available` field.
+    pub fn mark_attachment_instance_checked(
         &mut self,
         attachment: &AttachmentInstance,
         is_available: bool,
     ) -> Result<(), db_error> {
-        let hex_content_hash = to_hex(&attachment.content_hash.0[..]);
-        let hex_tx_id = attachment.tx_id.to_hex();
-        let tx = self.tx_begin()?;
+        self.conn.execute(
+            "UPDATE attachment_instances SET status = ?1, is_available = ?2
+              WHERE index_block_hash = ?3 AND contract_id = ?4 AND attachment_index = ?5",
+            rusqlite::params![
+                &AttachmentInstanceStatus::Checked,
+                &is_available,
+                &attachment.index_block_hash,
+                &attachment.contract_id.to_string(),
+                &attachment.attachment_index,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an attachment instance.
+    fn insert_attachment_instance(
+        &mut self,
+        attachment: &AttachmentInstance,
+        status: AttachmentInstanceStatus,
+        is_available: bool,
+    ) -> Result<(), db_error> {
+        let sql_tx = self.tx_begin()?;
         let now = util::get_epoch_time_secs() as i64;
-        let res = tx.execute(
-            "INSERT OR REPLACE INTO attachment_instances (content_hash, created_at, index_block_hash, attachment_index, block_height, is_available, metadata, contract_id, tx_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            &[
-                &hex_content_hash as &dyn ToSql,
-                &now as &dyn ToSql,
-                &attachment.index_block_hash as &dyn ToSql,
-                &attachment.attachment_index as &dyn ToSql,
+        sql_tx.execute(
+            "INSERT OR REPLACE INTO attachment_instances (
+               content_hash, created_at, index_block_hash,
+               attachment_index, block_height, is_available,
+                metadata, contract_id, tx_id, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                &attachment.content_hash,
+                &now,
+                &attachment.index_block_hash,
+                &attachment.attachment_index,
                 &u64_to_sql(attachment.stacks_block_height)?,
-                &is_available as &dyn ToSql,
-                &attachment.metadata as &dyn ToSql,
-                &attachment.contract_id.to_string() as &dyn ToSql,
-                &hex_tx_id as &dyn ToSql,
-            ]
-        );
-        res.map_err(db_error::SqliteError)?;
-        tx.commit().map_err(db_error::SqliteError)?;
+                &is_available,
+                &attachment.metadata,
+                &attachment.contract_id.to_string(),
+                &attachment.tx_id,
+                &status
+            ],
+        )?;
+        sql_tx.commit()?;
         Ok(())
     }
 }

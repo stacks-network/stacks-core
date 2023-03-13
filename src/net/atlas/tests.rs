@@ -28,6 +28,7 @@ use crate::net::{
     PeerHost, Requestable,
 };
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -775,6 +776,104 @@ fn test_keep_uninstantiated_attachments() {
 }
 
 #[test]
+fn schema_2_migration() {
+    let atlas_config = AtlasConfig {
+        contracts: HashSet::new(),
+        attachments_max_size: 1024,
+        max_uninstantiated_attachments: 10,
+        uninstantiated_attachments_expire_after: 0,
+        unresolved_attachment_instances_expire_after: 10,
+        genesis_attachments: None,
+    };
+
+    let atlas_db = AtlasDB::connect_memory_db_v1(atlas_config.clone()).unwrap();
+    let conn = atlas_db.conn;
+
+    let attachments = [
+        AttachmentInstance {
+            // content_hash, index_block_hash, and txid must contain hex letters!
+            //  because their fields are declared `STRING`, if you supply all numerals,
+            //  sqlite assigns the field a REAL affinity (instead of TEXT)
+            content_hash: Hash160([0xa0; 20]),
+            attachment_index: 1,
+            stacks_block_height: 1,
+            index_block_hash: StacksBlockId([0xb1; 32]),
+            metadata: "".into(),
+            contract_id: QualifiedContractIdentifier::transient(),
+            tx_id: Txid([0x2f; 32]),
+            canonical_stacks_tip_height: None,
+        },
+        AttachmentInstance {
+            content_hash: Hash160([0x00; 20]),
+            attachment_index: 1,
+            stacks_block_height: 1,
+            index_block_hash: StacksBlockId([0x0a; 32]),
+            metadata: "".into(),
+            contract_id: QualifiedContractIdentifier::transient(),
+            tx_id: Txid([0x0b; 32]),
+            canonical_stacks_tip_height: None,
+        },
+    ];
+
+    for attachment in attachments.iter() {
+        // need to manually insert data, because the insertion routine in the codebase
+        //  sets `status` which doesn't exist in v1
+        conn.execute(
+            "INSERT OR REPLACE INTO attachment_instances (
+               content_hash, created_at, index_block_hash,
+               attachment_index, block_height, is_available,
+                metadata, contract_id, tx_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                &attachment.content_hash,
+                &0,
+                &attachment.index_block_hash,
+                &attachment.attachment_index,
+                &u64_to_sql(attachment.stacks_block_height).unwrap(),
+                &true,
+                &attachment.metadata,
+                &attachment.contract_id.to_string(),
+                &attachment.tx_id,
+            ],
+        )
+        .unwrap();
+    }
+
+    // perform the migration and unwrap() to assert that it runs okay
+    let atlas_db = AtlasDB::connect_with_sqlconn(atlas_config, conn).unwrap();
+
+    let mut attachments_fetched_a0 = atlas_db
+        .find_all_attachment_instances(&Hash160([0xa0; 20]))
+        .unwrap();
+    assert_eq!(
+        attachments_fetched_a0.len(),
+        1,
+        "Should have one attachment instance marked 'checked' with hash `0xa0a0a0..`"
+    );
+
+    let attachment_a0 = attachments_fetched_a0.pop().unwrap();
+    assert_eq!(&attachment_a0, &attachments[0]);
+
+    let mut attachments_fetched_00 = atlas_db
+        .find_all_attachment_instances(&Hash160([0x00; 20]))
+        .unwrap();
+    assert_eq!(
+        attachments_fetched_00.len(),
+        1,
+        "Should have one attachment instance marked 'checked' with hash `0x000000..`"
+    );
+
+    let attachment_00 = attachments_fetched_00.pop().unwrap();
+    assert_eq!(&attachment_00, &attachments[1]);
+
+    assert_eq!(
+        atlas_db.queued_attachments().unwrap().len(),
+        0,
+        "Should have no attachment instance marked 'queued'"
+    );
+}
+
+#[test]
 fn test_evict_k_oldest_uninstantiated_attachments() {
     let atlas_config = AtlasConfig {
         contracts: HashSet::new(),
@@ -1003,7 +1102,7 @@ fn test_evict_expired_unresolved_attachment_instances() {
     };
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
 
-    // Insert some uninstanciated attachments
+    // Insert some uninstantiated attachments
     let uninstantiated_attachment_instances = [
         new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
         new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
@@ -1016,7 +1115,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
 
@@ -1029,7 +1131,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 
@@ -1043,7 +1148,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
 
@@ -1092,7 +1200,7 @@ fn test_bit_vectors() {
 
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
 
-    // Insert some uninstanciated attachments
+    // Insert some uninstantiated attachments
     let uninstantiated_attachment_instances = [
         new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
         new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
@@ -1101,7 +1209,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
     let block_id_1 = uninstantiated_attachment_instances[0].index_block_hash;
@@ -1118,7 +1229,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
     let bit_vector = atlas_db
@@ -1134,7 +1248,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 
@@ -1160,7 +1277,10 @@ fn test_bit_vectors() {
     let block_id_2 = instantiated_attachment_instances[0].index_block_hash;
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 
