@@ -1894,77 +1894,72 @@ impl BlockMinerThread {
         );
 
         // build the block itself
-        let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
-            &chain_state,
-            &burn_db.index_conn(),
-            &mut mem_pool,
-            &parent_block_info.stacks_parent_header,
-            parent_block_info.parent_block_total_burn,
-            vrf_proof.clone(),
-            mblock_pubkey_hash,
-            &coinbase_tx,
-            self.config.make_block_builder_settings(
-                attempt,
-                false,
-                self.globals.get_miner_status(),
-            ),
-            Some(&self.event_dispatcher),
-        ) {
-            Ok(block) => block,
-            Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
-                // part of the parent microblock stream is invalid, so try again
-                info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
+        let mut retry_count = 0;
+        let anchored_block = loop {
+            match StacksBlockBuilder::build_anchored_block(
+                &chain_state,
+                &burn_db.index_conn(),
+                &mut mem_pool,
+                &parent_block_info.stacks_parent_header,
+                parent_block_info.parent_block_total_burn,
+                vrf_proof.clone(),
+                mblock_pubkey_hash,
+                &coinbase_tx,
+                self.config.make_block_builder_settings(
+                    attempt,
+                    false,
+                    self.globals.get_miner_status(),
+                ),
+                Some(&self.event_dispatcher),
+            ) {
+                Ok((block, _, _)) => {
+                    break block;
+                }
+                Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
+                    // part of the parent microblock stream is invalid, so try again
+                    info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
 
-                // truncate the stream
-                parent_block_info.stacks_parent_header.microblock_tail = match microblocks_opt {
-                    Some(microblocks) => {
-                        let mut tail = None;
-                        for mblock in microblocks.into_iter() {
-                            if mblock.block_hash() == mblock_header_hash {
-                                break;
+                    // truncate the stream
+                    parent_block_info.stacks_parent_header.microblock_tail = match microblocks_opt {
+                        Some(ref microblocks) => {
+                            let mut tail = None;
+                            for mblock in microblocks.clone().into_iter() {
+                                if mblock.block_hash() == mblock_header_hash {
+                                    break;
+                                }
+                                tail = Some(mblock);
                             }
-                            tail = Some(mblock);
+                            if let Some(ref t) = &tail {
+                                debug!(
+                                    "New parent microblock stream tail is {} (seq {})",
+                                    t.block_hash(),
+                                    t.header.sequence
+                                );
+                            }
+                            tail.map(|t| t.header)
                         }
-                        if let Some(ref t) = &tail {
-                            debug!(
-                                "New parent microblock stream tail is {} (seq {})",
-                                t.block_hash(),
-                                t.header.sequence
-                            );
-                        }
-                        tail.map(|t| t.header)
-                    }
-                    None => None,
-                };
+                        None => None,
+                    };
 
-                // try again
-                match StacksBlockBuilder::build_anchored_block(
-                    &chain_state,
-                    &burn_db.index_conn(),
-                    &mut mem_pool,
-                    &parent_block_info.stacks_parent_header,
-                    parent_block_info.parent_block_total_burn,
-                    vrf_proof.clone(),
-                    mblock_pubkey_hash,
-                    &coinbase_tx,
-                    self.config.make_block_builder_settings(
-                        attempt,
-                        false,
-                        self.globals.get_miner_status(),
-                    ),
-                    Some(&self.event_dispatcher),
-                ) {
-                    Ok(block) => block,
-                    Err(e) => {
-                        error!("Relayer: Failure mining anchor block even after removing offending microblock {}: {}", &mblock_header_hash, &e);
+                    // try again
+                    retry_count += 1;
+                }
+                Err(ChainstateError::MinerAborted) => {
+                    if retry_count >= 5 {
+                        warn!("Miner aborted tenure because miner was blocked on 5 attempts");
                         return None;
                     }
+                    retry_count += 1;
+                    let retry_time = 2u64.saturating_pow(retry_count);
+                    let retry_time = if retry_time > 30 { 300 } else { retry_time };
+                    info!("Miner blocked and aborted tenure, will try again"; "retry_time_secs" => retry_time);
+                    thread::sleep(Duration::from_secs(retry_time));
                 }
-            }
-            Err(e) => {
-                error!("Relayer: Failure mining anchored block: {}", e);
-                return None;
-            }
+                Err(e) => {
+                    error!("Relayer: Failure mining anchored block: {}", e);
+                    return None;
+                }
+            };
         };
 
         info!(
