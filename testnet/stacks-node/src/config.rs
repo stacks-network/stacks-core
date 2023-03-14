@@ -665,6 +665,9 @@ impl Config {
                     // chainstate fault_injection activation for hide_blocks.
                     // you can't set this in the config file.
                     fault_injection_hide_blocks: false,
+                    chain_liveness_poll_time_secs: node
+                        .chain_liveness_poll_time_secs
+                        .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1456,6 +1459,9 @@ pub struct NodeConfig {
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1733,6 +1739,7 @@ impl NodeConfig {
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
+            chain_liveness_poll_time_secs: 300,
         }
     }
 
@@ -1934,6 +1941,9 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
     pub require_affirmed_anchor_blocks: Option<bool>,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
