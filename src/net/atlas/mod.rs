@@ -71,8 +71,8 @@ impl AtlasConfig {
         AtlasConfig {
             contracts,
             attachments_max_size: 1_048_576,
-            max_uninstantiated_attachments: 10_000,
-            uninstantiated_attachments_expire_after: 3_600,
+            max_uninstantiated_attachments: 50_000,
+            uninstantiated_attachments_expire_after: 86_400,
             unresolved_attachment_instances_expire_after: 172_800,
             genesis_attachments: None,
         }
