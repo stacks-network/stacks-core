@@ -4711,7 +4711,7 @@ fn trait_invocation_cross_epoch() {
 
     test_observer::spawn();
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
     let mut initial_balances = vec![InitialBalance {
         address: spender_addr.clone(),
         amount: 200_000_000,
@@ -4727,8 +4727,6 @@ fn trait_invocation_cross_epoch() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     conf.burnchain.epochs = Some(epochs);
-
-    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
