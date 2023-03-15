@@ -365,15 +365,15 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         let sql = format!("CREATE TABLE IF NOT EXISTS {}(counts BLOB NOT NULL, num_bins INTEGER NOT NULL, num_hashes INTEGER NOT NULL, hasher BLOB NOT NULL);", table_name);
         tx.execute(&sql, NO_PARAMS).map_err(db_error::SqliteError)?;
 
-        let (num_bits, num_hashes) = bloom_hash_count(error_rate, max_items);
-        let counts_vec = vec![0u8; (num_bits * 4) as usize];
+        let (num_bins, num_hashes) = bloom_hash_count(error_rate, max_items);
+        let counts_vec = vec![0u8; (num_bins * 4) as usize];
         let hasher_vec = hasher.serialize_to_vec();
 
         let sql = format!(
             "INSERT INTO {} (counts, num_bins, num_hashes, hasher) VALUES (?1, ?2, ?3, ?4)",
             table_name
         );
-        let args: &[&dyn ToSql] = &[&counts_vec, &num_bits, &num_hashes, &hasher_vec];
+        let args: &[&dyn ToSql] = &[&counts_vec, &num_bins, &num_hashes, &hasher_vec];
 
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 
@@ -384,7 +384,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         Ok(BloomCounter {
             hasher,
             table_name: table_name.to_string(),
-            num_bins: num_bits,
+            num_bins: num_bins,
             num_hashes,
             counts_rowid: counts_rowid as u32,
         })
@@ -533,8 +533,6 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
                 let new_bin = bin - 1;
                 BloomCounter::<H>::set_counts_bin(&mut fd, slot, new_bin);
                 count = cmp::min(new_bin, count);
-            } else {
-                panic!("BUG: item is present in the bloom counter, but has a zero count (i = {}, slot = {})", i, slot);
             }
         }
 
