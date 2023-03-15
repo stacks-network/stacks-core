@@ -382,11 +382,14 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "async-h1",
+ "async-std",
  "chrono",
  "clarity",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "http-types",
  "integer-sqrt",
  "lazy_static",
  "libc",
