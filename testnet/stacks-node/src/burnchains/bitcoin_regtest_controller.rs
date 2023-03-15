@@ -667,13 +667,13 @@ impl BitcoinRegtestController {
         result_vec
     }
 
-    /// Checks if there is a default wallet with the name of "".
-    /// If the default wallet does not exist, this function creates a wallet with name "".
+    /// Checks if the config-supplied wallet exists.
+    /// If it does not exist, this function creates it.
     pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
         let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
 
-        if !wallets.contains(&("".to_string())) {
-            BitcoinRPCRequest::create_wallet(&self.config, "")?;
+        if !wallets.contains(&self.config.burnchain.wallet_name) {
+            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
         }
         Ok(())
     }
@@ -2138,15 +2138,15 @@ impl BitcoinRPCRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
-                "importaddress" | "listunspent" => Some("".to_string()),
+                "importaddress" | "listunspent" => Some(config.burnchain.wallet_name.clone()),
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
             Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
         };
         debug!(
-            "BitcoinRPC builder: {:?}:{:?}@{}",
-            &config.burnchain.username, &config.burnchain.password, &url
+            "BitcoinRPC builder '{}': {:?}:{:?}@{}",
+            &payload.method, &config.burnchain.username, &config.burnchain.password, &url
         );
 
         let mut req = Request::new(Method::Post, url);

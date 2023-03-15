@@ -1243,7 +1243,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     signature: "(get key-name tuple)",
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
-the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
+the tuple. If the supplied option is a `none` option, get returns `none`.",
     example: "(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
@@ -1450,7 +1450,7 @@ const EXPECTS_API: SpecialAPI = SpecialAPI {
     description: "The `unwrap!` function attempts to 'unpack' the first argument: if the argument is
 an option type, and the argument is a `(some ...)` option, `unwrap!` returns the inner value of the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `unwrap!` returns
- the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
+ the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1496,7 +1496,7 @@ const UNWRAP_API: SpecialAPI = SpecialAPI {
     description: "The `unwrap` function attempts to 'unpack' its argument: if the argument is
 an option type, and the argument is a `(some ...)` option, this function returns the inner value of the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, it returns
- the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
+ the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1588,7 +1588,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(default-to default-value option-value)",
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
-a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
+a `(some ...)` option, it returns the inner value of the option. If the second argument is a `none` value,
 `default-to` it returns the value of `default-value`.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1648,7 +1648,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(is-none value)",
     description:
-        "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
+        "`is-none` tests a supplied option value, returning `true` if the option value is `none`,
 and `false` if it is a `(some ...)`.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1768,7 +1768,7 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 
 const PRINCIPAL_CONSTRUCT_API: SpecialAPI = SpecialAPI {
     input_type: "(buff 1), (buff 20), [(string-ascii 40)]",
-    output_type: "(response principal { error_code: uint, principal: (option principal) })",
+    output_type: "(response principal { error_code: uint, value: (optional principal) })",
     snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
     signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
     description: "A principal value represents either a set of keys, or a smart contract.
@@ -1800,7 +1800,7 @@ however, then the `value` will be `none`.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
 value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_code`
-will be `u1` and `value` will be `None`.
+will be `u1` and `value` will be `none`.
 
 If a name is given, and the name is either an empty string or contains ASCII characters
 that are not allowed in contract names, then `error_code` will be `u2`.

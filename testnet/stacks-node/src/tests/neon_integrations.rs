@@ -67,6 +67,7 @@ use stacks::{
 };
 
 use crate::{
+    burnchains::bitcoin_regtest_controller::BitcoinRPCRequest,
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
     config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
     syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
@@ -10211,6 +10212,70 @@ fn push_boot_receipts() {
         .expect("Expected events key to be an array in mined block event");
 
     assert_eq!(events.len(), 26);
+}
+
+/// Verify that we can operate with a custom wallet name
+#[test]
+#[ignore]
+fn run_with_custom_wallet() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    // custom wallet
+    conf.burnchain.wallet_name = "test_with_custom_wallet".to_string();
+
+    test_observer::spawn();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // First block wakes up the run loop.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Second block will hold our VRF registration.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Third block will be the first mined Stacks block.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // verify that the event observer got its boot receipts.
+    // If we get this far, then it also means that mining and block-production worked.
+    let blocks = test_observer::get_blocks();
+    assert!(blocks.len() > 1);
+
+    // bitcoin node knows of this wallet
+    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
+    let mut found = false;
+    for w in wallets {
+        if w == conf.burnchain.wallet_name {
+            found = true;
+        }
+    }
+    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime
