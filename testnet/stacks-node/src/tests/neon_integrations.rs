@@ -7682,7 +7682,7 @@ fn atlas_stress_integration_test() {
     let mut attachment_hashes = HashMap::new();
     {
         let atlasdb_path = conf_bootstrap_node.get_atlas_db_file_path();
-        let atlasdb = AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, false).unwrap();
+        let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, false).unwrap();
         for ibh in index_block_hashes.iter() {
             let indexes = query_rows::<u64, _>(
                 &atlasdb.conn,

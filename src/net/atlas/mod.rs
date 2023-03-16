@@ -65,7 +65,7 @@ pub struct AtlasConfig {
 }
 
 impl AtlasConfig {
-    pub fn default(mainnet: bool) -> AtlasConfig {
+    pub fn new(mainnet: bool) -> AtlasConfig {
         let mut contracts = HashSet::new();
         contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {

@@ -5540,7 +5540,7 @@ mod test {
             initial_neighbors,
         )
         .unwrap();
-        let atlas_config = AtlasConfig::default(false);
+        let atlas_config = AtlasConfig::new(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
