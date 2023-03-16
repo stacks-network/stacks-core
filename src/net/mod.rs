@@ -2713,8 +2713,7 @@ pub mod test {
             }
 
             let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
-            let atlasdb =
-                AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
+            let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {

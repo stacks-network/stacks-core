@@ -4143,7 +4143,7 @@ impl StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
-        let atlas_config = AtlasConfig::default(config.is_mainnet());
+        let atlas_config = config.atlas.clone();
         let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
@@ -4153,7 +4153,7 @@ impl StacksNode {
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         Self::setup_ast_size_precheck(&config, &mut sortdb);
 

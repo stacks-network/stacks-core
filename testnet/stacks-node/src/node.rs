@@ -464,7 +464,20 @@ impl Node {
         node
     }
 
-    pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
+    fn make_atlas_config() -> AtlasConfig {
+        AtlasConfig::new(false)
+    }
+
+    pub fn make_atlas_db(&self) -> AtlasDB {
+        AtlasDB::connect(
+            Self::make_atlas_config(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .unwrap()
+    }
+
+    pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let burnchain = self.config.get_burnchain();
