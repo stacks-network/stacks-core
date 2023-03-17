@@ -12,7 +12,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Handle the case where a bitcoin node returns zero headers (#3588)
 - The default value for `always_use_affirmation_maps` is now set to `false`,
   instead of `true`.  This was preventing testnet nodes from reaching the chain
-tip with the default configuration.
+  tip with the default configuration.
+- Reduce default poll time of the `chain-liveness` thread which reduces the
+  possibility that a miner thread will get interrupted (#3610).
 
 ## [2.1]
 
