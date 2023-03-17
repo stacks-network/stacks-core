@@ -3256,7 +3256,7 @@ impl StacksChainState {
     /// Load up the metadata on a microblock stream (but don't get the data itself)
     /// DO NOT USE IN PRODUCTION -- doesn't work for microblock forks.
     #[cfg(test)]
-    fn stream_microblock_get_info(
+    pub(crate) fn stream_microblock_get_info(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
     ) -> Result<Vec<StagingMicroblock>, Error> {

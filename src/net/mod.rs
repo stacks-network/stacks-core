@@ -3616,6 +3616,7 @@ pub mod test {
 
             *coinbase_nonce += 1;
 
+            info!("MAP: in tenure with tx, bhh: {:?}, ch: {:?}", stacks_block.block_hash(), consensus_hash);
             let tip_id = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if let Some((start_check_cycle, end_check_cycle)) = self.config.check_pox_invariants {
