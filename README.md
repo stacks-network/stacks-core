@@ -67,7 +67,7 @@ You can observe the state machine in action locally by running:
 
 ```bash
 $ cd testnet/stacks-node
-$ cargo stacks-node start --config=./conf/testnet-follower-conf.toml
+$ cargo run --bin stacks-node -- start --config=./conf/testnet-follower-conf.toml
 ```
 
 _On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
