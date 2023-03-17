@@ -1116,6 +1116,10 @@ impl Config {
             None => AtlasConfig::new(mainnet),
         };
 
+        atlas
+            .validate()
+            .map_err(|e| format!("Atlas config error: {e}"))?;
+
         Ok(Config {
             node,
             burnchain,
