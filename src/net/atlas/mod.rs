@@ -54,6 +54,8 @@ lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
 }
 
+const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;
+
 #[derive(Debug, Clone)]
 pub struct AtlasConfig {
     pub contracts: HashSet<QualifiedContractIdentifier>,
@@ -70,11 +72,19 @@ impl AtlasConfig {
         contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {
             contracts,
-            attachments_max_size: 1_048_576,
+            attachments_max_size: ATTACHMENTS_MAX_SIZE_MIN,
             max_uninstantiated_attachments: 10_000,
             uninstantiated_attachments_expire_after: 3_600,
             unresolved_attachment_instances_expire_after: 172_800,
             genesis_attachments: None,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.attachments_max_size < ATTACHMENTS_MAX_SIZE_MIN {
+            Err(format!("Invalid value for `attachments_max_size`: {}. Expected {} or greater", self.attachments_max_size, ATTACHMENTS_MAX_SIZE_MIN))
+        } else {
+            Ok(())
         }
     }
 }
