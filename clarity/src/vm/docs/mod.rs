@@ -2249,8 +2249,9 @@ const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
-This function returns the STX balance, in microstacks (1 STX = 1,000,000 microstacks), of the
-`owner` principal. In the event that the `owner` principal isn't materialized, it returns 0.
+This function returns the (unlocked) STX balance, in microstacks (1 STX = 1,000,000 microstacks), of the
+`owner` principal. The result is the same as `(get unlocked (stx-account user))`. 
+In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
@@ -2261,6 +2262,7 @@ This function returns the STX balance, in microstacks (1 STX = 1,000,000 microst
 const STX_GET_ACCOUNT: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "stx-account ${1:owner}",
+    output_type: "{locked: uint, unlock-height: uint, unlocked: uint}",
     signature: "(stx-account owner)",
     description: "`stx-account` is used to query the STX account of the `owner` principal.
 
