@@ -248,6 +248,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -382,6 +383,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -516,6 +518,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
@@ -541,6 +544,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
@@ -1230,6 +1234,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
                 mempool
                     .submit(
                         chainstate,
+                        sortdb,
                         &parent_consensus_hash,
                         &parent_header_hash,
                         &tx,
@@ -1430,6 +1435,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -1451,6 +1457,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1471,6 +1478,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -1617,6 +1625,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1771,6 +1780,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1901,6 +1911,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -1928,6 +1939,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2262,6 +2274,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2290,6 +2303,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2326,6 +2340,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2354,6 +2369,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2599,6 +2615,7 @@ fn test_build_microblock_stream_forks() {
                             mempool
                                 .submit_raw(
                                     chainstate,
+                                    sortdb,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     tx_bytes,
@@ -2925,6 +2942,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                             mempool
                                 .submit_raw(
                                     chainstate,
+                                    sortdb,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     tx_bytes,
@@ -3000,6 +3018,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             tx_bytes,
@@ -3032,6 +3051,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             tx_bytes,
@@ -3989,6 +4009,7 @@ fn test_is_tx_problematic() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx,
@@ -4015,6 +4036,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_spends_too_much_tx,
@@ -4063,6 +4085,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                           sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &spend_too_much,
@@ -4113,6 +4136,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &runtime_checkerror_problematic,
@@ -4161,6 +4185,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                                sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &runtime_checkerror_problematic,
@@ -4296,6 +4321,7 @@ fn test_fee_order_mismatch_nonce_order() {
             mempool
                 .submit(
                     chainstate,
+                    sortdb,
                     &parent_consensus_hash,
                     &parent_header_hash,
                     &stx_transfer0,
@@ -4308,6 +4334,7 @@ fn test_fee_order_mismatch_nonce_order() {
             mempool
                 .submit(
                     chainstate,
+                    sortdb,
                     &parent_consensus_hash,
                     &parent_header_hash,
                     &stx_transfer1,

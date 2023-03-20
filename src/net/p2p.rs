@@ -5296,6 +5296,7 @@ impl PeerNetwork {
 
         if let Err(e) = mempool.submit(
             chainstate,
+            sortdb,
             consensus_hash,
             block_hash,
             &tx,

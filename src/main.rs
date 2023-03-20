@@ -1434,6 +1434,7 @@ simulating a miner.
                         }
                         let result = mempool_db.submit(
                             &mut chain_state,
+                            &sort_db,
                             &stacks_block.consensus_hash,
                             &stacks_block.anchored_block_hash,
                             &raw_tx,

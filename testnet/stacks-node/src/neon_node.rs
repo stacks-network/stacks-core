@@ -1595,6 +1595,7 @@ impl BlockMinerThread {
     fn load_and_vet_parent_microblocks(
         &mut self,
         chain_state: &mut StacksChainState,
+        sortdb: &SortitionDB,
         mem_pool: &mut MemPoolDB,
         parent_block_info: &mut ParentStacksBlockInfo,
     ) -> Option<Vec<StacksMicroblock>> {
@@ -1663,6 +1664,7 @@ impl BlockMinerThread {
                     // anchored block.
                     if let Err(e) = mem_pool.miner_submit(
                         chain_state,
+                        sortdb,
                         &parent_consensus_hash,
                         &stacks_parent_header.anchored_header.block_hash(),
                         &poison_microblock_tx,
@@ -1890,6 +1892,7 @@ impl BlockMinerThread {
         // target it to the microblock tail in parent_block_info
         let microblocks_opt = self.load_and_vet_parent_microblocks(
             &mut chain_state,
+            &burn_db,
             &mut mem_pool,
             &mut parent_block_info,
         );
