@@ -2223,7 +2223,7 @@ impl PeerNetwork {
                     None
                 }
             }
-        }
+        };
     }
 
     /// Begin the process of learning this peer's public IP address.
