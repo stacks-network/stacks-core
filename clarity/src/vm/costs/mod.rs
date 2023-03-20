@@ -699,7 +699,7 @@ impl LimitedCostTracker {
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
-            StacksEpochId::Epoch21 => COSTS_3_NAME.to_string(),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => COSTS_3_NAME.to_string(),
         }
     }
 }
