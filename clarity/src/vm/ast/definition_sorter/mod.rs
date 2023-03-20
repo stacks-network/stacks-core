@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -35,13 +37,15 @@ use crate::vm::ClarityVersion;
 mod tests;
 
 pub struct DefinitionSorter {
+    epoch: StacksEpochId,
     graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
 }
 
 impl<'a> DefinitionSorter {
-    fn new() -> Self {
+    fn new(epoch: StacksEpochId) -> Self {
         Self {
+            epoch,
             top_level_expressions_map: HashMap::new(),
             graph: Graph::new(),
         }
@@ -51,8 +55,9 @@ impl<'a> DefinitionSorter {
         contract_ast: &mut ContractAST,
         accounting: &mut T,
         version: ClarityVersion,
+        epoch: StacksEpochId,
     ) -> ParseResult<()> {
-        let mut pass = DefinitionSorter::new();
+        let mut pass = DefinitionSorter::new(epoch);
         pass.run(contract_ast, accounting, version)?;
         Ok(())
     }
@@ -134,7 +139,7 @@ impl<'a> DefinitionSorter {
                 Ok(())
             }
             List(ref exprs) => {
-                // Filter comments out of the list of expressions.
+                // Filter comments out of the list of expressions (top-level only).
                 let filtered_exprs: Vec<&PreSymbolicExpression> = exprs
                     .iter()
                     .filter(|expr| expr.match_comment().is_none())
@@ -201,6 +206,7 @@ impl<'a> DefinitionSorter {
                                     if let Some(trait_sig) = function_args[1].match_list() {
                                         for func_sig in trait_sig.iter() {
                                             if let Some(func_sig) = func_sig.match_list() {
+                                                let func_sig = self.filter_comments(func_sig);
                                                 if func_sig.len() == 3 {
                                                     self.probe_for_dependencies(
                                                         &func_sig[1],
@@ -251,7 +257,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(self.filter_comments(bindings), tle_index, version)?;
                                         }
                                         for expr in
                                             function_args[1..function_args.len()].into_iter()
@@ -318,7 +324,11 @@ impl<'a> DefinitionSorter {
             .collect::<Vec<_>>();
 
         for pair in pairs.iter() {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_key_value_pair(
+                pair.iter().collect(),
+                tle_index,
+                version,
+            )?;
         }
         Ok(())
     }
@@ -334,8 +344,8 @@ impl<'a> DefinitionSorter {
             // 1. (define-public func_name body)
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
-            if let Some((_, pairs)) = func_sig.split_first() {
-                let pairs_vec: Vec<&PreSymbolicExpression> = pairs.iter().collect();
+            if let Some((_, pairs)) = self.filter_comments(func_sig).split_first() {
+                let pairs_vec: Vec<&PreSymbolicExpression> = pairs.to_vec();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
                     pairs_vec, tle_index, version,
                 )?;
@@ -363,14 +373,18 @@ impl<'a> DefinitionSorter {
         version: ClarityVersion,
     ) -> ParseResult<()> {
         if let Some(pair) = expr.match_list() {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_key_value_pair(
+                self.filter_comments(pair),
+                tle_index,
+                version,
+            )?;
         }
         Ok(())
     }
 
     fn probe_for_dependencies_in_key_value_pair(
         &mut self,
-        pair: &[PreSymbolicExpression],
+        pair: Vec<&PreSymbolicExpression>,
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
@@ -384,19 +398,37 @@ impl<'a> DefinitionSorter {
         &mut self,
         exp: &'b PreSymbolicExpression,
     ) -> Option<(ClarityName, u64, &'b PreSymbolicExpression)> {
+        let exp = self.filter_comments(exp.match_list()?);
         let args = {
-            let exp = exp.match_list()?;
             let (function_name, args) = exp.split_first()?;
             let function_name = function_name.match_atom()?;
             DefineFunctions::lookup_by_name(function_name)?;
             Some(args)
         }?;
-        let defined_name = match args.get(0)?.match_list() {
-            Some(list) => list.get(0)?,
-            _ => &args[0],
-        };
-        let tle_name = defined_name.match_atom()?;
-        Some((tle_name.clone(), defined_name.id, defined_name))
+        if let Some(list) = args.get(0)?.match_list() {
+            let exprs = self.filter_comments(list);
+            let defined_name = exprs.get(0)?;
+            let tle_name = defined_name.match_atom()?;
+            Some((tle_name.clone(), defined_name.id, defined_name))
+        } else {
+            let defined_name = &args[0];
+            let tle_name = defined_name.match_atom()?;
+            Some((tle_name.clone(), defined_name.id, defined_name))
+        }
+    }
+
+    fn filter_comments<'b>(
+        &'a self,
+        exprs: &'b [PreSymbolicExpression],
+    ) -> Vec<&'b PreSymbolicExpression> {
+        if self.epoch < StacksEpochId::Epoch22 {
+            exprs.iter().collect()
+        } else {
+            exprs
+                .iter()
+                .filter(|expr| expr.match_comment().is_none())
+                .collect()
+        }
     }
 }
 
