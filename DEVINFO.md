@@ -1,8 +1,10 @@
 # How to Create and Review PRs
 
+This document describes some best practices on how to create and review PRs in this context.  The target audience is people who have commit access to this repository (reviewers), and people who open PRs (submitters).  This is a living document -- developers can and should document their own additional guidelines here.
+
 ## Overview
 
-Blockchain software development requires a much higher degree of rigor than most other kinds of software.  This is because with blockchains, **there is no roll-back** from a bad deployment.  There is essentially zero room for consensus bugs.  If you ship a consensus bug, that bug could not only have catastrophic consequences for users (i.e. they lose all their money), but also be intractable to fix, mitigate, or remove.  This is because unlike nearly every other kind of networked software, **the state of the blockchain is what the users' computers say it is.**  If you want to make changes, you _must_ get _user_ buy-in, and this is necessarily time-consuming and not at all guaranteed to succeed.
+Blockchain software development requires a much higher degree of rigor than most other kinds of software.  This is because with blockchains, **there is no roll-back** from a bad deployment.
 
 Therefore, making changes to the codebase is necessarily a review-intensive process.  No one wants bugs, but **no one can afford consensus bugs**.  This page describes how to make and review _non-consensus_ changes.  The process for consensus changes includes not only the entirety of this document, but also the [SIP process](https://github.com/stacksgov/sips/blob/main/sips/sip-000/sip-000-stacks-improvement-proposal-process.md).
 
@@ -16,7 +18,9 @@ This document is formatted like a checklist.  Each paragraph is one goal or acti
 
 The overall task of a reviewer is to create an **acceptance plan** for the submitter.  This is simply the list of things that the submitter _must_ do in order for the PR to be merged.  The acceptance plan should be coherent, cohesive, succinct, and complete enough that the reviewer will understand exactly what they need to do to make the PR worthy of merging, without further reviews.  The _lack of ambiguity_ is the most important trait of an acceptance plan.
 
-Reviewers should **strive to complete the review in one round**.  The reviewer should provide enough detail to the submitter that the submitter can make all of the requested changes without further supervision.  Whenever possible, the reviewer should provide all of these details publicly as comments, so that _other_ reviewers can vet them as well.  If a reviewer _cannot_ complete the review in one round due to its size and complexity, then the reviewer may request that the PR be simplified or broken into multiple PRs.
+Reviewers should **complete the review in one round**.  The reviewer should provide enough detail to the submitter that the submitter can make all of the requested changes without further supervision.  Whenever possible, the reviewer should provide all of these details publicly as comments, so that _other_ reviewers can vet them as well.  If a reviewer _cannot_ complete the review in one round due to its size and complexity, then the reviewer may request that the PR be simplified or broken into multiple PRs.
+
+Reviewers should make use of Github's "pending comments" feature. This ensures that the review is "atomic": when the reviewer submits the review, all the comments are published at once.
 
 Reviewers should aim to **perform a reviewer in one sitting** whenever possible.  This enables a reviewer to time-box their review, and ensures that by the time they finish studying the patch, they have a complete understanding of what the PR does in their head.  This, in turn, sets them up for success when writing up the acceptance plan.  It also enables reviewers to mark time for it on their calendars, which helps everyone else develop reasonable expectations as to when things will be done.
 
@@ -24,11 +28,17 @@ Code reviews should be timely.  A PR review should begin no more than **2 busine
 
 Reviewers must, above all else, **ensure that submitters follow the PR checklist** below. 
 
+**As a reviewer, if you do not understand the PR's code or the potential consequences of the code, it is the submitter's responsibility to simplify the code, provide better documentation, or withdraw the PR.**
+
 ## Submitter Expectations
 
 Everyone is busy all the time with a host of different tasks.  Consequently, a PR's size and scope should be constrained so that **a review can be written for it no more than 2 hours.**  This time block starts when the reviewer opens the patch, and ends when the reviewer hits the "submit review" button.  If it takes more than 2 hours, then the PR should be broken into multiple PRs unless the reviewers agree to spend more time on it.  A PR can be rejected if the reviewers believe they will need longer than this.
 
-The size and scale of a PR depend on the reviewers' abilities to process the change.  Different reviewers and submitters have different levels of familiarity with the codebase.  Moreover, everyone has a different schedule -- sometimes, some people are more busy than others.  A successful PR submitter **takes the reviewers' familiarity and availability into account** when crafting the PR, even going to far as to ask in advance if a particular person could be available for review.
+The size and scale of a PR depend on the reviewers' abilities to process the change.  Different reviewers and submitters have different levels of familiarity with the codebase.  Moreover, everyone has a different schedule -- sometimes, some people are more busy than others.
+
+A successful PR submitter **takes the reviewers' familiarity and availability into account** when crafting the PR, even going so far as to ask in advance if a particular person could be available for review.
+
+Providing detailed answers to reviewer questions is often necessary as a submitter. In order to make this information accessible even after a PR has merged, submitters should strive to incorporate any clarifications into code comments.
 
 ## Submission Checklist
 
@@ -40,10 +50,13 @@ A PR submission's text should **answer the following questions** for reviewers:
 * What do reviewers need to be familiar with in order to provide useful feedback?
 * What issue(s) are addressed by this PR?
 * What are some hints to understanding some of the more intricate or clever parts of the PR?
+* Does this PR change any database schemas? Does a node need to re-sync from genesis when this PR is applied?
 
 In addition, the PR submission should **answer the prompts of the Github template** we use for PRs.
 
-The code itself should adhere to the following guidelines, which both submitters and reviewers should check:
+The code itself should adhere to our coding guidelines, which both submitters and reviewers should check.
+
+## Coding Guidelines
 
 ### Documentation
 
