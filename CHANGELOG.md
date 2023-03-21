@@ -21,6 +21,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
 
+- Fixed a bug in the definition sorter, where functions could be sorted
+  incorrectly due to comments not being handled correctly in the AST. This
+  problem was exposed with 2.1, because 2.1 introduces a new parser that
+  includes comment nodes in the pre-symbolic expression AST. Because this bug
+  would make an otherwise legal contract get rejected by a node, this is a
+  **consensus-breaking** change.
+
 ## [2.1.0.0.2]
 
 This software update is a hotfix to resolve improper unlock handling
