@@ -632,7 +632,7 @@ impl RunLoop {
         last_stacks_pox_reorg_recover_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
@@ -727,7 +727,9 @@ impl RunLoop {
                 &stacks_tip_affirmation_map, &heaviest_affirmation_map
             );
 
-            // do it anyway since it's harmless
+            // announce a new stacks block to force the chains coordinator
+            //  to wake up anyways. this isn't free, so we have to make sure
+            //  the chain-liveness thread doesn't wake up too often
             globals.coord().announce_new_stacks_block();
         }
 
@@ -750,7 +752,7 @@ impl RunLoop {
         last_announce_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
