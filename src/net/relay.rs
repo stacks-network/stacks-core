@@ -5824,6 +5824,7 @@ pub mod test {
             let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
             let versioned_contract_len = versioned_contract.serialize_to_vec().len();
             match node.chainstate.will_admit_mempool_tx(
+                &sortdb.index_conn(),
                 &consensus_hash,
                 &stacks_block.block_hash(),
                 &versioned_contract,
@@ -5873,6 +5874,7 @@ pub mod test {
         let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
         match node.chainstate.will_admit_mempool_tx(
+            &sortdb.index_conn(),
             &consensus_hash,
             &stacks_block.block_hash(),
             &versioned_contract,

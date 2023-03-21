@@ -2093,6 +2093,7 @@ impl ConversationHttp {
             } else {
                 match mempool.submit(
                     chainstate,
+                    sortdb,
                     &consensus_hash,
                     &block_hash,
                     &tx,
