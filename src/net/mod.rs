@@ -2788,17 +2788,15 @@ pub mod test {
             )
             .unwrap();
 
-            let (tx, _) = sync_channel(100000);
-
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
-            let mut coord = ChainsCoordinator::test_new_with_observer(
+            let mut coord = ChainsCoordinator::test_new_full(
                 &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
-                tx,
                 observer,
                 indexer,
+                None,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -2938,10 +2936,8 @@ pub mod test {
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
-            let mut stacks_node = self.stacks_node.take().unwrap();
-            let mut mempool = self.mempool.take().unwrap();
-
+            let sortdb = self.sortdb.take().unwrap();
+            let stacks_node = self.stacks_node.take().unwrap();
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
@@ -2956,6 +2952,17 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+
+            self.step_with_ibd(ibd)
+        }
+
+        pub fn step_with_ibd(&mut self, ibd: bool) -> Result<NetworkResult, net_error> {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
@@ -2968,7 +2975,6 @@ pub mod test {
                 ibd,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -3010,7 +3016,6 @@ pub mod test {
                 ibd,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);

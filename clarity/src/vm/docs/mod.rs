@@ -570,7 +570,7 @@ const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "bit-not ${1:expr-1}",
     signature: "(bit-not i1)",
     description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
-In other words, every bit that is `1` in ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
+In other words, every bit that is `1` in `ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
 ",
     example: "(bit-not 3) ;; Returns -4
 (bit-not u128) ;; Returns u340282366920938463463374607431768211327
@@ -896,7 +896,8 @@ const LET_API: SpecialAPI = SpecialAPI {
 evaluating each expression and _binding_ it to the corresponding variable name.
 `let` bindings are sequential: when a `let` binding is evaluated, it may refer to prior binding.
 The _context_ created by this set of bindings is used for evaluating its body expressions.
- The let expression returns the value of the last such body expression.
+The let expression returns the value of the last such body expression.
+
 Note: intermediary statements returning a response type must be checked",
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20
 (let ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23",
@@ -937,7 +938,8 @@ and outputs a _list_ of the same type containing the outputs from those function
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 The `func` argument must be a literal function name.
-Also, note that, no matter what kind of sequences the inputs are, the output is always a list.",
+
+Note: no matter what kind of sequences the inputs are, the output is always a list.",
     example: r#"
 (map not (list true false true false)) ;; Returns (false true false true)
 (map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)
@@ -1069,6 +1071,7 @@ const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     description: "The `element-at?` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+
 In Clarity1, `element-at` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
@@ -1091,6 +1094,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 If the target item is not found in the sequence (or if an empty string or buffer is
 supplied), this function returns `none`.
+
 In Clarity1, `index-of` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
@@ -1139,6 +1143,7 @@ const BEGIN_API: SpecialAPI = SpecialAPI {
     signature: "(begin expr1 expr2 expr3 ... expr-last)",
     description: "The `begin` function evaluates each of its input expressions, returning the
 return value of the last such expression.
+
 Note: intermediary statements returning a response type must be checked.",
     example: "(begin (+ 1 2) 4 5) ;; Returns 5",
 };
@@ -1243,7 +1248,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     signature: "(get key-name tuple)",
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
-the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
+the tuple. If the supplied option is a `none` option, get returns `none`.",
     example: "(define-map names-map { name: (string-ascii 12) } { id: int })
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
@@ -1315,7 +1320,8 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
     output_type: "(buff 32)",
     signature: "(keccak256 value)",
     description: "The `keccak256` function computes `KECCAK256(value)` of the inputted value.
-Note that this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
+
+Note: this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
 is supplied the hash is computed over the little-endian representation of the integer.",
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
@@ -1325,11 +1331,13 @@ const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
     snippet: "secp256k1-recover? ${1:message-hash} ${2:signature}",
     output_type: "(response (buff 33) uint)",
     signature: "(secp256k1-recover? message-hash signature)",
-    description: "The `secp256k1-recover?` function recovers the public key used to sign the message  which sha256 is `message-hash`
-    with the provided `signature`.
-    If the signature does not match, it will return the error code `(err u1).`.
-    If the signature is invalid, it will return the error code `(err u2).`.
-    The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.",
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the message whose sha256 is `message-hash`
+with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
+On success, it returns the public key as a 33-byte buffer. This function may fail with one of the following error codes:
+
+* `(err u1)` - the signature does not match the message hash
+* `(err u2)` - the signature is invalid
+",
     example: "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
  ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
@@ -1389,7 +1397,9 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     output_type: "(response principal uint)",
     signature: "(principal-of? public-key)",
     description: "The `principal-of?` function returns the principal derived from the provided public key.
-    If the `public-key` is invalid, it will return the error code `(err u1).`.
+This function may fail with the error code:
+
+* `(err u1)` -- `public-key` is invalid
 
 Note: Before Stacks 2.1, this function has a bug, in that the principal returned would always
 be a testnet single-signature principal, even if the function were run on the mainnet. Starting
@@ -1450,7 +1460,7 @@ const EXPECTS_API: SpecialAPI = SpecialAPI {
     description: "The `unwrap!` function attempts to 'unpack' the first argument: if the argument is
 an option type, and the argument is a `(some ...)` option, `unwrap!` returns the inner value of the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `unwrap!` returns
- the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
+ the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1496,7 +1506,7 @@ const UNWRAP_API: SpecialAPI = SpecialAPI {
     description: "The `unwrap` function attempts to 'unpack' its argument: if the argument is
 an option type, and the argument is a `(some ...)` option, this function returns the inner value of the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, it returns
- the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
+ the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1588,7 +1598,7 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(default-to default-value option-value)",
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
-a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
+a `(some ...)` option, it returns the inner value of the option. If the second argument is a `none` value,
 `default-to` it returns the value of `default-value`.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1648,7 +1658,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(is-none value)",
     description:
-        "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
+        "`is-none` tests a supplied option value, returning `true` if the option value is `none`,
 and `false` if it is a `(some ...)`.",
     example: "
 (define-map names-map { name: (string-ascii 12) } { id: int })
@@ -1768,7 +1778,7 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 
 const PRINCIPAL_CONSTRUCT_API: SpecialAPI = SpecialAPI {
     input_type: "(buff 1), (buff 20), [(string-ascii 40)]",
-    output_type: "(response principal { error_code: uint, principal: (option principal) })",
+    output_type: "(response principal { error_code: uint, value: (optional principal) })",
     snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
     signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
     description: "A principal value represents either a set of keys, or a smart contract.
@@ -1800,7 +1810,7 @@ however, then the `value` will be `none`.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
 value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_code`
-will be `u1` and `value` will be `None`.
+will be `u1` and `value` will be `none`.
 
 If a name is given, and the name is either an empty string or contains ASCII characters
 that are not allowed in contract names, then `error_code` will be `u2`.
@@ -2094,11 +2104,9 @@ const MINT_ASSET: SpecialAPI = SpecialAPI {
 The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.
 
-If an asset identified by `asset-identifier` _already exists_, this function will return an error with the following error code:
+The function returns `(ok true)` if the mint is successful. This function may fail with the error code:
 
-`(err u1)`
-
-Otherwise, on successfuly mint, it returns `(ok true)`.
+* `(err u1)` -- an asset identified by `asset-identifier` _already exists_
 ",
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
@@ -2148,9 +2156,9 @@ any user can transfer the assets. When used, relevant guards need to be added.
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- amount to send is non-positive
+* `(err u1)` -- `sender` does not have enough balance to transfer
+* `(err u2)` -- `sender` and `recipient` are the same principal
+* `(err u3)` -- amount to send is non-positive
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -2173,9 +2181,9 @@ When used, relevant guards need to be added.
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not own the asset
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- asset identified by asset-identifier does not exist
+* `(err u1)` -- `sender` does not own the asset
+* `(err u2)` -- `sender` and `recipient` are the same principal
+* `(err u3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
@@ -2209,10 +2217,9 @@ const BURN_TOKEN: SpecialAPI = SpecialAPI {
 type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
 rather destroyed, reducing the circulating supply.  
 
-On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
-returns one of the following error codes:
+On a successful burn, it returns `(ok true)`. The burn may fail with error code:
 
-`(err u1)` -- `sender` does not have enough balance to burn this amount or the amount specified is not positive
+* `(err u1)` -- `sender` does not have enough balance to burn this amount or the amount specified is not positive
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -2233,8 +2240,8 @@ The asset must have been defined using `define-non-fungible-token`, and the supp
 On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
 returns one of the following error codes:
 
-`(err u1)` -- `sender` does not own the specified asset
-`(err u3)` -- the asset specified by `asset-identifier` does not exist
+* `(err u1)` -- `sender` does not own the specified asset
+* `(err u3)` -- the asset specified by `asset-identifier` does not exist
 ",
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
@@ -2286,10 +2293,10 @@ by debiting the `sender` principal by `amount`, specified in microstacks. The `s
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u2)` -- `sender` and `recipient` are the same principal
-`(err u3)` -- amount to send is non-positive
-`(err u4)` -- the `sender` principal is not the current `tx-sender`
+* `(err u1)` -- `sender` does not have enough balance to transfer
+* `(err u2)` -- `sender` and `recipient` are the same principal
+* `(err u3)` -- amount to send is non-positive
+* `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: r#"
 (as-contract
@@ -2324,12 +2331,12 @@ const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
 specified in microstacks, by destroying the STX. The `sender` principal _must_ be equal to the current
 context's `tx-sender`.
 
-This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+This function returns (ok true) if the burn is successful. In the event of an unsuccessful burn it returns
 one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to transfer
-`(err u3)` -- amount to send is non-positive
-`(err u4)` -- the `sender` principal is not the current `tx-sender`
+* `(err u1)` -- `sender` does not have enough balance to burn
+* `(err u3)` -- amount to burn is non-positive
+* `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: "
 (as-contract

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- When the Clarity library is built with feature flag `developer-mode`, comments
+  from the source code are now attached to the `SymbolicExpression` nodes. This
+  will be useful for tools that use the Clarity library to analyze and
+  manipulate Clarity source code, e.g. a formatter.
+
+### Fixed
+
+- The transaction receipts for smart contract publish transactions now indicate
+  a result of `(err none)` if the top-level code of the smart contract contained
+  runtime error and include details about the error in the `vm_error` field of
+  the receipt. Fixes issues #3154, #3328.
+
 ## [2.1.0.0.2]
 
 This software update is a hotfix to resolve improper unlock handling
@@ -272,6 +288,10 @@ this version of the software on it.
   of network congestion (#3098)
 - The `blockstack-core` binary has been renamed to `stacks-inspect`.
   This binary provides CLI tools for chain and mempool inspection.
+
+### Fixed
+- The AtlasDB previously could lose `AttachmentInstance` data during shutdown
+  or crashes (#3082). This release resolves that.
 
 ## [2.05.0.1.0]
 
