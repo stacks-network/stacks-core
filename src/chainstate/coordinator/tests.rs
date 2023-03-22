@@ -4270,8 +4270,6 @@ fn test_epoch_switch_pox_contract_instantiation() {
     }
 }
 
-<<<<<<< HEAD
-=======
 #[test]
 fn atlas_stop_start() {
     let path = &test_path("atlas_stop_start");
@@ -4531,7 +4529,6 @@ fn atlas_stop_start() {
     );
 }
 
->>>>>>> bc334a19e (fix: Replace instance of `AtlasConfig::default()` to fix failing unit test)
 fn get_total_stacked_info(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,

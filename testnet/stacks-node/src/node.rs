@@ -477,7 +477,7 @@ impl Node {
         .unwrap()
     }
 
-    pub fn spawn_peer_server(&mut self) {
+    pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let burnchain = self.config.get_burnchain();
@@ -563,7 +563,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = AtlasConfig::default(false);
+        let atlas_config = AtlasConfig::new(false);
         let atlasdb =
             AtlasDB::connect(atlas_config, &self.config.get_atlas_db_file_path(), true).unwrap();
 
@@ -911,7 +911,7 @@ impl Node {
             BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
                 .expect("FATAL: failed to connect to burnchain DB");
 
-        let atlas_config = AtlasConfig::default(false);
+        let atlas_config = AtlasConfig::new(false);
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
