@@ -1,6 +1,58 @@
-# How to Create and Review PRs
+# Contributing to the Stacks Blockchain
 
-This document describes some best practices on how to create and review PRs in this context.  The target audience is people who have commit access to this repository (reviewers), and people who open PRs (submitters).  This is a living document -- developers can and should document their own additional guidelines here.
+The Stacks blockchain is open-source software written in Rust. Contributions
+should adhere to the following best practices.
+
+Blockchain software development requires a much higher degree of rigor
+than most other kinds of software. This is because with blockchains,
+**there is no roll-back** from a bad deployment. There is essentially
+zero room for consensus bugs. If you ship a consensus bug, that bug
+could not only have catastrophic consequences for users (i.e. they
+lose all their money), but also be intractable to fix, mitigate, or
+remove. This is because unlike nearly every other kind of networked
+software, **the state of the blockchain is what the users' computers
+say it is.**  If you want to make changes, you _must_ get _user_
+buy-in, and this is necessarily time-consuming and not at all
+guaranteed to succeed.
+
+You can find information on joining online community forums (Discord, mailing list etc.) in the [README](README.md).
+
+# Code of Conduct
+
+This project and everyone participating in it is governed by this [Code of Conduct](CODE_OF_CONDUCT.md).
+
+# How Can I Contribute?
+
+## Development Workflow
+
+- For typical development, branch off of the `develop` branch.
+- For consensus breaking changes, branch off of the `next` branch.
+- For hotfixes, branch off of `master`.
+
+### Documentation Updates
+
+- Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
+- Mention any required documentation changes in the description of your pull request.
+- If adding an RPC endpoint, add an entry for the new endpoint to the
+  OpenAPI spec `./docs/rpc/openapi.yaml`.
+- If your code adds or modifies any major features (struct, trait,
+  test, module, function, etc.), each should be documented according
+  to our [coding guidelines](#Coding-Guidelines).
+
+## Git Commit Messages
+Aim to use descriptive git commit messages. We try to follow [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/).
+The general format is as follows:
+```
+<type>[optional scope]: <one-line description>
+
+[optional body]
+[optional footer(s)]
+```
+Common types include build, ci, docs, fix, feat, test, refactor, etc.
+
+# Creating and Reviewing PRs
+
+This section describes some best practices on how to create and review PRs in this context.  The target audience is people who have commit access to this repository (reviewers), and people who open PRs (submitters).  This is a living document -- developers can and should document their own additional guidelines here.
 
 ## Overview
 
@@ -54,11 +106,53 @@ A PR submission's text should **answer the following questions** for reviewers:
 
 In addition, the PR submission should **answer the prompts of the Github template** we use for PRs.
 
-The code itself should adhere to our coding guidelines, which both submitters and reviewers should check.
+The code itself should adhere to our coding guidelines and conventions, which both submitters and reviewers should check.
 
-## Coding Guidelines
+# Coding Conventions
 
-### Documentation
+### Simplicity of implementation
+
+The most important consideration when accepting or rejecting a contribution is
+the simplicity (i.e. ease of understanding) of its implementation.
+Contributions that are "clever" or introduce functionality beyond the scope of
+the immediate problem they are meant to solve will be rejected.
+
+#### Type simplicity
+
+Simplicity of implementation includes simplicity of types.  Type parameters
+and associated types should only be used if there are at
+least two possible implementations of those types.
+
+Lifetime parameters should only be introduced if the compiler cannot deduce them
+on its own.
+
+### Builds with a stable Rust compiler
+
+We use a recent, stable Rust compiler.  Contributions should _not_
+require nightly Rust features to build and run.
+
+### Minimal dependencies
+
+Adding new package dependencies is very much discouraged.  Exceptions will be
+granted on a case-by-case basis, and only if deemed absolutely necessary.
+
+### Minimal global macros
+
+Adding new global macros is discouraged.  Exceptions will only be given if
+absolutely necessary.
+
+### No compiler warnings
+
+Contributions should not trigger compiler warnings if possible, and should not
+mask compiler warnings with macros.
+
+### Minimal `unsafe` code
+
+Contributions should not contain `unsafe` blocks if at all possible.
+
+# Coding Guidelines
+
+## Documentation
 
 * Each file must have a **copyright statement**.
 * Any new non-test modules should have **module-level documentation** explaining what the module does, and how it fits into the blockchain as a whole.
@@ -70,7 +164,7 @@ Within the source files, the following **code documentation** standards are expe
 * Each _non-trivial_ private function should likewise have a Rustdoc comment block.  Trivial ones that are self-explanatory, like getters and setters, do not need documentation.  If you are unsure if your function needs a docstring, err on the side of documenting it.
 * Each struct and enum member must have a Rustdoc comment string indicating what it does, and how it is used.  This can be as little as a one-liner, as long as the relevant information is communicated.
 
-### Factoring
+## Factoring
 
 * **Public or exported struct, enum, and trait definitions go into the `mod.rs` file**.  Private structs, enums, and traits can go anywhere.
 
@@ -80,13 +174,13 @@ Within the source files, the following **code documentation** standards are expe
 
 * To the greatest extent possible, **business logic and I/O should be separated**.  A common pattern used in the codebase is to place the business logic into an "inner" function that does not do I/O, and handle I/O reads and writes in an "outer" function.  The "outer" function only does the needful I/O and passes the data into the "inner" function.  The "inner" function is often private, whereas the "outer" function is often public.
 
-### Refactoring
+## Refactoring
 
 * **Any PR that does a large-scale refactoring must be in its own PR**.  This includes PRs that touch multiple subsystems.  Refactoring often adds line noise that obscures the new functional changes that the PR proposes.  Small-scale refactorings are permitted to ship with functional changes.
 
 * Refactoring PRs can generally be bigger, because they are easier to review.  However, **large refactorings that could impact the functional behavior of the system should be discussed first** before carried out.  This is because it is imperative that they do not stay open for very long (to keep the submitter's maintenance burden low), but nevertheless reviewing them must still take at most 2 hours.  Discussing them first front-loads part of the review process.
 
-### Databases
+## Databases
 
 * If at all possible, **the database schema should be preserved**.  Exceptions can be made on a case-by-case basis.  The reason for this is that it's a big ask for people to re-sync nodes from genesis when they upgrade to a new point release.
 
@@ -98,7 +192,7 @@ Within the source files, the following **code documentation** standards are expe
 
 * If the database schema changes and no migration can be feasibly done, then the submitter **must spin up a node from genesis to verify that it works** _before_ submitting the PR.  This genesis spin-up will be tested again before the next node release is made.
 
-### Data Input
+## Data Input
 
 * **Data from the network, from Bitcoin, and from the config file is untrusted.**  Code that ingests such data _cannot assume anything_ about its structure, and _must_ handle any possible byte sequence that can be submitted to the Stacks node.
 
@@ -112,23 +206,23 @@ Within the source files, the following **code documentation** standards are expe
 
 * **Untrusted data ingestion must not panic.**  Every piece of code that ingests untrusted data must gracefully handle errors.  Panicking failures are forbidden for such data.  Panics are only allowed if the ingested data was previously written by the node (and thus trusted).
 
-### Non-consensus Changes to Blocks, Microblocks, Transactions, and Clarity
+## Non-consensus Changes to Blocks, Microblocks, Transactions, and Clarity
 
 Any changes to code that alters how a block, microblock, or transaction is processed by the node should be **treated as a breaking change until proven otherwise**.  This includes changes to the Clarity VM.  The reviewer _must_ flag any such changes in the PR, and the submitter _must_ convince _all_ reviewers that they will _not_ break consensus.
 
 Changes that touch any of these four code paths must be treated with the utmost care.  If _any_ core developer suspects that a given PR would break consensus, then they _must_ act to prevent the PR from merging.
 
-### Changes to the Peer Network
+## Changes to the Peer Network
 
 Any changes to the peer networking code **must be run in production before the PR can be merged.**  The submitter should set up a testable node or set of nodes that reviewers can interact with.
 
 Changes to the peer network should be deployed incrementally and tested by multiple ecosystem entities when possible to verify that they function properly in a production setting.
 
-### Performance Improvements
+## Performance Improvements
 
 Any PRs that claim to improve performance **must ship with reproducible benchmarks** that accurately measure the improvement.  This data must also be reported in the PR submission.
 
-### Error Handling
+## Error Handling
 
 * **Each subsystem must have its own `Error` type.**  Error types of aggregate subsystems are encouraged to both wrap their constituent subsystems' `Error` types in their own `Error` types, as well as provide conversions from them via a `From` trait implementation.
 
@@ -138,7 +232,7 @@ Any PRs that claim to improve performance **must ship with reproducible benchmar
 
 * If a runtime panic is desired, it **must have an appropriate error message**.
 
-### Logging
+## Logging
 
 * Log messages should be informative and context-free as possible.  They are used mainly to help us identify and diagnose problems.  They are _not_ used to help you verify that your code works; that's the job of a unit test.
 
@@ -154,7 +248,7 @@ Any PRs that claim to improve performance **must ship with reproducible benchmar
 
 * Use `warn!()` or `error!()` only when there really is a problem.
 
-### Consensus-Critical Code
+## Consensus-Critical Code
 
 A **consensus-critical change** is a change that affects how the Stacks blockchain processes blocks, microblocks, or transactions, such that a node with the patch _could_ produce a different state root hash than a node without the patch.  If this is even _possible_, then the PR is automatically treated as a consensus-critical change and must ship as part of a hard fork.  It must also be described in a SIP.
 
@@ -172,7 +266,7 @@ A non-exhaustive list of examples of consensus-critical changes include:
 * Changing the cost of a Clarity function
 * Adding new kinds of transactions, or enabling certain transaction data field values that were previously forbidden.
 
-### Testing
+## Testing
 
 * **Unit tests should focus on the business logic with mocked data**.  To the greatest extent possible, each error path should be tested _in addition to_ the success path.  A submitter should expect to spend most of their test-writing time focusing on error paths; getting the success path to work is often much easier than the error paths.
 
@@ -185,3 +279,235 @@ A non-exhaustive list of examples of consensus-critical changes include:
 * **Integration tests are necessary when the PR has a consumer-visible effect**.  For example, changes to the RESTful API, event stream, and mining behavior all require integration tests.
 
 * Every consensus-critical change needs an integration test to verify that the feature activates only when the hard fork activates.
+
+PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
+(which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
+
+A test should be marked `#[ignore]` if:
+
+  1. It does not _always_ pass `cargo test` in a vanilla environment
+     (i.e., it does not need to run with `--test-threads 1`).
+
+  2. Or, it runs for over a minute via a normal `cargo test` execution
+     (the `cargo test` command will warn if this is not the case).
+
+
+
+## Formatting
+
+This repository uses the default rustfmt formatting style. PRs will be checked against `rustfmt` and will _fail_ if not
+properly formatted.
+
+You can check the formatting locally via:
+
+```bash
+cargo fmt --all -- --check
+```
+
+You can automatically reformat your commit via:
+
+```bash
+cargo fmt --all
+```
+
+## Comments
+Comments are very important for the readability and correctness of the codebase. The purpose of comments is:
+
+* Allow readers to understand the roles of components and functions without having to check how they are used.
+* Allow readers to check the correctness of the code against the comments.
+* Allow readers to follow tests.
+
+In the limit, if there are no comments, the problems that arise are:
+
+* Understanding one part of the code requires understanding *many* parts of the code. This is because the reader is forced to learn the meanings of constructs inductively through their use. Learning how one construct is used requires understanding its neighbors, and then their neighbors, and so on, recursively. Instead, with a good comment, the reader can understand the role of a construct with `O(1)` work by reading the comment.
+* The user cannot be certain if there is a bug in the code, because there is no distinction between the contract of a function, and its definition.
+* The user cannot be sure if a test is correct, because the logic of the test is not specified, and the functions do not have contracts.
+
+### Comment Formatting
+
+Comments are to be formatted in typical `rust` style, specifically:
+
+- Use markdown to format comments.
+
+- Use the triple forward slash "///" for modules, structs, enums, traits and functions. Use double forward slash "//" for comments on individual lines of code.
+
+- Start with a high-level description of the function, adding more sentences with details if necessary.
+
+- When documenting panics, errors, or other conceptual sections, introduce a Markdown section with a single `#`, e.g.:
+
+    ```
+    # Errors
+    * ContractTooLargeError: Thrown when `contract` is larger than `MAX_CONTRACT_SIZE`.
+    ```
+
+### Content of Comments
+
+
+#### Component Comments
+
+Comments for a component (`struct`, `trait`, or `enum`) should explain what the overall
+purpose of that component is. This is usually a concept, and not a formal contract. Include anything that is not obvious about this component.
+
+**Example:**
+
+```rust
+/// The `ReadOnlyChecker` analyzes a contract to determine whether
+/// there are any violations of read-only declarations. By a "violation"
+/// we mean a function that is marked as "read only" but which tries
+/// to modify chainstate.
+pub struct ReadOnlyChecker<'a, 'b> {
+```
+
+This comment is considered positive because it explains the concept behind the class at a glance, so that the reader has some idea about what the methods will achieve, without reading each method declaration and comment. It also defines some terms that can be used in the comments on the method names.
+
+#### Function Comments
+
+The comments on a function should explain what the function does, without having to read it. Wherever practical, it should specify the contract of a function, such that a bug in the logic could be discovered by a discrepancy between contract and implementation, or such that a test could be written with only access to the function comment.
+
+Without being unnecessarily verbose, explain how the output is calculated
+from the inputs. Explain the side effects. Explain any restrictions on the inputs. Explain failure
+conditions, including when the function will panic, return an error
+or return an empty value.
+
+**Example:**
+
+```rust
+/// A contract that does not violate its read-only declarations is called
+/// *read-only correct*.
+impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
+    /// Checks each top-level expression in `contract_analysis.expressions`
+    /// for read-only correctness.
+    ///
+    /// Returns successfully iff this function is read-only correct.
+    ///
+    /// # Errors
+    ///
+    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
+    ///   violation, i.e. if some function marked read-only attempts to modify
+    ///   the chainstate.
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
+```
+
+This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.
+
+#### Comments on Implementations of Virtual Methods 
+
+Note that, if a function implements a virtual function on an interface, the comments should not
+repeat what was specified on the interface declaration. The comment should only add information specific to that implementation.
+
+#### Data Member Comments
+
+Each data member in a struct should have a comment describing what that member
+is, and what it is used for. Such comments are usually brief but should
+clear up any ambiguity that might result from having only the variable
+name and type.
+
+**Example:**
+
+```rust
+pub struct ReadOnlyChecker<'a, 'b> {
+    /// Mapping from function name to a boolean indicating whether
+    /// the function with that name is read-only.
+    /// This map contains all functions in the contract analyzed.
+    defined_functions: HashMap<ClarityName, bool>,
+```
+
+This comment is considered positive because it clarifies users might have about the content and role of this member. E.g., it explains that the `bool` indicates whether the function is *read-only*, whereas this cannot be gotten from the signature alone.
+
+#### Test Comments
+
+Each test should have enough comments to help an unfamiliar reader understand:
+
+1. what is conceptually being tested
+1. why a given answer is expected
+
+Sometimes this can be obvious without much comments, perhaps from the context,
+or because the test is very simple. Often though, comments are necessary.
+
+**Example:**
+
+```rust
+#[test]
+#[ignore]
+fn transaction_validation_integration_test() {
+    /// The purpose of this test is to check if the mempool admission checks
+    /// for the post tx endpoint are working as expected wrt the optional
+    /// `mempool_admission_check` query parameter.
+    ///
+    /// In this test, we are manually creating a microblock as well as
+    /// reloading the unconfirmed state of the chainstate, instead of relying
+    /// on `next_block_and_wait` to generate microblocks. We do this because
+    /// the unconfirmed state is not automatically being initialized
+    /// on the node, so attempting to validate any transactions against the
+    /// expected unconfirmed state fails.
+```
+
+This comment is considered positive because it explains the purpose of the test (checking the case of an optional parameter), it also guides the reader to understand the low-level details about why a microblock is created manually.
+
+### How Much to Comment
+
+Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved.
+
+Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. Longer comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review.
+
+### Don't Restate Names in Comments
+
+The contracts of functions should be implemented precisely enough that tests could be written looking only at the declaration and the comments (and without looking at the definition!). However:
+
+* **the author should assume that the reader has already read and understood the function name, variable names, type names, etc.**
+* **the author should only state information that is new**
+
+So, if a function and its variables have very descriptive names, then there may be nothing to add in the comments at all!
+
+**Bad Example**
+
+```
+/// Appends a transaction to a block.
+fn append_transaction_to_block(transaction:Transaction, &mut Block) -> Result<()>
+```
+
+This is considered bad because the function name already says "append transaction to block", so it doesn't add anything to restate it in the comments. However, *do* add anything that is not redundant, such as elaborating what it means to "append" (if there is more to say), or what conditions will lead to an error.
+
+**Good Example**
+
+```
+/// # Errors
+///
+/// - BlockTooBigError: Is returned if adding `transaction` to `block` results
+/// in a block size bigger than MAX_BLOCK_SIZE.
+fn append_transaction_to_block(transaction:Transaction, block:&mut Block) -> Result<()>
+```
+
+This is considered good because the reader builds on the context created by the function and variable names. Rather than restating them, the function just adds elements of the contract that are not implicit in the declaration. 
+
+### Do's and Dont's of Comments
+
+*Don't* over-comment by documenting things that are clear from the context. E.g.:
+
+- Don't document the types of inputs or outputs, since these are parts of the type signature in `rust`.
+- Don't necessarily document standard "getters" and "setters", like `get_clarity_version()`, unless there is unexpected information to add with the comment.
+- Don't explain that a specific test does type-checking, if it is in a file that is dedicated to type-checking.
+
+*Do* document things that are not clear, e.g.:
+
+- For a function called `process_block`, explain what it means to "process" a block.
+- For a function called `process_block`, make clear whether we mean anchored blocks, microblocks, or both.
+- For a function called `run`, explain the steps involved in "running".
+- For a function that takes arguments `peer1` and `peer2`, explain the difference between the two.
+- For a function that takes an argument `height`, either explain in the comment what this is the *height of*. Alternatively, expand the variable name to remove the ambiguity.
+- For a test, document what it is meant to test, and why the expected answers are, in fact, expected.
+
+### Changing Code Instead of Comments
+
+Keep in mind that better variable names can reduce the need for comments, e.g.:
+
+* `burnblock_height` instead of `height` may eliminate the need to comment that `height` refers to a burnblock height
+* `process_microblocks` instead of `process_blocks` is more correct, and may eliminate the need to to explain that the inputs are microblocks
+* `add_transaction_to_microblock` explains more than `handle_transaction`, and reduces the need to even read the comment
+
+# Licensing and contributor license agreement
+
+`stacks-blockchain` is released under the terms of the GPL version 3.  Contributions
+that are not licensed under compatible terms will be rejected.  Moreover,
+contributions will not be accepted unless _all_ authors accept the project's
+contributor license agreement.
