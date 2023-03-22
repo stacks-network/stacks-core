@@ -4270,6 +4270,268 @@ fn test_epoch_switch_pox_contract_instantiation() {
     }
 }
 
+<<<<<<< HEAD
+=======
+#[test]
+fn atlas_stop_start() {
+    let path = &test_path("atlas_stop_start");
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    // publish a simple contract used to generate atlas attachment instances
+    let atlas_contract_content = "
+      (define-data-var attachment-index uint u1)
+      (define-public (make-attach (zonefile-hash (buff 20)))
+       (let ((current-index (var-get attachment-index)))
+         (print {
+           attachment: {
+            hash: zonefile-hash,
+            attachment-index: current-index,
+            metadata: \"test-meta\"
+           }
+         })
+         (var-set attachment-index (+ u1 current-index))
+         (ok true)))";
+    let atlas_name: clarity::vm::ContractName = "atlas-test".into();
+
+    let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+
+    let signer_sk = StacksPrivateKey::new();
+    let signer_pk = p2pkh_from(&signer_sk);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(signer_pk.clone().into(), balance)];
+    let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
+    // include our simple contract in the atlas config
+    let mut atlas_config = AtlasConfig::new(false);
+    atlas_config.contracts.insert(atlas_qci.clone());
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+    );
+
+    let mut coord = make_coordinator_atlas(
+        path,
+        Some(burnchain_conf.clone()),
+        Some(atlas_config.clone()),
+    );
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    let mut contract_publish = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
+        TransactionPayload::SmartContract(
+            TransactionSmartContract {
+                name: atlas_name.clone(),
+                code_body: StacksString::from_str(atlas_contract_content).unwrap(),
+            },
+            None,
+        ),
+    );
+    contract_publish.chain_id = 0x80000000;
+    contract_publish.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    contract_publish.auth.set_origin_nonce(0);
+    contract_publish.auth.set_tx_fee(100);
+    let mut signer = StacksTransactionSigner::new(&contract_publish);
+    signer.sign_origin(&signer_sk).unwrap();
+    let contract_publish = signer.get_tx().unwrap();
+
+    let make_attachments: Vec<StacksTransaction> = (0..5)
+        .map(|ix| {
+            (
+                ix,
+                StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        address: signer_pk.clone().into(),
+                        contract_name: atlas_name.clone(),
+                        function_name: "make-attach".into(),
+                        function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
+                    }),
+                ),
+            )
+        })
+        .map(|(ix, mut cc_tx)| {
+            cc_tx.chain_id = 0x80000000;
+            cc_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            cc_tx.auth.set_origin_nonce(ix as u64 + 1);
+            cc_tx.auth.set_tx_fee(100);
+            let mut signer = StacksTransactionSigner::new(&cc_tx);
+            signer.sign_origin(&signer_sk).unwrap();
+            signer.get_tx().unwrap()
+        })
+        .collect();
+
+    for ix in 0..3 {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        let txs = if ix == 1 {
+            vec![contract_publish.clone()]
+        } else if ix == 2 {
+            make_attachments.clone()
+        } else {
+            vec![]
+        };
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+                0,
+                false,
+                (Txid([0; 32]), 0),
+                None,
+                &txs,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let ops = vec![good_op];
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &b,
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+        let burn_block_height = tip.block_height;
+
+        // check that the bns contract exists
+        let does_bns_contract_exist = chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| {
+                    conn.with_clarity_db_readonly(|db| db.get_contract(&boot_code_id("bns", false)))
+                },
+            )
+            .unwrap();
+
+        assert!(does_bns_contract_exist.is_ok());
+    }
+
+    // okay, we've broadcasted some transactions, lets check that the atlas db has a queue
+    let atlas_queue = coord
+        .atlas_db
+        .as_ref()
+        .unwrap()
+        .queued_attachments()
+        .unwrap();
+    assert_eq!(
+        atlas_queue.len(),
+        make_attachments.len(),
+        "Should be as many queued attachments, as attachment txs submitted"
+    );
+
+    // now, we'll shut down all the coordinator connections and reopen them
+    //  to ensure that the queue remains in place
+    let coord = (); // dispose of the coordinator, closing all its connections
+    let coord = make_coordinator_atlas(path, Some(burnchain_conf), Some(atlas_config));
+
+    let atlas_queue = coord
+        .atlas_db
+        .as_ref()
+        .unwrap()
+        .queued_attachments()
+        .unwrap();
+    assert_eq!(
+        atlas_queue.len(),
+        make_attachments.len(),
+        "Should be as many queued attachments, as attachment txs submitted"
+    );
+}
+
+>>>>>>> bc334a19e (fix: Replace instance of `AtlasConfig::default()` to fix failing unit test)
 fn get_total_stacked_info(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
