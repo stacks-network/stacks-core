@@ -702,7 +702,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: 0,
-                end_height: first_burnchain_height,
+                end_height: 0,
                 block_limit: ExecutionCost {
                     write_length: 205205,
                     write_count: 205205,

@@ -325,7 +325,7 @@ impl<'a> DefinitionSorter {
 
         for pair in pairs.iter() {
             self.probe_for_dependencies_in_key_value_pair(
-                pair.iter().collect(),
+                self.filter_comments(pair),
                 tle_index,
                 version,
             )?;

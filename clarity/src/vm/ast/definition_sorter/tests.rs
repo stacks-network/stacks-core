@@ -36,6 +36,7 @@ use crate::vm::ClarityVersion;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
 fn test_clarity_versions_definition_sorter(
     #[case] version: ClarityVersion,
@@ -399,23 +400,75 @@ fn should_not_conflict_with_atoms_from_trait_definitions(
 
 #[apply(test_clarity_versions_definition_sorter)]
 fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    let contract = r#"
+    let contracts = [
+        r#"
+(define-trait use-empty-trait (
+  ;; this is a comment
+  (foo
+    ;; this is a comment
+    (<empty-trait>)
+    ;; this is a comment
+    (response uint uint))
+  )
+)
+(define-trait empty-trait ())
+    "#,
+        r#"
 (define-public (bar)
-    (let ((x
-        ;; this comment is the trouble maker
-        (foo)))
-        x
-    )
+  (let ((x
+    ;; this is a comment
+    (foo)))
+    x
+  )
 )
 (define-private (foo) (ok u1))
-    "#;
+    "#,
+        r#"
+(define-public (bar)
+  (ok (tuple 
+    (foo
+      ;; this is a comment
+      (foo))))
+  )
+  (define-private (foo) (ok u1))
+    "#,
+        r#"
+(define-public (bar)
+  (ok {
+    foo: ;; this is a comment
+    (foo)
+  })
+)
+(define-private (foo) (ok u1))
+    "#,
+        r#"
+(define-public (
+  ;; this is a comment
+  bar (e ;; this is a comment
+    <empty-trait>))
+  (ok true)
+)
+(define-trait empty-trait ())
+    "#,
+        r#"
+(define-public (bar (t <empty-trait>))
+  (ok true)
+)
+(
+  ;; this is a comment
+  define-trait empty-trait ()
+)
+    "#,
+    ];
 
-    let contract_ast = run_scoped_parsing_helper(contract, version, epoch).unwrap();
-    match epoch {
-        // This test should give incorrect ordering in epoch 2.1
-        StacksEpochId::Epoch21 => {
-            assert_eq!(contract_ast.top_level_expression_sorting, Some(vec![0, 1]));
+    for contract in contracts.iter() {
+        let contract_ast = run_scoped_parsing_helper(contract, version, epoch).unwrap();
+        match epoch {
+            // This test should give incorrect ordering in epoch 2.1
+            StacksEpochId::Epoch21 => {
+                assert_eq!(contract_ast.top_level_expression_sorting, Some(vec![0, 1]));
+            }
+            _ => assert_eq!(contract_ast.top_level_expression_sorting, Some(vec![1, 0])),
         }
-        _ => assert_eq!(contract_ast.top_level_expression_sorting, Some(vec![1, 0])),
     }
 }
