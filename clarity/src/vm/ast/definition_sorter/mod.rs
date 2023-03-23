@@ -206,7 +206,8 @@ impl<'a> DefinitionSorter {
                                     if let Some(trait_sig) = function_args[1].match_list() {
                                         for func_sig in trait_sig.iter() {
                                             if let Some(func_sig) = func_sig.match_list() {
-                                                let func_sig = self.filter_comments(func_sig);
+                                                let func_sig =
+                                                    self.filter_comments(func_sig.iter());
                                                 if func_sig.len() == 3 {
                                                     self.probe_for_dependencies(
                                                         &func_sig[1],
@@ -257,7 +258,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(self.filter_comments(bindings), tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(self.filter_comments(bindings.iter()), tle_index, version)?;
                                         }
                                         for expr in
                                             function_args[1..function_args.len()].into_iter()
@@ -298,7 +299,11 @@ impl<'a> DefinitionSorter {
                 Ok(())
             }
             Tuple(ref exprs) => {
-                self.probe_for_dependencies_in_tuple(exprs, tle_index, version)?;
+                self.probe_for_dependencies_in_tuple(
+                    self.filter_comments(exprs.iter()),
+                    tle_index,
+                    version,
+                )?;
                 Ok(())
             }
             AtomValue(_)
@@ -314,7 +319,7 @@ impl<'a> DefinitionSorter {
     ///   probe them for dependencies as if they were part of a tuple definition.
     fn probe_for_dependencies_in_tuple(
         &mut self,
-        pairs: &[PreSymbolicExpression],
+        pairs: Vec<&PreSymbolicExpression>,
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
@@ -325,7 +330,7 @@ impl<'a> DefinitionSorter {
 
         for pair in pairs.iter() {
             self.probe_for_dependencies_in_key_value_pair(
-                self.filter_comments(pair),
+                self.filter_comments(pair.iter().map(|x| *x)),
                 tle_index,
                 version,
             )?;
@@ -344,7 +349,7 @@ impl<'a> DefinitionSorter {
             // 1. (define-public func_name body)
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
-            if let Some((_, pairs)) = self.filter_comments(func_sig).split_first() {
+            if let Some((_, pairs)) = self.filter_comments(func_sig.iter()).split_first() {
                 let pairs_vec: Vec<&PreSymbolicExpression> = pairs.to_vec();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
                     pairs_vec, tle_index, version,
@@ -374,7 +379,7 @@ impl<'a> DefinitionSorter {
     ) -> ParseResult<()> {
         if let Some(pair) = expr.match_list() {
             self.probe_for_dependencies_in_key_value_pair(
-                self.filter_comments(pair),
+                self.filter_comments(pair.iter()),
                 tle_index,
                 version,
             )?;
@@ -398,7 +403,7 @@ impl<'a> DefinitionSorter {
         &mut self,
         exp: &'b PreSymbolicExpression,
     ) -> Option<(ClarityName, u64, &'b PreSymbolicExpression)> {
-        let exp = self.filter_comments(exp.match_list()?);
+        let exp = self.filter_comments(exp.match_list()?.iter());
         let args = {
             let (function_name, args) = exp.split_first()?;
             let function_name = function_name.match_atom()?;
@@ -406,7 +411,7 @@ impl<'a> DefinitionSorter {
             Some(args)
         }?;
         if let Some(list) = args.get(0)?.match_list() {
-            let exprs = self.filter_comments(list);
+            let exprs = self.filter_comments(list.iter());
             let defined_name = exprs.get(0)?;
             let tle_name = defined_name.match_atom()?;
             Some((tle_name.clone(), defined_name.id, defined_name))
@@ -417,15 +422,14 @@ impl<'a> DefinitionSorter {
         }
     }
 
-    fn filter_comments<'b>(
-        &'a self,
-        exprs: &'b [PreSymbolicExpression],
-    ) -> Vec<&'b PreSymbolicExpression> {
+    fn filter_comments<'b, I>(&'a self, exprs: I) -> Vec<&'b PreSymbolicExpression>
+    where
+        I: Iterator<Item = &'b PreSymbolicExpression>,
+    {
         if self.epoch < StacksEpochId::Epoch22 {
-            exprs.iter().collect()
+            exprs.collect()
         } else {
             exprs
-                .iter()
                 .filter(|expr| expr.match_comment().is_none())
                 .collect()
         }
