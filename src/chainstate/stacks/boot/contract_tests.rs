@@ -319,7 +319,9 @@ fn cost_2_contract_is_arithmetic_only() {
 
 impl BurnStateDB for TestSimBurnStateDB {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        panic!("Not implemented in TestSim");
+        test_sim_hash_to_height(&sortition_id.0)
+            .map(u32::try_from)?
+            .ok()
     }
 
     fn get_burn_header_hash(

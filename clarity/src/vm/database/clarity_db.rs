@@ -836,13 +836,22 @@ impl<'a> ClarityDatabase<'a> {
     /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
     /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
     /// fork).
+    ///
+    /// If the burn block height requested is the same as the latest burnchain block height,
+    /// return its burn header hash
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        let sortition_id = self.get_sortition_id_for_stacks_tip()?;
-        self.burn_state_db
-            .get_burn_header_hash(burnchain_block_height, &sortition_id)
+        let tip_parent_burn_block_height = self.get_current_burnchain_block_height();
+
+        if tip_parent_burn_block_height == burnchain_block_height {
+            self.get_burnchain_block_header_hash_for_burnchain_height(tip_parent_burn_block_height)
+        } else {
+            let sortition_id = self.get_sortition_id_for_stacks_tip()?;
+            self.burn_state_db
+                .get_burn_header_hash(burnchain_block_height, &sortition_id)
+        }
     }
 
     /// Get the PoX reward addresses and per-address payout for a given burnchain height.  Because the burnchain can fork,
