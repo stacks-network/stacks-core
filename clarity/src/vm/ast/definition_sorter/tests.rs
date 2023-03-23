@@ -401,6 +401,7 @@ fn should_not_conflict_with_atoms_from_trait_definitions(
 #[apply(test_clarity_versions_definition_sorter)]
 fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contracts = [
+        // comment in general lists
         r#"
 (define-trait use-empty-trait (
   ;; this is a comment
@@ -413,6 +414,7 @@ fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoc
 )
 (define-trait empty-trait ())
     "#,
+        // comment in a let
         r#"
 (define-public (bar)
   (let ((x
@@ -423,6 +425,7 @@ fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoc
 )
 (define-private (foo) (ok u1))
     "#,
+        // comment in a tuple
         r#"
 (define-public (bar)
   (ok (tuple 
@@ -432,6 +435,7 @@ fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoc
   )
   (define-private (foo) (ok u1))
     "#,
+        // comment in a tuple, sugared-syntax
         r#"
 (define-public (bar)
   (ok {
@@ -441,6 +445,7 @@ fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoc
 )
 (define-private (foo) (ok u1))
     "#,
+        //comment in function parameter definition
         r#"
 (define-public (
   ;; this is a comment
@@ -450,6 +455,7 @@ fn should_handle_comments_in_lists(#[case] version: ClarityVersion, #[case] epoc
 )
 (define-trait empty-trait ())
     "#,
+        // comment in trait definition
         r#"
 (define-public (bar (t <empty-trait>))
   (ok true)
