@@ -74,6 +74,7 @@ use clarity::vm::{
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::codec::{read_next, write_next};
+use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -1935,6 +1936,13 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
+pub struct SyncedMicroblocksResult {
+    stacks_tip_consensus_hash: ConsensusHash,
+    stacks_tip_block_hash: BlockHeaderHash,
+    neighbor_key: Option<NeighborKey>,
+    microblocks: Vec<StacksMicroblock>,
+}
+
 /// Result of doing network work
 pub struct NetworkResult {
     pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
@@ -1949,7 +1957,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
-    pub synced_microblocks: Option<(ConsensusHash, Vec<StacksMicroblock>)>, // microblocks we downloaded via microblock tip sync
+    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // microblocks we downloaded via microblock tip sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1976,7 +1984,7 @@ impl NetworkResult {
             uploaded_microblocks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
-            synced_microblocks: None,
+            synced_microblock_result: None,
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1992,8 +2000,8 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
-            || self.synced_microblocks.as_ref().map_or(
-            false, |(_, mbs)| mbs.len() > 0)
+            || self.synced_microblock_result.as_ref().map_or(
+            false, |result| result.microblocks.len() > 0)
     }
 
     pub fn has_transactions(&self) -> bool {
