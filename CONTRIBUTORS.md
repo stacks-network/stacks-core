@@ -32,6 +32,35 @@ This project and everyone participating in it is governed by this [Code of Condu
 - For consensus breaking changes, branch off of the `next` branch.
 - For hotfixes, branch off of `master`.
 
+### GitHub Tags
+We use tags on PRs and issues to categorize them. You should try to select a tag from each category below if possible. 
+
+Timeline-based tags:
+- Next non-breaking change => `ship-now`
+- Next breaking change => `ship-next`
+- Future breaking change => `ship-future`
+- Future non-breaking change => `icebox`
+
+Issue Type Tags:
+- For first-time or new contributors => `good-first-issue`
+- Stacks lab issues (infrastructure-type changes) => `help-wanted`
+- Documentation updates => `documentation`
+- Improvement to the chain (speed, reliability) => `optimization`
+- Improvements to CI/CD => `CI`
+- Small improvement/fix => `chore`
+- Fixing an issue that was found => `bug`
+- Implementing a feature => `feature`
+
+Component-specific Tags:
+
+There are also component-specific tags that indicate which part of the codebase will be impacted, such as `mempool`,
+`clarity`, `event-stream`, `chainstate`, `BNS`, `mining`, `testnet`.
+
+Release Tags: 
+
+As we prepare for an upcoming release, we will tag issues/PRs that are slated to be part of that 
+release with the release version number.
+
 ### Documentation Updates
 
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).

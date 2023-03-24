@@ -46,29 +46,6 @@ n increments on patches and hot-fixes (akin to semantic PATCH)
 For example, a node operator running version `2.0.10.0.0` would not need to wipe and refresh their chainstate
 to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` would require a new chainstate.
 
-## GitHub Tags 
-We use tags on PRs and issues to categorize them. 
-
-Timeline-based tags:
-- Next non-breaking change => `ship-now`
-- Next breaking change => `ship-next`
-- Future breaking change => `ship-future`
-- Future non-breaking change => `icebox`
-
-Issue Type Tags:
-- For first-time or new contributors => `good-first-issue`
-- Stacks lab issues (infrastructure-type changes) => `help-wanted`
-- Documentation updates => `documentation`
-- Improvement to the chain (speed, reliability) => `optimization`
-- Improvements to CI/CD => `CI`
-- Small improvement/fix => `chore`
-- Fixing an issue that was found => `bug`
-
-Component-specific Tags:
-
-There are also component-specific tags that indicate which part of the codebase will be impacted, such as `mempool`,
-`clarity`, `event-stream`, `chainstate`, `BNS`, `mining`, `testnet`.
-
 ## Non-Consensus Breaking Release Process
 
 For non-consensus breaking releases, this project uses the following release process:
