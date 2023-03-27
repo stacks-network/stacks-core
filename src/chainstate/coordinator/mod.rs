@@ -484,7 +484,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             reward_set_provider,
             notifier: (),
             attachments_tx,
-            atlas_config: AtlasConfig::default(false),
+            atlas_config: AtlasConfig::new(false),
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
         }
