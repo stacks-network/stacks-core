@@ -4047,9 +4047,30 @@ impl PeerNetwork {
         })
     }
 
+    // sorts the peer data on the sequence number, from low to high
+    fn sort_tip_data(
+        mut tip_data: Vec<(UrlString, SocketAddr, u16)>,
+        local_seq_num_opt: Option<u16>
+    ) -> VecDeque<(UrlString, SocketAddr, u16)> {
+        tip_data
+            .sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| {
+                Ord::cmp(seq_num_a, seq_num_b)
+            });
+
+        tip_data
+            .into_iter()
+            .filter(|(_, _, seq_num)| {
+                if let Some(local_seq_num) = local_seq_num_opt {
+                    seq_num > &local_seq_num
+                } else {
+                    true
+                }
+            })
+            .collect()
+    }
+
     // TODO(map): add docs - return None if sync over
     fn get_neighbors_with_next_highest_seq_num(
-        &mut self,
         sorted_tip_data: &mut VecDeque<(UrlString, SocketAddr, u16)>,
     ) -> Option<Vec<(UrlString, SocketAddr, u16)>> {
         // TODO(map): make sure the back has the highest sequence number
@@ -4058,8 +4079,6 @@ impl PeerNetwork {
                 seq_num.clone()
             }
             None => {
-                // there is no tip data, end the sync
-                self.microblock_tip_sync_reset();
                 return None;
             }
         };
@@ -4104,7 +4123,6 @@ impl PeerNetwork {
 
         Some(next_seq_num_data)
     }
-
 
     fn do_microblock_tip_sync(
         &mut self,
@@ -4296,32 +4314,22 @@ impl PeerNetwork {
                         }
                     }
                 }
-                MicroblockTipSyncState::ProcessTipData(mut tip_data) => {
+                MicroblockTipSyncState::ProcessTipData(tip_data) => {
                     // determine current unconfirmed tip height
                     let local_seq_num_opt = match chainstate.unconfirmed_state {
                         Some(ref unconfirmed) => Some(unconfirmed.last_mblock_seq),
                         None => None,
                     };
-                    // sorts the peer data on the sequence number, from low to high
-                    tip_data
-                        .sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| {
-                            Ord::cmp(seq_num_a, seq_num_b)
-                        });
 
-                    let mut sorted_tip_data: VecDeque<(UrlString, SocketAddr, u16)> = tip_data
-                        .into_iter()
-                        .filter(|(_, _, seq_num)| {
-                            if let Some(local_seq_num) = local_seq_num_opt {
-                                seq_num > &local_seq_num
-                            } else {
-                                true
-                            }
-                        })
-                        .collect();
+
+                    let mut sorted_tip_data = PeerNetwork::sort_tip_data(
+                        tip_data,
+                        local_seq_num_opt
+                    );
 
                     info!("MAP: in processTip, sorted={:?}", sorted_tip_data);
 
-                    match self.get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
+                    match PeerNetwork::get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
                         Some(next_seq_num_data) => {
                             info!("MAP: requesting mbs, next: {:?}, sorted: {:?}", next_seq_num_data, sorted_tip_data);
                             self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(
@@ -4356,7 +4364,7 @@ impl PeerNetwork {
                         }
                     } else {
                         // try to get the neighbors with the next highest seq num
-                        match self.get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
+                        match PeerNetwork::get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
                             Some(next_data) => {
                                 self.microblock_tip_sync_state =
                                     MicroblockTipSyncState::RequestMicroblocks(next_data, sorted_tip_data);
@@ -7460,9 +7468,108 @@ mod test {
         assert_eq!(peer_2_mempool_txs.len(), 128);
     }
 
-    // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
+    // Verify that the sorting functions used in the microblock tip sync to organize
+    // its peers' data work correctly.
+    // In this test, the local microblock sequence number is less than all of their peers'
+    // sequence numbers, so no peer data is filtered out.
     #[test]
-    #[ignore]
+    fn test_neighbor_sorting_no_filtering() {
+        let peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
+        let peer_1 = TestPeer::new(peer_1_config);
+
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 1345);
+        let url_string = UrlString::try_from("test".to_string()).unwrap();
+        let tip_data = vec![
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 1),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 3),
+        ];
+        let expected_sorted_tip_data = vec![
+            (url_string.clone(), socket_addr.clone(), 1),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 3),
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 4),
+        ];
+        let mut sorted_tip_data = PeerNetwork::sort_tip_data(tip_data, Some(0));
+        assert_eq!(sorted_tip_data, expected_sorted_tip_data);
+
+
+        // Make sure that the peers with the highest sequence numbers are selected.
+        let expected_next_highest = vec![
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 4)
+        ];
+        let next_highest = PeerNetwork::get_neighbors_with_next_highest_seq_num(
+            &mut sorted_tip_data
+        );
+        assert_eq!(next_highest, Some(expected_next_highest));
+
+        // Call the function one more time, and make sure that the *next* highest peer heights are popped.
+        let next_highest = PeerNetwork::get_neighbors_with_next_highest_seq_num(
+            &mut sorted_tip_data
+        );
+        let expected_next_highest = vec![
+            (url_string.clone(), socket_addr.clone(), 3)
+        ];
+        assert_eq!(next_highest, Some(expected_next_highest));
+    }
+
+    // Verify that the sorting functions used in the microblock tip sync to organize
+    // its peers' data work correctly.
+    // In this test, the local microblock sequence number is greater than some of their peers'
+    // sequence numbers, so no peer data is filtered out.
+    #[test]
+    fn test_neighbor_sorting_with_filtering() {
+        let peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
+        let peer_1 = TestPeer::new(peer_1_config);
+
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 1345);
+        let url_string = UrlString::try_from("test".to_string()).unwrap();
+        let tip_data = vec![
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 10),
+            (url_string.clone(), socket_addr.clone(), 2),
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 3),
+        ];
+        let expected_sorted_tip_data = vec![
+            (url_string.clone(), socket_addr.clone(), 3),
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 10),
+        ];
+        let mut sorted_tip_data = PeerNetwork::sort_tip_data(tip_data, Some(2));
+        assert_eq!(sorted_tip_data, expected_sorted_tip_data);
+
+        // Make sure that the peers with the highest sequence numbers are selected.
+        let expected_next_highest = vec![
+            (url_string.clone(), socket_addr.clone(), 10),
+        ];
+        let next_highest = PeerNetwork::get_neighbors_with_next_highest_seq_num(
+            &mut sorted_tip_data
+        );
+        assert_eq!(next_highest, Some(expected_next_highest));
+
+        // Call the function one more time, and make sure that the *next* highest peer heights are popped.
+        let next_highest = PeerNetwork::get_neighbors_with_next_highest_seq_num(
+            &mut sorted_tip_data
+        );
+        let expected_next_highest = vec![
+            (url_string.clone(), socket_addr.clone(), 4),
+            (url_string.clone(), socket_addr.clone(), 4)
+        ];
+        assert_eq!(next_highest, Some(expected_next_highest));
+    }
+
+    // At the tip, peer 2 has microblocks that peer 1 does not have. This test verifies that
+    // peer 1 gets the microblocks.
+    #[test]
     fn test_microblock_tip_sync_2_peers() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -7582,10 +7689,11 @@ mod test {
     }
 
 
-    // test the scenario in which peer 2 contains microblocks off of a particular chain tip
-    // that peer 1 does not have, but in which peer 1 and peer 2 are not neighbors.
+    // In this test, peer 1 and peer 2 are not neighbors.
+    // The chain tip of peer 1 & peer 2 match, and peer 2 contains microblocks that peer 1 does not
+    // have. Peer 1 does not successfully sync its microblock chain tip because it doesn't have
+    // any peers.
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_lone_peer() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -7706,7 +7814,6 @@ mod test {
     // has 3 unconfirmed microblocks at its chain tip, peer 1 should not retrieve those through
     // the microblock tip sync protocol since their tips do not match.
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_2_peers_different_chaintip() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -7741,8 +7848,7 @@ mod test {
                 peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
             } else {
-                // make the chain tips of peer 1 and peer 2 diverage on the last two iterations
-                // let (burn_ops_peer_1, stacks_block_peer_1, microblocks_peer_1) = peer_1.make_default_tenure();
+                // make the chain tips of peer 1 and peer 2 diverge on the last two iterations
                 let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
                 peer_2.next_burnchain_block(burn_ops.clone());
                 peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
@@ -7860,9 +7966,10 @@ mod test {
         assert_eq!(peer_2.network.microblock_tip_sync_amount, 0);
     }
 
-    // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
+    // This test has three peers. Peer 2 has some of the microblocks that peer 3 has, and peer 1
+    // has no microblocks on its tip. Make sure that peer 2 and peer 1 are able to successfully
+    // retrieve microblocks at the chain tip.
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_3_peers() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -7894,11 +8001,10 @@ mod test {
                 peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 peer_3.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
             } else {
-                // on the last iteration (so the chain tip), peer 1 has none of the microblocks,
-                // peer 2 has one of the microblocks, and peer 3 has all three microblocks.
+                // on the last iteration (so the chain tip), peer 1 has zero microblocks,
+                // peer 2 has one microblock, and peer 3 has three microblocks.
                 peer_3.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 let shorter_mb = microblocks[0..2].to_vec();
-                info!("peer 2 mbs: {:?}", shorter_mb);
                 peer_2.process_stacks_epoch_at_tip(&stacks_block, &shorter_mb);
                 peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
             }
@@ -7915,14 +8021,12 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
-                assert_eq!(peer_1_chainstate
-                               .has_microblocks_indexed(&index_block_hash)
-                               .unwrap(), false);
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_1_chainstate.db(),
                     &index_block_hash
                 ).unwrap();
                 assert_eq!(mbs.len(), 0);
+
                 peer_1_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
                 Ok(())
             })
@@ -7939,16 +8043,12 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
-                assert!(peer_2_chainstate
-                    .has_microblocks_indexed(&index_block_hash)
-                    .unwrap());
-
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_2_chainstate.db(),
                     &index_block_hash
                 ).unwrap();
                 assert_eq!(mbs.len(), 2);
-                info!("peer 2 has 2 microblocks");
+
                 peer_2_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
                 Ok(())
             })
@@ -7965,15 +8065,12 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
-                assert!(peer_3_chainstate
-                    .has_microblocks_indexed(&index_block_hash)
-                    .unwrap());
-
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_3_chainstate.db(),
                     &index_block_hash
                 ).unwrap();
                 assert_eq!(mbs.len(), 3);
+
                 peer_3_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
                 Ok(())
             })
@@ -8073,6 +8170,7 @@ mod test {
             })
             .unwrap();
 
+        // check that peer 2 now has three microblocks
         peer_2
             .with_db_state(|sortdb, peer_2_chainstate, relayer, mempool| {
                 let (consensus_hash, bhh) =
@@ -8094,9 +8192,6 @@ mod test {
             })
             .unwrap();
 
-
-
-        // this # is misleading - peer 1 gets 2 mbs from peer 2, then 2 mbs from peer 3
         assert!(peer_1_num_synced >= 3);
         assert!(peer_2_num_synced >= 1);
         assert_eq!(peer_3_num_synced, 0);
@@ -8105,8 +8200,8 @@ mod test {
         assert_eq!(peer_3.network.microblock_tip_sync_amount, 0);
     }
 
+    
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_2_peers_timeout() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -8276,7 +8371,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_2_peers_with_proxy() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
@@ -8465,10 +8559,12 @@ mod test {
     }
 
 
-    // TODO(map): ideally, peer 2 is banned for a bit
+    // In this test, we re-route requests to peer 2's data plane through a proxy server.
+    // If the proxy server mostly just forwards requests to peer 2's rpc endpoint, but if it
+    // receives a request for the `v2/info` endpoint, it morphs the request into `v2/pox`, which
+    // ensures that peer 1 receives unexpected data. This causes the sync to fail.
     #[test]
-    #[ignore]
-    fn test_microblock_tip_sync_2_peers_bad_peer() {
+    fn test_microblock_tip_sync_2_peers_bad_info() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
@@ -8617,9 +8713,9 @@ mod test {
 
     async fn accept_bad_microblock(stream: TcpStream) ->  http_types::Result<()> {
         async_h1::accept(stream.clone(), |mut req| async move {
-            let is_microblock_req = req.url().path().contains("/v2/microblocks/unconfirmed");
-
-            info!("MAP: request name post - {:?} / {}", req.url().path(), is_microblock_req);
+            if  req.url().path().contains("/v2/microblocks/unconfirmed") {
+                req.url_mut().set_path("/v2/pox");
+            }
 
             let response = async_std::task::block_on(async {
                 // try to connect to peer 2's rpc endpoint
@@ -8627,30 +8723,9 @@ mod test {
 
                 // send the request the proxy received to peer 2
                 match async_h1::client::connect(peer_2_stream, req).await {
-                    Ok(mut response) => {
+                    Ok(response) => {
                         info!("MAP: got a proxy response in accept, {:?}", response);
-                        // TODO... modify response
-                        // OR - can call handle_microblocks_request and modify the response to that
-                        if is_microblock_req {
-                            // de-serialize the original response
-                            let privk = StacksPrivateKey::from_hex(
-                                "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-                            )
-                                .unwrap();
-                            let test_block_info = make_codec_test_block(5);
-                            let test_microblock_info =
-                                make_sample_microblock_stream(&privk, &test_block_info.block_hash());
-                            let mut test_microblock_info_bytes = vec![];
-                            test_microblock_info
-                                .consensus_serialize(&mut test_microblock_info_bytes)
-                                .unwrap();
-
-                            response.set_body(Body::from(test_microblock_info_bytes));
-                            info!("MAP: accept - returning modified response"); 
-                            Ok(response)
-                        } else {
-                            Ok(response)
-                        }
+                        Ok(response)
                     },
                     Err(err) => {
                         info!("MAP: rpc invocation failed  - {:?}", err);
@@ -8662,7 +8737,6 @@ mod test {
             response
         })
             .await?;
-
         Ok(())
     }
 
@@ -8687,9 +8761,7 @@ mod test {
     }
 
 
-    // TODO(map): ideally, peer 2 is banned for a bit
     #[test]
-    #[ignore]
     fn test_microblock_tip_sync_2_peers_bad_microblock() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
@@ -8715,9 +8787,6 @@ mod test {
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
-        if let Some(state) = &peer_1.network.inv_state {
-            info!("MAP: peer 1 inv state - {:?}", state.block_stats);
-        }
 
         for i in 0..5 {
             let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
@@ -8728,10 +8797,6 @@ mod test {
             // do not process the microblocks on peer 1
             peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        if let Some(state) = &peer_1.network.inv_state {
-            info!("MAP: peer 1 inv state after process - {:?}", state.block_stats);
         }
 
         let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
@@ -8782,8 +8847,6 @@ mod test {
             .unwrap();
 
         // now we know peer 2 has microblocks at the tip, and peer 1 does not
-        // remember to check the value of num_synced_microblocks somewhere ...
-
         let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
@@ -8806,10 +8869,6 @@ mod test {
                     .unwrap();
                 if net_reciepts.num_new_synced_microblocks > 0 {
                     peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
-                }
-
-                if let Some(state) = &peer_1.network.inv_state {
-                    info!("MAP: peer 1 inv state in step {} - {:?}", i, state.block_stats);
                 }
             } else {
                 info!("MAP: peer 1 step errored");
@@ -8837,45 +8896,7 @@ mod test {
             }
         }
 
-
-        if let Some(state) = &peer_1.network.inv_state {
-            info!("MAP: peer 1 inv state after process - {:?}", state.block_stats);
-        }
-        if let Some(state) = &peer_2.network.inv_state {
-            info!("MAP: peer 2 inv state after process - {:?}", state.block_stats);
-        }
-
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
     }
 }
-
-
-// Tests
-// - test about timeout
-// - set deadline very far into future
-//
-// differing chain tip
-//  - different canonical tip, no sync should occur
-
-// multiple peers
-// - peers with varying tip heights, are they queried in the right order?
-//    - make sure all peers are stepping, and that they all reach chain tip
-//
-// collect peer url
-// - no peers connected - this resets the sync
-// - data url not set
-// - () convo is not authenticated
-// - () convo is not outbound
-// - bad port, use foo://example.com" as url
-// - dns_client_opt = None
-//
-// ResolveLatestTip
-// - use proxy server to return bad response (not peer info) & make sure peer is added to faulty peers
-//
-// wait for microblocks
-// - use proxy to return bad formed microblocks - peer should be added to faulty peers
-// - use proxy to return non microblocks response - faulty peers list
-//
-// stretch
-// - use dummy DNSClient so that dns_client.poll_lookup fails
