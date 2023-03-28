@@ -2,10 +2,12 @@
 
 use clarity::vm::analysis::CheckErrors::TypeError;
 use clarity::vm::types::TypeSignature;
+use stacks_common::types::StacksEpochId;
 
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|types: (TypeSignature, TypeSignature)| {
+    let epoch = StacksEpochId::Epoch21;
     println!("types: {}, {}", types.0, types.1);
     if TypeSignature::contains_invalid_type_lhs(&types.0)
         || TypeSignature::contains_invalid_type_rhs(&types.1)
@@ -23,7 +25,7 @@ fuzz_target!(|types: (TypeSignature, TypeSignature)| {
     };
     println!("old_types: {}, {}", old_types.0, old_types.1);
 
-    let mut new_res = TypeSignature::least_supertype(&types.0, &types.1);
+    let mut new_res = TypeSignature::least_supertype(&epoch, &types.0, &types.1);
     let old_res = TypeSignature::old_least_supertype(&old_types.0, &old_types.1);
     println!("## old: {:?}\n## new: {:?}", old_res, new_res);
 

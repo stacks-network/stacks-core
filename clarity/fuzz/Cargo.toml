@@ -14,6 +14,10 @@ libfuzzer-sys = "0.4"
 path = ".."
 features = ["fuzzing", "testing"]
 
+[dependencies.stacks-common]
+path = "../../stacks-common"
+features = ["testing"]
+
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]

@@ -1544,8 +1544,7 @@ impl TypeSignature {
                 }
                 false
             }
-            CallableType(CallableSubtype::Principal(_))
-            | ListUnionType(_) => true,
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => true,
             IntType
             | UIntType
             | BoolType
@@ -1597,6 +1596,7 @@ impl TypeSignature {
     // matches 2.0 behavior.
     #[cfg(any(test, feature = "testing"))]
     pub fn old_least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+        let epoch20 = StacksEpochId::Epoch20;
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -1607,7 +1607,7 @@ impl TypeSignature {
                     let entry_b = types_b
                         .get(name)
                         .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
-                    let entry_out = Self::least_supertype(entry_a, entry_b)?;
+                    let entry_out = Self::least_supertype(&epoch20, entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
@@ -1628,19 +1628,19 @@ impl TypeSignature {
                 } else if *len_b == 0 {
                     *(entry_a.clone())
                 } else {
-                    Self::least_supertype(entry_a, entry_b)?
+                    Self::least_supertype(&epoch20, entry_a, entry_b)?
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
                    .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
-                let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
-                let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
+                let ok_type = Self::factor_out_no_type(&epoch20, &resp_a.0, &resp_b.0)?;
+                let err_type = Self::factor_out_no_type(&epoch20, &resp_a.1, &resp_b.1)?;
                 Ok(Self::new_response(ok_type, err_type)?)
             }
             (OptionalType(some_a), OptionalType(some_b)) => {
-                let some_type = Self::factor_out_no_type(some_a, some_b)?;
+                let some_type = Self::factor_out_no_type(&epoch20, some_a, some_b)?;
                 Ok(Self::new_option(some_type)?)
             }
             (
