@@ -29,6 +29,40 @@ This project and everyone participating in it is governed by this [Code of Condu
 - For consensus breaking changes, branch off of the `next` branch.
 - For hotfixes, branch off of `master`.
 
+If you have commit access, use a branch in this repository. If you do
+not, then you must use a github fork of the repository.
+
+### Branch naming
+
+Branch names should use a prefix that conveys the overall goal of the branch:
+
+- `feat/some-fancy-new-thing` for new features
+- `fix/some-broken-thing` for hot fixes and bug fixes
+- `docs/something-needs-a-comment` for documentation
+- `ci/build-changes` for continuous-integration changes
+- `test/more-coverage` for branches that only add more tests
+- `refactor/formatting-fix` for refactors
+
+### Merging PRs from Forks
+
+PRs from forks or opened by contributors without commit access require
+some special handling for merging. Any such PR, after being reviewed,
+must get assigned to a contributor with commit access. This merge-owner
+is responsible for:
+
+1. Creating a new branch in this repository based on the base branch
+   for the PR.
+2. Retargeting the PR toward the new branch.
+3. Merging the PR into the new branch.
+4. Opening a new PR from `new_branch -> original_base`
+5. Tagging reviewers for re-approval.
+6. Merging the new PR.
+
+For an example of this process, see PRs
+[#3598](https://github.com/stacks-network/stacks-blockchain/pull/3598) and
+[#3626](https://github.com/stacks-network/stacks-blockchain/pull/3626).
+
+
 ### Documentation Updates
 
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
@@ -49,6 +83,13 @@ The general format is as follows:
 [optional footer(s)]
 ```
 Common types include build, ci, docs, fix, feat, test, refactor, etc.
+
+When a commit is addressing or related to a particular Github issue, it
+should reference the issue in the commit message. For example:
+
+```
+fix: incorporate unlocks in mempool admitter, #3623
+```
 
 # Creating and Reviewing PRs
 
