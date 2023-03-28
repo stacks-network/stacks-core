@@ -202,7 +202,13 @@ Within the source files, the following **code documentation** standards are expe
 
 * **All input processing is space-bound.**  Every piece of code that ingests data must impose a maximum size on its byte representation.  Any inputs that exceed this size _must be discarded with as little processing as possible_.
 
-* **All input deserialization is resource-bound.** Every piece of code that ingests data must impose a maximum amount of RAM and CPU required to decode it into a structured representation.  If the data does not decode with the allotted resources, then no further processing may be done and the data is discarded.
+* **All input deserialization is resource-bound.** Every piece of code
+  that ingests data must impose a maximum amount of RAM and CPU
+  required to decode it into a structured representation.  If the data
+  does not decode with the allotted resources, then no further
+  processing may be done and the data is discarded. For an example, see
+  how the parsing functions in the http module use `BoundReader` and
+  `MAX_PAYLOAD_LEN` in [http.rs](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/src/net/http.rs#L2260-L2285).
 
 * **All network input reception is time-bound.**  Every piece of code that ingests data _from the network_ must impose a maximum amount of time that ingestion can take.  If the data takes too long to arrive, then it must be discarded without any further processing.  There is no time bound for data ingested from disk or passed as an argument; this requirement is meant by the space-bound requirement.
 
