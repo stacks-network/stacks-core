@@ -62,8 +62,6 @@ Therefore, making changes to the codebase is necessarily a review-intensive proc
 
 A good PR review sets both the submitter and reviewers up for success.  It minimizes the time required by both parties to get the code into an acceptable state, without sacrificing quality or safety.  Unlike most other software development practices, _safety_ is the primary concern.  A PR can and will be delayed or closed if there is any concern that it will lead to unintended consensus-breaking changes.
 
-This document describes some best practices on how to create and review PRs in this context.  The target audience is people who have commit access to this repository (reviewers), and people who open PRs (submitters).  This is a living document -- developers can and should document their own additional guidelines here.
-
 This document is formatted like a checklist.  Each paragraph is one goal or action item that the reviewer and/or submitter must complete.  The **key take-away** from each paragraph is bolded.
 
 ## Reviewer Expectations
@@ -74,9 +72,9 @@ Reviewers should **complete the review in one round**.  The reviewer should prov
 
 Reviewers should make use of Github's "pending comments" feature. This ensures that the review is "atomic": when the reviewer submits the review, all the comments are published at once.
 
-Reviewers should aim to **perform a reviewer in one sitting** whenever possible.  This enables a reviewer to time-box their review, and ensures that by the time they finish studying the patch, they have a complete understanding of what the PR does in their head.  This, in turn, sets them up for success when writing up the acceptance plan.  It also enables reviewers to mark time for it on their calendars, which helps everyone else develop reasonable expectations as to when things will be done.
+Reviewers should aim to **perform a review in one sitting** whenever possible.  This enables a reviewer to time-box their review, and ensures that by the time they finish studying the patch, they have a complete understanding of what the PR does in their head.  This, in turn, sets them up for success when writing up the acceptance plan.  It also enables reviewers to mark time for it on their calendars, which helps everyone else develop reasonable expectations as to when things will be done.
 
-Code reviews should be timely.  A PR review should begin no more than **2 business days** after the PR is submitted.  The `develop` and `next` branches in particular often change quickly, so letting a PR languish only creates more merge work for the submitter.  If a review cannot be begun within 2 business days, then the reviewers should **tell the submitter when they can begin**.  This gives the reviewer the opportunity to keep working on the PR (if needed) or even withdraw and resubmit it.
+Code reviews should be timely.  A PR review should begin no more than **2 business days** after the PR is submitted. This applies to each reviewer: i.e., we expect all reviewers to respond within two days.  The `develop` and `next` branches in particular often change quickly, so letting a PR languish only creates more merge work for the submitter.  If a review cannot be begun within 2 business days, then the reviewers should **tell the submitter when they can begin**.  This gives the reviewer the opportunity to keep working on the PR (if needed) or even withdraw and resubmit it.
 
 Reviewers must, above all else, **ensure that submitters follow the PR checklist** below. 
 
@@ -155,7 +153,7 @@ Contributions should not contain `unsafe` blocks if at all possible.
 ## Documentation
 
 * Each file must have a **copyright statement**.
-* Any new non-test modules should have **module-level documentation** explaining what the module does, and how it fits into the blockchain as a whole.
+* Any new non-test modules should have **module-level documentation** explaining what the module does, and how it fits into the blockchain as a whole ([example](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L17)).
 * Any new files must have some **top-of-file documentation** that describes what the contained code does, and how it fits into the overall module.
 
 Within the source files, the following **code documentation** standards are expected:
@@ -166,13 +164,17 @@ Within the source files, the following **code documentation** standards are expe
 
 ## Factoring
 
-* **Public or exported struct, enum, and trait definitions go into the `mod.rs` file**.  Private structs, enums, and traits can go anywhere.
-
 * **Each non-`mod.rs` file implements at most one subsystem**.  It may include multiple struct implementations and trait implementations.  The filename should succinctly identify the subsystem, and the file-level documentation must succinctly describe it and how it relates to other subsystems it interacts with.
 
 * Directories represent collections of related but distinct subsystems.
 
-* To the greatest extent possible, **business logic and I/O should be separated**.  A common pattern used in the codebase is to place the business logic into an "inner" function that does not do I/O, and handle I/O reads and writes in an "outer" function.  The "outer" function only does the needful I/O and passes the data into the "inner" function.  The "inner" function is often private, whereas the "outer" function is often public.
+* To the greatest extent possible, **business logic and I/O should be
+  separated**.  A common pattern used in the codebase is to place the
+  business logic into an "inner" function that does not do I/O, and
+  handle I/O reads and writes in an "outer" function.  The "outer"
+  function only does the needful I/O and passes the data into the
+  "inner" function.  The "inner" function is often private, whereas
+  the "outer" function is often public. For example, [`inner_try_mine_microblock` and `try_mine_microblock`](https://github.com/stacks-network/stacks-blockchain/blob/4852d6439b473e24705f14b8af637aded33cb422/testnet/stacks-node/src/neon_node.rs#L1148-L1216).
 
 ## Refactoring
 
@@ -214,17 +216,25 @@ Changes that touch any of these four code paths must be treated with the utmost 
 
 ## Changes to the Peer Network
 
-Any changes to the peer networking code **must be run in production before the PR can be merged.**  The submitter should set up a testable node or set of nodes that reviewers can interact with.
+Any changes to the peer networking code **must be run on both mainnet and testnet before the PR can be merged.**  The submitter should set up a testable node or set of nodes that reviewers can interact with.
 
-Changes to the peer network should be deployed incrementally and tested by multiple ecosystem entities when possible to verify that they function properly in a production setting.
+Changes to the peer network should be deployed incrementally and tested by multiple parties when possible to verify that they function properly in a production setting.
 
 ## Performance Improvements
 
 Any PRs that claim to improve performance **must ship with reproducible benchmarks** that accurately measure the improvement.  This data must also be reported in the PR submission.
 
+For an example, see [PR #3075](https://github.com/stacks-network/stacks-blockchain/pull/3075).
+
 ## Error Handling
 
-* **Each subsystem must have its own `Error` type.**  Error types of aggregate subsystems are encouraged to both wrap their constituent subsystems' `Error` types in their own `Error` types, as well as provide conversions from them via a `From` trait implementation.
+* **Results must use `Error` types**. Fallible functions in the
+codebase must use `Error` types in their `Result`s. If a new module's
+errors are sufficiently different from existing `Error` types in the
+codebaes, the new module must define a new `Error` type. Errors that
+are caused by other `Error` types should be wrapped in a variant of
+the new `Error` type. You should provide conversions via a `From`
+trait implementation.
 
 * Functions that act on externally-submitted data **must never panic**.  This includes code that acts on incoming network messages, blockchain data, and burnchain (Bitcoin) data.
 
@@ -238,7 +248,7 @@ Any PRs that claim to improve performance **must ship with reproducible benchmar
 
 * **DO NOT USE println!() OR eprintln!()**.  Instead, use the logging macros (`test_debug!()`, `trace!()`, `debug!()`, `info!()`, `warn!()`, `error!()`).
 
-* Use **structured logging** whenever you find yourself logging multiple data with a format string.
+* Use **structured logging** to include dynamic data in your log entry. For example, `info!("Append block"; "block_id" => %block_id)` as opposed to `info!("Append block with block_id = {}", block_id)`.
 
 * Use `trace!()` and `test_debug!()` liberally.  It only runs in tests.
 
@@ -301,13 +311,13 @@ properly formatted.
 You can check the formatting locally via:
 
 ```bash
-cargo fmt --all -- --check
+cargo fmt --all -- --check --config group_imports=StdExternalCrate
 ```
 
 You can automatically reformat your commit via:
 
 ```bash
-cargo fmt --all
+cargo fmt --all -- --config group_imports=StdExternalCrate
 ```
 
 ## Comments
@@ -335,7 +345,7 @@ Comments are to be formatted in typical `rust` style, specifically:
 
 - When documenting panics, errors, or other conceptual sections, introduce a Markdown section with a single `#`, e.g.:
 
-    ```
+    ```rust
     # Errors
     * ContractTooLargeError: Thrown when `contract` is larger than `MAX_CONTRACT_SIZE`.
     ```
@@ -461,7 +471,7 @@ So, if a function and its variables have very descriptive names, then there may 
 
 **Bad Example**
 
-```
+```rust
 /// Appends a transaction to a block.
 fn append_transaction_to_block(transaction:Transaction, &mut Block) -> Result<()>
 ```
@@ -470,7 +480,7 @@ This is considered bad because the function name already says "append transactio
 
 **Good Example**
 
-```
+```rust
 /// # Errors
 ///
 /// - BlockTooBigError: Is returned if adding `transaction` to `block` results
