@@ -918,9 +918,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> (HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>, u64, Vec<NeighborKey>) {
+    ) -> (HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>, u64) {
         let mut ret = HashMap::new();
-        let mut bad_neighbors = vec![];
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -1017,7 +1016,7 @@ impl Relayer {
         if let Some(result) = &network_result.synced_microblock_result
         {
             if result.microblocks.len() == 0 {
-                return (ret, num_synced_microblocks, bad_neighbors);
+                return (ret, num_synced_microblocks);
             }
 
             let consensus_hash = result.stacks_tip_consensus_hash;
@@ -1031,11 +1030,11 @@ impl Relayer {
                             "Failed to load parent anchored block snapshot for {}/{}",
                             consensus_hash, &anchored_block_hash
                         );
-                        return (ret, num_synced_microblocks, bad_neighbors);
+                        return (ret, num_synced_microblocks);
                     }
                     Err(e) => {
                         warn!("Failed to load parent stacks block snapshot: {:?}", &e);
-                        return (ret, num_synced_microblocks, bad_neighbors);
+                        return (ret, num_synced_microblocks);
                     }
                 };
 
@@ -1043,7 +1042,7 @@ impl Relayer {
                 Ok(rules) => rules,
                 Err(e) => {
                     error!("Failed to load current AST rules: {:?}", &e);
-                    return (ret, num_synced_microblocks, bad_neighbors);
+                    return (ret, num_synced_microblocks);
                 }
             };
             let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
@@ -1054,7 +1053,7 @@ impl Relayer {
                 }
                 Err(e) => {
                     error!("Failed to load epoch: {:?}", &e);
-                    return (ret, num_synced_microblocks, bad_neighbors);
+                    return (ret, num_synced_microblocks);
                 }
             };
 
@@ -1072,11 +1071,6 @@ impl Relayer {
                     ast_rules,
                 ) {
                     info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &anchored_block_hash);
-                    // TODO(map): should we try to ban the peer that sent this to us?
-                    if let Some(nk) = &result.neighbor_key {
-                        bad_neighbors.push(nk.clone());
-                        info!("MAP: added {:?} to bad neighbor list", nk);
-                    }
                     break;
                 }
                 match chainstate.preprocess_streamed_microblock(
@@ -1086,7 +1080,7 @@ impl Relayer {
                 ) {
                     Ok(stored) => {
                         if stored {
-                            num_synced_microblocks+=1;
+                            num_synced_microblocks += 1;
                         }
                     }
                     Err(e) => {
@@ -1103,7 +1097,7 @@ impl Relayer {
         }
 
 
-        (ret, num_synced_microblocks, bad_neighbors)
+        (ret, num_synced_microblocks)
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
@@ -1511,9 +1505,8 @@ impl Relayer {
         }
 
         // process microblocks we downloaded
-        let (new_downloaded_microblocks, num_synced_microblocks, mut new_bad_neighbors) =
+        let (new_downloaded_microblocks, num_synced_microblocks) =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
-        bad_neighbors.append(&mut new_bad_neighbors);
 
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
         // (these ones will have already been processed, but we need to report them as

@@ -8200,7 +8200,9 @@ mod test {
         assert_eq!(peer_3.network.microblock_tip_sync_amount, 0);
     }
 
-    
+
+    // Set the tip_sync deadline in the future. Ensure that peer 1 does not get peer 2's
+    // microblocks.
     #[test]
     fn test_microblock_tip_sync_2_peers_timeout() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
@@ -8298,7 +8300,7 @@ mod test {
 
             if let Ok(mut result) = peer_2.step() {
                 let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
+                let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8312,13 +8314,11 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced = net_receipts.num_new_synced_microblocks;
                 }
             }
         }
-        // no microblocks should have been exchanged because peer 1's `microblock_tip_sync_deadline`
-        // was not reached, so the sync was skipped.
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
     }
@@ -8329,30 +8329,24 @@ mod test {
                 // try to connect to peer 2's rpc endpoint
                 let peer_2_stream = TcpStream::connect("127.0.0.1:2213").await?;
 
-                // send the request the proxy received to peer 2
+                // forward the request the proxy received to peer 2
                 match async_h1::client::connect(peer_2_stream, req).await {
                     Ok(response) => {
-                        info!("MAP: got a proxy response in accept, {:?}", response);
                         Ok(response)
                     },
                     Err(err) => {
-                        info!("MAP: rpc invocation failed  - {:?}", err);
                         return Err(err);
                     }
                 }
             });
-
             response
         })
             .await?;
-
         Ok(())
     }
 
-    // this proxy will respond to peer 2's data url
-    // peer 1 makes request to proxy
-    //    - if request is a request to microblocks, return bad data
-    //    - else, ping peer 2's RPC endpoint and forward that answer
+    // This function creates an endpoint which is set as peer 2's data url endpoint in the test
+    // below.
     fn create_test_proxy(proxy_port: i32) {
         async_std::task::block_on(async {
             let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
@@ -8362,7 +8356,7 @@ mod test {
                 let stream = stream.unwrap();
                 async_std::task::spawn(async {
                     if let Err(e) = accept(stream).await {
-                        info!("MAP: error when accepting in proxy");
+                        test_debug!("Error accepting in proxy: {:?}", e);
                     }
                 });
             }
@@ -8370,6 +8364,9 @@ mod test {
 
     }
 
+    // This test ensures the tip sync protocol functions as expected if peer 2's data URL is
+    // replaced with a proxy server. This test mostly exists to ensure that the proxy works
+    // correctly.
     #[test]
     fn test_microblock_tip_sync_2_peers_with_proxy() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
@@ -8380,7 +8377,7 @@ mod test {
         let data_url = UrlString::try_from(proxy_addr).unwrap();
         peer_2_config.data_url = data_url;
 
-        let _ = thread::spawn(move || {
+        let proxy_thread_handle = thread::spawn(move || {
             create_test_proxy(proxy_port)
         });
 
@@ -8389,7 +8386,6 @@ mod test {
 
         peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
         peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
-
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -8452,9 +8448,8 @@ mod test {
             })
             .unwrap();
 
-        // now we know peer 2 has microblocks at the tip, and peer 1 does not
-        // remember to check the value of num_synced_microblocks somewhere ...
-
+        // now we know peer 2 has microblocks at the tip, and peer 1 does not.
+        // call step() on both peers so that the microblock tip sync protocol runs.
         let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
@@ -8478,8 +8473,6 @@ mod test {
                 if net_reciepts.num_new_synced_microblocks > 0 {
                     peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
                 }
-            } else {
-                info!("MAP: peer 1 step errored");
             }
 
             if let Ok(mut result) = peer_2.step() {
@@ -8506,8 +8499,14 @@ mod test {
 
         assert_eq!(peer_1_num_synced, 3);
         assert_eq!(peer_2_num_synced, 0);
+
+        proxy_thread_handle.join().unwrap();
     }
 
+    // In most cases, the server forwards the incoming request to peer 2's rpc endpoint, and
+    // returns what it gets.
+    // If the request is for the `v2/info` endpoint, then the request
+    // path is altered so that the response is the wrong response type.
     async fn accept_bad_info(stream: TcpStream) ->  http_types::Result<()> {
         async_h1::accept(stream.clone(), |mut req| async move {
             if req.url().path() == "/v2/info" {
@@ -8521,11 +8520,9 @@ mod test {
                 // send the request the proxy received to peer 2
                 match async_h1::client::connect(peer_2_stream, req).await {
                     Ok(response) => {
-                        info!("MAP: got a proxy response in accept, {:?}", response);
                         Ok(response)
                     },
                     Err(err) => {
-                        info!("MAP: rpc invocation failed  - {:?}", err);
                         return Err(err);
                     }
                 }
@@ -8538,10 +8535,8 @@ mod test {
         Ok(())
     }
 
-    // this proxy will respond to peer 2's data url
-    // peer 1 makes request to proxy
-    //    - if request is a request to microblocks, return bad data
-    //    - else, ping peer 2's RPC endpoint and forward that answer
+    // This function creates an endpoint which is set as peer 2's data url endpoint in the test
+    // below.
     fn create_test_proxy_bad_info(proxy_port: i32) {
         async_std::task::block_on(async {
             let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
@@ -8551,7 +8546,7 @@ mod test {
                 let stream = stream.unwrap();
                 async_std::task::spawn(async {
                     if let Err(e) = accept_bad_info(stream).await {
-                        info!("MAP: error when accepting in proxy");
+                        test_debug!("Error accepting in proxy: {:?}", e);
                     }
                 });
             }
@@ -8560,9 +8555,10 @@ mod test {
 
 
     // In this test, we re-route requests to peer 2's data plane through a proxy server.
-    // If the proxy server mostly just forwards requests to peer 2's rpc endpoint, but if it
+    // The proxy server mostly just forwards requests to peer 2's rpc endpoint, but if it
     // receives a request for the `v2/info` endpoint, it morphs the request into `v2/pox`, which
-    // ensures that peer 1 receives unexpected data. This causes the sync to fail.
+    // ensures that peer 1 receives unexpected data. This causes the sync to not complete
+    // successfully
     #[test]
     fn test_microblock_tip_sync_2_peers_bad_info() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
@@ -8573,7 +8569,7 @@ mod test {
         let data_url = UrlString::try_from(proxy_addr).unwrap();
         peer_2_config.data_url = data_url;
 
-        let _ = thread::spawn(move || {
+        let proxy_thread_handle = thread::spawn(move || {
             create_test_proxy_bad_info(proxy_port)
         });
 
@@ -8581,17 +8577,12 @@ mod test {
         let peer_2_as_neighbor = peer_2_config.to_neighbor();
         peer_1_config.add_neighbor(&peer_2_as_neighbor);
         peer_2_config.add_neighbor(&peer_1_as_neighbor);
-
         peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
         peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
 
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
-
-        if let Some(state) = &peer_1.network.inv_state {
-            info!("MAP: peer 1 inv state - {:?}", state.block_stats);
-        }
 
         for i in 0..5 {
             let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
@@ -8602,10 +8593,6 @@ mod test {
             // do not process the microblocks on peer 1
             peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        if let Some(state) = &peer_1.network.inv_state {
-            info!("MAP: peer 1 inv state after process - {:?}", state.block_stats);
         }
 
         let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
@@ -8655,9 +8642,6 @@ mod test {
             })
             .unwrap();
 
-        // now we know peer 2 has microblocks at the tip, and peer 1 does not
-        // remember to check the value of num_synced_microblocks somewhere ...
-
         let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
@@ -8681,8 +8665,6 @@ mod test {
                 if net_reciepts.num_new_synced_microblocks > 0 {
                     peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
                 }
-            } else {
-                info!("MAP: peer 1 step errored");
             }
 
             if let Ok(mut result) = peer_2.step() {
@@ -8709,8 +8691,14 @@ mod test {
 
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
+
+        proxy_thread_handle.join().unwrap();
     }
 
+    // In most cases, the server forwards the incoming request to peer 2's rpc endpoint, and
+    // returns what it gets.
+    // If the request is for the `v2/microblocks/unconfirmed` endpoint, then the request
+    // path is altered so that the response is the wrong response type.
     async fn accept_bad_microblock(stream: TcpStream) ->  http_types::Result<()> {
         async_h1::accept(stream.clone(), |mut req| async move {
             if  req.url().path().contains("/v2/microblocks/unconfirmed") {
@@ -8724,11 +8712,9 @@ mod test {
                 // send the request the proxy received to peer 2
                 match async_h1::client::connect(peer_2_stream, req).await {
                     Ok(response) => {
-                        info!("MAP: got a proxy response in accept, {:?}", response);
                         Ok(response)
                     },
                     Err(err) => {
-                        info!("MAP: rpc invocation failed  - {:?}", err);
                         return Err(err);
                     }
                 }
@@ -8740,10 +8726,8 @@ mod test {
         Ok(())
     }
 
-    // this proxy will respond to peer 2's data url
-    // peer 1 makes request to proxy
-    //    - if request is a request to microblocks, return bad data
-    //    - else, ping peer 2's RPC endpoint and forward that answer
+    // This function creates an endpoint which is set as peer 2's data url endpoint in the test
+    // below.
     fn create_test_proxy_bad_microblock(proxy_port: i32) {
         async_std::task::block_on(async {
             let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
@@ -8753,14 +8737,18 @@ mod test {
                 let stream = stream.unwrap();
                 async_std::task::spawn(async {
                     if let Err(e) = accept_bad_microblock(stream).await {
-                        info!("MAP: error when accepting in proxy");
+                        test_debug!("Error accepting in proxy: {:?}", e);
                     }
                 });
             }
         });
     }
 
-
+    // In this test, we re-route requests to peer 2's data plane through a proxy server.
+    // The proxy server mostly just forwards requests to peer 2's rpc endpoint, but if it
+    // receives a request for the `v2/microblocks/unconfirmed` endpoint, it morphs the request
+    // into `v2/pox`, which ensures that peer 1 receives unexpected data. This causes the sync
+    // to not complete successfully.
     #[test]
     fn test_microblock_tip_sync_2_peers_bad_microblock() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
@@ -8771,7 +8759,7 @@ mod test {
         let data_url = UrlString::try_from(proxy_addr).unwrap();
         peer_2_config.data_url = data_url;
 
-        let _ = thread::spawn(move || {
+        let proxy_thread_handle = thread::spawn(move || {
             create_test_proxy_bad_microblock(proxy_port)
         });
 
@@ -8779,14 +8767,11 @@ mod test {
         let peer_2_as_neighbor = peer_2_config.to_neighbor();
         peer_1_config.add_neighbor(&peer_2_as_neighbor);
         peer_2_config.add_neighbor(&peer_1_as_neighbor);
-
         peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
         peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
 
-
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
-
 
         for i in 0..5 {
             let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
@@ -8870,8 +8855,6 @@ mod test {
                 if net_reciepts.num_new_synced_microblocks > 0 {
                     peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
                 }
-            } else {
-                info!("MAP: peer 1 step errored");
             }
 
             if let Ok(mut result) = peer_2.step() {
@@ -8898,5 +8881,7 @@ mod test {
 
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
+
+        proxy_thread_handle.join().unwrap();
     }
 }
