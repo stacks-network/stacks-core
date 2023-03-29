@@ -115,7 +115,15 @@ Reviewers should make use of Github's "pending comments" feature. This ensures t
 
 Reviewers should aim to **perform a review in one sitting** whenever possible.  This enables a reviewer to time-box their review, and ensures that by the time they finish studying the patch, they have a complete understanding of what the PR does in their head.  This, in turn, sets them up for success when writing up the acceptance plan.  It also enables reviewers to mark time for it on their calendars, which helps everyone else develop reasonable expectations as to when things will be done.
 
-Code reviews should be timely.  A PR review should begin no more than **2 business days** after the PR is submitted. This applies to each reviewer: i.e., we expect all reviewers to respond within two days.  The `develop` and `next` branches in particular often change quickly, so letting a PR languish only creates more merge work for the submitter.  If a review cannot be begun within 2 business days, then the reviewers should **tell the submitter when they can begin**.  This gives the reviewer the opportunity to keep working on the PR (if needed) or even withdraw and resubmit it.
+Code reviews should be timely.  Reviewers should start no more than
+**2 business days** after reviewers are assigned. This applies to each
+reviewer: i.e., we expect all reviewers to respond within two days.
+The `develop` and `next` branches in particular often change quickly,
+so letting a PR languish only creates more merge work for the
+submitter.  If a review cannot be started within this timeframe, then
+the reviewers should **tell the submitter when they can begin**. This
+gives the reviewer the opportunity to keep working on the PR (if
+needed) or even withdraw and resubmit it.
 
 Reviewers must, above all else, **ensure that submitters follow the PR checklist** below. 
 
@@ -129,7 +137,13 @@ The size and scale of a PR depend on the reviewers' abilities to process the cha
 
 A successful PR submitter **takes the reviewers' familiarity and availability into account** when crafting the PR, even going so far as to ask in advance if a particular person could be available for review.
 
-Providing detailed answers to reviewer questions is often necessary as a submitter. In order to make this information accessible even after a PR has merged, submitters should strive to incorporate any clarifications into code comments.
+Providing detailed answers to reviewer questions is often necessary as a submitter. In order to make this information accessible even after a PR has merged, **submitters should strive to incorporate any clarifications into code comments**.
+
+**Selecting Reviewers**. PR submitters may tag reviewers that they
+think are relevant to the code changes in the PR (or using the
+reviewer suggestions provided by Github). If a PR is submitted without
+assigned reviewers, then reviewers will be assigned at least by the next
+Weekly Blockchain Engineering Meeting (information can be found in Discord).
 
 ## Submission Checklist
 
@@ -486,17 +500,17 @@ or because the test is very simple. Often though, comments are necessary.
 ```rust
 #[test]
 #[ignore]
+/// The purpose of this test is to check if the mempool admission checks
+/// for the post tx endpoint are working as expected wrt the optional
+/// `mempool_admission_check` query parameter.
+///
+/// In this test, we are manually creating a microblock as well as
+/// reloading the unconfirmed state of the chainstate, instead of relying
+/// on `next_block_and_wait` to generate microblocks. We do this because
+/// the unconfirmed state is not automatically being initialized
+/// on the node, so attempting to validate any transactions against the
+/// expected unconfirmed state fails.
 fn transaction_validation_integration_test() {
-    /// The purpose of this test is to check if the mempool admission checks
-    /// for the post tx endpoint are working as expected wrt the optional
-    /// `mempool_admission_check` query parameter.
-    ///
-    /// In this test, we are manually creating a microblock as well as
-    /// reloading the unconfirmed state of the chainstate, instead of relying
-    /// on `next_block_and_wait` to generate microblocks. We do this because
-    /// the unconfirmed state is not automatically being initialized
-    /// on the node, so attempting to validate any transactions against the
-    /// expected unconfirmed state fails.
 ```
 
 This comment is considered positive because it explains the purpose of the test (checking the case of an optional parameter), it also guides the reader to understand the low-level details about why a microblock is created manually.
