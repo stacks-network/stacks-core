@@ -527,7 +527,6 @@ impl ConversationP2P {
     }
 
     pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
-        info!("MAP: set public key");
         self.connection.set_public_key(pubkey_opt);
     }
 

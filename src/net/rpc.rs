@@ -1748,7 +1748,6 @@ impl ConversationHttp {
                     min_seq,
                 ) {
                     Ok(stream) => {
-                        info!("MAP: req microblock stream, {:?}", response_metadata);
                         (
                             HttpResponseType::MicroblockStream(response_metadata),
                             Some(stream),

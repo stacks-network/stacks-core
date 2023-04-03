@@ -56,9 +56,6 @@ libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
-async-h1 = "2.3.2"
-async-std = { version = "1.6", features = ["attributes"] }
-http-types = "2.12"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -102,6 +99,9 @@ stdext = "0.3.1"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
+async-h1 = "2.3.2"
+async-std = { version = "1.6", features = ["attributes"] }
+http-types = "2.12"
 
 [features]
 default = ["developer-mode"]

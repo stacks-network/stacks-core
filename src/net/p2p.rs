@@ -233,18 +233,23 @@ pub enum MempoolSyncState {
     RecvResponse(UrlString, SocketAddr, usize),
 }
 
+// This enum tracks the current state (along with its data) in the microblock tip sync protocol.
 #[derive(Debug, Clone)]
 pub enum MicroblockTipSyncState {
+    // Gather the URLs of peers
     CollectPeerURL,
+    // Use DNS client to resolve the peers' URLs
     ResolvePeerURL((HashMap<UrlString, SocketAddr>, Vec<(UrlString, DNSRequest)>)),
-    // Send v2/info request to neighbors
+    // Send v2/info request to peers
     SendInfoQuery(HashMap<UrlString, SocketAddr>),
-    // Gather responses, and determine which neighbor has latest chain tip
+    // Gather responses, and determine which peer has latest chain tip
     ResolveLatestTip((Vec<(UrlString, SocketAddr, usize)>, Vec<(UrlString, SocketAddr, u16)>)),
+    // Sort the tip data from lowest sequence number to highest, and filter out sequence numbers
+    // that are lower than the current peer's tip.
     ProcessTipData(Vec<(UrlString, SocketAddr, u16)>),
-    // Request microblocks with endpoint from neighbor with latest tip
+    // Request microblocks with endpoint from peer with the highest sequence number
     RequestMicroblocks(Vec<(UrlString, SocketAddr, u16)>, VecDeque<(UrlString, SocketAddr, u16)>),
-    // Wait for microblocks response
+    // Wait for microblocks response from peer
     WaitForMicroblocks(usize, Vec<(UrlString, SocketAddr, u16)>, VecDeque<(UrlString, SocketAddr, u16)>),
 }
 
@@ -253,35 +258,6 @@ pub struct FaultyPeersData {
     broken_connections: Vec<usize>,
     // list of event_ids for disconnected conversations
     dead_connections: Vec<usize>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct UnconfirmedMicroblocksRequest {
-    pub url: UrlString,
-    pub min_seq: u16,
-    pub index_block_hash: StacksBlockId,
-    pub canonical_stacks_tip_height: Option<u64>,
-}
-
-impl Display for UnconfirmedMicroblocksRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let url = self.get_url().to_string();
-        write!(f, "<Request<UnconfirmedMicroblocks>>: url={}", url)
-    }
-}
-
-impl Requestable for UnconfirmedMicroblocksRequest {
-    fn get_url(&self) -> &UrlString {
-        &self.url
-    }
-
-    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetMicroblocksUnconfirmed(
-            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
-            self.index_block_hash,
-            self.min_seq,
-        )
-    }
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
@@ -2326,8 +2302,6 @@ impl PeerNetwork {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Option<SyncedMicroblocksResult> {
-        // TODO(map): figure out how to switch ibd = false in test ....
-        #[cfg(not(test))]
         if ibd {
             return None;
         }
@@ -3334,7 +3308,6 @@ impl PeerNetwork {
 
     /// Reset a microblock tip sync
     fn microblock_tip_sync_reset(&mut self) {
-        info!("{:?}: MAP: calling microblock tip sync reset", &self.local_peer);
         self.microblock_tip_sync_state = MicroblockTipSyncState::CollectPeerURL;
         self.microblock_tip_sync_timeout = 0;
     }
@@ -7640,7 +7613,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -7661,7 +7634,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -7761,7 +7734,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -7782,7 +7755,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -7918,7 +7891,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -7939,7 +7912,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8082,7 +8055,7 @@ mod test {
         let mut peer_3_num_synced = 0;
         for i in 0..150 {
             let ibd = if i < 5 {true} else {false};
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8103,7 +8076,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8124,7 +8097,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_3.step() {
+            if let Ok(mut result) = peer_3.step_with_ibd(false) {
                 let lp = peer_3.network.local_peer.clone();
                 let net_reciepts = peer_3
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8277,7 +8250,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8298,7 +8271,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8345,9 +8318,12 @@ mod test {
         Ok(())
     }
 
+    // - general case: pipe
+    // - await with timeout
+
     // This function creates an endpoint which is set as peer 2's data url endpoint in the test
     // below.
-    fn create_test_proxy(proxy_port: i32) {
+    fn create_test_proxy(proxy_port: i32, rx: Receiver<()>) {
         async_std::task::block_on(async {
             let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
 
@@ -8359,6 +8335,14 @@ mod test {
                         test_debug!("Error accepting in proxy: {:?}", e);
                     }
                 });
+
+                match rx.try_recv() {
+                    Ok(_) | Err(TryRecvError::Disconnected) => {
+                        info!("RECEIVED in proxy");
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                }
             }
         });
 
@@ -8369,138 +8353,146 @@ mod test {
     // correctly.
     #[test]
     fn test_microblock_tip_sync_2_peers_with_proxy() {
-        // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
-        let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
-        let proxy_port = 3260;
-        let proxy_addr = format!("http://127.0.0.1:{}", proxy_port);
-        let data_url = UrlString::try_from(proxy_addr).unwrap();
-        peer_2_config.data_url = data_url;
+        with_timeout(30, || {
+            // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 2210, 2211);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
+            let proxy_port = 3260;
+            let proxy_addr = format!("http://127.0.0.1:{}", proxy_port);
+            let data_url = UrlString::try_from(proxy_addr).unwrap();
+            peer_2_config.data_url = data_url;
 
-        let proxy_thread_handle = thread::spawn(move || {
-            create_test_proxy(proxy_port)
-        });
+            let (tx, rx) = sync_channel(1);
+            let proxy_thread_handle = thread::spawn(move || {
+                create_test_proxy(proxy_port, rx)
+            });
 
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
-        peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
-        peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
+            peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
+            peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
 
-        for i in 0..5 {
+            for i in 0..5 {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                // do not process the microblocks on peer 1
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
             let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
-            peer_1.next_burnchain_block(burn_ops.clone());
+            let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
             peer_2.next_burnchain_block(burn_ops.clone());
 
             // do not process the microblocks on peer 1
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
 
-        let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+            peer_1
+                .with_db_state(|sortdb, peer_1_chainstate, relayer, mempool| {
+                    let (consensus_hash, bhh) =
+                        SortitionDB::get_canonical_stacks_chain_tip_hash(
+                            sortdb.conn(),
+                        ).unwrap();
 
-        let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
-        peer_2.next_burnchain_block(burn_ops.clone());
+                    let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                        &consensus_hash,
+                        &bhh,
+                    );
+                    assert_eq!(peer_1_chainstate
+                                   .has_microblocks_indexed(&index_block_hash)
+                                   .unwrap(), false);
+                    peer_1_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
+                    Ok(())
+                })
+                .unwrap();
 
-        // do not process the microblocks on peer 1
-        peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
-        peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            peer_2
+                .with_db_state(|sortdb, peer_2_chainstate, relayer, mempool| {
+                    let (consensus_hash, bhh) =
+                        SortitionDB::get_canonical_stacks_chain_tip_hash(
+                            sortdb.conn(),
+                        ).unwrap();
 
-        peer_1
-            .with_db_state(|sortdb, peer_1_chainstate, relayer, mempool| {
-                let (consensus_hash, bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(
-                        sortdb.conn(),
-                    ).unwrap();
+                    let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                        &consensus_hash,
+                        &bhh,
+                    );
+                    assert!(peer_2_chainstate
+                        .has_microblocks_indexed(&index_block_hash)
+                        .unwrap());
+                    peer_2_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
+                    Ok(())
+                })
+                .unwrap();
 
-                let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &bhh,
-                );
-                assert_eq!(peer_1_chainstate
-                               .has_microblocks_indexed(&index_block_hash)
-                               .unwrap(), false);
-                peer_1_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
-                Ok(())
-            })
-            .unwrap();
+            // now we know peer 2 has microblocks at the tip, and peer 1 does not.
+            // call step_with_ibd(false) on both peers so that the microblock tip sync protocol runs.
+            let round = 0;
+            let mut peer_1_num_synced = 0;
+            let mut peer_2_num_synced = 0;
+            for i in 0..20 {
+                info!("ROUND #: {:?}", i);
+                if let Ok(mut result) = peer_1.step_with_ibd(false) {
+                    let lp = peer_1.network.local_peer.clone();
+                    let net_reciepts = peer_1
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                    if net_reciepts.num_new_synced_microblocks > 0 {
+                        peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                    }
+                }
 
-        peer_2
-            .with_db_state(|sortdb, peer_2_chainstate, relayer, mempool| {
-                let (consensus_hash, bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(
-                        sortdb.conn(),
-                    ).unwrap();
-
-                let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &bhh,
-                );
-                assert!(peer_2_chainstate
-                    .has_microblocks_indexed(&index_block_hash)
-                    .unwrap());
-                peer_2_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
-                Ok(())
-            })
-            .unwrap();
-
-        // now we know peer 2 has microblocks at the tip, and peer 1 does not.
-        // call step() on both peers so that the microblock tip sync protocol runs.
-        let round = 0;
-        let mut peer_1_num_synced = 0;
-        let mut peer_2_num_synced = 0;
-        for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
-                let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if let Ok(mut result) = peer_2.step_with_ibd(false) {
+                    let lp = peer_2.network.local_peer.clone();
+                    let net_reciepts = peer_2
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                    if net_reciepts.num_new_synced_microblocks > 0 {
+                        peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                    }
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
-                let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
-                }
-            }
-        }
+            info!("AFTER ROUNDS!");
 
-        assert_eq!(peer_1_num_synced, 3);
-        assert_eq!(peer_2_num_synced, 0);
+            assert_eq!(peer_1_num_synced, 3);
+            assert_eq!(peer_2_num_synced, 0);
 
-        proxy_thread_handle.join().unwrap();
+            tx.send(()).unwrap();
+            proxy_thread_handle.join().unwrap();
+            info!("AFTER JOIN!");
+        });
     }
 
     // In most cases, the server forwards the incoming request to peer 2's rpc endpoint, and
@@ -8646,7 +8638,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8667,7 +8659,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8836,7 +8828,7 @@ mod test {
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
-            if let Ok(mut result) = peer_1.step() {
+            if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
                 let net_reciepts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
@@ -8857,7 +8849,7 @@ mod test {
                 }
             }
 
-            if let Ok(mut result) = peer_2.step() {
+            if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
                 let net_reciepts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {

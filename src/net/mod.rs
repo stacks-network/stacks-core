@@ -136,7 +136,6 @@ pub mod prune;
 pub mod relay;
 pub mod rpc;
 pub mod server;
-pub mod microblock_antientropy;
 
 #[derive(Debug)]
 pub enum Error {
@@ -1957,7 +1956,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
-    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // microblocks we downloaded via microblock tip sync
+    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // result of the microblock tip sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -3624,7 +3623,6 @@ pub mod test {
 
             *coinbase_nonce += 1;
 
-            info!("MAP: in tenure with tx, bhh: {:?}, ch: {:?}", stacks_block.block_hash(), consensus_hash);
             let tip_id = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if let Some((start_check_cycle, end_check_cycle)) = self.config.check_pox_invariants {

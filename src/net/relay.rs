@@ -910,10 +910,12 @@ impl Relayer {
         Ok((new_blocks, bad_neighbors))
     }
 
-    /// Preprocess all downloaded, confirmed microblock streams and streams downloaded through
-    ///  the microblock tip sync protocol
+    /// Preprocess all downloaded & confirmed microblock streams, as well as streams downloaded
+    ///   through the microblock tip sync protocol.
     /// Does not fail on invalid blocks; just logs a warning.
-    /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
+    /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks
+    ///   that produced these streams, as well as the number of microblocks obtained through
+    ///   the microblock tip sync protocol .
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
@@ -1058,7 +1060,7 @@ impl Relayer {
             };
 
             for microblock in result.microblocks.iter() {
-                info!(
+                debug!(
                     "Preprocess synced microblock {}/{}-{}",
                     consensus_hash,
                     &anchored_block_hash,
@@ -1423,7 +1425,7 @@ impl Relayer {
         cur_ast_rules != processed_ast_rules
     }
 
-    /// Process blocks and microblocks that we recieved: downloaded (confirmed), streamed
+    /// Process blocks and microblocks that we recieved, downloaded (confirmed), streamed
     /// (unconfirmed), and obtained through microblock tip sync protocol (unconfirmed). Returns:
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages

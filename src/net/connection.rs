@@ -470,9 +470,8 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
-            // TODO(map): q - determine appropriate values for these
-            microblock_tip_sync_interval: 30, // number of seconds in-between microblock tip sync
-            microblock_tip_sync_timeout: 180, // how long a microblock tip sync can go for (3 min)
+            microblock_tip_sync_interval: 10, // number of seconds in-between microblock tip sync
+            microblock_tip_sync_timeout: 60, // how long a microblock tip sync can go for (1 min)
 
             // no faults on by default
             disable_neighbor_walk: false,
