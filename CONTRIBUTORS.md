@@ -35,13 +35,15 @@ This project and everyone participating in it is governed by this [Code of Condu
 ### GitHub Tags
 We use tags on PRs and issues to categorize them. You should try to select a tag from each category below if possible. 
 
-Timeline-based tags:
+**Timeline- and consensus- based tags:**
 - Next non-breaking change => `ship now`
 - Next breaking change => `ship next`
-- Future breaking change => `ship future`
-- Future non-breaking change => `icebox`
+- Future change, in the work pipeline => `ship future`
+- Issues that are not being worked on (and there are no plans to) => `icebox`
+- PRs that are temporarily frozen => `frozen`
+- Must be in a breaking change => `consensus-critical`
 
-Issue Type Tags:
+**Issue Type Tags:**
 - For first-time or new contributors => `good first issue`
 - Stacks lab issues (infrastructure-type changes) => `help wanted`
 - Documentation updates => `documentation`
@@ -54,19 +56,21 @@ Issue Type Tags:
 - Refactoring work => `refactoring`
 - Security related issue => `security`
 - Related to tests => `testing`
+- Invite feedback from community & other devs => `question`
 
-Component-specific Tags:
 
-There are also component-specific tags that indicate which part of the codebase will be impacted, such as `mempool`,
+**Component-specific Tags:**
+
+Component-specific tags indicate which part of the codebase will be impacted, such as `mempool`,
 `clarity`, `clarity-cost`, `event-stream`, `chainstate`, `BNS`, `mining`, `microblocks`, `testnet`, `PoX`, `regtest`, 
 `sbtc`.
 
-Release Tags: 
+**Release Tags:** 
 
 As we prepare for an upcoming release, we will tag issues/PRs that are slated to be part of that 
 release with the release version number.
 
-Ignore Tags:
+**Ignore Tags:**
 - Mark issues that core devs will not fix => `wontfix`
 - Stale issues (marked as such by stale bot) => `stale`
 
