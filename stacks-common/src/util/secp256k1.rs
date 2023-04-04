@@ -37,6 +37,8 @@ use serde::Serialize;
 use rand::thread_rng;
 use rand::RngCore;
 
+use super::hash::Sha256Sum;
+
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
@@ -268,6 +270,27 @@ impl Secp256k1PrivateKey {
         }
     }
 
+    /// Create a Secp256k1PrivateKey from seed bytes by repeatedly
+    ///  SHA256 hashing the seed bytes until a private key is found.
+    ///
+    /// If `seed` is a valid private key, it will be returned without hashing.
+    /// The returned private key's compress_public flag will be `true`
+    pub fn from_seed(seed: &[u8]) -> Secp256k1PrivateKey {
+        let mut re_hashed_seed = Vec::from(seed);
+        loop {
+            if let Ok(mut sk) = Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
+                // set this to true: LocalPeer will be doing this anyways,
+                //  and that's currently the only way this method is used
+                sk.set_compress_public(true);
+                return sk;
+            } else {
+                re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
+                    .as_bytes()
+                    .to_vec()
+            }
+        }
+    }
+
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PrivateKey, &'static str> {
         let data = hex_bytes(hex_string).map_err(|_e| "Failed to decode hex private key")?;
         Secp256k1PrivateKey::from_slice(&data[..]).map_err(|_e| "Invalid private key hex string")
@@ -456,6 +479,30 @@ mod tests {
         t1.set_compress_public(true);
 
         assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
+    }
+
+    #[test]
+    /// Test the behavior of from_seed using hard-coded values from previous existing integration tests
+    fn sk_from_seed() {
+        let sk = Secp256k1PrivateKey::from_seed(&[2; 32]);
+        assert_eq!(
+            Secp256k1PublicKey::from_private(&sk).to_hex(),
+            "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+        );
+        assert_eq!(
+            sk.to_hex(),
+            "020202020202020202020202020202020202020202020202020202020202020201"
+        );
+
+        let sk = Secp256k1PrivateKey::from_seed(&[0]);
+        assert_eq!(
+            Secp256k1PublicKey::from_private(&sk).to_hex(),
+            "0243311589af63c2adda04fcd7792c038a05c12a4fe40351b3eb1612ff6b2e5a0e"
+        );
+        assert_eq!(
+            sk.to_hex(),
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d01"
+        );
     }
 
     #[test]
