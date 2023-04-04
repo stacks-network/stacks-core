@@ -218,7 +218,6 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;
@@ -1594,6 +1593,7 @@ impl BlockMinerThread {
     fn load_and_vet_parent_microblocks(
         &mut self,
         chain_state: &mut StacksChainState,
+        sortdb: &SortitionDB,
         mem_pool: &mut MemPoolDB,
         parent_block_info: &mut ParentStacksBlockInfo,
     ) -> Option<Vec<StacksMicroblock>> {
@@ -1662,6 +1662,7 @@ impl BlockMinerThread {
                     // anchored block.
                     if let Err(e) = mem_pool.miner_submit(
                         chain_state,
+                        sortdb,
                         &parent_consensus_hash,
                         &stacks_parent_header.anchored_header.block_hash(),
                         &poison_microblock_tx,
@@ -1889,6 +1890,7 @@ impl BlockMinerThread {
         // target it to the microblock tail in parent_block_info
         let microblocks_opt = self.load_and_vet_parent_microblocks(
             &mut chain_state,
+            &burn_db,
             &mut mem_pool,
             &mut parent_block_info,
         );
@@ -3805,25 +3807,6 @@ impl PeerThread {
 }
 
 impl StacksNode {
-    /// Create a StacksPrivateKey from a given seed buffer
-    pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
-        let node_privkey = {
-            let mut re_hashed_seed = seed.to_vec();
-            let my_private_key = loop {
-                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
-                    Ok(sk) => break sk,
-                    Err(_) => {
-                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                            .as_bytes()
-                            .to_vec()
-                    }
-                }
-            };
-            my_private_key
-        };
-        node_privkey
-    }
-
     /// Set up the AST size-precheck height, if configured
     fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
         if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
@@ -3895,8 +3878,7 @@ impl StacksNode {
             "Failed to parse socket: {}",
             &config.node.p2p_address
         ));
-        let node_privkey =
-            StacksNode::make_node_private_key_from_seed(&config.node.local_peer_seed);
+        let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_file_path(),

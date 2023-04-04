@@ -21,6 +21,29 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
 
+## [2.1.0.0.2]
+
+This software update is a hotfix to resolve improper unlock handling
+in mempool admission. This release's chainstate directory is
+compatible with chainstate directories from 2.1.0.0.2.
+
+### Fixed
+
+- Fix mempool admission logic's improper handling of PoX unlocks. This would
+  cause users to get spurious `NotEnoughFunds` rejections when trying to submit
+  their transactions (#3623)
+
+## [2.1.0.0.1]
+
+### Fixed
+
+- Handle the case where a bitcoin node returns zero headers (#3588)
+- The default value for `always_use_affirmation_maps` is now set to `false`,
+  instead of `true`.  This was preventing testnet nodes from reaching the chain
+  tip with the default configuration.
+- Reduce default poll time of the `chain-liveness` thread which reduces the
+  possibility that a miner thread will get interrupted (#3610).
+
 ## [2.1]
 
 This is a **consensus-breaking** release that introduces a _lot_ of new
