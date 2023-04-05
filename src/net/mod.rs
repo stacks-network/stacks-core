@@ -1956,7 +1956,7 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
-    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // result of the microblock tip sync
+    pub synced_microblock_result: Option<SyncedMicroblocksResult>, // microblocks received from the microblock tip sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
