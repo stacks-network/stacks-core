@@ -4194,7 +4194,6 @@ impl PeerNetwork {
                             continue;
                         }
                         let url = convo.data_url.clone();
-                        let nk = convo.to_neighbor_key();
                         urls.push(url);
                     }
 
@@ -4209,7 +4208,7 @@ impl PeerNetwork {
                         }
                         Err(e) => {
                             // done
-                            warn!("microblock_tip_sync_begin_resolve_url returned {:?}", &e);
+                            warn!("{:?}: microblock_tip_sync_begin_resolve_url failed: {:?}", &self.local_peer, &e);
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
                         }
@@ -4222,7 +4221,7 @@ impl PeerNetwork {
                             Ok(res) => res,
                             Err(e) => {
                                 // failed
-                                info!("microblock_tip_sync_resolve_url failed: {:?}", &e);
+                                warn!("{:?}: microblock_tip_sync_resolve_url failed: {:?}", &self.local_peer, &e);
                                 self.microblock_tip_sync_reset();
                                 return (true, faulty_peers, None)
                             }
@@ -4230,26 +4229,20 @@ impl PeerNetwork {
                     resolved.extend(new_resolved.into_iter());
 
                     if still_resolving.len() > 0 {
-                        self.microblock_tip_sync_state = MicroblockTipSyncState::ResolvePeerURL((resolved, still_resolving));
                         // check back later, still resolving!
-                        info!("MAP: check back later, still resolving");
+                        self.microblock_tip_sync_state = MicroblockTipSyncState::ResolvePeerURL((resolved, still_resolving));
                         return (false, faulty_peers, None)
                     } else {
                         if resolved.len() > 0 {
                             self.microblock_tip_sync_state = MicroblockTipSyncState::SendInfoQuery(resolved);
                         } else {
                             // reset the sync since we have no addresses to query
-                            info!("reset microblock tip sync since we have no addresses to query");
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None)
                         }
                     }
                 }
                 MicroblockTipSyncState::SendInfoQuery(dns_lookups) => {
-                    info!(
-                        "{:?}: Microblock tip sync will query its peers for v2/info",
-                        &self.local_peer
-                    );
                     match self.microblock_tip_sync_send_info_query(
                         &dns_lookups,
                         mempool,
@@ -4257,29 +4250,21 @@ impl PeerNetwork {
                     ) {
                         Ok(convo_info) => {
                             // success! advance
-                            info!(
-                                "{:?}: Microblock tip sync query {:?} on events {:?}",
-                                &self.local_peer,
-                                dns_lookups,
-                                convo_info
-                            );
                             if convo_info.len() > 0 {
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::ResolveLatestTip((convo_info, vec![]));
                             } else {
-                                // no active convos, end sync
+                                // no active conversations, end sync
                                 self.microblock_tip_sync_reset();
                                 return (true, faulty_peers, None);
                             }
                         }
                         Err(e) => {
                             // end sync
-                            warn!("microblock_tip_sync_send_query({:?}) returned {:?}", dns_lookups, &e);
+                            warn!("{:?}: microblock_tip_sync_send_query({:?}) returned {:?}", &self.local_peer, dns_lookups, &e);
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
                         }
                     }
-
-
                 }
                 MicroblockTipSyncState::ResolveLatestTip((convo_info, mut tip_data)) => {
                     match self.microblock_tip_sync_recv_info_response(convo_info, &canonical_consensus_hash, &canonical_block_hash, &mut faulty_peers) {
@@ -4287,17 +4272,14 @@ impl PeerNetwork {
                             tip_data.extend(retrieved_tip_data.into_iter());
                             if ongoing_convos.len() > 0 {
                                 // still receiving; try again later
-                                info!("MAP: still receiving; try again later");
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::ResolveLatestTip((ongoing_convos, tip_data));
                                 return (false, faulty_peers, None);
                             } else {
                                 if tip_data.len() > 0 {
                                     // received all the tip data, move on to the next state
-                                    info!("MAP: move on to process tip data");
                                     self.microblock_tip_sync_state = MicroblockTipSyncState::ProcessTipData(tip_data);
                                 } else {
                                     // we have no data from any peer, end the sync
-                                    info!("MAP: no data from any peer");
                                     self.microblock_tip_sync_reset();
                                     return (true, faulty_peers, None);
                                 }
@@ -4305,36 +4287,31 @@ impl PeerNetwork {
                         }
                         Err(e) => {
                             // end sync
-                            info!("microblock_tip_sync_recv_info_response returned {:?}", &e);
+                            warn!("{:?}: microblock_tip_sync_recv_info_response failed: {:?}", &self.local_peer, &e);
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
                         }
                     }
                 }
                 MicroblockTipSyncState::ProcessTipData(tip_data) => {
-                    // determine current unconfirmed tip height
+                    // determine local unconfirmed microblock tip height
                     let local_seq_num_opt = match chainstate.unconfirmed_state {
                         Some(ref unconfirmed) => Some(unconfirmed.last_mblock_seq),
                         None => None,
                     };
-
 
                     let mut sorted_tip_data = PeerNetwork::sort_tip_data(
                         tip_data,
                         local_seq_num_opt
                     );
 
-                    info!("MAP: in processTip, sorted={:?}", sorted_tip_data);
-
                     match PeerNetwork::get_neighbors_with_next_highest_seq_num(&mut sorted_tip_data) {
                         Some(next_seq_num_data) => {
-                            info!("MAP: requesting mbs, next: {:?}, sorted: {:?}", next_seq_num_data, sorted_tip_data);
                             self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(
                                 next_seq_num_data, sorted_tip_data
                             );
                         }
                         None => {
-                            info!("MAP: in process, no requests to send");
                             // we have no requests to try to send, end the sync
                             self.microblock_tip_sync_reset();
                             return (true, faulty_peers, None);
@@ -4344,15 +4321,14 @@ impl PeerNetwork {
                 MicroblockTipSyncState::RequestMicroblocks(mut next_seq_num_data, mut sorted_tip_data) => {
                     if let Some(tip_data) = next_seq_num_data.pop() {
                         match self.microblock_tip_sync_send_microblock_query(tip_data, mempool, chainstate, canonical_tip_block_id, canonical_tip_height) {
-                            Ok( event_id) => {
-                                info!("MAP: request mbs, going to wait.");
+                            Ok(event_id) => {
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::WaitForMicroblocks(
                                     event_id, next_seq_num_data, sorted_tip_data
                                 );
                             }
                             Err(e) => {
-                                info!(
-                                    "{:?}: Failed to connect or send HTTP request to fetch unconfirmed microblocks: {:?}",
+                                warn!(
+                                    "{:?}: microblock_tip_sync_send_microblock_query failed: {:?}",
                                     &self.local_peer, &e
                                 );
                                 self.microblock_tip_sync_state =
@@ -4377,14 +4353,13 @@ impl PeerNetwork {
                 MicroblockTipSyncState::WaitForMicroblocks(event_id, next_data, sorted_tip_data) => {
                     match self.microblock_tip_sync_recv_microblock_response(event_id, &mut faulty_peers) {
                         Ok((true, Some(microblocks))) => {
-                            info!(
+                            debug!(
                                 "{:?}: Microblock tip sync received {} microblocks",
                                 &self.local_peer,
                                 microblocks.len()
                             );
+
                             // done, got data
-                            // TODO(map) - pass along current peer data in case stream is corrupt?
-                            self.microblock_tip_sync_reset();
                             let neighbor_key = self.get_neighbor_key_from_event_id(event_id);
                             let result = SyncedMicroblocksResult {
                                 stacks_tip_consensus_hash: canonical_consensus_hash,
@@ -4392,12 +4367,12 @@ impl PeerNetwork {
                                 neighbor_key,
                                 microblocks
                             };
+                            self.microblock_tip_sync_reset();
                             return (true, faulty_peers, Some(result))
                         }
                         Ok((true, None)) => {
-                            info!("{:?}: peer had no response in wait for microblocks", &self.local_peer);
                             // try requesting next peer if there is one
-                            if sorted_tip_data.len() > 0 {
+                            if sorted_tip_data.len() > 0 || next_data.len() > 0 {
                                 self.microblock_tip_sync_state = MicroblockTipSyncState::RequestMicroblocks(next_data, sorted_tip_data);
                             } else {
                                 // no more peers to request, reset protocol
@@ -4407,7 +4382,6 @@ impl PeerNetwork {
                         }
                         Ok((false, None)) => {
                             // wait a little bit for the peer to respond!
-                            info!("{:?}: wait more for peer to respond", &self.local_peer);
                             return (false, faulty_peers, None)
                         }
                         Ok((false, Some(_))) => {
@@ -4417,9 +4391,9 @@ impl PeerNetwork {
                             return (true, faulty_peers, None)
                         }
                         Err(e) => {
-                            info!("microblock_tip_sync_recv_microblock_response returned {:?}", &e);
-                            self.microblock_tip_sync_state =
-                                MicroblockTipSyncState::RequestMicroblocks(next_data, sorted_tip_data);
+                            warn!("{:?}: microblock_tip_sync_recv_microblock_response failed {:?}", &self.local_peer, &e);
+                            self.microblock_tip_sync_reset();
+                            return (true, faulty_peers, None)
                         }
                     }
                 }
