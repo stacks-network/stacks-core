@@ -583,5 +583,5 @@ that are not licensed under compatible terms will be rejected.  Moreover,
 contributions will not be accepted unless _all_ authors accept the project's
 contributor license agreement.
 
-# Use of AI-code Generation
+## Use of AI-code Generation
 The Stacks Foundation has a very strict policy of not accepting AI-generated code PRs due to uncertainly about licensing issues.
