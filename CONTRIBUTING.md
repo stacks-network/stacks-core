@@ -584,4 +584,4 @@ contributions will not be accepted unless _all_ authors accept the project's
 contributor license agreement.
 
 # Use of AI-code Generation
-The Stacks Foundation has a very script policy of no AI-generated code due to uncertainly about licensing issues.
+The Stacks Foundation has a very strict policy of not accepting AI-generated code PRs due to uncertainly about licensing issues.
