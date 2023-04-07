@@ -206,7 +206,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -250,13 +250,8 @@ impl ConfigFile {
             ..BurnchainConfigFile::default()
         };
 
-        let bootstrap_nodes = [
-            "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459d36b@seed-0.mainnet.stacks.co:20444",
-            "02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444",
-            "03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"].join(",");
-
         let node = NodeConfigFile {
-            bootstrap_node: Some(bootstrap_nodes),
+            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -670,6 +665,9 @@ impl Config {
                     // chainstate fault_injection activation for hide_blocks.
                     // you can't set this in the config file.
                     fault_injection_hide_blocks: false,
+                    chain_liveness_poll_time_secs: node
+                        .chain_liveness_poll_time_secs
+                        .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1455,6 +1453,9 @@ pub struct NodeConfig {
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1732,6 +1733,7 @@ impl NodeConfig {
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
+            chain_liveness_poll_time_secs: 300,
         }
     }
 
@@ -1933,6 +1935,9 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
     pub require_affirmed_anchor_blocks: Option<bool>,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Debug)]

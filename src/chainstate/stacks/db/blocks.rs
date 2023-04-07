@@ -6975,6 +6975,7 @@ impl StacksChainState {
     /// unconfirmed microblock stream trailing off of it.
     pub fn will_admit_mempool_tx(
         &mut self,
+        burn_state_db: &dyn BurnStateDB,
         current_consensus_hash: &ConsensusHash,
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -7019,7 +7020,7 @@ impl StacksChainState {
 
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
+        let res = match self.with_read_only_clarity_tx(burn_state_db, &current_tip, |conn| {
             StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
             Some(r) => r,
@@ -7039,7 +7040,7 @@ impl StacksChainState {
                 {
                     debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
-                    self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
+                    self.with_read_only_unconfirmed_clarity_tx(burn_state_db, |conn| {
                         StacksChainState::can_include_tx(
                             conn,
                             &conf,
