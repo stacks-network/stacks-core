@@ -7581,6 +7581,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 1 has no microblocks at the tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
@@ -7600,6 +7601,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 2 does have microblocks at the tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
@@ -7608,13 +7610,12 @@ mod test {
             })
             .unwrap();
 
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -7628,8 +7629,8 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
@@ -7650,7 +7651,7 @@ mod test {
                     })
                     .unwrap();
                 if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                    peer_2_num_synced += net_reciepts.num_new_synced_microblocks;
                 }
             }
         }
@@ -7702,6 +7703,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // make sure peer 1 does *not* have microblocks at the canonical chain tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
@@ -7721,6 +7723,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // make sure peer 2 does have microblocks at the canonical chain tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
@@ -7729,7 +7732,6 @@ mod test {
             })
             .unwrap();
 
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
@@ -7750,7 +7752,7 @@ mod test {
                     })
                     .unwrap();
                 if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                    peer_1_num_synced += net_reciepts.num_new_synced_microblocks;
                 }
             }
 
@@ -7771,7 +7773,7 @@ mod test {
                     })
                     .unwrap();
                 if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                    peer_2_num_synced += net_reciepts.num_new_synced_microblocks;
                 }
             }
         }
@@ -7784,7 +7786,7 @@ mod test {
 
     // In this test, the stacks chain tip on peer 1 and peer 2 are different. So, while peer 2
     // has 3 unconfirmed microblocks at its chain tip, peer 1 should not retrieve those through
-    // the microblock tip sync protocol since their tips do not match.
+    // the microblock tip sync protocol since their canonical tips do not match.
     #[test]
     fn test_microblock_tip_sync_2_peers_different_chaintip() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
@@ -7845,54 +7847,58 @@ mod test {
                     ),
                 );
 
-                // tenure_with_txs creates no microblocks off of the stacks block
+                // tenure_with_txs creates no microblocks off of the anchored block
                 peer_1.tenure_with_txs(&[tx_transfer], &mut coinbase_nonce);
             }
         }
 
-        peer_1
+        let peer_1_canonical_block_id = peer_1
             .with_db_state(|sortdb, peer_1_chainstate, relayer, mempool| {
-                let (consensus_hash, bhh) =
+                let (peer_1_consensus_hash, peer_1_bhh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(
                         sortdb.conn(),
                     ).unwrap();
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &bhh,
+                    &peer_1_consensus_hash,
+                    &peer_1_bhh,
                 );
+                // make sure that peer 1 does *not* have microblocks off its canonical chain tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
                 peer_1_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
-                Ok(())
+                Ok(index_block_hash)
             })
             .unwrap();
 
-        peer_2
+        let peer_2_canonical_block_id = peer_2
             .with_db_state(|sortdb, peer_2_chainstate, relayer, mempool| {
-                let (consensus_hash, bhh) =
+                let (peer_2_consensus_hash, peer_2_bhh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(
                         sortdb.conn(),
                     ).unwrap();
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &consensus_hash,
-                    &bhh,
+                    &peer_2_consensus_hash,
+                    &peer_2_bhh,
                 );
+                // make sure that peer 2 does have microblocks off of its canonical tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
                 peer_2_chainstate.reload_unconfirmed_state(&sortdb.index_conn(), index_block_hash).unwrap();
-                Ok(())
+                Ok(index_block_hash)
             })
             .unwrap();
 
-        let round = 0;
+        // make sure that the canonical tips of peer 1 and peer 2 do not match
+        assert_ne!(peer_1_canonical_block_id, peer_2_canonical_block_id);
+
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -7906,14 +7912,14 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
+                let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -7927,8 +7933,8 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
         }
@@ -7973,7 +7979,7 @@ mod test {
                 peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 peer_3.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
             } else {
-                // on the last iteration (so the chain tip), peer 1 has zero microblocks,
+                // at the tip, peer 1 has zero microblocks,
                 // peer 2 has one microblock, and peer 3 has three microblocks.
                 peer_3.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 let shorter_mb = microblocks[0..2].to_vec();
@@ -7993,6 +7999,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 1 has zero microblocks off of the tip
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_1_chainstate.db(),
                     &index_block_hash
@@ -8015,6 +8022,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 2 has two microblocks off of the tip
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_2_chainstate.db(),
                     &index_block_hash
@@ -8037,6 +8045,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 3 has three microblocks off of the tip
                 let mbs = StacksChainState::stream_microblock_get_info(
                     &peer_3_chainstate.db(),
                     &index_block_hash
@@ -8048,15 +8057,13 @@ mod test {
             })
             .unwrap();
 
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         let mut peer_3_num_synced = 0;
         for i in 0..150 {
-            let ibd = if i < 5 {true} else {false};
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8064,20 +8071,20 @@ mod test {
                             sortdb,
                             chainstate,
                             mempool,
-                            ibd,
+                            false,
                             None,
                             None,
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced += net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
+                let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8085,20 +8092,20 @@ mod test {
                             sortdb,
                             chainstate,
                             mempool,
-                            ibd,
+                            false,
                             None,
                             None,
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced += net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
             if let Ok(mut result) = peer_3.step_with_ibd(false) {
                 let lp = peer_3.network.local_peer.clone();
-                let net_reciepts = peer_3
+                let net_receipts = peer_3
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8106,14 +8113,14 @@ mod test {
                             sortdb,
                             chainstate,
                             mempool,
-                            ibd,
+                            false,
                             None,
                             None,
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_3_num_synced += net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_3_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
             sleep_ms(25);
@@ -8164,6 +8171,8 @@ mod test {
             })
             .unwrap();
 
+        // we don't check strict equality here since the peers could've received the same block from
+        // multiple peers
         assert!(peer_1_num_synced >= 3);
         assert!(peer_2_num_synced >= 1);
         assert_eq!(peer_3_num_synced, 0);
@@ -8174,7 +8183,7 @@ mod test {
 
 
     // Set the tip_sync deadline in the future. Ensure that peer 1 does not get peer 2's
-    // microblocks.
+    // microblocks, because the tip sync protocol should not run at all.
     #[test]
     fn test_microblock_tip_sync_2_peers_timeout() {
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
@@ -8218,6 +8227,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 1 does *not* have any microblocks off of the chain tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
@@ -8237,6 +8247,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 2 does have microblocks off of the chain tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
@@ -8245,13 +8256,12 @@ mod test {
             })
             .unwrap();
 
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8265,8 +8275,8 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
@@ -8287,7 +8297,7 @@ mod test {
                     })
                     .unwrap();
                 if net_receipts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_receipts.num_new_synced_microblocks;
+                    peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
         }
@@ -8295,6 +8305,8 @@ mod test {
         assert_eq!(peer_2_num_synced, 0);
     }
 
+    // This function takes a stream (which contains a request) and obtains a response for
+    // that request from peer 2's RPC endpoint.
     async fn accept(stream: TcpStream) ->  http_types::Result<()> {
         async_h1::accept(stream.clone(), |req| async move {
             let response = async_std::task::block_on(async {
@@ -8313,15 +8325,15 @@ mod test {
             });
             response
         })
-            .await?;
+        .await?;
         Ok(())
     }
 
-    // This function creates an endpoint which is set as peer 2's data url endpoint in the test
-    // below.
-    fn create_test_proxy(proxy_port: i32, rx: Receiver<()>) {
+    // This function creates an endpoint. This endpoint is set as peer 2's data url endpoint in
+    // the test below.
+    fn create_test_proxy(proxy_addr: &str, rx: Receiver<()>) {
         async_std::task::block_on(async {
-            let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
+            let listener = TcpListener::bind(proxy_addr).await.unwrap();
 
             let mut incoming = listener.incoming();
 
@@ -8358,14 +8370,12 @@ mod test {
             // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
             let mut peer_1_config = TestPeerConfig::new(function_name!(), 2210, 2211);
             let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
-            let proxy_port = 3260;
-            let proxy_addr = format!("http://127.0.0.1:{}", proxy_port);
-            let data_url = UrlString::try_from(proxy_addr).unwrap();
+            let data_url = UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
             peer_2_config.data_url = data_url;
 
             let (tx, rx) = sync_channel(1);
             let proxy_thread_handle = thread::spawn(move || {
-                create_test_proxy(proxy_port, rx)
+                create_test_proxy("127.0.0.1:3260", rx)
             });
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -8390,7 +8400,7 @@ mod test {
 
             let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
-            let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
+            peer_1.next_burnchain_block(burn_ops.clone());
             peer_2.next_burnchain_block(burn_ops.clone());
 
             // do not process the microblocks on peer 1
@@ -8408,6 +8418,7 @@ mod test {
                         &consensus_hash,
                         &bhh,
                     );
+                    // check that peer 1 does *not* have microblocks on the chain tip
                     assert_eq!(peer_1_chainstate
                                    .has_microblocks_indexed(&index_block_hash)
                                    .unwrap(), false);
@@ -8427,6 +8438,7 @@ mod test {
                         &consensus_hash,
                         &bhh,
                     );
+                    // check that peer 2 does have microblocks on the chain tip
                     assert!(peer_2_chainstate
                         .has_microblocks_indexed(&index_block_hash)
                         .unwrap());
@@ -8437,14 +8449,12 @@ mod test {
 
             // now we know peer 2 has microblocks at the tip, and peer 1 does not.
             // call step_with_ibd(false) on both peers so that the microblock tip sync protocol runs.
-            let round = 0;
             let mut peer_1_num_synced = 0;
             let mut peer_2_num_synced = 0;
             for i in 0..20 {
-                info!("ROUND #: {:?}", i);
                 if let Ok(mut result) = peer_1.step_with_ibd(false) {
                     let lp = peer_1.network.local_peer.clone();
-                    let net_reciepts = peer_1
+                    let net_receipts = peer_1
                         .with_db_state(|sortdb, chainstate, relayer, mempool| {
                             relayer.process_network_result(
                                 &lp,
@@ -8458,14 +8468,14 @@ mod test {
                             )
                         })
                         .unwrap();
-                    if net_reciepts.num_new_synced_microblocks > 0 {
-                        peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                    if net_receipts.num_new_synced_microblocks > 0 {
+                        peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                     }
                 }
 
                 if let Ok(mut result) = peer_2.step_with_ibd(false) {
                     let lp = peer_2.network.local_peer.clone();
-                    let net_reciepts = peer_2
+                    let net_receipts = peer_2
                         .with_db_state(|sortdb, chainstate, relayer, mempool| {
                             relayer.process_network_result(
                                 &lp,
@@ -8479,16 +8489,16 @@ mod test {
                             )
                         })
                         .unwrap();
-                    if net_reciepts.num_new_synced_microblocks > 0 {
-                        peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                    if net_receipts.num_new_synced_microblocks > 0 {
+                        peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                     }
                 }
             }
 
-
             assert_eq!(peer_1_num_synced, 3);
             assert_eq!(peer_2_num_synced, 0);
 
+            // gracefully join the proxy thread
             tx.send(()).unwrap();
             proxy_thread_handle.join().unwrap();
         });
@@ -8528,9 +8538,9 @@ mod test {
 
     // This function creates an endpoint which is set as peer 2's data url endpoint in the test
     // below.
-    fn create_test_proxy_bad_info(proxy_port: i32, rx: Receiver<()>) {
+    fn create_test_proxy_bad_info(proxy_addr: &str, rx: Receiver<()>) {
         async_std::task::block_on(async {
-            let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
+            let listener = TcpListener::bind(proxy_addr).await.unwrap();
 
             let mut incoming = listener.incoming();
             loop {
@@ -8561,20 +8571,18 @@ mod test {
     // The proxy server mostly just forwards requests to peer 2's rpc endpoint, but if it
     // receives a request for the `v2/info` endpoint, it morphs the request into `v2/pox`, which
     // ensures that peer 1 receives unexpected data. This causes the sync to not complete
-    // successfully
+    // successfully.
     #[test]
     fn test_microblock_tip_sync_2_peers_bad_info() {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
-        let proxy_port = 3260;
-        let proxy_addr = format!("http://127.0.0.1:{}", proxy_port);
-        let data_url = UrlString::try_from(proxy_addr).unwrap();
+        let data_url = UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
         peer_2_config.data_url = data_url;
 
         let (tx, rx) = sync_channel(1);
         let proxy_thread_handle = thread::spawn(move || {
-            create_test_proxy_bad_info(proxy_port, rx)
+            create_test_proxy_bad_info("127.0.0.1:3260", rx)
         });
 
         let peer_1_as_neighbor = peer_1_config.to_neighbor();
@@ -8583,7 +8591,6 @@ mod test {
         peer_2_config.add_neighbor(&peer_1_as_neighbor);
         peer_1_config.connection_opts.microblock_tip_sync_interval = 3;
         peer_2_config.connection_opts.microblock_tip_sync_interval = 3;
-
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -8601,7 +8608,7 @@ mod test {
 
         let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
-        let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.next_burnchain_block(burn_ops.clone());
         peer_2.next_burnchain_block(burn_ops.clone());
 
         // do not process the microblocks on peer 1
@@ -8619,6 +8626,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 1 has no microblocks off of its canonical tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
@@ -8638,6 +8646,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 2 does have microblocks off of its canonical tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
@@ -8646,13 +8655,12 @@ mod test {
             })
             .unwrap();
 
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8666,14 +8674,14 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
+                let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8687,8 +8695,8 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
         }
@@ -8696,6 +8704,7 @@ mod test {
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
 
+        // gracefully join the proxy thread
         tx.send(()).unwrap();
         proxy_thread_handle.join().unwrap();
     }
@@ -8733,19 +8742,11 @@ mod test {
 
     // This function creates an endpoint which is set as peer 2's data url endpoint in the test
     // below.
-    fn create_test_proxy_bad_microblock(proxy_port: i32, rx: Receiver<()>) {
+    fn create_test_proxy_bad_microblock(proxy_addr: &str, rx: Receiver<()>) {
         async_std::task::block_on(async {
-            let listener = TcpListener::bind("127.0.0.1:3260").await.unwrap();
+            let listener = TcpListener::bind(proxy_addr).await.unwrap();
 
             let mut incoming = listener.incoming();
-            // while let Some(stream) = incoming.next().await {
-            //     let stream = stream.unwrap();
-            //     async_std::task::spawn(async {
-            //         if let Err(e) = accept_bad_microblock(stream).await {
-            //             test_debug!("Error accepting in proxy: {:?}", e);
-            //         }
-            //     });
-            // }
 
             loop {
                 let res = async_std::io::timeout(Duration::from_secs(5), async {
@@ -8780,14 +8781,12 @@ mod test {
         // peer 1 has microblocks that peer 2 does not have; verify that peer 2 gets the microblocks
         let mut peer_1_config  = TestPeerConfig::new(function_name!(), 2210, 2211);
         let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
-        let proxy_port = 3260;
-        let proxy_addr = format!("http://127.0.0.1:{}", proxy_port);
-        let data_url = UrlString::try_from(proxy_addr).unwrap();
+        let data_url = UrlString::try_from("http://127.0.0.1:3260".to_string()).unwrap();
         peer_2_config.data_url = data_url;
 
         let (tx, rx) = sync_channel(1);
         let proxy_thread_handle = thread::spawn(move || {
-            create_test_proxy_bad_microblock(proxy_port, rx)
+            create_test_proxy_bad_microblock("127.0.0.1:3260", rx)
         });
 
         let peer_1_as_neighbor = peer_1_config.to_neighbor();
@@ -8813,7 +8812,7 @@ mod test {
 
         let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
 
-        let (_, bhh, ch) = peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.next_burnchain_block(burn_ops.clone());
         peer_2.next_burnchain_block(burn_ops.clone());
 
         // do not process the microblocks on peer 1
@@ -8831,6 +8830,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 1 has no microblocks off of its canonical chain tip
                 assert_eq!(peer_1_chainstate
                                .has_microblocks_indexed(&index_block_hash)
                                .unwrap(), false);
@@ -8850,6 +8850,7 @@ mod test {
                     &consensus_hash,
                     &bhh,
                 );
+                // check that peer 2 does have microblocks off of its canonical chain tip
                 assert!(peer_2_chainstate
                     .has_microblocks_indexed(&index_block_hash)
                     .unwrap());
@@ -8859,13 +8860,12 @@ mod test {
             .unwrap();
 
         // now we know peer 2 has microblocks at the tip, and peer 1 does not
-        let round = 0;
         let mut peer_1_num_synced = 0;
         let mut peer_2_num_synced = 0;
         for i in 0..20 {
             if let Ok(mut result) = peer_1.step_with_ibd(false) {
                 let lp = peer_1.network.local_peer.clone();
-                let net_reciepts = peer_1
+                let net_receipts = peer_1
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8879,14 +8879,14 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_1_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_1_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
 
             if let Ok(mut result) = peer_2.step_with_ibd(false) {
                 let lp = peer_2.network.local_peer.clone();
-                let net_reciepts = peer_2
+                let net_receipts = peer_2
                     .with_db_state(|sortdb, chainstate, relayer, mempool| {
                         relayer.process_network_result(
                             &lp,
@@ -8900,8 +8900,8 @@ mod test {
                         )
                     })
                     .unwrap();
-                if net_reciepts.num_new_synced_microblocks > 0 {
-                    peer_2_num_synced = net_reciepts.num_new_synced_microblocks;
+                if net_receipts.num_new_synced_microblocks > 0 {
+                    peer_2_num_synced += net_receipts.num_new_synced_microblocks;
                 }
             }
         }
@@ -8909,6 +8909,7 @@ mod test {
         assert_eq!(peer_1_num_synced, 0);
         assert_eq!(peer_2_num_synced, 0);
 
+        // gracefully join the proxy thread
         tx.send(()).unwrap();
         proxy_thread_handle.join().unwrap();
     }
