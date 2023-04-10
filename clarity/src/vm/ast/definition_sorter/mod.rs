@@ -258,7 +258,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(self.filter_comments(bindings.iter()), tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(&self.filter_comments(bindings.iter()), tle_index, version)?;
                                         }
                                         for expr in
                                             function_args[1..function_args.len()].into_iter()
@@ -282,7 +282,7 @@ impl<'a> DefinitionSorter {
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
                                     self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
-                                        function_args,
+                                        &function_args,
                                         tle_index,
                                         version,
                                     )?;
@@ -300,7 +300,7 @@ impl<'a> DefinitionSorter {
             }
             Tuple(ref exprs) => {
                 self.probe_for_dependencies_in_tuple(
-                    self.filter_comments(exprs.iter()),
+                    &self.filter_comments(exprs.iter()),
                     tle_index,
                     version,
                 )?;
@@ -319,7 +319,7 @@ impl<'a> DefinitionSorter {
     ///   probe them for dependencies as if they were part of a tuple definition.
     fn probe_for_dependencies_in_tuple(
         &mut self,
-        pairs: Vec<&PreSymbolicExpression>,
+        pairs: &[&PreSymbolicExpression],
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
@@ -330,7 +330,7 @@ impl<'a> DefinitionSorter {
 
         for pair in pairs.iter() {
             self.probe_for_dependencies_in_key_value_pair(
-                self.filter_comments(pair.iter().map(|x| *x)),
+                &self.filter_comments(pair.iter().map(|x| *x)),
                 tle_index,
                 version,
             )?;
@@ -350,9 +350,8 @@ impl<'a> DefinitionSorter {
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
             if let Some((_, pairs)) = self.filter_comments(func_sig.iter()).split_first() {
-                let pairs_vec: Vec<&PreSymbolicExpression> = pairs.to_vec();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
-                    pairs_vec, tle_index, version,
+                    &pairs, tle_index, version,
                 )?;
             }
         }
@@ -361,7 +360,7 @@ impl<'a> DefinitionSorter {
 
     fn probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
         &mut self,
-        pairs: Vec<&PreSymbolicExpression>,
+        pairs: &[&PreSymbolicExpression],
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
@@ -379,7 +378,7 @@ impl<'a> DefinitionSorter {
     ) -> ParseResult<()> {
         if let Some(pair) = expr.match_list() {
             self.probe_for_dependencies_in_key_value_pair(
-                self.filter_comments(pair.iter()),
+                &self.filter_comments(pair.iter()),
                 tle_index,
                 version,
             )?;
@@ -389,7 +388,7 @@ impl<'a> DefinitionSorter {
 
     fn probe_for_dependencies_in_key_value_pair(
         &mut self,
-        pair: Vec<&PreSymbolicExpression>,
+        pair: &[&PreSymbolicExpression],
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
