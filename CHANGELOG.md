@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.2.0.0.0]
+
+- Fixed a bug in the definition sorter, where functions could be sorted
+  incorrectly due to comments not being handled correctly in the AST. This
+  problem was exposed with 2.1, because 2.1 introduces a new parser that
+  includes comment nodes in the pre-symbolic expression AST. Because this bug
+  would make an otherwise legal contract get rejected by a node, this is a
+  **consensus-breaking** change.
+
 ## [Unreleased]
 
 ### Added
@@ -20,13 +29,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   a result of `(err none)` if the top-level code of the smart contract contained
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
-
-- Fixed a bug in the definition sorter, where functions could be sorted
-  incorrectly due to comments not being handled correctly in the AST. This
-  problem was exposed with 2.1, because 2.1 introduces a new parser that
-  includes comment nodes in the pre-symbolic expression AST. Because this bug
-  would make an otherwise legal contract get rejected by a node, this is a
-  **consensus-breaking** change.
 
 ## [2.1.0.0.2]
 
