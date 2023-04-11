@@ -1,0 +1,12 @@
+version: "3"
+
+services:
+  bitcoind:
+    image: lncm/bitcoind:v24.0.1
+    volumes:
+      - ./config/bitcoin.conf:/data/.bitcoin/bitcoin.conf:ro
+
+  stacks:
+    image: stacks-node
+    volumes:
+      - ./config/stacks.toml:/bin/config/stacks.toml:ro
