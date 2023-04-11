@@ -156,7 +156,7 @@ struct ParsedData {
     memo: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum ParseError {
     MalformedPayload,
     SliceConversion,
@@ -184,10 +184,21 @@ impl From<std::array::TryFromSliceError> for ParseError {
 mod tests {
     use super::*;
 
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::types::chainstate::StacksPrivateKey;
     use stacks_common::types::PrivateKey;
+    use stacks_common::types::StacksEpochId;
+    use stacks_common::util::hash::{hex_bytes, to_hex};
 
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::Txid;
+    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use crate::chainstate::burn::operations::test;
+    use crate::chainstate::stacks::address::PoxAddress;
+    use crate::chainstate::stacks::address::PoxAddressType32;
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     #[test]
@@ -467,5 +478,99 @@ mod tests {
                 .unwrap(),
             stx_address
         );
+    }
+
+    #[test]
+    fn test_stx_address_with_hard_coded_fixtures() {
+        let vtxindex = 1;
+        let _block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let fixtures = [
+            OpFixture {
+            txstr: "02000000010000000000000000000000000000000000000000000000000000000000000000ffffffff00ffffffff0300000000000000004f6a4c4c69643e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a00000000000000225120000000000000000000000000000000000000000000000000000000000000000000000000",
+            signer: StacksAddress::from_string("ST3W2ATS1H9RF29DMYW5QP7NYJ643WNP2YFT4Z45C").unwrap(),
+            result: Ok(PegOutRequestOp {
+                amount: 1337,
+                recipient: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                signature: MessageSignature::from_hex("00dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd").unwrap(),
+                peg_wallet_address: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fulfillment_fee: 42, memo: vec![], txid: Txid::from_hex("44a2aea3936f7764b4c089d3245b001069e0961e501fcb0024277ea9dedb2fea").unwrap(),
+                vtxindex: 1,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() }),
+            },
+            OpFixture {
+            txstr: "02000000010000000000000000000000000000000000000000000000000000000000000000ffffffff00ffffffff030000000000000000536a4c5069643e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a00000000000000225120000000000000000000000000000000000000000000000000000000000000000000000000",
+            signer: StacksAddress::from_string("ST3W2ATS1H9RF29DMYW5QP7NYJ643WNP2YFT4Z45C").unwrap(),
+            result: Ok(PegOutRequestOp {
+                amount: 1337,
+                recipient: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                signature: MessageSignature::from_hex("00dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd").unwrap(),
+                peg_wallet_address: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fulfillment_fee: 42, memo: vec![222, 173, 190, 239], txid: Txid::from_hex("7431035f255c4ce215b66883d67e593f392b0b2026c24186e650019872b6f095").unwrap(),
+                vtxindex: 1,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() }),
+            },
+        ];
+
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
+
+        for fixture in fixtures {
+            let tx = make_tx(&fixture.txstr).unwrap();
+            let burnchain_tx = BurnchainTransaction::Bitcoin(
+                parser
+                    .parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch21)
+                    .unwrap(),
+            );
+
+            let header = match fixture.result {
+                Ok(ref op) => BurnchainBlockHeader {
+                    block_height: op.block_height,
+                    block_hash: op.burn_header_hash.clone(),
+                    parent_block_hash: op.burn_header_hash.clone(),
+                    num_txs: 1,
+                    timestamp: 0,
+                },
+                Err(_) => BurnchainBlockHeader {
+                    block_height: 0,
+                    block_hash: BurnchainHeaderHash::zero(),
+                    parent_block_hash: BurnchainHeaderHash::zero(),
+                    num_txs: 0,
+                    timestamp: 0,
+                },
+            };
+
+            let result = PegOutRequestOp::from_tx(&header, &burnchain_tx);
+
+            match (result, fixture.result) {
+                (Ok(actual), Ok(expected)) => {
+                    assert_eq!(actual, expected);
+                    assert_eq!(
+                        actual
+                            .stx_address(C32_ADDRESS_VERSION_TESTNET_SINGLESIG)
+                            .unwrap(),
+                        fixture.signer
+                    );
+                }
+                _ => panic!("Unsupported test scenario"),
+            }
+        }
+    }
+
+    pub struct OpFixture {
+        txstr: &'static str,
+        signer: StacksAddress,
+        result: Result<PegOutRequestOp, OpError>,
+    }
+
+    fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
+        let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex string")?;
+        let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
+        Ok(tx)
     }
 }
