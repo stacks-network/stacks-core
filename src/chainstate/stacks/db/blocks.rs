@@ -3704,13 +3704,18 @@ impl StacksChainState {
         Ok(count - to_write)
     }
 
-    /// Check whether or not there exists a Stacks block at or higher than a given height that is
-    /// unprocessed.  This is used by miners to determine whether or not the block-commit they're
-    /// about to send is about to be invalidated
-    pub fn has_higher_unprocessed_blocks(conn: &DBConn, height: u64) -> Result<bool, Error> {
+    /// Check whether or not there exists a Stacks block at or higher
+    /// than a given height that is unprocessed and relatively
+    /// new. This is used by miners to determine whether or not the
+    /// block-commit they're about to send is about to be invalidated.
+    pub fn has_higher_unprocessed_blocks(
+        conn: &DBConn,
+        height: u64,
+        deadline: u64,
+    ) -> Result<bool, Error> {
         let sql =
-            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1 AND arrival_time >= ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(deadline)?];
         let res = conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -3720,10 +3725,13 @@ impl StacksChainState {
 
     /// Get the metadata of the highest unprocessed block.
     /// The block data will not be returned
-    pub fn get_highest_unprocessed_block(conn: &DBConn) -> Result<Option<StagingBlock>, Error> {
+    pub fn get_highest_unprocessed_block(
+        conn: &DBConn,
+        deadline: u64,
+    ) -> Result<Option<StagingBlock>, Error> {
         let sql =
-            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 ORDER BY height DESC LIMIT 1";
-        let res = query_row(conn, sql, NO_PARAMS)?;
+            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND arrival_time >= ?1 ORDER BY height DESC LIMIT 1";
+        let res = query_row(conn, sql, &[u64_to_sql(deadline)?])?;
         Ok(res)
     }
 

@@ -1768,13 +1768,21 @@ impl BlockMinerThread {
             .get_stacks_chain_tip(sortdb)
             .expect("FATAL: could not query canonical Stacks chain tip")
         {
-            let has_unprocessed =
-                StacksChainState::has_higher_unprocessed_blocks(chainstate.db(), stacks_tip.height)
-                    .expect("FATAL: failed to query staging blocks");
+            // if a block hasn't been processed within 30 seconds of receipt, don't block
+            //  mining
+            let process_deadline = get_epoch_time_secs() - 30;
+            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
+                chainstate.db(),
+                stacks_tip.height,
+                process_deadline,
+            )
+            .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                let highest_unprocessed_opt =
-                    StacksChainState::get_highest_unprocessed_block(chainstate.db())
-                        .expect("FATAL: failed to query staging blocks");
+                let highest_unprocessed_opt = StacksChainState::get_highest_unprocessed_block(
+                    chainstate.db(),
+                    process_deadline,
+                )
+                .expect("FATAL: failed to query staging blocks");
 
                 if let Some(highest_unprocessed) = highest_unprocessed_opt {
                     let highest_unprocessed_block_sn_opt =
