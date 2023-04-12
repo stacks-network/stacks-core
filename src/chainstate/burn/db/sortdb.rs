@@ -2847,6 +2847,7 @@ impl SortitionDB {
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
             StacksEpochId::Epoch21 => version == "3" || version == "4",
+            StacksEpochId::Epoch22 => version == "4",
         }
     }
 

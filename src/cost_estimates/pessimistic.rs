@@ -229,7 +229,7 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch10 => "",
                     StacksEpochId::Epoch20 => "",
                     StacksEpochId::Epoch2_05 => ":2.05",
-                    StacksEpochId::Epoch21 => ":2.1",
+                    StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",

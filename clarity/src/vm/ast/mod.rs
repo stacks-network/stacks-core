@@ -249,7 +249,7 @@ fn inner_build_ast<T: CostTracker>(
         }
         _ => (),
     }
-    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version) {
+    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version, epoch) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
