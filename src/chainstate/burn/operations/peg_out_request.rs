@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -126,13 +127,9 @@ impl PegOutRequestOp {
         let pub_key = StacksPublicKey::recover_to_pubkey(msg_hash.as_bytes(), &self.signature)
             .map_err(RecoverError::PubKeyRecoveryFailed)?;
 
-        StacksAddress::from_public_keys(
-            version,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![pub_key],
-        )
-        .ok_or(RecoverError::AddressConstructionFailed)
+        let hash_bits =
+            public_keys_to_address_hash(&AddressHashMode::SerializeP2PKH, 1, &vec![pub_key]);
+        Ok(StacksAddress::new(version, hash_bits))
     }
 
     pub fn check(&self) -> Result<(), OpError> {
@@ -165,7 +162,6 @@ enum ParseError {
 #[derive(Debug, PartialEq)]
 pub enum RecoverError {
     PubKeyRecoveryFailed(&'static str),
-    AddressConstructionFailed,
 }
 
 impl From<ParseError> for OpError {
@@ -182,8 +178,6 @@ impl From<std::array::TryFromSliceError> for ParseError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -192,6 +186,7 @@ mod tests {
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
+    use super::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::Txid;
