@@ -869,6 +869,9 @@ impl Config {
                 candidate_retry_cache_size: miner
                     .candidate_retry_cache_size
                     .unwrap_or(miner_default_config.candidate_retry_cache_size),
+                unprocessed_block_deadline_secs: miner
+                    .unprocessed_block_deadline_secs
+                    .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
             },
             None => miner_default_config,
         };
@@ -1846,6 +1849,7 @@ pub struct MinerConfig {
     pub wait_for_block_download: bool,
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
+    pub unprocessed_block_deadline_secs: u64,
 }
 
 impl MinerConfig {
@@ -1861,6 +1865,7 @@ impl MinerConfig {
             wait_for_block_download: true,
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
+            unprocessed_block_deadline_secs: 30,
         }
     }
 }
@@ -1976,6 +1981,7 @@ pub struct MinerConfigFile {
     pub segwit: Option<bool>,
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
+    pub unprocessed_block_deadline_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
