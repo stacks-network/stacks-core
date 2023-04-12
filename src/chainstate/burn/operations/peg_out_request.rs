@@ -162,7 +162,7 @@ enum ParseError {
     SliceConversion,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RecoverError {
     PubKeyRecoveryFailed(&'static str),
     AddressConstructionFailed,
@@ -477,6 +477,62 @@ mod tests {
             op.stx_address(C32_ADDRESS_VERSION_TESTNET_SINGLESIG)
                 .unwrap(),
             stx_address
+        );
+    }
+
+    #[test]
+    fn test_stx_address_should_fail_to_recover_stx_address_if_signature_is_noise() {
+        let mut rng = test::seeded_rng();
+        let opcode = Opcodes::PegOutRequest;
+
+        let private_key = StacksPrivateKey::from_hex(
+            "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+        )
+        .unwrap();
+
+        let stx_address = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&private_key)],
+        )
+        .unwrap();
+
+        let dust_amount = 1;
+        let recipient_address_bytes = test::random_bytes(&mut rng);
+        let output2 = test::Output::new(dust_amount, recipient_address_bytes);
+
+        let peg_wallet_address = test::random_bytes(&mut rng);
+        let fulfillment_fee = 3;
+        let output3 = test::Output::new(fulfillment_fee, peg_wallet_address);
+
+        let mut data = vec![];
+        let amount: u64 = 10;
+
+        let mut script_pubkey = vec![81, 32]; // OP_1 OP_PUSHBYTES_32
+        script_pubkey.extend_from_slice(&recipient_address_bytes);
+
+        let mut msg = amount.to_be_bytes().to_vec();
+        msg.extend_from_slice(&script_pubkey);
+
+        let msg_hash = Sha256Sum::from_data(&msg);
+
+        let signature = MessageSignature(test::random_bytes(&mut rng));
+        data.extend_from_slice(&amount.to_be_bytes());
+        data.extend_from_slice(signature.as_bytes());
+
+        let tx = test::burnchain_transaction(data, [output2, output3], opcode);
+        let header = test::burnchain_block_header();
+
+        let op =
+            PegOutRequestOp::from_tx(&header, &tx).expect("Failed to construct peg-out operation");
+
+        assert_eq!(
+            op.stx_address(C32_ADDRESS_VERSION_TESTNET_SINGLESIG)
+                .unwrap_err(),
+            RecoverError::PubKeyRecoveryFailed(
+                "Invalid signature: failed to decode recoverable signature"
+            ),
         );
     }
 
