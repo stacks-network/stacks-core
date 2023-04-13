@@ -1760,6 +1760,7 @@ impl BlockMinerThread {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        unprocessed_block_deadline: u64,
     ) -> bool {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
@@ -1768,13 +1769,21 @@ impl BlockMinerThread {
             .get_stacks_chain_tip(sortdb)
             .expect("FATAL: could not query canonical Stacks chain tip")
         {
-            let has_unprocessed =
-                StacksChainState::has_higher_unprocessed_blocks(chainstate.db(), stacks_tip.height)
-                    .expect("FATAL: failed to query staging blocks");
+            // if a block hasn't been processed within some deadline seconds of receipt, don't block
+            //  mining
+            let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
+            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
+                chainstate.db(),
+                stacks_tip.height,
+                process_deadline,
+            )
+            .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                let highest_unprocessed_opt =
-                    StacksChainState::get_highest_unprocessed_block(chainstate.db())
-                        .expect("FATAL: failed to query staging blocks");
+                let highest_unprocessed_opt = StacksChainState::get_highest_unprocessed_block(
+                    chainstate.db(),
+                    process_deadline,
+                )
+                .expect("FATAL: failed to query staging blocks");
 
                 if let Some(highest_unprocessed) = highest_unprocessed_opt {
                     let highest_unprocessed_block_sn_opt =
@@ -2011,8 +2020,12 @@ impl BlockMinerThread {
                 .expect("FATAL: mutex poisoned")
                 .is_blocked();
 
-            let has_unprocessed =
-                Self::unprocessed_blocks_prevent_mining(&self.burnchain, &burn_db, &chain_state);
+            let has_unprocessed = Self::unprocessed_blocks_prevent_mining(
+                &self.burnchain,
+                &burn_db,
+                &chain_state,
+                self.config.miner.unprocessed_block_deadline_secs,
+            );
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
@@ -2977,6 +2990,7 @@ impl RelayerThread {
             &self.burnchain,
             self.sortdb_ref(),
             self.chainstate_ref(),
+            self.config.miner.unprocessed_block_deadline_secs,
         );
         if has_unprocessed {
             debug!(

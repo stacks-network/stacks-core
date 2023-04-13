@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.1.0.0.3]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability. This
+release's chainstate directory is compatible with chainstate
+directories from 2.1.0.0.2.
+
 ## [2.1.0.0.2]
 
 This software update is a hotfix to resolve improper unlock handling
 in mempool admission. This release's chainstate directory is
-compatible with chainstate directories from 2.1.0.0.2.
+compatible with chainstate directories from 2.1.0.0.1.
 
 ### Fixed
 

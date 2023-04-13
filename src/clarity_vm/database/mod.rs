@@ -534,7 +534,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Some(height) => height,
         };
 
-        if height >= current_height {
+        if height > current_height {
             return None;
         }
 
