@@ -2269,7 +2269,6 @@ In the event that the `owner` principal isn't materialized, it returns 0.
 const STX_GET_ACCOUNT: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "stx-account ${1:owner}",
-    output_type: "{locked: uint, unlock-height: uint, unlocked: uint}",
     signature: "(stx-account owner)",
     description: "`stx-account` is used to query the STX account of the `owner` principal.
 
