@@ -5,8 +5,15 @@ services:
     image: lncm/bitcoind:v24.0.1
     volumes:
       - ./config/bitcoin.conf:/data/.bitcoin/bitcoin.conf:ro
+    ports:
+      - 18443:18443
 
-  stacks:
-    image: stacks-node
+  puppet:
+    image: puppet-chain
     volumes:
-      - ./config/stacks.toml:/bin/config/stacks.toml:ro
+      - ./config:/config:ro
+
+  # stacks:
+  #   image: stacks-node
+  #   volumes:
+  #     - ./config/stacks.toml:/bin/config/stacks.toml:ro
