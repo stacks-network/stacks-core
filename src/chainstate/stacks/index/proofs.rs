@@ -699,7 +699,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 hash_idx += 1;
             }
         }
-        trace!("Shunt proof node: idx={}, all_hashes={:?}", idx, all_hashes);
+        eprintln!("Shunt proof node: idx={}, all_hashes={:?}", idx, all_hashes);
         let next_hash = TrieHash::from_data_array(&all_hashes);
         Some(next_hash)
     }
@@ -713,14 +713,14 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let hash = match shunt_proof_head {
             TrieMerkleProofType::Shunt((ref idx, ref hashes)) => {
                 if *idx != 0 {
-                    trace!("First shunt proof entry must have idx == 0");
+                    eprintln!("First shunt proof entry must have idx == 0");
                     return None;
                 }
 
                 if hashes.len() == 0 {
                     // special case -- if this shunt proof has no hashes (i.e. this is a leaf from the first
                     // block), then we can safely skip this step
-                    trace!(
+                    eprintln!(
                         "Special case for a 0-ancestor node: hash is just the trie hash: {:?}",
                         node_root_hash
                     );
@@ -732,7 +732,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                         all_hashes.push(h.clone());
                     }
                     let ret = TrieHash::from_data_array(&all_hashes);
-                    trace!(
+                    eprintln!(
                         "Shunt proof head: hash = {:?}, all_hashes = {:?}",
                         &ret,
                         &all_hashes
@@ -741,7 +741,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 }
             }
             _ => {
-                trace!("Shunt proof head is not a shunt proof node");
+                eprintln!("Shunt proof head is not a shunt proof node");
                 return None;
             }
         };
@@ -764,7 +764,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             hash = match proof_node {
                 TrieMerkleProofType::Shunt((ref idx, ref hashes)) => {
                     if *idx == 0 {
-                        trace!("Invalid shunt proof tail: idx == 0");
+                        eprintln!("Invalid shunt proof tail: idx == 0");
                         return None;
                     }
 
@@ -776,7 +776,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     }
                 }
                 _ => {
-                    trace!("Shunt proof item is not a shunt proof node");
+                    eprintln!("Shunt proof item is not a shunt proof node");
                     return None;
                 }
             };
@@ -796,7 +796,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let hash = match shunt_proof_junction {
             TrieMerkleProofType::Shunt((ref idx, ref hashes)) => {
                 if *idx == 0 {
-                    trace!("Shunt proof junction entry must not have idx == 0");
+                    eprintln!("Shunt proof junction entry must not have idx == 0");
                     return None;
                 }
 
@@ -810,7 +810,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                         all_hashes.push(penultimate_trie_hash.clone());
                     } else {
                         if hash_idx >= hashes.len() {
-                            trace!(
+                            eprintln!(
                                 "ran out of hashes: hash_idx = {}, hashes.len() = {}",
                                 hash_idx,
                                 hashes.len()
@@ -823,18 +823,18 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     }
                 }
 
-                trace!(
+                eprintln!(
                     "idx = {}, hashes = {:?}, penultimate = {:?}, node root = {:?}",
                     *idx,
                     hashes,
                     penultimate_trie_hash,
                     node_root_hash
                 );
-                trace!("Shunt proof junction: all_hashes = {:?}", &all_hashes);
+                eprintln!("Shunt proof junction: all_hashes = {:?}", &all_hashes);
                 TrieHash::from_data_array(&all_hashes)
             }
             _ => {
-                trace!("Shunt proof junction is not a shunt proof node");
+                eprintln!("Shunt proof junction is not a shunt proof node");
                 return None;
             }
         };
@@ -848,7 +848,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         ptrs: &Vec<TriePtr>,
         starting_chr: u8,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
-        trace!("make_segment_proof: ptrs = {:?}", &ptrs);
+        eprintln!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(ptrs.len() > 0);
         assert_eq!(ptrs[0], storage.root_trieptr());
@@ -859,7 +859,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut proof_segment = Vec::with_capacity(ptrs.len());
         let mut prev_chr = starting_chr;
 
-        trace!(
+        eprintln!(
             "make_segment_proof: Trie segment from {:?} starting at {:?}: {:?}",
             &storage.get_cur_block(),
             starting_chr,
@@ -870,7 +870,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             let ptr = &ptrs[i];
             let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, &ptr, prev_chr)?;
 
-            trace!(
+            eprintln!(
                 "make_segment_proof: Add proof node from {:?} child 0x{:02x}: {:?}",
                 &ptr,
                 prev_chr,
@@ -1207,7 +1207,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         i += 1;
         if i >= proof.len() {
             // done -- no further shunts
-            eprintln!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+            eprintln!("Verify proof 1: {:?} =?= {:?}", root_hash, &trie_hash);
             return *root_hash == trie_hash;
         }
 
@@ -1355,7 +1355,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
         }
 
-        eprintln!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+        eprintln!("Verify proof 2: {:?} =?= {:?}", root_hash, &trie_hash);
         *root_hash == trie_hash
     }
 

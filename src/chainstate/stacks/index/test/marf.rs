@@ -45,60 +45,58 @@ use super::*;
 #[generate_test_cases_for_marf_open_opts]
 fn marf_insert_different_leaf_same_block_100(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
-        test_debug!("With {:?}", &marf_opts);
-        let f = TrieFileStorage::new_memory(marf_opts).unwrap();
+    test_debug!("With {:?}", &marf_opts);
+    let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        let mut marf = MARF::from_storage(f);
-        marf.begin(&BlockHeaderHash::sentinel(), &block_header)
+    let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+    let mut marf = MARF::from_storage(f);
+    marf.begin(&BlockHeaderHash::sentinel(), &block_header)
+        .unwrap();
+
+    let path_bytes = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+        24, 25, 26, 27, 28, 29, 30, 31,
+    ];
+    let path = TriePath::from_bytes(&path_bytes).unwrap();
+
+    for i in 0..100 {
+        let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+        marf.insert_raw(path.clone(), value).unwrap();
+    }
+
+    debug!("---------");
+    debug!("MARF gets");
+    debug!("---------");
+
+    let value = TrieLeaf::new(&vec![], &[99; 40].to_vec());
+    let leaf = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &path)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(leaf.data.to_vec(), [99; 40].to_vec());
+    assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
+
+    if marf.borrow_storage_backend().hash_calculation_mode == TrieHashCalculationMode::Deferred
+    {
+        // materialize all hashes
+        marf.commit().unwrap();
+    }
+    merkle_test_marf(
+        &mut marf.borrow_storage_backend(),
+        &block_header,
+        &path_bytes.to_vec(),
+        &[99; 40].to_vec(),
+        None,
+    );
+
+    if let Some(root_hashes) = last_root_hashes.take() {
+        let next_root_hashes = marf
+            .borrow_storage_backend()
+            .read_root_to_block_table()
             .unwrap();
-
-        let path_bytes = [
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25, 26, 27, 28, 29, 30, 31,
-        ];
-        let path = TriePath::from_bytes(&path_bytes).unwrap();
-
-        for i in 0..100 {
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            marf.insert_raw(path.clone(), value).unwrap();
-        }
-
-        debug!("---------");
-        debug!("MARF gets");
-        debug!("---------");
-
-        let value = TrieLeaf::new(&vec![], &[99; 40].to_vec());
-        let leaf = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &path)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(leaf.data.to_vec(), [99; 40].to_vec());
-        assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
-
-        if marf.borrow_storage_backend().hash_calculation_mode == TrieHashCalculationMode::Deferred
-        {
-            // materialize all hashes
-            marf.commit().unwrap();
-        }
-        merkle_test_marf(
-            &mut marf.borrow_storage_backend(),
-            &block_header,
-            &path_bytes.to_vec(),
-            &[99; 40].to_vec(),
-            None,
-        );
-
-        if let Some(root_hashes) = last_root_hashes.take() {
-            let next_root_hashes = marf
-                .borrow_storage_backend()
-                .read_root_to_block_table()
-                .unwrap();
-            assert_eq!(root_hashes, next_root_hashes);
-            last_root_hashes = Some(next_root_hashes);
-        }
-    //}
+        assert_eq!(root_hashes, next_root_hashes);
+        last_root_hashes = Some(next_root_hashes);
+    }
 }
 
 #[generate_test_cases_for_marf_open_opts]
@@ -142,6 +140,7 @@ fn marf_insert_different_leaf_different_path_different_block_100(marf_opts: MARF
 
         for i in 0..100 {
             let block_header = BlockHeaderHash::from_bytes(&[i + 1 as u8; 32]).unwrap();
+            eprintln!("[test] Block header hash: {}", block_header);
             let path_bytes = [
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                 23, 24, 25, 26, 27, 28, 29, 30, i as u8,

@@ -8,15 +8,16 @@ use syn::{AttributeArgs, ItemFn, parse_macro_input, };
 
 #[proc_macro_attribute]
 pub fn generate_test_cases_for_marf_open_opts(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
+    //let args = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as ItemFn);
-    
 
     let mut opts_ts = quote! {};
+    let mut _desc: String;
 
     for opts in ALL_MARF_OPEN_OPTS.into_iter() {
+        _desc = format!("{} {} {} {}", opts.hash_calculation_mode, opts.cache_strategy, opts.external_blobs, opts.external_blob_compression_type);
         opts_ts = quote!{ 
-            #[test_case(#opts)] 
+            #[test_case(#opts ; #_desc)] 
             #opts_ts 
         };
     }

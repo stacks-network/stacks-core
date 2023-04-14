@@ -1725,7 +1725,7 @@ fn insert_1024_seq_mid(marf_opts: MARFOpenOpts) {
     })
 }
 
-//#[generate_test_cases_for_marf_open_opts]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
 fn insert_65536_random_deterministic(marf_opts: MARFOpenOpts) {
     // deterministic random insert of 65536 keys

@@ -2613,7 +2613,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         ptr: &TriePtr,
         read_hash: bool,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
-        //trace!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
+        eprintln!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
 
         self.data.read_count += 1;
         if is_backptr(ptr.id()) {
@@ -2637,7 +2637,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         // some other block
         let ret = match self.data.cur_block_id {
             Some(id) => {
-                //eprintln!("read_nodetype(), id: {:?}, read_hash: {:?}", id, read_hash);
+                eprintln!("read_nodetype(), id: {:?}, read_hash: {:?}", id, read_hash);
                 self.bench.read_nodetype_start();
 
                 let (node_inst, node_hash) = if read_hash {
@@ -2660,14 +2660,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
-                        //eprintln!("read_nodetype() - inner_read_persisted_nodetype(): id: {:?}, clear_ptr: {:?}, read_hash: {:?}",
-                        //id, &clear_ptr, read_hash);
+                        eprintln!("read_nodetype() - inner_read_persisted_nodetype(): id: {:?}, clear_ptr: {:?}, read_hash: {:?}",
+                        id, &clear_ptr, read_hash);
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
-                        //eprintln!("read_nodetype() - 2");
+                        eprintln!("read_nodetype() - 2");
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
-                        //eprintln!("read_nodetype() - 3");
+                        eprintln!("read_nodetype() - 3");
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     }
                 };

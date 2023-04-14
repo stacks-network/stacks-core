@@ -500,6 +500,16 @@ impl ToTokens for TrieHashCalculationMode {
     }
 }
 
+impl std::fmt::Display for TrieHashCalculationMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TrieHashCalculationMode::Immediate => write!(f, "immediate"),
+            TrieHashCalculationMode::Deferred => write!(f, "deferred"),
+            TrieHashCalculationMode::All => write!(f, "all")
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlobCompressionType {
     None,
