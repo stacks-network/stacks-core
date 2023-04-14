@@ -57,7 +57,7 @@ use crate::util_lib::db::SQLITE_MMAP_SIZE;
 
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE, TrieCachingStrategy};
 
 /// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
@@ -181,7 +181,19 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// environ, or failing that, it will use a no-op strategy.
     pub fn default() -> TrieCache<T> {
         if let Ok(strategy) = std::env::var("STACKS_MARF_CACHE_STRATEGY") {
-            TrieCache::new(&strategy)
+            match strategy.as_ref() {
+                "noop" => TrieCache::new(&TrieCachingStrategy::Noop),
+                "everything" => TrieCache::new(&TrieCachingStrategy::Everything),
+                "node256" => TrieCache::new(&TrieCachingStrategy::Node256),
+                _ => {
+                    error!(
+                        "Unsupported trie node cache strategy '{}'; falling back to `Noop` strategy",
+                        strategy
+                    );
+                    TrieCache::Noop(TrieCacheState::new())
+                }
+
+            }
         } else {
             TrieCache::Noop(TrieCacheState::new())
         }
@@ -190,18 +202,11 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// Make a new cache strategy.
     /// `strategy` must be one of "noop", "everything", or "node256".
     /// Any other option causes a runtime panic.
-    pub fn new(strategy: &str) -> TrieCache<T> {
+    pub fn new(strategy: &TrieCachingStrategy) -> TrieCache<T> {
         match strategy {
-            "noop" => TrieCache::Noop(TrieCacheState::new()),
-            "everything" => TrieCache::Everything(TrieCacheState::new()),
-            "node256" => TrieCache::Node256(TrieCacheState::new()),
-            _ => {
-                error!(
-                    "Unsupported trie node cache strategy '{}'; falling back to `Noop` strategy",
-                    strategy
-                );
-                TrieCache::Noop(TrieCacheState::new())
-            }
+            TrieCachingStrategy::Noop => TrieCache::Noop(TrieCacheState::new()),
+            TrieCachingStrategy::Everything => TrieCache::Everything(TrieCacheState::new()),
+            TrieCachingStrategy::Node256 => TrieCache::Node256(TrieCacheState::new())
         }
     }
 

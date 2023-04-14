@@ -32,7 +32,7 @@ use crate::chainstate::stacks::index::node::{
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+    TrieFileStorage, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
@@ -43,6 +43,7 @@ use stacks_common::util::macros::is_trace;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::TrieHashCalculationMode;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;

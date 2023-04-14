@@ -67,7 +67,7 @@ use crate::util_lib::db::SQLITE_MMAP_SIZE;
 
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE, BlobCompressionType};
 
 use lz4_flex::{
     compress_prepend_size as lz4_compress_prepend_size, 
@@ -85,33 +85,6 @@ pub struct TrieIdOffset {
 }
 
 pub const HEADER_INDICATOR: [u8; 3] = [255u8, 255u8, 1u8];
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BlobCompressionType {
-    None,
-    LZ4,
-    ZStd(i32),
-}
-
-impl BlobCompressionType {
-    pub fn as_u8(&self) -> u8 {
-        match self {
-            BlobCompressionType::None => 0u8,
-            BlobCompressionType::LZ4 => 1u8,
-            BlobCompressionType::ZStd(_) => 2u8
-        }
-    }
-}
-
-impl std::fmt::Display for BlobCompressionType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BlobCompressionType::None => write!(f, "nocomp"),
-            BlobCompressionType::LZ4 => write!(f, "lz4"),
-            BlobCompressionType::ZStd(level) => write!(f, "zstd{}", level)
-        }
-    }
-}
 
 pub struct BlobStorageResult {
     pub offset: u64,
@@ -794,7 +767,7 @@ impl TrieFile {
                 }
             };
 
-            trace!(
+            eprintln!(
                 "Root hash for block {} at offset {} is {}",
                 &block_hash,
                 offset + start,

@@ -62,11 +62,9 @@ use crate::util_lib::db;
 use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieLeaf;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-
-use super::file::BlobCompressionType;
+use stacks_common::types::chainstate::{
+    TrieHash, TRIEHASH_ENCODED_SIZE, BLOCK_HEADER_HASH_ENCODED_SIZE, BlobCompressionType, BlockHeaderHash
+};
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -124,16 +122,7 @@ UPDATE schema_version SET version = 3;
 
 pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
 
-impl From<u64> for BlobCompressionType {
-    fn from(e: u64) -> Self {
-        match e {
-            0u64 => BlobCompressionType::None,
-            1u64 => BlobCompressionType::LZ4,
-            2u64 => BlobCompressionType::ZStd(0),
-            _ => panic!("Unsupported blob compression type")
-        }
-    }
-}
+
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;

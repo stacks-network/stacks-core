@@ -24,7 +24,6 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
@@ -40,7 +39,7 @@ use clarity::vm::database::NULL_HEADER_DB;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, MARFOpenOpts};
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 

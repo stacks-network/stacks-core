@@ -18,6 +18,9 @@ extern crate ripemd;
 extern crate sha2;
 extern crate sha3;
 extern crate time;
+#[macro_use]
+extern crate quote;
+extern crate proc_macro2;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;

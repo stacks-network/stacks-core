@@ -20,6 +20,7 @@ use std::fs;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::*;
+use stacks_common::types::chainstate::MARFOpenOpts;
 
 use rand::thread_rng;
 use rand::Rng;

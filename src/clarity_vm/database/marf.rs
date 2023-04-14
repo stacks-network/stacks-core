@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error, MarfTrieId};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::IndexDBConn;
@@ -17,8 +17,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
 use clarity::vm::database::SpecialCaseHandler;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash, MARFOpenOpts, BlockHeaderHash};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::codec::StacksMessageCodec;

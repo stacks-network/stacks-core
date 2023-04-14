@@ -4,6 +4,8 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
+use proc_macro2::TokenStream;
+use quote::ToTokens;
 use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
@@ -442,5 +444,171 @@ impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
         let consensus_hash: ConsensusHash = read_next(fd)?;
         let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
         Ok((consensus_hash, burn_header_hash))
+    }
+}
+
+/// The strategy to use for caching of tries.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum TrieCachingStrategy {
+    Noop,
+    Node256,
+    Everything
+}
+
+//#[cfg(test)]
+impl ToTokens for TrieCachingStrategy {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let variant = match self {
+            TrieCachingStrategy::Everything => quote! { TrieCachingStrategy::Everything },
+            TrieCachingStrategy::Node256 => quote! { TrieCachingStrategy::Node256 },
+            TrieCachingStrategy::Noop => quote! { TrieCachingStrategy::Noop }
+        };
+        tokens.extend(variant);
+    }
+}
+
+impl fmt::Display for TrieCachingStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TrieCachingStrategy::Everything => write!(f, "Everything"),
+            TrieCachingStrategy::Noop => write!(f, "Noop"),
+            TrieCachingStrategy::Node256 => write!(f, "Node256"),
+        }
+    }
+}
+
+/// Hash calculation mode
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum TrieHashCalculationMode {
+    /// Calculate all trie node hashes as we insert leaves
+    Immediate,
+    /// Do not calculate trie node hashes until we dump the trie to disk
+    Deferred,
+    /// Calculate trie hashes both on leaf insert and on trie dump.  Used for testing.
+    All,
+}
+
+//#[cfg(test)]
+impl ToTokens for TrieHashCalculationMode {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let variant = match self {
+            TrieHashCalculationMode::Immediate => quote! { TrieHashCalculationMode::Immediate },
+            TrieHashCalculationMode::Deferred => quote! { TrieHashCalculationMode::Deferred },
+            TrieHashCalculationMode::All => quote! { TrieHashCalculationMode::All },
+        };
+        tokens.extend(variant);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BlobCompressionType {
+    None,
+    LZ4,
+    ZStd(i32),
+}
+
+//#[cfg(test)]
+impl ToTokens for BlobCompressionType {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let variant = match self {
+            BlobCompressionType::None => quote! { BlobCompressionType::None },
+            BlobCompressionType::LZ4 => quote! { BlobCompressionType::LZ4 },
+            BlobCompressionType::ZStd(x) => quote! { BlobCompressionType::ZStd(#x) }
+        };
+        tokens.extend(variant);
+    }
+}
+
+impl BlobCompressionType {
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            BlobCompressionType::None => 0u8,
+            BlobCompressionType::LZ4 => 1u8,
+            BlobCompressionType::ZStd(_) => 2u8
+        }
+    }
+}
+
+impl std::fmt::Display for BlobCompressionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BlobCompressionType::None => write!(f, "nocomp"),
+            BlobCompressionType::LZ4 => write!(f, "lz4"),
+            BlobCompressionType::ZStd(level) => write!(f, "zstd{}", level)
+        }
+    }
+}
+
+impl From<u64> for BlobCompressionType {
+    fn from(e: u64) -> Self {
+        match e {
+            0u64 => BlobCompressionType::None,
+            1u64 => BlobCompressionType::LZ4,
+            2u64 => BlobCompressionType::ZStd(0),
+            _ => panic!("Unsupported blob compression type")
+        }
+    }
+}
+
+/// Options for opening a MARF
+#[derive(Clone, Debug)]
+pub struct MARFOpenOpts {
+    /// Hash calculation mode for calculating a trie root hash
+    pub hash_calculation_mode: TrieHashCalculationMode,
+    /// Cache strategy to use
+    pub cache_strategy: TrieCachingStrategy,
+    /// Store trie blobs externally from the DB, in a flat file
+    pub external_blobs: bool,
+    /// Sets the compression mode for externally stored trie blobs
+    pub external_blob_compression_type: BlobCompressionType,
+    /// Unconditionally do a DB migration (used for testing)
+    pub force_db_migrate: bool,
+}
+
+//#[cfg(test)]
+impl ToTokens for MARFOpenOpts {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let hash_calculation_mode = &self.hash_calculation_mode;
+        let cache_strategy = &self.cache_strategy;
+        let external_blobs = &self.external_blobs;
+        let external_blob_compression_type = &self.external_blob_compression_type;
+        let force_db_migrate = &self.force_db_migrate;
+
+        tokens.extend(quote! {
+            MARFOpenOpts {
+                hash_calculation_mode: #hash_calculation_mode,
+                cache_strategy: #cache_strategy,
+                external_blobs: #external_blobs,
+                external_blob_compression_type: #external_blob_compression_type,
+                force_db_migrate: #force_db_migrate,
+            }
+        });
+    }
+}
+
+impl MARFOpenOpts {
+    pub fn default() -> MARFOpenOpts {
+        MARFOpenOpts {
+            hash_calculation_mode: TrieHashCalculationMode::Deferred,
+            cache_strategy: TrieCachingStrategy::Noop,
+            external_blobs: false,
+            force_db_migrate: false,
+            external_blob_compression_type: BlobCompressionType::ZStd(0),
+        }
+    }
+
+    pub const fn new(
+        hash_calculation_mode: TrieHashCalculationMode,
+        cache_strategy: TrieCachingStrategy,
+        external_blobs: bool,
+        external_blob_compression_type: BlobCompressionType
+    ) -> MARFOpenOpts {
+        MARFOpenOpts {
+            hash_calculation_mode,
+            cache_strategy,
+            external_blobs,
+            force_db_migrate: false,
+            external_blob_compression_type,
+        }
     }
 }

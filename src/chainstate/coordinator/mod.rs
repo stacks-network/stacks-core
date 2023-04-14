@@ -74,7 +74,7 @@ use crate::types::chainstate::{
 };
 use clarity::vm::database::BurnStateDB;
 
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use stacks_common::types::chainstate::MARFOpenOpts;
 
 pub use self::comm::CoordinatorCommunication;
 

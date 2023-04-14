@@ -105,6 +105,8 @@ stdext = "0.3.1"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
+test-case = "3.1.0"
+stacks-proc-macros = { package = "stacks-proc-macros", path = "./stacks-proc-macros/." }
 
 [features]
 default = ["developer-mode"]
@@ -137,4 +139,5 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "stacks-proc-macros"]

@@ -31,6 +31,14 @@ extern crate serde_json;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+#[cfg(test)]
+#[macro_use]
+extern crate test_case;
+
+#[cfg(test)]
+#[macro_use]
+extern crate stacks_proc_macros;
+
 use std::io;
 use std::io::prelude::*;
 use std::process;
@@ -57,7 +65,6 @@ use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
-use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
@@ -99,6 +106,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
+use stacks_common::types::chainstate::MARFOpenOpts;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

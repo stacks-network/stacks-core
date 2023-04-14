@@ -17,6 +17,7 @@
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::test::*;
 use crate::chainstate::stacks::index::*;
+use stacks_common::types::chainstate::MARFOpenOpts;
 
 use super::*;
 

@@ -31,7 +31,7 @@ use crate::chainstate::stacks::index::node::{
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
+    TrieFileStorage, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::Error;
@@ -46,8 +46,8 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerklePr
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{TrieHashCalculationMode, TrieCachingStrategy, BlobCompressionType, MARFOpenOpts};
 
-use super::file::BlobCompressionType;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -68,80 +68,6 @@ pub struct MarfTransaction<'a, T: MarfTrieId> {
 struct WriteChainTip<T> {
     block_hash: T,
     height: u32,
-}
-
-/// Options for opening a MARF
-#[derive(Clone, Debug)]
-pub struct MARFOpenOpts {
-    /// Hash calculation mode for calculating a trie root hash
-    pub hash_calculation_mode: TrieHashCalculationMode,
-    /// Cache strategy to use
-    pub cache_strategy: String,
-    /// Store trie blobs externally from the DB, in a flat file
-    pub external_blobs: bool,
-    /// Sets the compression mode for externally stored trie blobs
-    pub external_blob_compression_type: BlobCompressionType,
-    /// Unconditionally do a DB migration (used for testing)
-    pub force_db_migrate: bool,
-}
-
-impl MARFOpenOpts {
-    pub fn default() -> MARFOpenOpts {
-        MARFOpenOpts {
-            hash_calculation_mode: TrieHashCalculationMode::Deferred,
-            cache_strategy: "noop".to_string(),
-            external_blobs: false,
-            force_db_migrate: false,
-            external_blob_compression_type: BlobCompressionType::ZStd(0),
-        }
-    }
-
-    pub fn new(
-        hash_calculation_mode: TrieHashCalculationMode,
-        cache_strategy: &str,
-        external_blobs: bool,
-        external_blob_compression_type: BlobCompressionType
-    ) -> MARFOpenOpts {
-        MARFOpenOpts {
-            hash_calculation_mode,
-            cache_strategy: cache_strategy.to_string(),
-            external_blobs,
-            force_db_migrate: false,
-            external_blob_compression_type,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn all() -> Vec<MARFOpenOpts> {
-        vec![
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true, BlobCompressionType::None),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true, BlobCompressionType::None),
-
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true, BlobCompressionType::LZ4),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true, BlobCompressionType::LZ4),
-
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true, BlobCompressionType::ZStd(0)),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true, BlobCompressionType::ZStd(0)),
-        ]
-    }
 }
 
 ///

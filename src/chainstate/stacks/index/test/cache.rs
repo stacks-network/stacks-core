@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::file::BlobCompressionType;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
@@ -30,6 +29,7 @@ use rand::Rng;
 
 use sha2::Digest;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::{TrieCachingStrategy, BlobCompressionType, MARFOpenOpts, TrieHashCalculationMode};
 
 use std::time::SystemTime;
 
@@ -66,7 +66,7 @@ pub fn make_test_insert_data(
 
 fn test_marf_with_cache(
     test_name: &str,
-    cache_strategy: &str,
+    cache_strategy: TrieCachingStrategy,
     hash_strategy: TrieHashCalculationMode,
     data: &[Vec<(String, MARFValue)>],
     batch_size: Option<usize>,
@@ -178,7 +178,7 @@ fn test_marf_node_cache_noop() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_noop",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -187,7 +187,7 @@ fn test_marf_node_cache_noop() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(64),
@@ -196,7 +196,7 @@ fn test_marf_node_cache_noop() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(128),
@@ -205,7 +205,7 @@ fn test_marf_node_cache_noop() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(67),
@@ -214,7 +214,7 @@ fn test_marf_node_cache_noop() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(13),
@@ -227,7 +227,7 @@ fn test_marf_node_cache_noop_deferred() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -236,7 +236,7 @@ fn test_marf_node_cache_noop_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Deferred,
         &test_data,
         None,
@@ -245,7 +245,7 @@ fn test_marf_node_cache_noop_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(64),
@@ -254,7 +254,7 @@ fn test_marf_node_cache_noop_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(128),
@@ -263,7 +263,7 @@ fn test_marf_node_cache_noop_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(67),
@@ -272,7 +272,7 @@ fn test_marf_node_cache_noop_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(13),
@@ -285,7 +285,7 @@ fn test_marf_node_cache_everything() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_everything",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -294,7 +294,7 @@ fn test_marf_node_cache_everything() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(64),
@@ -303,7 +303,7 @@ fn test_marf_node_cache_everything() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(128),
@@ -312,7 +312,7 @@ fn test_marf_node_cache_everything() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(67),
@@ -321,7 +321,7 @@ fn test_marf_node_cache_everything() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(13),
@@ -334,7 +334,7 @@ fn test_marf_node_cache_everything_deferred() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -343,7 +343,7 @@ fn test_marf_node_cache_everything_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(64),
@@ -352,7 +352,7 @@ fn test_marf_node_cache_everything_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(128),
@@ -361,7 +361,7 @@ fn test_marf_node_cache_everything_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(67),
@@ -370,7 +370,7 @@ fn test_marf_node_cache_everything_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
-        "everything",
+        TrieCachingStrategy::Everything,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(13),
@@ -383,7 +383,7 @@ fn test_marf_node_cache_node256() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_node256",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -392,7 +392,7 @@ fn test_marf_node_cache_node256() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(64),
@@ -401,7 +401,7 @@ fn test_marf_node_cache_node256() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(128),
@@ -410,7 +410,7 @@ fn test_marf_node_cache_node256() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(67),
@@ -419,7 +419,7 @@ fn test_marf_node_cache_node256() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Immediate,
         &test_data,
         Some(13),
@@ -432,7 +432,7 @@ fn test_marf_node_cache_node256_deferred() {
     let test_data = make_test_insert_data(128, 128);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -441,7 +441,7 @@ fn test_marf_node_cache_node256_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(64),
@@ -450,7 +450,7 @@ fn test_marf_node_cache_node256_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(128),
@@ -459,7 +459,7 @@ fn test_marf_node_cache_node256_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(67),
@@ -468,7 +468,7 @@ fn test_marf_node_cache_node256_deferred() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(13),
@@ -481,7 +481,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
     let test_data = make_test_insert_data(15500, 10);
     let root_hash = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",
-        "noop",
+        TrieCachingStrategy::Noop,
         TrieHashCalculationMode::Immediate,
         &test_data,
         None,
@@ -490,7 +490,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(64),
@@ -499,7 +499,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(128),
@@ -508,7 +508,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(67),
@@ -517,7 +517,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",
-        "node256",
+        TrieCachingStrategy::Node256,
         TrieHashCalculationMode::Deferred,
         &test_data,
         Some(13),

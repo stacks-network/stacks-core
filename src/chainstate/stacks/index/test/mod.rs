@@ -41,6 +41,8 @@ use crate::chainstate::stacks::BlockHeaderHash;
 use crate::chainstate::stacks::TrieHash;
 use crate::types::chainstate::StacksBlockId;
 
+use test_case::test_case;
+
 pub mod cache;
 pub mod file;
 pub mod marf;
@@ -141,14 +143,14 @@ pub fn merkle_test_marf(
     value: &Vec<u8>,
     root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>,
 ) -> HashMap<TrieHash, BlockHeaderHash> {
-    test_debug!("---------");
-    test_debug!(
+    eprintln!("---------");
+    eprintln!(
         "MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?",
         header,
         path,
         value
     );
-    test_debug!("---------");
+    eprintln!("---------");
 
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
@@ -159,12 +161,15 @@ pub fn merkle_test_marf(
 
     let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value), header).unwrap();
 
-    test_debug!("---------");
-    test_debug!("MARF merkle verify: {:?}", &proof);
-    test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
-    test_debug!("MARF merkle verify source block: {:?}", header);
-    test_debug!("---------");
+    eprintln!("---------");
+    trace!("MARF merkle verify: {:?}", &proof);
+    eprintln!("MARF merkle verify target root hash: {:?}", &root_hash);
+    eprintln!("MARF merkle verify source block: {:?}", header);
+    eprintln!("---------");
 
+    if root_to_block.is_none() {
+        eprintln!("***** root_to_block is none");
+    }
     let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
 
     assert!(proof.verify(

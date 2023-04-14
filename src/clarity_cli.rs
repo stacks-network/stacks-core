@@ -37,6 +37,7 @@ use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::MARFOpenOpts;
 
 use crate::clarity::{
     vm::analysis,

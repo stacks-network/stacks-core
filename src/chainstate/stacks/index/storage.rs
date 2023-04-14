@@ -46,7 +46,6 @@ use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
@@ -71,9 +70,7 @@ use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-
-use super::file::BlobCompressionType;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE, BlobCompressionType, TrieCachingStrategy, TrieHashCalculationMode, MARFOpenOpts};
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -1209,17 +1206,6 @@ impl<'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
 ///
 pub struct TrieStorageTransaction<'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
 
-/// Hash calculation mode
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum TrieHashCalculationMode {
-    /// Calculate all trie node hashes as we insert leaves
-    Immediate,
-    /// Do not calculate trie node hashes until we dump the trie to disk
-    Deferred,
-    /// Calculate trie hashes both on leaf insert and on trie dump.  Used for testing.
-    All,
-}
-
 ///
 ///  TrieStorageConnection is a pointer to an open TrieFileStorage,
 ///    with either a SQLite &Connection (non-mut, so it cannot start a TX)
@@ -1527,7 +1513,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         mut marf_opts: MARFOpenOpts,
     ) -> Result<TrieFileStorage<T>, Error> {
         // no caching allowed for unconfirmed tries, since they can disappear
-        marf_opts.cache_strategy = "noop".to_string();
+        marf_opts.cache_strategy = TrieCachingStrategy::Noop;
         TrieFileStorage::open_opts(db_path, false, true, marf_opts)
     }
 
@@ -2085,11 +2071,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
     #[cfg(test)]
     fn inner_read_persisted_root_to_blocks(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
+        eprintln!("************** inner_read_persisted_root_to_blocks()");
         let ret = match self.blobs.as_mut() {
             Some(blobs) => {
+                eprintln!("Reading block hashes from blobs");
                 HashMap::from_iter(blobs.read_all_block_hashes_and_roots(&self.db)?.into_iter())
             }
             None => {
+                eprintln!("Reading block hashes from sqlite");
                 HashMap::from_iter(trie_sql::read_all_block_hashes_and_roots(&self.db)?.into_iter())
             }
         };

@@ -29,6 +29,10 @@ use crate::chainstate::stacks::index::trie::*;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::*;
 
+use stacks_common::types::chainstate::*;
+use stacks_proc_macros::generate_test_cases_for_marf_open_opts;
+use test_case::test_case;
+
 use super::*;
 
 fn walk_to_insertion_point(
@@ -69,9 +73,8 @@ fn walk_to_insertion_point(
     panic!("Encountered a loop in the trie");
 }
 
-#[test]
-fn trie_cursor_try_attach_leaf() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_try_attach_leaf(marf_opts: MARFOpenOpts) {
         test_debug!("With MARF opts {:?}", &marf_opts);
         for node_id in [
             TrieNodeID::Node4,
@@ -232,12 +235,11 @@ fn trie_cursor_try_attach_leaf() {
 
             dump_trie(&mut f);
         }
-    }
 }
 
-#[test]
-fn trie_cursor_promote_leaf_to_node4() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_promote_leaf_to_node4(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut f = f_store.transaction().unwrap();
 
@@ -405,12 +407,12 @@ fn trie_cursor_promote_leaf_to_node4() {
         }
 
         dump_trie(&mut f);
-    }
+    //}
 }
 
-#[test]
-fn trie_cursor_promote_node4_to_node16() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_promote_node4_to_node16(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut f = f_store.transaction().unwrap();
 
@@ -565,12 +567,12 @@ fn trie_cursor_promote_node4_to_node16() {
         }
 
         dump_trie(&mut f);
-    }
+    //}
 }
 
-#[test]
-fn trie_cursor_promote_node16_to_node48() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_promote_node16_to_node48(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut f = f_store.transaction().unwrap();
 
@@ -835,12 +837,12 @@ fn trie_cursor_promote_node16_to_node48() {
         }
 
         dump_trie(&mut f);
-    }
+    //}
 }
 
-#[test]
-fn trie_cursor_promote_node48_to_node256() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_promote_node48_to_node256(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut f = f_store.transaction().unwrap();
 
@@ -1210,12 +1212,12 @@ fn trie_cursor_promote_node48_to_node256() {
         }
 
         dump_trie(&mut f);
-    }
+    //}
 }
 
-#[test]
-fn trie_cursor_splice_leaf_4() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_splice_leaf_4(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         for node_id in [
             TrieNodeID::Node4,
             TrieNodeID::Node16,
@@ -1300,12 +1302,12 @@ fn trie_cursor_splice_leaf_4() {
 
             dump_trie(&mut f);
         }
-    }
+    //}
 }
 
-#[test]
-fn trie_cursor_splice_leaf_2() {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+#[generate_test_cases_for_marf_open_opts]
+fn trie_cursor_splice_leaf_2(marf_opts: MARFOpenOpts) {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         for node_id in [
             TrieNodeID::Node4,
             TrieNodeID::Node16,
@@ -1390,14 +1392,14 @@ fn trie_cursor_splice_leaf_2() {
 
             dump_trie(&mut f);
         }
-    }
+    //}
 }
 
-fn insert_n_test<F>(filename: &str, merkle_check: bool, count: u32, mut path_gen: F)
+fn insert_n_test<F>(marf_opts: MARFOpenOpts, filename: &str, merkle_check: bool, count: u32, mut path_gen: F)
 where
     F: FnMut(u32) -> [u8; 32],
 {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -1626,12 +1628,12 @@ where
                 );
             }
         }
-    }
+    //}
 }
 
-#[test]
-fn insert_1024_seq_low() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_low", true, 1024, |i| {
+#[generate_test_cases_for_marf_open_opts]
+fn insert_1024_seq_low(marf_opts: MARFOpenOpts) {
+    insert_n_test(marf_opts, "/tmp/rust_marf_insert_1024_seq_low", true, 1024, |i| {
         [
             0,
             1,
@@ -1669,9 +1671,9 @@ fn insert_1024_seq_low() {
     })
 }
 
-#[test]
-fn insert_1024_seq_high() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_high", true, 1024, |i| {
+#[generate_test_cases_for_marf_open_opts]
+fn insert_1024_seq_high(marf_opts: MARFOpenOpts) {
+    insert_n_test(marf_opts, "/tmp/rust_marf_insert_1024_seq_high", true, 1024, |i| {
         [
             (i / 256) as u8,
             (i % 256) as u8,
@@ -1709,9 +1711,9 @@ fn insert_1024_seq_high() {
     })
 }
 
-#[test]
-fn insert_1024_seq_mid() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_mid", true, 1024, |i| {
+#[generate_test_cases_for_marf_open_opts]
+fn insert_1024_seq_mid(marf_opts: MARFOpenOpts) {
+    insert_n_test(marf_opts, "/tmp/rust_marf_insert_1024_seq_mid", true, 1024, |i| {
         let i0 = i / 256;
         let i1 = (i % 256) / 32;
         let i2 = (i % 256) % 32;
@@ -1723,13 +1725,14 @@ fn insert_1024_seq_mid() {
     })
 }
 
-#[test]
+//#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn insert_65536_random_deterministic() {
+fn insert_65536_random_deterministic(marf_opts: MARFOpenOpts) {
     // deterministic random insert of 65536 keys
     let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
     insert_n_test(
+        marf_opts,
         "/tmp/rust_marf_insert_65536_random_deterministic",
         false,
         65536,
@@ -1745,12 +1748,13 @@ fn insert_65536_random_deterministic() {
     )
 }
 
-#[test]
-fn insert_1024_random_deterministic_merkle_proof() {
+#[generate_test_cases_for_marf_open_opts]
+fn insert_1024_random_deterministic_merkle_proof(marf_opts: MARFOpenOpts) {
     // deterministic random insert of 1024 keys
     let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
     insert_n_test(
+        marf_opts,
         "/tmp/rust_marf_insert_1024_random_deterministic_merkle_proof",
         true,
         1024,

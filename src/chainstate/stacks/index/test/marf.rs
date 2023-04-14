@@ -34,15 +34,18 @@ use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
+use stacks_common::types::chainstate::{MARFOpenOpts, TrieHashCalculationMode, TrieCachingStrategy, BlobCompressionType};
+use stacks_proc_macros::generate_test_cases_for_marf_open_opts;
+use test_case::test_case;
 
 use crate::types::chainstate::StacksBlockId;
 
 use super::*;
 
-#[test]
-fn marf_insert_different_leaf_same_block_100() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_different_leaf_same_block_100(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
@@ -95,13 +98,13 @@ fn marf_insert_different_leaf_same_block_100() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
-fn marf_insert_different_leaf_different_path_different_block_100() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_different_leaf_different_path_different_block_100(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
@@ -174,13 +177,13 @@ fn marf_insert_different_leaf_different_path_different_block_100() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
-fn marf_insert_same_leaf_different_block_100() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_same_leaf_different_block_100(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -255,13 +258,13 @@ fn marf_insert_same_leaf_different_block_100() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
-fn marf_insert_leaf_sequence_2() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_leaf_sequence_2(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -330,13 +333,13 @@ fn marf_insert_leaf_sequence_2() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
-fn marf_insert_leaf_sequence_100() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_leaf_sequence_100(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -398,13 +401,14 @@ fn marf_insert_leaf_sequence_100() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_walk_cow_node4_20() {
+fn marf_walk_cow_node4_20(marf_opts: MARFOpenOpts) {
     marf_walk_cow_test(
+        marf_opts,
         |s| {
             // make a deep path
             let path_segments = vec![
@@ -450,10 +454,11 @@ fn marf_walk_cow_node4_20() {
     );
 }
 
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_walk_cow_node4_20_reversed() {
+fn marf_walk_cow_node4_20_reversed(marf_opts: MARFOpenOpts) {
     marf_walk_cow_test(
+        marf_opts,
         |s| {
             // make a deep path
             let path_segments = vec![
@@ -499,7 +504,7 @@ fn marf_walk_cow_node4_20_reversed() {
     );
 }
 
-fn marf_walk_cow_4_test<F>(filename: &str, path_gen: F)
+fn marf_walk_cow_4_test<F>(marf_opts: MARFOpenOpts, filename: &str, path_gen: F)
 where
     F: Fn(u32, [u8; 32]) -> [u8; 32],
 {
@@ -522,13 +527,14 @@ where
         ];
 
         marf_walk_cow_test(
+            marf_opts.clone(),
             |s| make_node_path(s, node_id.to_u8(), &path_segments, [31u8; 40].to_vec()),
             |x, y| path_gen(x, y),
         );
     }
 }
 
-fn marf_walk_cow_test<F, G>(path_init: G, path_gen: F)
+fn marf_walk_cow_test<F, G>(marf_opts: MARFOpenOpts, path_init: G, path_gen: F)
 where
     F: Fn(u32, [u8; 32]) -> [u8; 32],
     G: Fn(
@@ -536,7 +542,7 @@ where
     ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>),
 {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let path = [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
@@ -719,22 +725,22 @@ where
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_walk_cow_4() {
-    marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20", |i, mut p| {
+fn marf_walk_cow_4(marf_opts: MARFOpenOpts) {
+    marf_walk_cow_4_test(marf_opts, "/tmp/rust_marf_walk_cow_node4_20", |i, mut p| {
         p[i as usize] = 32;
         p
     })
 }
 
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_walk_cow_4_reversed() {
-    marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20_reversed", |i, mut p| {
+fn marf_walk_cow_4_reversed(marf_opts: MARFOpenOpts) {
+    marf_walk_cow_4_test(marf_opts, "/tmp/rust_marf_walk_cow_node4_20_reversed", |i, mut p| {
         p[31 - i as usize] = 32;
         p
     })
@@ -790,10 +796,10 @@ fn marf_invalid_ancestor() {
     assert_eq!(hash_1, hash_2);
 }
 
-#[test]
-fn marf_merkle_verify_backptrs() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_merkle_verify_backptrs(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         for node_id in [
             TrieNodeID::Node4,
             TrieNodeID::Node16,
@@ -899,15 +905,15 @@ fn marf_merkle_verify_backptrs() {
                 last_root_hashes = Some(next_root_hashes);
             }
         }
-    }
+    //}
 }
 
-fn marf_insert<F>(mut path_gen: F, count: u32, check_merkle_proof: bool)
+fn marf_insert<F>(marf_opts: MARFOpenOpts, mut path_gen: F, count: u32, check_merkle_proof: bool)
 where
     F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>),
 {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         eprintln!("Testing with {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -960,6 +966,7 @@ where
             {
                 // can only test if the hashes are materialized, which is not the case for
                 // deferred mode
+                eprintln!("*** Set root_table_cache (1)");
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,
@@ -1022,6 +1029,7 @@ where
 
             // can make a merkle proof to each one
             if check_merkle_proof {
+                eprintln!("*** Set root_table_cache (2)");
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,
@@ -1043,15 +1051,16 @@ where
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
 // insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
 // every 128 keys, make a new trie
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_insert_4096_128_seq_low() {
+fn marf_insert_4096_128_seq_low(marf_opts: MARFOpenOpts) {
     marf_insert(
+        marf_opts,
         |i| {
             let path = [
                 0,
@@ -1102,10 +1111,11 @@ fn marf_insert_4096_128_seq_low() {
 
 // insert a range of 4096 consecutive keys (forcing node promotions) by varying the high-order bits.
 // every 128 keys, make a new trie
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_insert_4096_128_seq_high() {
+fn marf_insert_4096_128_seq_high(marf_opts: MARFOpenOpts) {
     marf_insert(
+        marf_opts,
         |i| {
             let i0 = i / 256;
             let i1 = i % 256;
@@ -1215,12 +1225,12 @@ fn marf_split_leaf_path() {
 // insert a random sequence of 65536 keys.  Every 2048 inserts, start a new block.
 //   *these aren't forks* `insert_leaf` on a non-existent bhh creates a block extension in
 //   walk_cow via `MARF::extend_trie`.
-
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_insert_random_65536_2048() {
+fn marf_insert_random_65536_2048(marf_opts: MARFOpenOpts) {
     let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
     marf_insert(
+        marf_opts,
         |i| {
             let mut path = [0; 32];
             path.copy_from_slice(
@@ -1429,11 +1439,11 @@ fn marf_insert_random_10485760_4096_file_storage() {
 // insert a random sequence of 4096 keys.  Every 128 inserts, fork.  Use batching.
 // Do merkle tests each key/value inserted -- both immediately after the batch containing them
 // is inserted, and once all inserts complete.
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_insert_random_4096_128_merkle_proof() {
+fn marf_insert_random_4096_128_merkle_proof(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
         let mut m = MARF::from_storage(f);
@@ -1557,12 +1567,12 @@ fn marf_insert_random_4096_128_merkle_proof() {
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
         }
-    }
+    //}
 }
 
 // Test reads specifically on existing test data.
-#[test]
-fn marf_read_random_1048576_4096_file_storage() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_read_random_1048576_4096_file_storage(marf_opts: MARFOpenOpts) {
     // this takes too long to run, so disable it by default
     if std::env::var("BLOCKSTACK_BIG_TEST") != Ok("1".to_string()) {
         debug!("Skipping this test because it will take too long.  Run with BLOCKSTACK_BIG_TEST=1 to activate.");
@@ -1571,7 +1581,7 @@ fn marf_read_random_1048576_4096_file_storage() {
 
     let do_merkle_check = std::env::var("MARF_BIG_TEST_MERKLE_PROOFS") == Ok("1".to_string());
 
-    for marf_opts in MARFOpenOpts::all().into_iter() {
+    //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let path = "/tmp/rust_marf_insert_random_1048576_4096_file_storage".to_string();
         match fs::metadata(&path) {
@@ -1645,14 +1655,15 @@ fn marf_read_random_1048576_4096_file_storage() {
                 start_time = get_epoch_time_ms();
             }
         }
-    }
+    //}
 }
 
 // insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
 // every 128 keys, make a new trie.
-#[test]
-fn marf_insert_128_32() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_128_32(marf_opts: MARFOpenOpts) {
     marf_insert(
+        marf_opts,
         |i| {
             let i0 = i / 256;
             let i1 = i % 256;
@@ -1675,10 +1686,11 @@ fn marf_insert_128_32() {
 
 // insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
 // every 128 keys, make a new trie.
-#[test]
+#[generate_test_cases_for_marf_open_opts]
 #[ignore]
-fn marf_insert_4096_128() {
+fn marf_insert_4096_128(marf_opts: MARFOpenOpts) {
     marf_insert(
+        marf_opts,
         |i| {
             let i0 = i / 256;
             let i1 = i % 256;
@@ -1701,9 +1713,10 @@ fn marf_insert_4096_128() {
 
 // insert a range of 256 consecutive keys (forcing node promotions) by varying the low-order bits.
 // every 16 keys, make a new trie.
-#[test]
-fn marf_insert_256_16() {
+#[generate_test_cases_for_marf_open_opts]
+fn marf_insert_256_16(marf_opts: MARFOpenOpts) {
     marf_insert(
+        marf_opts,
         |i| {
             let i0 = i / 256;
             let i1 = i % 256;

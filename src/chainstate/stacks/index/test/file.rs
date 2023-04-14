@@ -24,6 +24,7 @@ use crate::util_lib::db::*;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use std::fs;
+use stacks_common::types::chainstate::{MARFOpenOpts, BlobCompressionType, TrieHashCalculationMode, TrieCachingStrategy};
 
 use super::*;
 
@@ -199,7 +200,7 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
     ) = {
         let marf_opts = MARFOpenOpts::new(
             TrieHashCalculationMode::Deferred, 
-            "noop", 
+            TrieCachingStrategy::Noop, 
             false, 
             BlobCompressionType::None);
 
@@ -236,7 +237,7 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
     // migrate
     let mut marf_opts = MARFOpenOpts::new(
         TrieHashCalculationMode::Deferred, 
-        "noop", 
+        TrieCachingStrategy::Noop, 
         true, 
         dest_compression_type);
     marf_opts.force_db_migrate = true;
