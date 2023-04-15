@@ -171,6 +171,7 @@ pub fn merkle_test_marf(
         eprintln!("***** root_to_block is none");
     }
     let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
+    eprintln!("root_to_block: {:?}", root_to_block);
 
     assert!(proof.verify(
         &triepath,

@@ -1221,7 +1221,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
             None => {
                 eprintln!("Trie hash not found in root-to-block map (1): {:?}", &trie_hash);
-                trace!("root-to-block map: {:?}", &root_to_block);
+                eprintln!("root-to-block map: {:?}", &root_to_block);
                 return false;
             }
         };

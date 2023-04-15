@@ -555,7 +555,7 @@ impl TrieFileDisk {
         let mut take_adapter = self.take(extern_trie.length);
         let buf= &mut Vec::<u8>::new();
         take_adapter.read_to_end(buf)?;
-        let mut result = Vec::<u8>::new();
+        let result: Vec::<u8>;
 
         match self.compression_type {
             BlobCompressionType::None => {
@@ -737,11 +737,13 @@ impl TrieFile {
 
             let root_hash = match self {
                 TrieFile::RAM(ram) => {
+                    eprintln!("root_hash from TrieFile::RAM");
                     ram.seek(SeekFrom::Start(offset + start))?;
                     let hash_buff = read_hash_bytes(ram)?;
                     TrieHash(hash_buff)
                 },
                 TrieFile::Disk(disk) => {
+                    eprintln!("root_hash from TrieFile::Disk");
                     disk.seek(SeekFrom::Start(offset))?;
                     let mut take_adapter = disk.take(length);
                     let buf= &mut Vec::<u8>::new();

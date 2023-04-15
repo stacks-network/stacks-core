@@ -264,7 +264,7 @@ fn marf_insert_same_leaf_different_block_100(marf_opts: MARFOpenOpts) {
 fn marf_insert_leaf_sequence_2(marf_opts: MARFOpenOpts) {
     let mut last_root_hashes = None;
     //for marf_opts in ALL_MARF_OPEN_OPTS.into_iter() {
-        test_debug!("With {:?}", &marf_opts);
+        eprintln!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
@@ -289,9 +289,9 @@ fn marf_insert_leaf_sequence_2(marf_opts: MARFOpenOpts) {
         marf.commit().unwrap();
         let last_block_header = BlockHeaderHash::from_bytes(&[2; 32]).unwrap();
 
-        debug!("---------");
-        debug!("MARF gets");
-        debug!("---------");
+        eprintln!("---------");
+        eprintln!("MARF gets");
+        eprintln!("---------");
 
         for i in 0..2 {
             let next_block_header = BlockHeaderHash::from_bytes(&[i + 1 as u8; 32]).unwrap();
