@@ -9,6 +9,9 @@ use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 #[macro_use]
 pub mod macros;
 
+#[cfg(test)]
+pub mod tests;
+
 #[derive(Debug)]
 pub enum Error {
     /// Failed to encode
@@ -93,6 +96,7 @@ impl_stacks_message_codec_for_int!(u8; [0; 1]);
 impl_stacks_message_codec_for_int!(u16; [0; 2]);
 impl_stacks_message_codec_for_int!(u32; [0; 4]);
 impl_stacks_message_codec_for_int!(u64; [0; 8]);
+impl_stacks_message_codec_for_int!(u128; [0; 16]);
 impl_stacks_message_codec_for_int!(i64; [0; 8]);
 
 impl StacksMessageCodec for [u8; 32] {
@@ -188,6 +192,58 @@ where
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Vec<T>, Error> {
         read_next_at_most::<R, T>(fd, u32::MAX)
+    }
+}
+
+impl StacksMessageCodec for bool {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        write_next(fd, if *self { &1u8 } else { &0u8 })?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<bool, Error> {
+        let b: u8 = read_next(fd)?;
+        match b {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => {
+                warn!("Invalid bool value");
+                return Err(Error::DeserializeError(format!(
+                    "Failed to parse bool value: {}",
+                    b
+                )));
+            }
+        }
+    }
+}
+
+impl<T: StacksMessageCodec> StacksMessageCodec for Option<T> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        match self {
+            Some(t) => {
+                write_next(fd, &1u8)?;
+                write_next(fd, t)?;
+            }
+            None => {
+                write_next(fd, &0u8)?;
+            }
+        };
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Option<T>, Error> {
+        let is_some: u8 = read_next(fd)?;
+        match is_some {
+            0 => Ok(None),
+            1 => Ok(Some(read_next(fd)?)),
+            _ => {
+                warn!("Invalid option value");
+                return Err(Error::DeserializeError(format!(
+                    "Failed to parse option value: invalid header for option value {}",
+                    is_some
+                )));
+            }
+        }
     }
 }
 
