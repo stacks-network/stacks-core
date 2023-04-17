@@ -1217,7 +1217,7 @@ pub struct TrieStorageTransaction<'a, T: MarfTrieId>(TrieStorageConnection<'a, T
 pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     pub db_path: &'a str,
     db: SqliteConnection<'a>,
-    blobs: Option<&'a mut TrieFile>,
+    blobs: Option<&'a mut TrieFile2>,
     data: &'a mut TrieStorageTransientData<T>,
     cache: &'a mut TrieCache<T>,
     bench: &'a mut TrieBenchmark,
@@ -1284,7 +1284,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     pub db_path: String,
 
     db: Connection,
-    blobs: Option<TrieFile>,
+    blobs: Option<TrieFile2>,
     blob_compression_type: BlobCompressionType,
     data: TrieStorageTransientData<T>,
     cache: TrieCache<T>,
@@ -1422,7 +1422,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
 
         let mut blobs = if marf_opts.external_blobs {
-            Some(TrieFile::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
+            Some(TrieFile2::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
         } else {
             None
         };
@@ -1430,7 +1430,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db)?;
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
-                if TrieFile::exists(&db_path)? {
+                if TrieFile2::exists(&db_path)? {
                     eprintln!("Migrating trie blobs to external blobs file at {}.", &db_path);
                     // migrate blobs out of the old DB
                     blobs.export_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db, &db_path)?;
@@ -1536,7 +1536,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true, self.blob_compression_type)?)
+            Some(TrieFile2::from_db_path(&self.db_path, true, self.blob_compression_type)?)
         } else {
             None
         };
@@ -1601,7 +1601,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true, self.blob_compression_type)?)
+            Some(TrieFile2::from_db_path(&self.db_path, true, self.blob_compression_type)?)
         } else {
             None
         };
@@ -1655,7 +1655,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// Run `cls` with a mutable reference to the inner trie blobs opt.
     fn with_trie_blobs<F, R>(&mut self, cls: F) -> R
     where
-        F: FnOnce(&Connection, &mut Option<&mut TrieFile>) -> R,
+        F: FnOnce(&Connection, &mut Option<&mut TrieFile2>) -> R,
     {
         let mut blobs = self.blobs.take();
         let res = cls(&self.db, &mut blobs);
@@ -2613,7 +2613,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         ptr: &TriePtr,
         read_hash: bool,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
-        eprintln!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
+        //eprintln!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
 
         self.data.read_count += 1;
         if is_backptr(ptr.id()) {
@@ -2637,7 +2637,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         // some other block
         let ret = match self.data.cur_block_id {
             Some(id) => {
-                eprintln!("read_nodetype(), id: {:?}, read_hash: {:?}", id, read_hash);
+                //eprintln!("read_nodetype(), id: {:?}, read_hash: {:?}", id, read_hash);
                 self.bench.read_nodetype_start();
 
                 let (node_inst, node_hash) = if read_hash {
@@ -2660,14 +2660,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
-                        eprintln!("read_nodetype() - inner_read_persisted_nodetype(): id: {:?}, clear_ptr: {:?}, read_hash: {:?}",
-                        id, &clear_ptr, read_hash);
+                        /*eprintln!("read_nodetype() - inner_read_persisted_nodetype(): id: {:?}, clear_ptr: {:?}, read_hash: {:?}",
+                        id, &clear_ptr, read_hash);*/
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
-                        eprintln!("read_nodetype() - 2");
+                        //eprintln!("read_nodetype() - 2");
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
-                        eprintln!("read_nodetype() - 3");
+                        //eprintln!("read_nodetype() - 3");
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     }
                 };

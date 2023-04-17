@@ -848,7 +848,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         ptrs: &Vec<TriePtr>,
         starting_chr: u8,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
-        eprintln!("make_segment_proof: ptrs = {:?}", &ptrs);
+        //eprintln!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(ptrs.len() > 0);
         assert_eq!(ptrs[0], storage.root_trieptr());
@@ -859,23 +859,23 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut proof_segment = Vec::with_capacity(ptrs.len());
         let mut prev_chr = starting_chr;
 
-        eprintln!(
+        /*eprintln!(
             "make_segment_proof: Trie segment from {:?} starting at {:?}: {:?}",
             &storage.get_cur_block(),
             starting_chr,
             ptrs
-        );
+        );*/
         let mut i = ptrs.len() - 1;
         loop {
             let ptr = &ptrs[i];
             let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, &ptr, prev_chr)?;
 
-            eprintln!(
+            /*eprintln!(
                 "make_segment_proof: Add proof node from {:?} child 0x{:02x}: {:?}",
                 &ptr,
                 prev_chr,
                 &proof_node
-            );
+            );*/
 
             proof_segment.push(proof_node);
             prev_chr = ptr.chr();
@@ -1471,11 +1471,11 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 TrieMerkleProof::walk_to_leaf_or_backptr(storage, path)?;
 
             // make a proof to this node
-            eprintln!(
+            /*eprintln!(
                 "Make segment proof at {:?} from {:?}",
                 &storage.get_cur_block(),
                 &cursor.node_ptrs
-            );
+            );*/
             let segment_proof = TrieMerkleProof::make_segment_proof(
                 storage,
                 &cursor.node_ptrs,
@@ -1484,12 +1484,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             segment_proofs.push(segment_proof);
 
             // make a shunt proof to this segment proof's root
-            eprintln!(
+            /*eprintln!(
                 "Make shunt proof {:?} back to the block containing {:?} (cursor ptrs = {:?})",
                 &storage.get_cur_block(),
                 &backptr,
                 &cursor.node_ptrs
-            );
+            );*/
 
             if is_backptr(backptr.id()) {
                 // make the shunt proof connecting this block to the next block we'll visit.

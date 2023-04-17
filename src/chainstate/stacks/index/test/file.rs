@@ -53,7 +53,7 @@ fn setup_db(test_name: &str) -> Connection {
 fn test_load_store_trie_blob_no_compression() {
     let mut db = setup_db("test_load_store_trie_blob_no_compression");
     let compression_type = BlobCompressionType::None;
-    let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob_no_compression"), false, compression_type).unwrap();
+    let mut blobs = TrieFile2::from_db_path(&db_path("test_load_store_trie_blob_no_compression"), false, compression_type).unwrap();
     trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
 
     blobs
@@ -90,7 +90,7 @@ fn test_load_store_trie_blob_no_compression() {
 fn test_load_store_trie_blob_lz4_compression() {
     let mut db = setup_db("test_load_store_trie_blob_lz4_compression");
     let compression_type = BlobCompressionType::LZ4;
-    let mut blobs = TrieFile::from_db_path(
+    let mut blobs = TrieFile2::from_db_path(
         &db_path("test_load_store_trie_blob_lz4_compression"), 
         false, 
         compression_type
@@ -133,7 +133,7 @@ fn test_load_store_trie_blob_lz4_compression() {
 fn test_load_store_trie_blob_zstd_compression() {
     let mut db = setup_db("test_load_store_trie_blob_zstd_compression");
     let compression_type = BlobCompressionType::ZStd(0);
-    let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob_zstd_compression"), false, compression_type).unwrap();
+    let mut blobs = TrieFile2::from_db_path(&db_path("test_load_store_trie_blob_zstd_compression"), false, compression_type).unwrap();
     trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
 
     blobs
@@ -250,7 +250,7 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
 
     // verify that the new blob structure is well-formed
     let blob_root_header_map = {
-        let mut blobs = TrieFile::from_db_path(&test_file, false, dest_compression_type).unwrap();
+        let mut blobs = TrieFile2::from_db_path(&test_file, false, dest_compression_type).unwrap();
         let blob_root_header_map = blobs
             .read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
             .unwrap();
