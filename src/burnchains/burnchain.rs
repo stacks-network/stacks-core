@@ -62,8 +62,8 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, Sort
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegHandoffOp, PegInOp, PegOutFulfillOp,
+    PegOutRequestOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -904,6 +904,20 @@ impl Burnchain {
                         "pre_stx_txid" => %pre_stx_txid.to_string()
                     );
                     None
+                }
+            }
+
+            x if x == Opcodes::PegHandoff as u8 => {
+                match PegHandoffOp::from_tx(block_header, burn_tx) {
+                    Ok(op) => Some(BlockstackOperationType::PegHandoff(op)),
+                    Err(e) => {
+                        warn!("Failed to parse peg handoff tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
                 }
             }
 

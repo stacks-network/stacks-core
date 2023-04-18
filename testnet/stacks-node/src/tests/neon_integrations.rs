@@ -25,7 +25,7 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    TransferStxOp,
+    TransferStxOp, PegHandoffOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address;
@@ -10766,6 +10766,7 @@ fn test_submit_and_observe_sbtc_ops() {
     epochs[2].start_height = epoch_2_05;
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
+    let start_burn_height = epoch_2_1 + 1;
 
     conf.node.mine_microblocks = false;
     conf.burnchain.max_rbf = 1000000;
@@ -10785,7 +10786,7 @@ fn test_submit_and_observe_sbtc_ops() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(216);
+    btc_regtest_controller.bootstrap_chain(start_burn_height);
 
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let run_loop_coordinator_channel = run_loop.get_coordinator_channel().unwrap();
@@ -10805,7 +10806,22 @@ fn test_submit_and_observe_sbtc_ops() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    let burn_height = start_burn_height + blocks_processed.load(Ordering::Relaxed);
+    let reward_cycle = btc_regtest_controller.get_burnchain().block_height_to_reward_cycle(burn_height).unwrap();
+
     // Let's send some sBTC ops.
+    let peg_handoff_op = PegHandoffOp {
+        next_peg_wallet: peg_wallet_address.clone(),
+        amount: 1337000,
+        reward_cycle,
+        memo: Vec::new(),
+        // filled in later
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
     let peg_in_op_standard = PegInOp {
         recipient: receiver_standard_principal,
         peg_wallet_address: peg_wallet_address.clone(),
@@ -10855,6 +10871,31 @@ fn test_submit_and_observe_sbtc_ops() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PegHandoff(peg_handoff_op.clone()),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Peg-handoff operation should submit successfully"
+    );
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let parsed_peg_handoff_op = {
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let mut ops = SortitionDB::get_peg_handoff_ops(&sortdb.conn(), &tip.burn_header_hash)
+            .expect("Failed to get peg handoff ops");
+        assert_eq!(ops.len(), 1);
+
+        ops.pop().unwrap()
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
@@ -10968,6 +11009,13 @@ fn test_submit_and_observe_sbtc_ops() {
     };
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(
+        parsed_peg_handoff_op.reward_cycle,
+        peg_handoff_op.reward_cycle,
+    );
+    assert_eq!(parsed_peg_handoff_op.amount, peg_handoff_op.amount);
+    assert_eq!(parsed_peg_handoff_op.next_peg_wallet, peg_handoff_op.next_peg_wallet);
 
     assert_eq!(
         parsed_peg_in_op_standard.recipient,

@@ -34,7 +34,7 @@ use stacks::burnchains::{
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegHandoffOp, PegInOp,
     PegOutFulfillOp, PegOutRequestOp, PreStxOp, TransferStxOp, UserBurnSupportOp,
 };
 #[cfg(test)]
@@ -887,6 +887,7 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::StackStx(_)
             | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_)
+            | BlockstackOperationType::PegHandoff(_)
             | BlockstackOperationType::PegOutRequest(_)
             | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
@@ -1137,6 +1138,69 @@ impl BitcoinRegtestController {
             "Miner node: submitting pre_stacks op - {}",
             public_key.to_hex()
         );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_peg_handoff_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: PegHandoffOp,
+        _signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_peg_handoff_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: PegHandoffOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PegHandoff as u8);
+            bytes.extend_from_slice(&payload.reward_cycle.to_be_bytes());
+            bytes
+        };
+
+        let reward_cycle_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![reward_cycle_output];
+        tx.output
+            .push(payload.next_peg_wallet.to_bitcoin_tx_out(payload.amount));
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            payload.amount,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!("Miner node: submitting peg-handoff op - {}", public_key.to_hex());
 
         Some(tx)
     }
@@ -2033,6 +2097,9 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::TransferStx(payload) => {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
+            }
+            BlockstackOperationType::PegHandoff(payload) => {
+                self.build_peg_handoff_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::PegIn(payload) => {
                 self.build_peg_in_tx(epoch_id, payload, op_signer)

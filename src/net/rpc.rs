@@ -764,6 +764,14 @@ impl ConversationHttp {
         };
 
         let response = match op_type {
+            Opcodes::PegHandoff => {
+                SortitionDB::get_peg_handoff_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegHandoff(ops),
+                    )
+                })
+            }
             Opcodes::PegIn => {
                 SortitionDB::get_peg_in_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
                     HttpResponseType::GetBurnchainOps(
