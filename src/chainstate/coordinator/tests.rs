@@ -3308,13 +3308,16 @@ fn test_sbtc_ops() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
     let mut burnchain_block_hashes = vec![];
 
+    let first_peg_handoff_memo = vec![1, 3, 3, 5];
+    let second_peg_handoff_memo = vec![1, 3, 3, 6];
+
     let first_peg_in_memo = vec![1, 3, 3, 7];
     let second_peg_in_memo = vec![4, 2];
 
     let first_peg_out_request_memo = vec![1, 3, 3, 8];
     let second_peg_out_request_memo = vec![4, 3];
 
-    let peg_out_fulfill_memo = vec![1, 3, 3, 8];
+    let peg_out_fulfill_memo = vec![1, 3, 3, 9];
 
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
@@ -3379,18 +3382,42 @@ fn test_sbtc_ops() {
 
         match ix {
             0 => {
+                ops.push(BlockstackOperationType::PegHandoff(PegHandoffOp {
+                    next_peg_wallet: peg_wallet_address,
+                    reward_cycle: 12,
+                    amount: 0,
+                    memo: first_peg_handoff_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 0,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            1 => {
+                ops.push(BlockstackOperationType::PegHandoff(PegHandoffOp {
+                    next_peg_wallet: peg_wallet_address,
+                    reward_cycle: 12,
+                    amount: 10000,
+                    memo: second_peg_handoff_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 1,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            2 => {
                 ops.push(BlockstackOperationType::PegIn(PegInOp {
                     recipient: stacker.into(),
                     peg_wallet_address,
                     amount: 1337,
                     memo: first_peg_in_memo.clone(),
                     txid: next_txid(),
-                    vtxindex: 5,
+                    vtxindex: 2,
                     block_height: 0,
                     burn_header_hash: BurnchainHeaderHash([0; 32]),
                 }));
             }
-            1 => {
+            3 => {
                 // Shouldn't be accepted -- amount must be positive
                 ops.push(BlockstackOperationType::PegIn(PegInOp {
                     recipient: stacker.into(),
@@ -3398,12 +3425,12 @@ fn test_sbtc_ops() {
                     amount: 0,
                     memo: second_peg_in_memo.clone(),
                     txid: next_txid(),
-                    vtxindex: 5,
+                    vtxindex: 3,
                     block_height: 0,
                     burn_header_hash: BurnchainHeaderHash([0; 32]),
                 }));
             }
-            2 => {
+            4 => {
                 // Shouldn't be accepted -- amount must be positive
                 ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
                     recipient: recipient_btc_address,
@@ -3413,12 +3440,12 @@ fn test_sbtc_ops() {
                     fulfillment_fee: 3,
                     memo: first_peg_out_request_memo.clone(),
                     txid: next_txid(),
-                    vtxindex: 5,
+                    vtxindex: 4,
                     block_height: 0,
                     burn_header_hash: BurnchainHeaderHash([0; 32]),
                 }));
             }
-            3 => {
+            5 => {
                 // Add a valid peg-out request op
                 ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
                     recipient: recipient_btc_address,
@@ -3428,12 +3455,12 @@ fn test_sbtc_ops() {
                     fulfillment_fee: 3,
                     txid: Txid([0x13; 32]),
                     memo: second_peg_out_request_memo.clone(),
-                    vtxindex: 8,
+                    vtxindex: 5,
                     block_height: 0,
                     burn_header_hash: BurnchainHeaderHash([0; 32]),
                 }));
             }
-            4 => {
+            6 => {
                 // Fulfill the peg-out request
                 ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                     recipient: recipient_btc_address,
@@ -3478,6 +3505,14 @@ fn test_sbtc_ops() {
         coord.handle_new_stacks_block().unwrap();
     }
 
+    let peg_handoff_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_handoff_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg in ops")
+        })
+        .collect();
+
     let peg_in_ops: Vec<_> = burnchain_block_hashes
         .iter()
         .flat_map(|block_hash| {
@@ -3501,6 +3536,9 @@ fn test_sbtc_ops() {
                 .expect("Failed to get peg out fulfillment ops")
         })
         .collect();
+
+    assert_eq!(peg_handoff_ops.len(), 1);
+    assert_eq!(peg_handoff_ops[0].memo, second_peg_handoff_memo);
 
     assert_eq!(peg_in_ops.len(), 1);
     assert_eq!(peg_in_ops[0].memo, first_peg_in_memo);
