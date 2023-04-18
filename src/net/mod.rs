@@ -65,6 +65,7 @@ pub use self::http::StacksHttp;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::PegHandoffOp;
 use crate::chainstate::burn::operations::PegInOp;
 use crate::chainstate::burn::operations::PegOutFulfillOp;
 use crate::chainstate::burn::operations::PegOutRequestOp;
@@ -1700,6 +1701,7 @@ pub enum StacksMessageID {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum BurnchainOps {
+    PegHandoff(Vec<PegHandoffOp>),
     PegIn(Vec<PegInOp>),
     PegOutRequest(Vec<PegOutRequestOp>),
     PegOutFulfill(Vec<PegOutFulfillOp>),

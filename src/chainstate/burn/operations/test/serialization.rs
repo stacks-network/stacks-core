@@ -11,8 +11,8 @@ use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    StackStxOp, TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PegHandoffOp, PegInOp, PegOutFulfillOp,
+    PegOutRequestOp, PreStxOp, StackStxOp, TransferStxOp,
 };
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::net::BurnchainOps;
@@ -179,6 +179,178 @@ fn test_serialization_delegate_stx_op() {
     });
 
     assert_json_diff::assert_json_eq!(serialized_json, constructed_json);
+}
+
+#[test]
+/// Test the serialization and deserialization of PegIn operations in `BurnchainOps`
+///  using JSON string fixtures
+fn serialization_peg_handoff_ops() {
+    let test_cases = [
+        (
+            r#"
+                {
+                    "peg_handoff": [
+                    {
+                        "amount": 13370,
+                        "block_height": 218,
+                        "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                        "memo": "00010203040506070809",
+                        "next_peg_wallet": "1111111111111111111114oLvT2",
+                        "reward_cycle": 12,
+                        "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                        "vtxindex": 2
+                    }
+                    ]
+                }
+            "#,
+            PegHandoffOp {
+                next_peg_wallet: PoxAddress::Standard(StacksAddress::burn_address(true), None),
+                amount: 13370,
+                reward_cycle: 12,
+                memo: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                txid: Txid::from_hex(
+                    "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                )
+                .unwrap(),
+                vtxindex: 2,
+                block_height: 218,
+                burn_header_hash: BurnchainHeaderHash::from_hex(
+                    "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                )
+                .unwrap(),
+            },
+        ),
+        (
+            r#"
+                {
+                    "peg_handoff": [
+                    {
+                        "amount": 13370,
+                        "block_height": 218,
+                        "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                        "memo": "",
+                        "next_peg_wallet": "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkgkkf5",
+                        "reward_cycle": 12,
+                        "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                        "vtxindex": 2
+                    }
+                    ]
+                }
+            "#,
+            PegHandoffOp {
+                next_peg_wallet: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]),
+                amount: 13370,
+                reward_cycle: 12,
+                memo: vec![],
+                txid: Txid::from_hex(
+                    "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                )
+                .unwrap(),
+                vtxindex: 2,
+                block_height: 218,
+                burn_header_hash: BurnchainHeaderHash::from_hex(
+                    "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                )
+                .unwrap(),
+            },
+        ),
+    ];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BurnchainOps::PegHandoff(vec![op.clone()])
+        );
+
+        // Test that expected JSON deserializes into a BurnchainOps that is equal to op
+        assert_eq!(
+            serde_json::from_str::<BurnchainOps>(expected_json).unwrap(),
+            BurnchainOps::PegHandoff(vec![op])
+        );
+    }
+}
+
+#[test]
+/// Test the serialization of PegIn operations via
+/// `blockstack_op_to_json()` using JSON string fixtures
+fn serialization_peg_handoff() {
+    let test_cases = [
+        (
+            r#"
+            {
+                "peg_handoff":
+                {
+                    "amount": 13370,
+                    "block_height": 218,
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "memo": "00010203040506070809",
+                    "next_peg_wallet": "1111111111111111111114oLvT2",
+                    "reward_cycle": 12,
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "vtxindex": 2
+                }
+            }
+        "#,
+            PegHandoffOp {
+                next_peg_wallet: PoxAddress::standard_burn_address(true),
+                amount: 13370,
+                reward_cycle: 12,
+                memo: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                txid: Txid::from_hex(
+                    "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                )
+                .unwrap(),
+                vtxindex: 2,
+                block_height: 218,
+                burn_header_hash: BurnchainHeaderHash::from_hex(
+                    "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                )
+                .unwrap(),
+            },
+        ),
+        (
+            r#"
+            {
+                "peg_handoff":
+                {
+                    "amount": 13370,
+                    "block_height": 218,
+                    "burn_header_hash": "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                    "memo": "",
+                    "next_peg_wallet": "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkgkkf5",
+                    "reward_cycle": 12,
+                    "txid": "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                    "vtxindex": 2
+                }
+            }
+            "#,
+            PegHandoffOp {
+                next_peg_wallet: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]),
+                amount: 13370,
+                reward_cycle: 12,
+                memo: vec![],
+                txid: Txid::from_hex(
+                    "d81bec73a0ea0bdcf9bc011f567944eb1eae5889bf002bf7ae641d7096157771",
+                )
+                .unwrap(),
+                vtxindex: 2,
+                block_height: 218,
+                burn_header_hash: BurnchainHeaderHash::from_hex(
+                    "3292a7d2a7e941499b5c0dcff2a5656c159010718450948a60c2be9e1c221dc4",
+                )
+                .unwrap(),
+            },
+        ),
+    ];
+
+    for (expected_json, op) in test_cases {
+        // Test that op serializes to a JSON value equal to expected_json
+        assert_json_diff::assert_json_eq!(
+            serde_json::from_str::<Value>(expected_json).unwrap(),
+            BlockstackOperationType::PegHandoff(op).blockstack_op_to_json()
+        );
+    }
 }
 
 #[test]
