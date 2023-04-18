@@ -73,6 +73,7 @@ pub enum Opcodes {
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
+    PegHandoff = 'H' as u8,
     PegIn = '<' as u8,
     PegOutRequest = '>' as u8,
     PegOutFulfill = '!' as u8,
@@ -196,6 +197,7 @@ impl Opcodes {
     const HTTP_PRE_STX: &'static str = "pre_stx";
     const HTTP_TRANSFER_STX: &'static str = "transfer_stx";
     const HTTP_DELEGATE_STX: &'static str = "delegate_stx";
+    const HTTP_PEG_HANDOFF: &'static str = "peg_handoff";
     const HTTP_PEG_IN: &'static str = "peg_in";
     const HTTP_PEG_OUT_REQUEST: &'static str = "peg_out_request";
     const HTTP_PEG_OUT_FULFILL: &'static str = "peg_out_fulfill";
@@ -209,6 +211,7 @@ impl Opcodes {
             Opcodes::PreStx => Self::HTTP_PRE_STX,
             Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
             Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
+            Opcodes::PegHandoff => Self::HTTP_PEG_HANDOFF,
             Opcodes::PegIn => Self::HTTP_PEG_IN,
             Opcodes::PegOutRequest => Self::HTTP_PEG_OUT_REQUEST,
             Opcodes::PegOutFulfill => Self::HTTP_PEG_OUT_FULFILL,
@@ -217,6 +220,7 @@ impl Opcodes {
 
     pub fn from_http_str(input: &str) -> Option<Opcodes> {
         let opcode = match input {
+            Self::HTTP_PEG_HANDOFF => Opcodes::PegHandoff,
             Self::HTTP_PEG_IN => Opcodes::PegIn,
             Self::HTTP_PEG_OUT_REQUEST => Opcodes::PegOutRequest,
             Self::HTTP_PEG_OUT_FULFILL => Opcodes::PegOutFulfill,
