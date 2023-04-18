@@ -56,6 +56,7 @@ pub mod delegate_stx;
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
+pub mod peg_handoff;
 pub mod peg_in;
 pub mod peg_out_fulfill;
 pub mod peg_out_request;
@@ -353,6 +354,25 @@ fn principal_deserialize<'de, D: serde::Deserializer<'de>>(
 ) -> Result<PrincipalData, D::Error> {
     let inst_str = String::deserialize(d)?;
     PrincipalData::parse(&inst_str).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct PegHandoffOp {
+    #[serde(serialize_with = "crate::chainstate::stacks::address::pox_addr_b58_serialize")]
+    #[serde(deserialize_with = "crate::chainstate::stacks::address::pox_addr_b58_deser")]
+    pub next_peg_wallet: PoxAddress,
+    pub amount: u64, // BTC amount to transfer, in satoshis
+    pub reward_cycle: u64,
+    #[serde(serialize_with = "hex_ser_memo")]
+    #[serde(deserialize_with = "hex_deser_memo")]
+    pub memo: Vec<u8>, // extra unused bytes
+
+    // common to all transactions
+    pub txid: Txid,        // transaction ID
+    pub vtxindex: u32,     // index in the block where this tx occurs
+    pub block_height: u64, // block height at which this tx occurs
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
+    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
