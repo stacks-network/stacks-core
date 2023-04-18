@@ -149,6 +149,9 @@ impl BurnchainStateTransition {
                 BlockstackOperationType::LeaderKeyRegister(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
+                BlockstackOperationType::PegHandoff(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
                 BlockstackOperationType::PegIn(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }

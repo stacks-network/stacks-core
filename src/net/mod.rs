@@ -2199,6 +2199,7 @@ pub mod test {
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::PegHandoff(_)
                 | BlockstackOperationType::PegIn(_)
                 | BlockstackOperationType::PegOutRequest(_)
                 | BlockstackOperationType::PegOutFulfill(_) => Ok(()),
