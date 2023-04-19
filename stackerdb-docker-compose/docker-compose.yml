@@ -36,11 +36,25 @@ services:
     depends_on:
       - puppet-chain
     volumes:
-      - ./config/stacks.toml:/bin/config/stacks.toml:ro
+      - ./config/stacks-1.toml:/bin/config/stacks.toml:ro
     ports:
       - 20443:20443
       - 20444:20444
-
+  stacks-node-2:
+    image: stacks-node
+    container_name: stacks-node-2
+    build:
+      context: .
+      dockerfile: ./stacks-node.Dockerfile
+    networks:
+      - default
+    depends_on:
+      - puppet-chain
+    volumes:
+      - ./config/stacks-2.toml:/bin/config/stacks.toml:ro
+    ports:
+      - 30443:20443
+      - 30444:20444
 networks:
   default:
     name: stacks
