@@ -699,7 +699,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 hash_idx += 1;
             }
         }
-        eprintln!("Shunt proof node: idx={}, all_hashes={:?}", idx, all_hashes);
+        test_debug!("Shunt proof node: idx={}, all_hashes={:?}", idx, all_hashes);
         let next_hash = TrieHash::from_data_array(&all_hashes);
         Some(next_hash)
     }

@@ -580,8 +580,8 @@ impl TrieFile2 {
 
                     let storage_bytes_slice = storage_bytes.as_slice();
                     
-                    #[cfg(test)]
-                    eprintln!("Write trie of {} (input) and {} (to-disk) bytes at {}", trie_blob_len, storage_bytes.len(), offset);
+                    //#[cfg(test)]
+                    //eprintln!("Write trie of {} (input) and {} (to-disk) bytes at {}", trie_blob_len, storage_bytes.len(), offset);
 
                     self.write_all(&storage_bytes_slice)?;
                     self.flush()?;
@@ -689,7 +689,7 @@ impl TrieFile2 {
         self.load_trie_blob(db, block_id)?;
         let blob = self.current_trie.as_mut().unwrap();
         blob.seek(SeekFrom::Start(ptr.ptr() as u64))?;
-        eprintln!("get_node_hash_bytes->read_hash_bytes");
+        //eprintln!("get_node_hash_bytes->read_hash_bytes");
         let hash_buff = read_hash_bytes(blob)?;
         Ok(TrieHash(hash_buff))
     }

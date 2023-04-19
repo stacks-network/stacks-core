@@ -380,7 +380,7 @@ fn marf_insert_leaf_sequence_100(marf_opts: MARFOpenOpts) {
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            eprintln!("Finding value inserted at {}", &next_block_header);
+            test_debug!("Finding value inserted at {}", &next_block_header);
             let leaf = MARF::get_path(&mut f, &last_block_header, &path)
                 .unwrap()
                 .unwrap();

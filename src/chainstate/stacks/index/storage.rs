@@ -906,7 +906,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // read parent
         f.seek(SeekFrom::Start(0))?;
-        eprintln!("storage::load->read_hash_bytes");
+        //eprintln!("storage::load->read_hash_bytes");
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 
