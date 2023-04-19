@@ -225,7 +225,7 @@ pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE]
     f.read_exact(&mut hashbytes).map_err(|e| {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError(format!(
-                "Failed to read hash in full from {}",
+                "[read_hash_bytes]: Failed to read hash in full from {}",
                 to_hex(&hashbytes)
             ))
         } else {
@@ -242,7 +242,7 @@ pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
     f.read_exact(&mut bytes).map_err(|e| {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError(format!(
-                "Failed to read hash in full from {}",
+                "[read_block_identifier]: Failed to read hash in full from {}",
                 f.seek(SeekFrom::Current(0)).unwrap()
             ))
         } else {

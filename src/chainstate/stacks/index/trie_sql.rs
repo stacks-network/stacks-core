@@ -44,7 +44,6 @@ use crate::chainstate::stacks::index::bits::{
     write_nodetype_bytes,
 };
 
-use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
@@ -478,6 +477,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
             .as_blob()
             .expect("DB Corruption: MARF data is non-blob");
         let start = TrieStorageConnection::<T>::root_ptr_disk() as usize;
+        //eprintln!("trie_sql::read_all_block_hashes_and_roots->read_hash_bytes");
         let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
         Ok((trie_hash, block_hash))
     })?;

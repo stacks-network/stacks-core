@@ -44,7 +44,6 @@ use crate::chainstate::stacks::index::bits::{
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::*;
-use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
@@ -907,6 +906,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // read parent
         f.seek(SeekFrom::Start(0))?;
+        eprintln!("storage::load->read_hash_bytes");
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 
@@ -2071,14 +2071,13 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
     #[cfg(test)]
     fn inner_read_persisted_root_to_blocks(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
-        eprintln!("************** inner_read_persisted_root_to_blocks()");
         let ret = match self.blobs.as_mut() {
             Some(blobs) => {
-                eprintln!("Reading block hashes from blobs");
+                test_debug!("Reading block hashes from blobs");
                 HashMap::from_iter(blobs.read_all_block_hashes_and_roots(&self.db)?.into_iter())
             }
             None => {
-                eprintln!("Reading block hashes from sqlite");
+                test_debug!("Reading block hashes from sqlite");
                 HashMap::from_iter(trie_sql::read_all_block_hashes_and_roots(&self.db)?.into_iter())
             }
         };
