@@ -1,18 +1,19 @@
 [node]
 rpc_bind = "127.0.0.1:20443"
 p2p_bind = "127.0.0.1:20444"
-seed = "0000000000000000000000000000000000000000000000000000000000000000"
-local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
-miner = true
-pox_sync_sample_secs = 10
+bootstrap_node = "bitcoind:20443"
+seed = "7cc9470ad14b9dbcbf8a3d589c8c21c82f5921df4e10759374426f286bf7299501"
+local_peer_seed = "02d31e05c38053df17bcb023cb7f95a831f1208ff8234df3c8118a9729e2a6611e"
+mock_miner = true
 wait_time_for_microblocks = 0
+miner = true
 
 [burnchain]
 chain = "bitcoin"
-mode = "neon"
+mode = "mocknet"
 peer_host = "bitcoind"
-usename = "123123"
-password = "123123"
+username = "admin"
+password = "admin"
 rpc_port = 18443
 peer_port = 18444
 

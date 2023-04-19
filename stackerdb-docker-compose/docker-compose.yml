@@ -3,17 +3,41 @@ version: "3"
 services:
   bitcoind:
     image: lncm/bitcoind:v24.0.1
+    container_name: bitcoind
+    networks:
+      - default
     volumes:
       - ./config/bitcoin.conf:/data/.bitcoin/bitcoin.conf:ro
     ports:
       - 18443:18443
+      - 18444:18444
 
-  puppet:
+  puppet-chain:
     image: puppet-chain
+    container_name: puppet-chain
+    networks:
+      - default
+    depends_on:
+      - bitcoind
     volumes:
       - ./config:/config:ro
 
-  # stacks:
-  #   image: stacks-node
-  #   volumes:
-  #     - ./config/stacks.toml:/bin/config/stacks.toml:ro
+  stacks-node-1:
+    image: stacks-node
+    container_name: stacks-node-1
+    networks:
+      - default
+    depends_on:
+      - bitcoind
+      - puppet-chain
+    volumes:
+      - ./config/stacks.toml:/bin/config/stacks.toml:ro
+    ports:
+      - 20443
+      - 20444
+
+networks:
+  default:
+    name: stacks
+    ipam:
+      driver: default

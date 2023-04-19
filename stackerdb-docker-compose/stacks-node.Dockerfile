@@ -1,15 +1,19 @@
-FROM rust as build
+FROM rust:alpine as build
+
+RUN apk add --no-cache musl-dev git
 
 RUN git clone https://github.com/stacks-network/stacks-blockchain.git
 
 WORKDIR /stacks-blockchain
 
+RUN mkdir /out
+
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
 
-RUN ls /stacks-blockchain/target/release
+RUN cp target/release/stacks-node /out
 
 FROM alpine
 
-COPY --from=build /stacks-blockchain/target/release/stacks-node /bin/
+OPY --from=build /out/ /bin/
 
 CMD ["stacks-node", "start", "--config=/bin/config/stacks.toml"]
