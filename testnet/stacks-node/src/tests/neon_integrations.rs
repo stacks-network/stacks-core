@@ -737,16 +737,50 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     (stacks_tip_consensus_hash, block)
 }
 
-fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
+fn get_peg_ops<Variant, GetVariant>(conf: &Config, height: u64, endpoint: &str, get_variant: GetVariant) -> Variant 
+    where GetVariant: FnOnce(BurnchainOps) -> Vec<Variant>
+{
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
+    let path = format!("{}/v2/burn_ops/{}/{}", &http_origin, height, endpoint);
     let client = reqwest::blocking::Client::new();
 
     let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
 
     eprintln!("{}", response);
 
-    serde_json::from_value(response).unwrap()
+    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
+    let mut ops = get_variant(parsed_resp);
+
+    assert_eq!(ops.len(), 1);
+    ops.pop().unwrap()
+}
+
+fn get_peg_handoff(ops: BurnchainOps) -> Vec<PegHandoffOp> {
+    match ops {
+        BurnchainOps::PegHandoff(res) => res,
+        _ => panic!("Op not peg_handoff")
+    }
+}
+
+fn get_peg_in(ops: BurnchainOps) -> Vec<PegInOp> {
+    match ops {
+        BurnchainOps::PegIn(res) => res,
+        _ => panic!("Op not peg_in")
+    }
+}
+
+fn get_peg_out_request(ops: BurnchainOps) -> Vec<PegOutRequestOp> {
+    match ops {
+        BurnchainOps::PegOutRequest(res) => res,
+        _ => panic!("Op not peg_out_request")
+    }
+}
+
+fn get_peg_out_fulfill(ops: BurnchainOps) -> Vec<PegOutFulfillOp> {
+    match ops {
+        BurnchainOps::PegOutFulfill(res) => res,
+        _ => panic!("Op not peg_out_fulfill")
+    }
 }
 
 fn find_microblock_privkey(
@@ -11010,6 +11044,7 @@ fn test_submit_and_observe_sbtc_ops() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // Check peg handoff ops from sortdb and API
     assert_eq!(
         parsed_peg_handoff_op.reward_cycle,
         peg_handoff_op.reward_cycle,
@@ -11017,6 +11052,18 @@ fn test_submit_and_observe_sbtc_ops() {
     assert_eq!(parsed_peg_handoff_op.amount, peg_handoff_op.amount);
     assert_eq!(parsed_peg_handoff_op.next_peg_wallet, peg_handoff_op.next_peg_wallet);
 
+    // Check peg handoff ops from API
+    let query_height = parsed_peg_handoff_op.block_height;
+    let parsed_peg_handoff_op = get_peg_ops(&conf, query_height, "peg_handoff", get_peg_handoff);
+
+    assert_eq!(
+        parsed_peg_handoff_op.reward_cycle,
+        peg_handoff_op.reward_cycle,
+    );
+    assert_eq!(parsed_peg_handoff_op.amount, peg_handoff_op.amount);
+    assert_eq!(parsed_peg_handoff_op.next_peg_wallet, peg_handoff_op.next_peg_wallet);
+
+    // Check peg in ops from sortdb
     assert_eq!(
         parsed_peg_in_op_standard.recipient,
         peg_in_op_standard.recipient
@@ -11037,30 +11084,12 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_in_op_contract.peg_wallet_address
     );
 
-    // now test that the responses from the RPC endpoint match the data
-    //  from the DB
+    // Check peg in ops from API
+    let query_height = parsed_peg_in_op_contract.block_height;
+    let parsed_peg_in_op_contract = get_peg_ops(&conf, query_height, "peg_in", get_peg_in);
 
-    let query_height_op_contract = parsed_peg_in_op_contract.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_contract);
-
-    let parsed_peg_in_op_contract = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
-
-    let query_height_op_standard = parsed_peg_in_op_standard.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_standard);
-
-    let parsed_peg_in_op_standard = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
+    let query_height = parsed_peg_in_op_standard.block_height;
+    let parsed_peg_in_op_standard= get_peg_ops(&conf, query_height, "peg_in", get_peg_in);
 
     assert_eq!(
         parsed_peg_in_op_standard.recipient,
@@ -11082,6 +11111,7 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_in_op_contract.peg_wallet_address
     );
 
+    // Check peg out ops from sortdb
     assert_eq!(
         parsed_peg_out_request_op.recipient,
         peg_out_request_op.recipient
@@ -11110,80 +11140,12 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_out_fulfill_op.chain_tip
     );
 
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let get_path =
-        |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
-    let client = reqwest::blocking::Client::new();
+    // Check peg out ops from API
+    let query_height = parsed_peg_out_request_op.block_height;
+    let parsed_peg_out_request_op = get_peg_ops(&conf, query_height, "peg_out_request", get_peg_out_request);
 
-    // Test peg in
-    let response: serde_json::Value = client
-        .get(&get_path("peg_in", parsed_peg_in_op_standard.block_height))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_in_op = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_in"),
-    };
-
-    // Test peg out request
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_request",
-            parsed_peg_out_request_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_request_op = match parsed_resp {
-        BurnchainOps::PegOutRequest(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_request"),
-    };
-
-    // Test peg out fulfill
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_fulfill",
-            parsed_peg_out_fulfill_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_fulfill_op = match parsed_resp {
-        BurnchainOps::PegOutFulfill(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_fulfill"),
-    };
-
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op_standard.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
+    let query_height = parsed_peg_out_fulfill_op.block_height;
+    let parsed_peg_out_fulfill_op = get_peg_ops(&conf, query_height, "peg_out_fulfill", get_peg_out_fulfill);
 
     assert_eq!(
         parsed_peg_out_request_op.recipient,
