@@ -1,12 +1,11 @@
 [node]
-rpc_bind = "127.0.0.1:20443"
-p2p_bind = "127.0.0.1:20444"
-bootstrap_node = "bitcoind:20443"
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
 seed = "7cc9470ad14b9dbcbf8a3d589c8c21c82f5921df4e10759374426f286bf7299501"
 local_peer_seed = "02d31e05c38053df17bcb023cb7f95a831f1208ff8234df3c8118a9729e2a6611e"
 mock_miner = true
 wait_time_for_microblocks = 0
-miner = true
+#miner = true
 
 [burnchain]
 chain = "bitcoin"

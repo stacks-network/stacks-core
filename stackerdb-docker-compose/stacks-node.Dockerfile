@@ -14,6 +14,6 @@ RUN cp target/release/stacks-node /out
 
 FROM alpine
 
-OPY --from=build /out/ /bin/
+COPY --from=build /out/ /bin/
 
 CMD ["stacks-node", "start", "--config=/bin/config/stacks.toml"]
