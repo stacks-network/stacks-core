@@ -34,8 +34,8 @@ use stacks::burnchains::{
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegHandoffOp, PegInOp,
-    PegOutFulfillOp, PegOutRequestOp, PreStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegHandoffOp,
+    PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp, TransferStxOp, UserBurnSupportOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -1200,7 +1200,10 @@ impl BitcoinRegtestController {
 
         increment_btc_ops_sent_counter();
 
-        info!("Miner node: submitting peg-handoff op - {}", public_key.to_hex());
+        info!(
+            "Miner node: submitting peg-handoff op - {}",
+            public_key.to_hex()
+        );
 
         Some(tx)
     }

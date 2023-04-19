@@ -24,8 +24,8 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    TransferStxOp, PegHandoffOp,
+    BlockstackOperationType, DelegateStxOp, PegHandoffOp, PegInOp, PegOutFulfillOp,
+    PegOutRequestOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address;
@@ -737,8 +737,14 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     (stacks_tip_consensus_hash, block)
 }
 
-fn get_peg_ops<Variant, GetVariant>(conf: &Config, height: u64, endpoint: &str, get_variant: GetVariant) -> Variant 
-    where GetVariant: FnOnce(BurnchainOps) -> Vec<Variant>
+fn get_peg_ops<Variant, GetVariant>(
+    conf: &Config,
+    height: u64,
+    endpoint: &str,
+    get_variant: GetVariant,
+) -> Variant
+where
+    GetVariant: FnOnce(BurnchainOps) -> Vec<Variant>,
 {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let path = format!("{}/v2/burn_ops/{}/{}", &http_origin, height, endpoint);
@@ -758,28 +764,28 @@ fn get_peg_ops<Variant, GetVariant>(conf: &Config, height: u64, endpoint: &str, 
 fn get_peg_handoff(ops: BurnchainOps) -> Vec<PegHandoffOp> {
     match ops {
         BurnchainOps::PegHandoff(res) => res,
-        _ => panic!("Op not peg_handoff")
+        _ => panic!("Op not peg_handoff"),
     }
 }
 
 fn get_peg_in(ops: BurnchainOps) -> Vec<PegInOp> {
     match ops {
         BurnchainOps::PegIn(res) => res,
-        _ => panic!("Op not peg_in")
+        _ => panic!("Op not peg_in"),
     }
 }
 
 fn get_peg_out_request(ops: BurnchainOps) -> Vec<PegOutRequestOp> {
     match ops {
         BurnchainOps::PegOutRequest(res) => res,
-        _ => panic!("Op not peg_out_request")
+        _ => panic!("Op not peg_out_request"),
     }
 }
 
 fn get_peg_out_fulfill(ops: BurnchainOps) -> Vec<PegOutFulfillOp> {
     match ops {
         BurnchainOps::PegOutFulfill(res) => res,
-        _ => panic!("Op not peg_out_fulfill")
+        _ => panic!("Op not peg_out_fulfill"),
     }
 }
 
@@ -10841,7 +10847,10 @@ fn test_submit_and_observe_sbtc_ops() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let burn_height = start_burn_height + blocks_processed.load(Ordering::Relaxed);
-    let reward_cycle = btc_regtest_controller.get_burnchain().block_height_to_reward_cycle(burn_height).unwrap();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(burn_height)
+        .unwrap();
 
     // Let's send some sBTC ops.
     let peg_handoff_op = PegHandoffOp {
@@ -11050,7 +11059,10 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_handoff_op.reward_cycle,
     );
     assert_eq!(parsed_peg_handoff_op.amount, peg_handoff_op.amount);
-    assert_eq!(parsed_peg_handoff_op.next_peg_wallet, peg_handoff_op.next_peg_wallet);
+    assert_eq!(
+        parsed_peg_handoff_op.next_peg_wallet,
+        peg_handoff_op.next_peg_wallet
+    );
 
     // Check peg handoff ops from API
     let query_height = parsed_peg_handoff_op.block_height;
@@ -11061,7 +11073,10 @@ fn test_submit_and_observe_sbtc_ops() {
         peg_handoff_op.reward_cycle,
     );
     assert_eq!(parsed_peg_handoff_op.amount, peg_handoff_op.amount);
-    assert_eq!(parsed_peg_handoff_op.next_peg_wallet, peg_handoff_op.next_peg_wallet);
+    assert_eq!(
+        parsed_peg_handoff_op.next_peg_wallet,
+        peg_handoff_op.next_peg_wallet
+    );
 
     // Check peg in ops from sortdb
     assert_eq!(
@@ -11089,7 +11104,7 @@ fn test_submit_and_observe_sbtc_ops() {
     let parsed_peg_in_op_contract = get_peg_ops(&conf, query_height, "peg_in", get_peg_in);
 
     let query_height = parsed_peg_in_op_standard.block_height;
-    let parsed_peg_in_op_standard= get_peg_ops(&conf, query_height, "peg_in", get_peg_in);
+    let parsed_peg_in_op_standard = get_peg_ops(&conf, query_height, "peg_in", get_peg_in);
 
     assert_eq!(
         parsed_peg_in_op_standard.recipient,
@@ -11142,10 +11157,12 @@ fn test_submit_and_observe_sbtc_ops() {
 
     // Check peg out ops from API
     let query_height = parsed_peg_out_request_op.block_height;
-    let parsed_peg_out_request_op = get_peg_ops(&conf, query_height, "peg_out_request", get_peg_out_request);
+    let parsed_peg_out_request_op =
+        get_peg_ops(&conf, query_height, "peg_out_request", get_peg_out_request);
 
     let query_height = parsed_peg_out_fulfill_op.block_height;
-    let parsed_peg_out_fulfill_op = get_peg_ops(&conf, query_height, "peg_out_fulfill", get_peg_out_fulfill);
+    let parsed_peg_out_fulfill_op =
+        get_peg_ops(&conf, query_height, "peg_out_fulfill", get_peg_out_fulfill);
 
     assert_eq!(
         parsed_peg_out_request_op.recipient,
