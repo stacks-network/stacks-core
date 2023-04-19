@@ -41,6 +41,13 @@ use std::{convert::TryFrom, fs};
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::clarity_cli;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::vm::clarity::ClarityConnection;
+use blockstack_lib::vm::contexts::OwnedEnvironment;
+use blockstack_lib::vm::costs::LimitedCostTracker;
+use blockstack_lib::vm::database::NULL_BURN_STATE_DB;
+use blockstack_lib::vm::database::NULL_HEADER_DB;
+use blockstack_lib::vm::types::PrincipalData;
+use blockstack_lib::vm::types::StandardPrincipalData;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -175,6 +182,54 @@ fn main() {
                 process::exit(1);
             }
         }
+    }
+
+    if argv[1] == "check-stacker-state" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} check-stacker-state CHAIN_STATE_DIR", argv[0]);
+            process::exit(1);
+        }
+
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+        let burn_path = format!("{}/mainnet/burnchain", &argv[2]);
+        let (mut chainstate, _) =
+            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+        let burnchain = Burnchain::new(&burn_path, "bitcoin", "mainnet").unwrap();
+        let (sort_db, _) = burnchain.open_db(true).unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let tip_block_id = StacksBlockId::new(
+            &tip.canonical_stacks_tip_consensus_hash,
+            &tip.canonical_stacks_tip_hash,
+        );
+        let tip_height = tip.block_height;
+
+        let mut clar_conn = chainstate.clarity_state.read_only_connection(
+            &tip_block_id,
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        );
+        clar_conn
+            .with_readonly_clarity_env(
+                chainstate.mainnet,
+                chainstate.chain_id,
+                ClarityVersion::Clarity2,
+                PrincipalData::from(StandardPrincipalData::transient()),
+                None,
+                LimitedCostTracker::Free,
+                |env| {
+                    Ok(StacksChainState::correct_reward_set(
+                        &burnchain,
+                        tip_height,
+                        env,
+                        chainstate.mainnet,
+                    )
+                    .unwrap())
+                },
+            )
+            .unwrap();
+
+        process::exit(0);
     }
 
     if argv[1] == "decode-tx" {

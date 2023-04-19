@@ -16,6 +16,10 @@
 
 use std::boxed::Box;
 use std::cmp;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
@@ -31,7 +35,9 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::core::StacksEpochId;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::strings::VecDisplay;
+use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
@@ -42,11 +48,13 @@ use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
 };
 use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::DataMapMetadata;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::InterpreterError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
+use clarity::vm::types::TupleTypeSignature;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
@@ -163,6 +171,11 @@ pub struct PoxStartCycleInfo {
 pub struct RewardSet {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
+}
+pub struct RewardCycleListTransform {
+    cycle: u64,
+    index: u128,
+    new_amount: u128,
 }
 
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
@@ -522,6 +535,259 @@ impl StacksChainState {
             &format!("(is-pox-active u{})", reward_cycle),
         )
         .map(|value| value.expect_bool())
+    }
+
+    pub fn static_get_pox_2_reward_addresses(
+        mainnet: bool,
+        clarity: &mut Environment,
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        // how many in this cycle?
+        let contract = boot_code_id(POX_2_NAME, mainnet);
+        let num_addrs = clarity
+            .execute_contract(
+                &contract,
+                "get-reward-set-size",
+                &[SymbolicExpression::atom_value(Value::UInt(
+                    reward_cycle as u128,
+                ))],
+                true,
+            )?
+            .expect_u128();
+
+        debug!(
+            "At block (reward cycle {}): {} PoX reward addresses",
+            reward_cycle, num_addrs
+        );
+
+        let mut ret = vec![];
+        for i in 0..num_addrs {
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            let tuple = clarity
+                .execute_contract(
+                    &contract,
+                    "get-reward-set-pox-address",
+                    &[
+                        SymbolicExpression::atom_value(Value::UInt(reward_cycle as u128)),
+                        SymbolicExpression::atom_value(Value::UInt(i)),
+                    ],
+                    true,
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    i, num_addrs, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = tuple
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(mainnet, &pox_addr_tuple).expect(
+                &format!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple),
+            );
+
+            let total_ustx = tuple
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = tuple
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            debug!(
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
+            );
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+            })
+        }
+
+        Ok(ret)
+    }
+
+    /// Important! The next reward cycle *must be disallowed* from choosing an anchor block that has not applied this transformation.
+    pub fn correct_reward_set(
+        burnchain: &Burnchain,
+        current_burn_height: u64,
+        clarity: &mut Environment,
+        mainnet: bool,
+    ) -> Result<Vec<RewardCycleListTransform>, Error> {
+        let cur_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or(Error::PoxNoRewardCycle)?;
+
+        let cur_cycle_start_height = burnchain.reward_cycle_to_block_height(cur_cycle);
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(cur_cycle_start_height);
+
+        if pox_contract_name != POX_2_NAME {
+            return Err(Error::DefunctPoxContract);
+        }
+
+        let pox_contract = boot::boot_code_id(POX_2_NAME, mainnet);
+
+        let MAXIMUM_POX_LOCK_TIME = 12;
+
+        let mut totals = BTreeMap::new();
+        let mut stacked_totals = BTreeMap::new();
+        // this is the return list from this method.
+        //  it is a list of all the state transformations
+        //  that must be applied to reward-cycle-pox-address-list
+        let mut transformation = vec![];
+
+        // Determine the set of all solo stackers
+        // by iterating over every reward set that could have data
+        // and adding all of the solo stackers to a set
+        let mut all_solo_stackers = HashSet::new();
+        for cycle in cur_cycle..(cur_cycle + MAXIMUM_POX_LOCK_TIME + 1) {
+            let reward_addrs = Self::static_get_pox_2_reward_addresses(mainnet, clarity, cycle)?;
+            let solo_stackers = reward_addrs
+                .clone()
+                .into_iter()
+                .filter_map(|entry| entry.stacker);
+            reward_addrs.iter().for_each(|entry| {
+                if entry.stacker.is_none() {
+                    if let Some(t) = totals.get_mut(&cycle) {
+                        *t += entry.amount_stacked;
+                    } else {
+                        totals.insert(cycle, entry.amount_stacked);
+                    }
+                    if let Some(t) = stacked_totals.get_mut(&cycle) {
+                        *t += entry.amount_stacked;
+                    } else {
+                        stacked_totals.insert(cycle, entry.amount_stacked);
+                    }
+                }
+            });
+            all_solo_stackers.extend(solo_stackers);
+        }
+
+        // lookup the reward set entries for each stacker
+        // compare them to the stacker's current locked
+        for solo_stacker in all_solo_stackers.iter() {
+            let stacking_state = clarity
+                .eval_read_only_with_rules(
+                    &pox_contract,
+                    &format!(
+                        "(map-get? stacking-state (tuple (stacker '{})))",
+                        solo_stacker
+                    ),
+                    ASTRules::Typical,
+                )?
+                .expect_optional()
+                .expect("Stacker appeared in reward set, but has no stacking-state entry")
+                .expect_tuple();
+
+            let reward_set_indexes = stacking_state
+                .get("reward-set-indexes")
+                .cloned()
+                .expect("stacking-state entries should always have a reward-set-index")
+                .expect_list();
+
+            let first_reward_cycle = stacking_state
+                .get("first-reward-cycle")
+                .cloned()
+                .expect("stacking-state entries should always have a reward-set-index")
+                .expect_u128() as u64;
+
+            for (stacker_cycle_number, stacker_reward_set_index) in
+                reward_set_indexes.iter().enumerate()
+            {
+                let reward_cycle = first_reward_cycle + stacker_cycle_number as u64;
+                if reward_cycle < cur_cycle {
+                    continue;
+                }
+                let stacker_reward_set_index = stacker_reward_set_index.clone().expect_u128();
+                let stacker_reward_entry_amt = clarity
+                    .execute_contract(
+                        &pox_contract,
+                        "get-reward-set-pox-address",
+                        &[
+                            SymbolicExpression::atom_value(Value::UInt(reward_cycle as u128)),
+                            SymbolicExpression::atom_value(Value::UInt(stacker_reward_set_index)),
+                        ],
+                        true,
+                    )?
+                    .expect_optional()
+                    .expect(&format!(
+                        "FATAL: missing PoX address in slot {} in reward cycle {}",
+                        stacker_reward_set_index, reward_cycle
+                    ))
+                    .expect_tuple()
+                    .get_owned("total-ustx")
+                    .expect("reward-set-entry tuple should always contain a total-ustx entry")
+                    .expect_u128();
+
+                let locked_amt = clarity
+                    .eval_read_only_with_rules(
+                        &pox_contract,
+                        &format!("(get locked (stx-account '{}))", solo_stacker),
+                        ASTRules::Typical,
+                    )?
+                    .expect_u128();
+
+                if locked_amt != stacker_reward_entry_amt {
+                    transformation.push(RewardCycleListTransform {
+                        cycle: reward_cycle,
+                        index: stacker_reward_set_index,
+                        new_amount: locked_amt,
+                    });
+                    warn!(
+                        "Invalid reward cycle entry"; "cycle" => reward_cycle, "stacker" => %solo_stacker, "locked" => locked_amt, "stacked" => stacker_reward_entry_amt
+                    );
+                } else {
+                    debug!(
+                        "Tracked reward cycle entry"; "cycle" => reward_cycle, "stacker" => %solo_stacker, "locked" => locked_amt, "stacked" => stacker_reward_entry_amt
+                    );
+                }
+
+                if let Some(lock_total) = totals.get_mut(&reward_cycle) {
+                    *lock_total += locked_amt;
+                } else {
+                    totals.insert(reward_cycle, locked_amt);
+                }
+
+                if let Some(stacked_total) = stacked_totals.get_mut(&reward_cycle) {
+                    *stacked_total += stacker_reward_entry_amt;
+                } else {
+                    stacked_totals.insert(reward_cycle, stacker_reward_entry_amt);
+                }
+            }
+        }
+
+        for (cycle, amount) in totals.iter() {
+            let stacked_amount = stacked_totals.get(cycle).unwrap();
+            let contract_total = clarity
+                .execute_contract(
+                    &pox_contract,
+                    "get-total-ustx-stacked",
+                    &[SymbolicExpression::atom_value(Value::UInt(*cycle as u128))],
+                    true,
+                )?
+                .expect_u128();
+
+            info!("Cycle totals"; "cycle" => cycle, "contract_total" => contract_total, "locked_amount" => amount, "stacked_amount" => stacked_amount);
+        }
+
+        Ok(transformation)
     }
 
     /// Given a threshold and set of registered addresses, return a reward set where
