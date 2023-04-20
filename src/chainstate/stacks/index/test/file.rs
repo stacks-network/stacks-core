@@ -231,7 +231,7 @@ fn test_migrate_existing_trie_blobs(external_blobs: bool, source_compression_typ
 
         // make data to insert
         info!("Preparing test data and filling MARF...");
-        let data = make_test_insert_data(256, 256);
+        let data = make_test_insert_data(256, 1024);
         let mut last_block_header = BlockHeaderHash::sentinel();
 
         for (i, block_data) in data.iter().enumerate() {
