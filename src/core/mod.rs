@@ -16,6 +16,7 @@
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::ConsensusHash;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::util::log;
@@ -421,7 +422,18 @@ pub trait StacksEpochExtension {
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
     ) -> Vec<StacksEpoch>;
+    fn epochs_to_2_2(
+        epoch_2_0_block_height: u64,
+        epoch_2_05_block_height: u64,
+        epoch_2_1_block_height: u64,
+        epoch_2_2_block_height: u64,
+    ) -> Vec<StacksEpoch>;
     fn validate_epochs(epochs: &[StacksEpoch]) -> Vec<StacksEpoch>;
+    fn validate_epochs_with_pox_consts(
+        epochs: &[StacksEpoch],
+        first_burn_block_ht: u64,
+        pox_consts: &PoxConstants,
+    ) -> Vec<StacksEpoch>;
 }
 
 impl StacksEpochExtension for StacksEpoch {
@@ -739,6 +751,73 @@ impl StacksEpochExtension for StacksEpoch {
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
         ]
+    }
+
+    fn epochs_to_2_2(
+        epoch_2_0_block_height: u64,
+        epoch_2_05_block_height: u64,
+        epoch_2_1_block_height: u64,
+        epoch_2_2_block_height: u64,
+    ) -> Vec<StacksEpoch> {
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: epoch_2_0_block_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: epoch_2_0_block_height,
+                end_height: epoch_2_05_block_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: epoch_2_05_block_height,
+                end_height: epoch_2_1_block_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: epoch_2_1_block_height,
+                end_height: epoch_2_2_block_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch22,
+                start_height: epoch_2_2_block_height,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+        ]
+    }
+
+    /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.
+    /// Epochs must proceed in order, and must represent contiguous block ranges.
+    /// Panic if the list is not well-formed.
+    /// Also, check if the Epoch 2.2 start height is correct relative to `pox_consts`
+    fn validate_epochs_with_pox_consts(
+        epochs: &[StacksEpoch],
+        first_burn_block_ht: u64,
+        pox_consts: &PoxConstants,
+    ) -> Vec<StacksEpoch> {
+        for epoch in epochs.iter() {
+            if epoch.epoch_id == StacksEpochId::Epoch22 {
+                assert_ne!(
+                    (epoch.start_height - first_burn_block_ht)
+                        % (pox_consts.reward_cycle_length as u64),
+                    0,
+                    "Epoch 2.2 may not start on a reward cycle boundary"
+                );
+            }
+        }
+        Self::validate_epochs(epochs)
     }
 
     /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.

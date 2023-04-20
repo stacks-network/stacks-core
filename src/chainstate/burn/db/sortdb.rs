@@ -2948,10 +2948,17 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    fn apply_schema_5(
+        tx: &DBTx,
+        epochs: &[StacksEpoch],
+        first_burn_ht: u64,
+        pox_consts: &PoxConstants,
+    ) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_5 {
             tx.execute_batch(sql_exec)?;
         }
+
+        StacksEpoch::validate_epochs_with_pox_consts(epochs, first_burn_ht, pox_consts);
 
         SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
 
@@ -3002,8 +3009,15 @@ impl SortitionDB {
                         SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
                     } else if version == "4" {
+                        let first_burn_height = self.first_block_height;
+                        let pox_consts = self.pox_constants.clone();
                         let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_5(&tx.deref(), epochs)?;
+                        SortitionDB::apply_schema_5(
+                            &tx.deref(),
+                            epochs,
+                            first_burn_height,
+                            &pox_consts,
+                        )?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());

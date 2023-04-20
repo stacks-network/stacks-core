@@ -4843,3 +4843,596 @@ fn stack_in_both_pox1_and_pox2() {
     bob_txs.get(&0).unwrap().result.clone().expect_result_ok();
     bob_txs.get(&1).unwrap().result.clone().expect_result_err();
 }
+
+/// In this test case, Alice and Bob stacks and interacts with the
+///  PoX v2 contract after the epoch 2.1 transition.
+///
+/// During Epoch 2.1, Alice invokes stacks-increase, which incorrectly
+///  sets her reward set entries.
+///
+/// This test then applies Epoch 2.2, checking that it corrects the entries
+/// It also checks that `stacks-increase` runtime aborts after the epoch switch.
+///
+#[test]
+fn epoch_2_2_stack_increase_fix() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HEIGHT = 6;
+    let EXPECTED_FIRST_V2_CYCLE = 7;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    // Epoch 2.2 **cannot** start on an exact reward_cycle_boundary,
+    //  i.e., (epoch_2_2_start - first_burn_height) % reward_cycle_len != 0 must be true.
+    // This is enforced via a new epoch validation routine in the sortdb
+    let EPOCH_2_2_START = EMPTY_SORTITIONS as u64 + 26;
+    let EPOCH_2_1_START = EMPTY_SORTITIONS as u64 + 5;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.pox_participation_threshold_pct = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    let first_2_2_cycle = burnchain
+        .block_height_to_reward_cycle(EPOCH_2_2_START)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First Epoch 2.2 cycle = {}", first_2_2_cycle);
+
+    let epochs = StacksEpoch::epochs_to_2_2(0, 0, EPOCH_2_1_START, EPOCH_2_2_START);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("test_simple_pox_2_increase"),
+        6006,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let mut alice_nonce = 0;
+
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+    let mut bob_nonce = 0;
+
+    let mut coinbase_nonce = 0;
+
+    let first_lockup_amt = 512 * POX_THRESHOLD_STEPS_USTX;
+    let bob_lockup_amt = 550 * POX_THRESHOLD_STEPS_USTX;
+    let total_balance = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let increase_amt = total_balance - first_lockup_amt;
+
+    // produce blocks until the epoch switch
+    for _i in 0..5 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // submit an increase: this should fail, because Alice is not yet locked
+    let fail_no_lock_tx = alice_nonce;
+    let alice_increase = make_pox_2_increase(&alice, alice_nonce, increase_amt);
+    alice_nonce += 1;
+
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        alice_nonce,
+        first_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    let bob_lockup = make_pox_2_lockup(
+        &bob,
+        bob_nonce,
+        bob_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
+        // use 1 less reward cycle than alice, so that we can
+        //  test the limit of the stack-increase bug
+        5,
+        tip.block_height,
+    );
+    bob_nonce += 1;
+
+    // our "tenure counter" is now at 5
+    assert_eq!(tip.block_height, 5 + EMPTY_SORTITIONS as u64);
+
+    let mut latest_block = peer.tenure_with_txs(
+        &[alice_increase, alice_lockup, bob_lockup],
+        &mut coinbase_nonce,
+    );
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        first_lockup_amt,
+    );
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        total_balance,
+    );
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 5) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 5)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    // we'll produce blocks until the 1st reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 1) + 1;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward sets for all cycles contains entries for alice
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 5) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 5)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    let mut txs_to_submit = vec![];
+    let fail_bad_amount = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, 0));
+    alice_nonce += 1;
+
+    // this stack-increase tx should work
+    let success_increase = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, increase_amt));
+    alice_nonce += 1;
+
+    // increase by an amount we don't have!
+    let fail_not_enough_funds = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, 1));
+    alice_nonce += 1;
+
+    // disable PoX invariants check, because we're testing the *buggy* behavior
+    peer.config.check_pox_invariants = None;
+    latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        first_lockup_amt + increase_amt,
+    );
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        total_balance,
+    );
+
+    // check that the total reward cycle amounts have incremented according the 2.1 bug
+    //
+    // CYCLES: [first_v2_cycle, first_v2_cycle + 2) => unchanged, because they occur before stack-increase invoked
+    //         [first_v2_cycle + 2, first_v2_cycle + 5) =>
+    //                  bob is unchanged, alice is (alice_first_lock + increase_amt + bob_lock)
+    //                  expected total is (alice_first_lock + increase_amt + bob_lock): invariant is violated
+    //         [first_v2_cycle + 5, first_v2_cycle + 6) =>
+    //                  bob isnt locked, alice is (alice_first_lock + increase_amt)
+    //                  expected total is (alice_first_lock + increase_amt): invariant isnt violated
+    //
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE)..(EXPECTED_FIRST_V2_CYCLE + 2) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 2)..(EXPECTED_FIRST_V2_CYCLE + 5) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].amount_stacked,
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+    }
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 5)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // now, we advance to epoch 2.2
+
+    let height_target = EPOCH_2_2_START;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE)..(EXPECTED_FIRST_V2_CYCLE + 2) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+
+    // After Epoch 2.2 initializes, the invalid reward cycles should be fixed
+    //  but only >= first_2_2_cycle
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 2)..first_2_2_cycle {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].amount_stacked,
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+    }
+
+    assert!(
+        first_2_2_cycle < EXPECTED_FIRST_V2_CYCLE + 5,
+        "Test should check that at least one cycle has been fixed"
+    );
+
+    for cycle_number in first_2_2_cycle..(EXPECTED_FIRST_V2_CYCLE + 5) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 5)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // this stack-increase tx would work in 2.1, but should abort in 2.2
+    let bob_increase = bob_nonce;
+    let bob_increase_tx = make_pox_2_increase(&bob, bob_nonce, POX_THRESHOLD_STEPS_USTX);
+    bob_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&[bob_increase_tx], &mut coinbase_nonce);
+
+    // check the reward sets again, asserting that nothing changed
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE)..(EXPECTED_FIRST_V2_CYCLE + 2) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+
+    // After Epoch 2.2 initializes, the invalid reward cycles should be fixed
+    //  but only >= first_2_2_cycle
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 2)..first_2_2_cycle {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].amount_stacked,
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+    }
+
+    assert!(
+        first_2_2_cycle < EXPECTED_FIRST_V2_CYCLE + 5,
+        "Test should check that at least one cycle has been fixed"
+    );
+
+    for cycle_number in first_2_2_cycle..(EXPECTED_FIRST_V2_CYCLE + 5) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + bob_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 5)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // now let's check some tx receipts
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len() as u64, alice_nonce);
+    assert_eq!(bob_txs.len() as u64, bob_nonce);
+
+    // transaction should fail because lock isn't applied
+    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 27)");
+
+    // transaction should fail because Alice doesn't have enough funds
+    assert_eq!(
+        &alice_txs[&fail_not_enough_funds].result.to_string(),
+        "(err 1)"
+    );
+
+    // transaction should fail because the amount supplied is invalid (i.e., 0)
+    assert_eq!(&alice_txs[&fail_bad_amount].result.to_string(), "(err 18)");
+
+    // transaction should fail due to a runtime abort
+    assert_eq!(&bob_txs[&bob_increase].result.to_string(), "(err none)");
+
+    // Check that the call to `stack-increase` has a well-formed print event.
+    let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
+    let stack_op_data = HashMap::from([
+        ("increase-by", Value::UInt(5120000000000)),
+        ("total-locked", Value::UInt(10240000000000)),
+        ("pox-addr", pox_addr_val),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(65),
+    };
+    check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
+}

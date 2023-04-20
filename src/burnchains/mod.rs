@@ -458,6 +458,16 @@ impl PoxConstants {
         first_block_height + reward_cycle * (self.reward_cycle_length as u64) + 1
     }
 
+    pub fn static_reward_cycle_to_block_height(
+        reward_cycle_length: u64,
+        first_block_height: u64,
+        reward_cycle: u64,
+    ) -> u64 {
+        // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
+        // mod 0.
+        first_block_height + reward_cycle * reward_cycle_length + 1
+    }
+
     pub fn block_height_to_reward_cycle(
         &self,
         first_block_height: u64,

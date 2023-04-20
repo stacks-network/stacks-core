@@ -930,8 +930,26 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                                 None,
                                 &mut initial_context,
                             );
-                            let transforms = StacksChainState::correct_reward_set(
+
+                            // start the corrections in the *next* cycle, so supply a burn height
+                            //  from the next cycle to `correct_reward_set()`
+
+                            let cur_cycle = PoxConstants::static_block_height_to_reward_cycle(
                                 current_burn_height,
+                                first_burn_block_height,
+                                pox_reward_cycle_len,
+                            )
+                            .ok_or(ChainstateError::PoxNoRewardCycle)?;
+
+                            let next_cycle_start =
+                                PoxConstants::static_reward_cycle_to_block_height(
+                                    pox_reward_cycle_len,
+                                    first_burn_block_height,
+                                    cur_cycle + 1,
+                                );
+
+                            let transforms = StacksChainState::correct_reward_set(
+                                next_cycle_start,
                                 &mut exec_env,
                                 mainnet,
                                 first_burn_block_height,
@@ -990,7 +1008,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                             // check transforms again after applying state changes, assert zero length!
                             let transforms = StacksChainState::correct_reward_set(
-                                current_burn_height,
+                                next_cycle_start,
                                 &mut exec_env,
                                 mainnet,
                                 first_burn_block_height,
