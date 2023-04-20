@@ -358,7 +358,21 @@ fn pox_2_stack_increase_epoch22_fix() {
         }
     }
 
-    info!("Mining two more blocks");
+    // invoke stack-increase again, in Epoch-2.2, it should
+    //  runtime abort
+    let aborted_increase_nonce = 3;
+    let tx = make_contract_call(
+        &spender_sk,
+        aborted_increase_nonce,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-increase",
+        &[Value::UInt(5000)],
+    );
+
+    info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
 
     // finish the cycle after the 2.2 transition,
     //  and mine two more cycles
@@ -563,6 +577,40 @@ fn pox_2_stack_increase_epoch22_fix() {
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
     }
+
+    let mut abort_tested = false;
+    let blocks = test_observer::get_blocks();
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed =
+                StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+            let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
+            if &tx_sender == &spender_addr
+                && parsed.auth.get_origin_nonce() == aborted_increase_nonce
+            {
+                let contract_call = match &parsed.payload {
+                    TransactionPayload::ContractCall(cc) => cc,
+                    _ => panic!("Expected aborted_increase_nonce to be a contract call"),
+                };
+                assert_eq!(contract_call.contract_name.as_str(), "pox-2");
+                assert_eq!(contract_call.function_name.as_str(), "stack-increase");
+                let result = Value::try_deserialize_hex_untyped(
+                    tx.get("raw_result").unwrap().as_str().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(result.to_string(), "(err none)");
+                abort_tested = true;
+            }
+        }
+    }
+
+    assert!(abort_tested, "The stack-increase transaction must have been aborted, and it must have been tested in the tx receipts");
 
     test_observer::clear();
     channel.stop_chains_coordinator();
