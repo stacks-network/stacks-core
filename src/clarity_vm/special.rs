@@ -906,7 +906,21 @@ fn handle_pox_v2_api_contract_call(
         handle_stack_lockup(global_context, function_name, value)?
     } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
         handle_stack_lockup_extension(global_context, function_name, value)?
-    } else if function_name == "stack-increase" || function_name == "delegate-stack-increase" {
+    } else if function_name == "stack-increase" {
+        match global_context.epoch_id {
+            // For epochs 1.0 - 2.1, stack increase is okay
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21 => {
+                handle_stack_lockup_increase(global_context, function_name, value)?
+            }
+            // For epoch 2.2, runtime abort
+            StacksEpochId::Epoch22 => {
+                return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
+            }
+        }
+    } else if function_name == "delegate-stack-increase" {
         handle_stack_lockup_increase(global_context, function_name, value)?
     } else {
         None
