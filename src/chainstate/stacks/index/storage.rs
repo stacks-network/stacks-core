@@ -1446,6 +1446,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
         }
 
+        let mut file_migration_occurred = false;
         if blobs.is_some() && marf_opts.external_blobs {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile2::exists(&db_path)? {
@@ -1455,11 +1456,17 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                         info!("Rebuilding the MARF...");
                         blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
                         info!("MARF rebuild successful.");
+                        file_migration_occurred = true;
                     } else {
                         info!("No compression inconsistencies found.");
                     }
                 }
             }
+        }
+
+        if file_migration_occurred {
+            info!("Reopening migrated MARF blobs file.");
+            blobs = Some(TrieFile2::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
         }
 
         debug!(

@@ -191,22 +191,29 @@ fn test_migrate_external_trie_blobs_nocomp_to_lz4_compression() {
     test_migrate_existing_trie_blobs(true, BlobCompressionType::None, BlobCompressionType::LZ4)
 }
 
+#[test]
+fn test_migrate_external_trie_blobs_nocomp_to_zstd_compression() {
+    test_migrate_existing_trie_blobs(true, BlobCompressionType::None, BlobCompressionType::ZStd(0))
+}
+
+#[test]
+fn test_migrate_external_trie_blobs_zstd_to_lz4_compression() {
+    test_migrate_existing_trie_blobs(true, BlobCompressionType::ZStd(0), BlobCompressionType::LZ4)
+}
+
+/// This method crates and populates a source MARF, either using external blobs or sqlite (`external_blobs` parameter), 
+/// using the given source compression type.
+/// It will then attempt to migrate from the given source MARF to a new MARF file using the given `dest` options.
 fn test_migrate_existing_trie_blobs(external_blobs: bool, source_compression_type: BlobCompressionType, dest_compression_type: BlobCompressionType) {
     let test_dir = format!("/tmp/test_migrate_existing_trie_blobs_external_{}_{}_to_{}", external_blobs, source_compression_type, dest_compression_type);
     let test_file = format!("{}/marf.sqlite", &test_dir);
     let test_blobs_file = format!("{}/marf.sqlite.blobs", &test_dir);
 
-    if !fs::metadata(&test_dir).is_ok() {
-        fs::create_dir(&test_dir).unwrap();
+    if fs::metadata(&test_dir).is_ok() {
+        fs::remove_dir_all(&test_dir).unwrap();
     }
 
-    if fs::metadata(&test_file).is_ok() {
-        fs::remove_file(&test_file).unwrap();
-    }
-
-    if fs::metadata(&test_blobs_file).is_ok() {
-        fs::remove_file(&test_blobs_file).unwrap();
-    }
+    fs::create_dir(&test_dir).unwrap();
 
     let (
         data, 
@@ -224,7 +231,7 @@ fn test_migrate_existing_trie_blobs(external_blobs: bool, source_compression_typ
 
         // make data to insert
         info!("Preparing test data and filling MARF...");
-        let data = make_test_insert_data(100, 256);
+        let data = make_test_insert_data(256, 256);
         let mut last_block_header = BlockHeaderHash::sentinel();
 
         for (i, block_data) in data.iter().enumerate() {
@@ -266,9 +273,7 @@ fn test_migrate_existing_trie_blobs(external_blobs: bool, source_compression_typ
     marf_opts.force_db_migrate = !external_blobs;
 
     info!("Opening trie file (migration expected)...");
-    let mut f = TrieFileStorage::open(&test_file, marf_opts.clone()).unwrap();
-    info!("Re-opening trie file (no migration should be needed)...");
-    f = TrieFileStorage::open(&test_file, marf_opts.clone()).unwrap();
+    let f = TrieFileStorage::open(&test_file, marf_opts.clone()).unwrap();
     let mut marf = MARF::from_storage(f);
 
     // blobs file exists
