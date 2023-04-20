@@ -6,6 +6,8 @@ RUN git clone https://github.com/stacks-network/stacks-blockchain.git
 
 WORKDIR /stacks-blockchain
 
+RUN git checkout feat/stackerdb-sync
+
 RUN mkdir /out
 
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
