@@ -133,6 +133,7 @@ use crate::{
 
 use crate::util_lib::boot::boot_code_id;
 
+use super::stackerdb::StackerDB;
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
@@ -2396,6 +2397,7 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_opts: &RPCHandlerArgs,
+        stacker_db: &StackerDB,
     ) -> Result<Option<StacksMessageType>, net_error> {
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
@@ -3210,6 +3212,7 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
+        stacker_db: &StackerDB,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response.is_some() {
@@ -3245,7 +3248,15 @@ impl ConversationHttp {
                     let start_time = Instant::now();
                     let path = req.get_path();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
-                        self.handle_request(req, network, sortdb, chainstate, mempool, handler_args)
+                        self.handle_request(
+                            req,
+                            network,
+                            sortdb,
+                            chainstate,
+                            mempool,
+                            handler_args,
+                            stacker_db,
+                        )
                     })?;
 
                     debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
