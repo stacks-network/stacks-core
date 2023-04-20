@@ -2120,7 +2120,7 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
-        let rc = match self.get_heights_for_prepare_phase_end_block(
+        let (rc, prepare_phase_end_height) = match self.get_heights_for_prepare_phase_end_block(
             prepare_end_bhh,
             pox_consts,
             true,
@@ -2132,7 +2132,7 @@ impl<'a> SortitionHandleConn<'a> {
                         block_height.into(),
                     )
                     .ok_or(CoordinatorError::NotPrepareEndBlock)?;
-                rc
+                (rc, block_height)
             }
             None => {
                 // there can't be an anchor block
@@ -2186,6 +2186,27 @@ impl<'a> SortitionHandleConn<'a> {
 
         let anchor_sn = SortitionDB::get_block_snapshot(self, &anchor_sort_id)?
             .ok_or(BurnchainError::MissingParentBlock)?;
+
+        // if we're in epoch 2.2, then this anchor block must also have been in epoch 2.2
+        let prepare_phase_end_epoch =
+            SortitionDB::get_stacks_epoch(self.conn(), prepare_phase_end_height.into())?
+                .ok_or(BurnchainError::UnsupportedBurnchain)?
+                .epoch_id;
+        let anchor_epoch = SortitionDB::get_stacks_epoch(self.conn(), anchor_sn.block_height)?
+            .ok_or(BurnchainError::UnsupportedBurnchain)?
+            .epoch_id;
+        if prepare_phase_end_epoch == StacksEpochId::Epoch22 {
+            if anchor_epoch != StacksEpochId::Epoch22 {
+                // No anchor block is selected if the highest possible anchor isn't 2.2
+                warn!(
+                    "PoX anchor block selection would have selected block, but this block was a 2.1 block";
+                    "would_be_anchor_stacks_block_hash" => %anchor_block_op.block_header_hash,
+                    "would_be_anchor_consensus_hash" => %anchor_sn.consensus_hash,
+                    "would_be_anchor_burn_height" => %anchor_sn.block_height,
+                );
+                return Ok(None);
+            }
+        }
 
         // the sortition does not even need to have picked this anchor block; all that matters is
         // that miners confirmed it.  If the winning block hash doesn't even correspond to a Stacks
