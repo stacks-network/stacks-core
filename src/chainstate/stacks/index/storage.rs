@@ -43,8 +43,8 @@ use crate::chainstate::stacks::index::bits::{
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::cache::*;
-use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
+use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
@@ -69,7 +69,10 @@ use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE, BlobCompressionType, TrieCachingStrategy, TrieHashCalculationMode, MARFOpenOpts};
+use stacks_common::types::chainstate::{
+    BlobCompressionType, MARFOpenOpts, TrieCachingStrategy, TrieHash, TrieHashCalculationMode,
+    TRIEHASH_ENCODED_SIZE,
+};
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -1422,7 +1425,11 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
 
         let mut blobs = if marf_opts.external_blobs {
-            Some(TrieFile2::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
+            Some(TrieFile2::from_db_path(
+                &db_path,
+                readonly,
+                marf_opts.external_blob_compression_type,
+            )?)
         } else {
             None
         };
@@ -1431,13 +1438,23 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile2::exists(&db_path)? {
-                    info!("Migrating trie blobs to external blobs file at {}.", &db_path);
+                    info!(
+                        "Migrating trie blobs to external blobs file at {}.",
+                        &db_path
+                    );
                     // migrate blobs out of the old DB
-                    blobs.export_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db, &db_path)?;
+                    blobs.export_trie_blobs::<T>(
+                        marf_opts.external_blob_compression_type,
+                        &db,
+                        &db_path,
+                    )?;
 
                     if marf_opts.external_blob_compression_type != BlobCompressionType::None {
                         info!("Compacting external trie blobs file at {}.", &db_path);
-                        blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
+                        blobs.compress_trie_blobs::<T>(
+                            marf_opts.external_blob_compression_type,
+                            &db,
+                        )?;
                     }
                 }
             }
@@ -1451,10 +1468,16 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile2::exists(&db_path)? {
                     info!("Checking the MARF for compression inconsistencies...");
-                    if trie_sql::detect_external_blob_compression_type_inconsistencies(&db, &marf_opts.external_blob_compression_type)? {
+                    if trie_sql::detect_external_blob_compression_type_inconsistencies(
+                        &db,
+                        &marf_opts.external_blob_compression_type,
+                    )? {
                         info!("Compression inconsistencies found, probably due to a configuration change.");
                         info!("Rebuilding the MARF...");
-                        blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
+                        blobs.compress_trie_blobs::<T>(
+                            marf_opts.external_blob_compression_type,
+                            &db,
+                        )?;
                         info!("MARF rebuild successful.");
                         file_migration_occurred = true;
                     } else {
@@ -1466,7 +1489,11 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
         if file_migration_occurred {
             info!("Reopening migrated MARF blobs file.");
-            blobs = Some(TrieFile2::from_db_path(&db_path, readonly, marf_opts.external_blob_compression_type)?)
+            blobs = Some(TrieFile2::from_db_path(
+                &db_path,
+                readonly,
+                marf_opts.external_blob_compression_type,
+            )?)
         }
 
         debug!(
@@ -1559,7 +1586,11 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile2::from_db_path(&self.db_path, true, self.blob_compression_type)?)
+            Some(TrieFile2::from_db_path(
+                &self.db_path,
+                true,
+                self.blob_compression_type,
+            )?)
         } else {
             None
         };
@@ -1624,7 +1655,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile2::from_db_path(&self.db_path, true, self.blob_compression_type)?)
+            Some(TrieFile2::from_db_path(
+                &self.db_path,
+                true,
+                self.blob_compression_type,
+            )?)
         } else {
             None
         };
@@ -1718,7 +1753,9 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                         return Err(Error::UnconfirmedError);
                     }
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => blobs.store_trie_blob(&blob_compression_type, &db, &bhh, &buffer),
+                        Some(blobs) => {
+                            blobs.store_trie_blob(&blob_compression_type, &db, &bhh, &buffer)
+                        }
                         None => {
                             test_debug!("Stored trie blob {} to db", &bhh);
                             trie_sql::write_trie_blob(&db, &bhh, &buffer)
@@ -1746,7 +1783,12 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     let blob_compression_type = self.blob_compression_type;
 
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => blobs.store_trie_blob(&blob_compression_type.clone(), db, real_bhh, &buffer),
+                        Some(blobs) => blobs.store_trie_blob(
+                            &blob_compression_type.clone(),
+                            db,
+                            real_bhh,
+                            &buffer,
+                        ),
                         None => {
                             test_debug!("Stored trie blob {} to db", real_bhh);
                             trie_sql::write_trie_blob(db, real_bhh, &buffer)

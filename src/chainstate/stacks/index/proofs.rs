@@ -1128,7 +1128,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// For the proof validation to work, the verifier needs to know which Trie roots correspond to
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
-    /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, 
+    /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents,
     /// so the root_to_block map is bijective with high probability.
     pub fn verify_proof(
         proof: &Vec<TrieMerkleProofType<T>>,
@@ -1202,7 +1202,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     return false;
                 }
             };
-            test_debug!("shunt proof head hash: {:?}", &trie_hash);
+        test_debug!("shunt proof head hash: {:?}", &trie_hash);
 
         i += 1;
         if i >= proof.len() {
@@ -1220,7 +1220,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 TrieHash(bhh.clone().to_bytes())
             }
             None => {
-                test_debug!("Trie hash not found in root-to-block map (1): {:?}", &trie_hash);
+                test_debug!(
+                    "Trie hash not found in root-to-block map (1): {:?}",
+                    &trie_hash
+                );
                 test_debug!("root-to-block map: {:?}", &root_to_block);
                 return false;
             }
@@ -1302,7 +1305,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                         return false;
                     }
                 };
-                test_debug!(
+            test_debug!(
                 "verify shunt proof tail in range {}..{}: penultimate trie hash is {:?}",
                 i,
                 j,
@@ -1338,7 +1341,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     TrieHash(bhh.clone().to_bytes())
                 }
                 None => {
-                    test_debug!("Trie hash not found in root-to-block map (2): {:?}", &trie_hash);
+                    test_debug!(
+                        "Trie hash not found in root-to-block map (2): {:?}",
+                        &trie_hash
+                    );
                     trace!("root-to-block map: {:?}", &root_to_block);
                     return false;
                 }

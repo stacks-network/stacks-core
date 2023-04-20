@@ -103,10 +103,10 @@ use blockstack_lib::{
     util_lib::db::sqlite_open,
 };
 use serde_json::Value;
+use stacks_common::types::chainstate::MARFOpenOpts;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
-use stacks_common::types::chainstate::MARFOpenOpts;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

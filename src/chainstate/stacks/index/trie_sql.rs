@@ -35,7 +35,7 @@ use regex::Regex;
 use rusqlite::{
     blob::Blob,
     types::{FromSql, ToSql},
-    Connection, Error as SqliteError, OptionalExtension, Transaction, NO_PARAMS, Statement
+    Connection, Error as SqliteError, OptionalExtension, Statement, Transaction, NO_PARAMS,
 };
 
 use crate::chainstate::stacks::index::bits::{
@@ -51,18 +51,19 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
-use crate::util_lib::db::{query_count, u8_to_sql, FromRow, FromColumn};
+use crate::util_lib::db;
 use crate::util_lib::db::query_row;
 use crate::util_lib::db::query_rows;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::u64_to_sql;
-use crate::util_lib::db;
+use crate::util_lib::db::{query_count, u8_to_sql, FromColumn, FromRow};
 use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::types::chainstate::{
-    TrieHash, TRIEHASH_ENCODED_SIZE, BLOCK_HEADER_HASH_ENCODED_SIZE, BlobCompressionType, BlockHeaderHash
+    BlobCompressionType, BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE,
+    TRIEHASH_ENCODED_SIZE,
 };
 
 static SQL_MARF_DATA_TABLE: &str = "
@@ -120,8 +121,6 @@ UPDATE schema_version SET version = 3;
 ";
 
 pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
-
-
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
@@ -298,7 +297,6 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     compression_type: &BlobCompressionType,
     block_id: Option<u32>,
 ) -> Result<u32, Error> {
-
     let block_id = if let Some(block_id) = block_id {
         // existing entry (i.e. a migration)
         let empty_blob: &[u8] = &[];
@@ -330,7 +328,7 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
             &0,
             &u64_to_sql(offset)?,
             &u64_to_sql(length)?,
-            &compression_type.as_u8()
+            &compression_type.as_u8(),
         ];
         let mut s =
             conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length, compression) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
@@ -359,7 +357,14 @@ pub fn update_external_trie_blob<T: MarfTrieId>(
     compression_type: &BlobCompressionType,
     block_id: u32,
 ) -> Result<u32, Error> {
-    inner_write_external_trie_blob(conn, block_hash, offset, length, compression_type, Some(block_id))
+    inner_write_external_trie_blob(
+        conn,
+        block_hash,
+        offset,
+        length,
+        compression_type,
+        Some(block_id),
+    )
 }
 
 /// Add a new row for an external trie blob -- i.e. we're creating a new trie whose blob will be
@@ -560,7 +565,7 @@ pub struct ExternalTrie {
     pub block_id: u32,
     pub offset: u64,
     pub length: u64,
-    pub compression: BlobCompressionType
+    pub compression: BlobCompressionType,
 }
 
 impl FromRow<ExternalTrie> for ExternalTrie {
@@ -574,7 +579,7 @@ impl FromRow<ExternalTrie> for ExternalTrie {
             block_id,
             offset,
             length,
-            compression: compression.into()
+            compression: compression.into(),
         })
     }
 }
@@ -594,7 +599,7 @@ pub fn get_external_trie_offset_length(
 /// using the `limit` parameter.
 pub fn get_uncompressed_external_trie_blobs(
     conn: &Connection,
-    limit: u32
+    limit: u32,
 ) -> Result<Vec<ExternalTrie>, Error> {
     let query = "SELECT block_id, external_offset, external_length, compression FROM marf_data WHERE compression = 0 ORDER BY block_id ASC LIMIT ?1";
     let args: &[&dyn ToSql] = &[&limit];
@@ -608,12 +613,10 @@ pub fn get_uncompressed_external_trie_blobs(
 /// compression algorithm.
 pub fn detect_external_blob_compression_type_inconsistencies(
     conn: &Connection,
-    compression: &BlobCompressionType
+    compression: &BlobCompressionType,
 ) -> Result<bool, Error> {
     let query = "SELECT COUNT(*) FROM marf_data WHERE compression != ?1";
-    let args: &[&dyn ToSql] = &[
-        &compression.as_u8()
-    ];
+    let args: &[&dyn ToSql] = &[&compression.as_u8()];
     let result = query_count(conn, query, args)?;
     Ok(result > 0)
 }
@@ -623,14 +626,15 @@ pub fn update_external_trie_blob_after_compression(
     block_id: u32,
     offset: u64,
     length: u64,
-    compression: &BlobCompressionType
+    compression: &BlobCompressionType,
 ) -> Result<(), Error> {
     let query = "UPDATE marf_data SET external_offset = ?1, external_length = ?2, compression = ?3 WHERE block_id = ?4";
     let args: &[&dyn ToSql] = &[
-        &u64_to_sql(offset)?, 
-        &u64_to_sql(length)?, 
-        &compression.as_u8(), 
-        &block_id];
+        &u64_to_sql(offset)?,
+        &u64_to_sql(length)?,
+        &compression.as_u8(),
+        &block_id,
+    ];
 
     let updated_count = conn.execute(query, args)?;
     if updated_count != 1 {
@@ -693,13 +697,13 @@ pub fn detect_partial_migration_for_schema_v3(conn: &Connection) -> Result<bool,
     let num_migrated = query_count(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE compression != 0",
-        NO_PARAMS
+        NO_PARAMS,
     )?;
 
     let num_not_migrated = query_count(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE compression = 0",
-        NO_PARAMS
+        NO_PARAMS,
     )?;
 
     Ok(num_migrated > 0 && num_not_migrated > 0)

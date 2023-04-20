@@ -452,7 +452,7 @@ impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
 pub enum TrieCachingStrategy {
     Noop,
     Node256,
-    Everything
+    Everything,
 }
 
 //#[cfg(test)]
@@ -461,7 +461,7 @@ impl ToTokens for TrieCachingStrategy {
         let variant = match self {
             TrieCachingStrategy::Everything => quote! { TrieCachingStrategy::Everything },
             TrieCachingStrategy::Node256 => quote! { TrieCachingStrategy::Node256 },
-            TrieCachingStrategy::Noop => quote! { TrieCachingStrategy::Noop }
+            TrieCachingStrategy::Noop => quote! { TrieCachingStrategy::Noop },
         };
         tokens.extend(variant);
     }
@@ -511,7 +511,7 @@ impl std::fmt::Display for TrieHashCalculationMode {
         match self {
             TrieHashCalculationMode::Immediate => write!(f, "immediate"),
             TrieHashCalculationMode::Deferred => write!(f, "deferred"),
-            TrieHashCalculationMode::All => write!(f, "all")
+            TrieHashCalculationMode::All => write!(f, "all"),
         }
     }
 }
@@ -535,7 +535,7 @@ impl ToTokens for BlobCompressionType {
         let variant = match self {
             BlobCompressionType::None => quote! { BlobCompressionType::None },
             BlobCompressionType::LZ4 => quote! { BlobCompressionType::LZ4 },
-            BlobCompressionType::ZStd(x) => quote! { BlobCompressionType::ZStd(#x) }
+            BlobCompressionType::ZStd(x) => quote! { BlobCompressionType::ZStd(#x) },
         };
         tokens.extend(variant);
     }
@@ -546,7 +546,7 @@ impl BlobCompressionType {
         match self {
             BlobCompressionType::None => 0u8,
             BlobCompressionType::LZ4 => 1u8,
-            BlobCompressionType::ZStd(_) => 2u8
+            BlobCompressionType::ZStd(_) => 2u8,
         }
     }
 }
@@ -556,7 +556,7 @@ impl std::fmt::Display for BlobCompressionType {
         match self {
             BlobCompressionType::None => write!(f, "nocomp"),
             BlobCompressionType::LZ4 => write!(f, "lz4"),
-            BlobCompressionType::ZStd(level) => write!(f, "zstd{}", level)
+            BlobCompressionType::ZStd(level) => write!(f, "zstd{}", level),
         }
     }
 }
@@ -567,7 +567,7 @@ impl From<u64> for BlobCompressionType {
             0u64 => BlobCompressionType::None,
             1u64 => BlobCompressionType::LZ4,
             2u64 => BlobCompressionType::ZStd(0),
-            _ => panic!("Unsupported blob compression type")
+            _ => panic!("Unsupported blob compression type"),
         }
     }
 }
@@ -623,7 +623,7 @@ impl MARFOpenOpts {
         hash_calculation_mode: TrieHashCalculationMode,
         cache_strategy: TrieCachingStrategy,
         external_blobs: bool,
-        external_blob_compression_type: BlobCompressionType
+        external_blob_compression_type: BlobCompressionType,
     ) -> MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode,

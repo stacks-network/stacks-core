@@ -17,7 +17,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
 use clarity::vm::database::SpecialCaseHandler;
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash, MARFOpenOpts, BlockHeaderHash};
+use stacks_common::types::chainstate::{BlockHeaderHash, MARFOpenOpts, StacksBlockId, TrieHash};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::codec::StacksMessageCodec;

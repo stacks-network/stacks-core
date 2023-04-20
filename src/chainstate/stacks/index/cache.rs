@@ -57,7 +57,7 @@ use crate::util_lib::db::SQLITE_MMAP_SIZE;
 
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE, TrieCachingStrategy};
+use stacks_common::types::chainstate::{TrieCachingStrategy, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
@@ -192,7 +192,6 @@ impl<T: MarfTrieId> TrieCache<T> {
                     );
                     TrieCache::Noop(TrieCacheState::new())
                 }
-
             }
         } else {
             TrieCache::Noop(TrieCacheState::new())
@@ -206,7 +205,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         match strategy {
             TrieCachingStrategy::Noop => TrieCache::Noop(TrieCacheState::new()),
             TrieCachingStrategy::Everything => TrieCache::Everything(TrieCacheState::new()),
-            TrieCachingStrategy::Node256 => TrieCache::Node256(TrieCacheState::new())
+            TrieCachingStrategy::Node256 => TrieCache::Node256(TrieCacheState::new()),
         }
     }
 

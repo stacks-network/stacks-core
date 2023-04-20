@@ -46,8 +46,9 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerklePr
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHashCalculationMode, TrieCachingStrategy, BlobCompressionType, MARFOpenOpts};
-
+use stacks_common::types::chainstate::{
+    BlobCompressionType, MARFOpenOpts, TrieCachingStrategy, TrieHashCalculationMode,
+};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";

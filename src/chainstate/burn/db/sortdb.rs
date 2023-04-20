@@ -94,7 +94,7 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId, VRFSeed, MARFOpenOpts
+    BlockHeaderHash, BurnchainHeaderHash, MARFOpenOpts, PoxId, SortitionId, StacksBlockId, VRFSeed,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;

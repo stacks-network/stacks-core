@@ -32,7 +32,9 @@ use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::types::chainstate::{TrieHashCalculationMode, MARFOpenOpts, TrieCachingStrategy, BlobCompressionType};
+use stacks::types::chainstate::{
+    BlobCompressionType, MARFOpenOpts, TrieCachingStrategy, TrieHashCalculationMode,
+};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -599,19 +601,39 @@ impl Config {
         let mut has_require_affirmed_anchor_blocks = false;
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(mut node) => {
-                let rpc_bind = node.rpc_bind.as_ref().unwrap_or(&default_node_config.rpc_bind).to_string();
+                let rpc_bind = node
+                    .rpc_bind
+                    .as_ref()
+                    .unwrap_or(&default_node_config.rpc_bind)
+                    .to_string();
                 let node_config = NodeConfig {
-                    name: node.name.as_ref().unwrap_or(&default_node_config.name).to_string(),
+                    name: node
+                        .name
+                        .as_ref()
+                        .unwrap_or(&default_node_config.name)
+                        .to_string(),
                     seed: match &node.seed {
                         Some(seed) => hex_bytes(&seed)
                             .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
-                    working_dir: std::env::var("STACKS_WORKING_DIR")
-                        .unwrap_or(node.working_dir.as_ref().unwrap_or(&default_node_config.working_dir).to_string()),
+                    working_dir: std::env::var("STACKS_WORKING_DIR").unwrap_or(
+                        node.working_dir
+                            .as_ref()
+                            .unwrap_or(&default_node_config.working_dir)
+                            .to_string(),
+                    ),
                     rpc_bind: rpc_bind.clone(),
-                    p2p_bind: node.p2p_bind.as_ref().unwrap_or(&default_node_config.p2p_bind).to_string(),
-                    p2p_address: node.p2p_address.as_ref().unwrap_or(&default_node_config.p2p_address).to_string(),
+                    p2p_bind: node
+                        .p2p_bind
+                        .as_ref()
+                        .unwrap_or(&default_node_config.p2p_bind)
+                        .to_string(),
+                    p2p_address: node
+                        .p2p_address
+                        .as_ref()
+                        .unwrap_or(&default_node_config.p2p_address)
+                        .to_string(),
                     bootstrap_node: vec![],
                     deny_nodes: vec![],
                     data_url: match &node.data_url {
@@ -1843,7 +1865,7 @@ impl NodeConfig {
             hash_mode,
             self.marf_cache_strategy,
             false,
-            self.marf_compression_type
+            self.marf_compression_type,
         )
     }
 }
@@ -1978,7 +2000,9 @@ impl NodeConfigFile {
                 "none" => BlobCompressionType::None,
                 "lz4" => BlobCompressionType::LZ4,
                 "zstd" => BlobCompressionType::ZStd(0),
-                _ => panic!("Invalid marf_compression_type provided.  Allowed values: none, lz4, zstd.")
+                _ => panic!(
+                    "Invalid marf_compression_type provided.  Allowed values: none, lz4, zstd."
+                ),
             }
         } else {
             BlobCompressionType::None

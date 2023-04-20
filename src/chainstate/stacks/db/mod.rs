@@ -43,8 +43,8 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::{MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
-    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+use crate::chainstate::stacks::index::marf::{
+    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -94,7 +94,7 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use clarity::vm::Value;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash, MARFOpenOpts};
+use stacks_common::types::chainstate::{MARFOpenOpts, StacksAddress, StacksBlockId, TrieHash};
 
 pub mod accounts;
 pub mod blocks;

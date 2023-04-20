@@ -28,8 +28,10 @@ use rand::thread_rng;
 use rand::Rng;
 
 use sha2::Digest;
+use stacks_common::types::chainstate::{
+    BlobCompressionType, MARFOpenOpts, TrieCachingStrategy, TrieHashCalculationMode,
+};
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::types::chainstate::{TrieCachingStrategy, BlobCompressionType, MARFOpenOpts, TrieHashCalculationMode};
 
 use std::time::SystemTime;
 
@@ -88,10 +90,10 @@ fn test_marf_with_cache(
     };
 
     let marf_opts = MARFOpenOpts::new(
-        hash_strategy, 
-        cache_strategy, 
-        true, 
-        BlobCompressionType::None
+        hash_strategy,
+        cache_strategy,
+        true,
+        BlobCompressionType::None,
     );
     let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
     let mut marf = MARF::from_storage(f);
