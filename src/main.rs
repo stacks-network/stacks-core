@@ -219,10 +219,12 @@ fn main() {
                 LimitedCostTracker::Free,
                 |env| {
                     Ok(StacksChainState::correct_reward_set(
-                        &burnchain,
                         tip_height,
                         env,
                         chainstate.mainnet,
+                        burnchain.first_block_height,
+                        burnchain.pox_constants.reward_cycle_length as u64,
+                        burnchain.pox_constants.v1_unlock_height as u64,
                     )
                     .unwrap())
                 },

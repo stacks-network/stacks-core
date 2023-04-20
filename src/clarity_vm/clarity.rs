@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
@@ -65,17 +66,23 @@ use clarity::vm::ast;
 use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ASTRules, ContractAST};
 use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::ClarityBackingStore;
+use clarity::vm::database::DataMapMetadata;
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
     STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::types::TupleTypeSignature;
+use clarity::vm::types::BUFF_1;
+use clarity::vm::types::BUFF_32;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
     TypeSignature, Value,
 };
 use clarity::vm::ClarityVersion;
+use clarity::vm::ContractContext;
 use clarity::vm::ContractName;
 
 use crate::util_lib::db::Error as DatabaseError;
@@ -884,6 +891,124 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             debug!("Epoch 2.05 initialized");
             (old_cost_tracker, Ok(initialization_receipt))
+        })
+    }
+
+    pub fn initialize_epoch_2_2(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            // This is important because pox-2 is instantiated before costs-3.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mainnet = self.mainnet;
+            let pox_reward_cycle_len = self.burn_state_db.get_pox_reward_cycle_length() as u64;
+            let first_burn_block_height = self.burn_state_db.get_burn_start_height() as u64;
+            let pox_v1_unlock = self.burn_state_db.get_v1_unlock_height() as u64;
+            let current_burn_height =
+                self.with_clarity_db_readonly(|db| db.get_current_burnchain_block_height()) as u64;
+
+            self.as_transaction(|clarity_tx| {
+                clarity_tx
+                    .with_clarity_db(|db| {
+                        // TODO: add epoch 2.2
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                clarity_tx
+                    .with_abort_callback(
+                        |clarity_env| {
+                            let mut initial_context = ContractContext::new(
+                                QualifiedContractIdentifier::transient(),
+                                ClarityVersion::Clarity1,
+                            );
+                            let mut exec_env = clarity_env.get_exec_environment(
+                                Some(boot_code_addr(mainnet).into()),
+                                None,
+                                &mut initial_context,
+                            );
+                            let transforms = StacksChainState::correct_reward_set(
+                                current_burn_height,
+                                &mut exec_env,
+                                mainnet,
+                                first_burn_block_height,
+                                pox_reward_cycle_len,
+                                pox_v1_unlock,
+                            )?;
+
+                            exec_env.global_context.database.begin();
+                            for transform in transforms.into_iter() {
+                                let key = TupleData::from_data(vec![
+                                    ("reward-cycle".into(), Value::UInt(transform.cycle as u128)),
+                                    ("index".into(), Value::UInt(transform.index as u128)),
+                                ])
+                                .unwrap();
+                                let mut value = transform.original_entry;
+                                match value.data_map.entry("total-ustx".into()) {
+                                    std::collections::btree_map::Entry::Vacant(_) => {
+                                        panic!("FATAL: existing entry must have total-ustx entry")
+                                    }
+                                    std::collections::btree_map::Entry::Occupied(mut e) => {
+                                        *e.get_mut() = Value::UInt(transform.new_amount)
+                                    }
+                                };
+
+                                // Is it safer to specify the map_type? I think using unknown_descriptor is safer, because
+                                //  that actually loads the stored descriptor and then checks against
+                                //  that.
+                                //
+                                // let map_type = DataMapMetadata {
+                                //     key_type: TupleTypeSignature::try_from(vec![
+                                //         ("reward-cycle".into(), TypeSignature::UIntType),
+                                //         ("index".into(), TypeSignature::UIntType),
+                                //     ]).unwrap().into(),
+                                //     value_type: TupleTypeSignature::try_from(vec![
+                                //         ("pox-addr".into(), TupleTypeSignature::try_from(
+                                //             vec![("version".into(), BUFF_1.clone()),
+                                //                  ("hashbytes".into(), BUFF_32.clone())]
+                                //         ).unwrap().into()),
+                                //         ("total-ustx".into(), TypeSignature::UIntType),
+                                //         ("stacker".into(), TypeSignature::new_option(TypeSignature::PrincipalType).unwrap()),
+                                //     ]).unwrap().into(),
+                                // };
+
+                                exec_env
+                                    .global_context
+                                    .database
+                                    .set_entry_unknown_descriptor(
+                                        &boot_code_id(POX_2_NAME, mainnet),
+                                        "reward-cycle-pox-address-list",
+                                        key.into(),
+                                        value.into(),
+                                    )
+                                    .expect("FATAL: Failed to update chainstate db");
+                            }
+                            exec_env.global_context.database.commit();
+
+                            // check transforms again after applying state changes, assert zero length!
+                            let transforms = StacksChainState::correct_reward_set(
+                                current_burn_height,
+                                &mut exec_env,
+                                mainnet,
+                                first_burn_block_height,
+                                pox_reward_cycle_len,
+                                pox_v1_unlock,
+                            )?;
+                            assert_eq!(transforms.len(), 0);
+
+                            Ok::<_, ChainstateError>(((), AssetMap::new(), vec![]))
+                        },
+                        |_, _| false,
+                    )
+                    .expect("FATAL: Error while applying 2.2 epoch change")
+            });
+
+            debug!("Epoch 2.2 initialized");
+            (old_cost_tracker, Ok(vec![]))
         })
     }
 

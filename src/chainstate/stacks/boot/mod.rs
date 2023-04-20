@@ -173,9 +173,10 @@ pub struct RewardSet {
     pub start_cycle_state: PoxStartCycleInfo,
 }
 pub struct RewardCycleListTransform {
-    cycle: u64,
-    index: u128,
-    new_amount: u128,
+    pub cycle: u64,
+    pub index: u128,
+    pub new_amount: u128,
+    pub original_entry: TupleData,
 }
 
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
@@ -623,22 +624,21 @@ impl StacksChainState {
 
     /// Important! The next reward cycle *must be disallowed* from choosing an anchor block that has not applied this transformation.
     pub fn correct_reward_set(
-        burnchain: &Burnchain,
         current_burn_height: u64,
         clarity: &mut Environment,
         mainnet: bool,
+        first_burn_block_height: u64,
+        reward_cycle_length: u64,
+        pox_v1_unlock_height: u64,
     ) -> Result<Vec<RewardCycleListTransform>, Error> {
-        let cur_cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .ok_or(Error::PoxNoRewardCycle)?;
+        let cur_cycle = PoxConstants::static_block_height_to_reward_cycle(
+            current_burn_height,
+            first_burn_block_height,
+            reward_cycle_length,
+        )
+        .ok_or(Error::PoxNoRewardCycle)?;
 
-        let cur_cycle_start_height = burnchain.reward_cycle_to_block_height(cur_cycle);
-
-        let pox_contract_name = burnchain
-            .pox_constants
-            .active_pox_contract(cur_cycle_start_height);
-
-        if pox_contract_name != POX_2_NAME {
+        if current_burn_height <= pox_v1_unlock_height {
             return Err(Error::DefunctPoxContract);
         }
 
@@ -716,7 +716,7 @@ impl StacksChainState {
                     continue;
                 }
                 let stacker_reward_set_index = stacker_reward_set_index.clone().expect_u128();
-                let stacker_reward_entry_amt = clarity
+                let stacker_reward_entry = clarity
                     .execute_contract(
                         &pox_contract,
                         "get-reward-set-pox-address",
@@ -731,7 +731,9 @@ impl StacksChainState {
                         "FATAL: missing PoX address in slot {} in reward cycle {}",
                         stacker_reward_set_index, reward_cycle
                     ))
-                    .expect_tuple()
+                    .expect_tuple();
+                let stacker_reward_entry_amt = stacker_reward_entry
+                    .clone()
                     .get_owned("total-ustx")
                     .expect("reward-set-entry tuple should always contain a total-ustx entry")
                     .expect_u128();
@@ -749,6 +751,7 @@ impl StacksChainState {
                         cycle: reward_cycle,
                         index: stacker_reward_set_index,
                         new_amount: locked_amt,
+                        original_entry: stacker_reward_entry,
                     });
                     warn!(
                         "Invalid reward cycle entry"; "cycle" => reward_cycle, "stacker" => %solo_stacker, "locked" => locked_amt, "stacked" => stacker_reward_entry_amt
