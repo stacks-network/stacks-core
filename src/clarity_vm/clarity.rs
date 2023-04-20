@@ -913,8 +913,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.as_transaction(|clarity_tx| {
                 clarity_tx
                     .with_clarity_db(|db| {
-                        // TODO: add epoch 2.2
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch22);
                         Ok(())
                     })
                     .unwrap();
