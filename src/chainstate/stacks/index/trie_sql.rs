@@ -477,7 +477,6 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
             .as_blob()
             .expect("DB Corruption: MARF data is non-blob");
         let start = TrieStorageConnection::<T>::root_ptr_disk() as usize;
-        //eprintln!("trie_sql::read_all_block_hashes_and_roots->read_hash_bytes");
         let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
         Ok((trie_hash, block_hash))
     })?;
@@ -603,17 +602,33 @@ pub fn get_uncompressed_external_trie_blobs(
     Ok(result)
 }
 
+/// Check if there are any external blob entries with a different compression type than that
+/// which was provided. Used primarily to help detect if the compression configuration has
+/// been changed indicating that the blob file needs to be rebuilt using the newly configured
+/// compression algorithm.
+pub fn detect_external_blob_compression_type_inconsistencies(
+    conn: &Connection,
+    compression: &BlobCompressionType
+) -> Result<bool, Error> {
+    let query = "SELECT COUNT(*) FROM marf_data WHERE compression != ?1";
+    let args: &[&dyn ToSql] = &[
+        &compression.as_u8()
+    ];
+    let result = query_count(conn, query, args)?;
+    Ok(result > 0)
+}
+
 pub fn update_external_trie_blob_after_compression(
     conn: &Connection,
     block_id: u32,
     offset: u64,
-    limit: u64,
+    length: u64,
     compression: &BlobCompressionType
 ) -> Result<(), Error> {
     let query = "UPDATE marf_data SET external_offset = ?1, external_length = ?2, compression = ?3 WHERE block_id = ?4";
     let args: &[&dyn ToSql] = &[
         &u64_to_sql(offset)?, 
-        &u64_to_sql(limit)?, 
+        &u64_to_sql(length)?, 
         &compression.as_u8(), 
         &block_id];
 

@@ -167,23 +167,38 @@ fn test_load_store_trie_blob_zstd_compression() {
 }
 
 #[test]
-fn test_migrate_existing_trie_blobs_no_compression() {
-    test_migrate_existing_trie_blobs(BlobCompressionType::None)
+fn test_migrate_db_trie_blobs_no_compression() {
+    test_migrate_existing_trie_blobs(false, BlobCompressionType::None, BlobCompressionType::None)
 }
 
 #[test]
-fn test_migrate_existing_trie_blobs_lz4_compression() {
-    test_migrate_existing_trie_blobs(BlobCompressionType::LZ4)
+fn test_migrate_db_trie_blobs_lz4_compression() {
+    test_migrate_existing_trie_blobs(false, BlobCompressionType::None, BlobCompressionType::LZ4)
 }
 
 #[test]
-fn test_migrate_existing_trie_blobs_zstd_compression() {
-    test_migrate_existing_trie_blobs(BlobCompressionType::ZStd(0))
+fn test_migrate_db_trie_blobs_zstd_compression() {
+    test_migrate_existing_trie_blobs(false, BlobCompressionType::None, BlobCompressionType::ZStd(0))
 }
 
-fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) {
-    let test_file = format!("/tmp/test_migrate_existing_trie_blobs_{}.sqlite", dest_compression_type);
-    let test_blobs_file = format!("/tmp/test_migrate_existing_trie_blobs_{}.sqlite.blobs", dest_compression_type);
+#[test]
+fn test_migrate_external_trie_blobs_lz4_to_zstd_compression() {
+    test_migrate_existing_trie_blobs(true, BlobCompressionType::LZ4, BlobCompressionType::ZStd(0))
+}
+
+#[test]
+fn test_migrate_external_trie_blobs_nocomp_to_lz4_compression() {
+    test_migrate_existing_trie_blobs(true, BlobCompressionType::None, BlobCompressionType::LZ4)
+}
+
+fn test_migrate_existing_trie_blobs(external_blobs: bool, source_compression_type: BlobCompressionType, dest_compression_type: BlobCompressionType) {
+    let test_dir = format!("/tmp/test_migrate_existing_trie_blobs_external_{}_{}_to_{}", external_blobs, source_compression_type, dest_compression_type);
+    let test_file = format!("{}/marf.sqlite", &test_dir);
+    let test_blobs_file = format!("{}/marf.sqlite.blobs", &test_dir);
+
+    if !fs::metadata(&test_dir).is_ok() {
+        fs::create_dir(&test_dir).unwrap();
+    }
 
     if fs::metadata(&test_file).is_ok() {
         fs::remove_file(&test_file).unwrap();
@@ -201,16 +216,17 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
         let marf_opts = MARFOpenOpts::new(
             TrieHashCalculationMode::Deferred, 
             TrieCachingStrategy::Noop, 
-            false, 
-            BlobCompressionType::None);
+            external_blobs, 
+            source_compression_type);
 
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
         let mut marf = MARF::from_storage(f);
 
         // make data to insert
-        let data = make_test_insert_data(256, 256);
-        //eprintln!("{:?}",data);
+        info!("Preparing test data and filling MARF...");
+        let data = make_test_insert_data(100, 256);
         let mut last_block_header = BlockHeaderHash::sentinel();
+
         for (i, block_data) in data.iter().enumerate() {
             let mut block_hash_bytes = [0u8; 32];
             block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
@@ -219,30 +235,40 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
             marf.begin(&last_block_header, &block_header).unwrap();
 
             for (key, value) in block_data.iter() {
-                let path = TriePath::from_key(key);
-                let leaf = TrieLeaf::from_value(&vec![], value.clone());
-                marf.insert_raw(path, leaf).unwrap();
+                marf.insert(key, value.clone()).unwrap();
             }
             marf.commit().unwrap();
             last_block_header = block_header;
         }
 
-        let root_header_map =
-            trie_sql::read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
+        if external_blobs {
+            let mut file = TrieFile2::from_db_path(&test_file, false, source_compression_type).unwrap();
+            
+            let root_header_map = 
+                file.read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
                 .unwrap();
-        //eprintln!("{:?}", root_header_map);
-        (data, last_block_header, root_header_map)
+            (data, last_block_header, root_header_map)
+        } else {
+            let root_header_map =
+                trie_sql::read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
+                .unwrap();
+            (data, last_block_header, root_header_map)
+        }
     };
 
     // migrate
+    info!("Performing the migration...");
     let mut marf_opts = MARFOpenOpts::new(
         TrieHashCalculationMode::Deferred, 
         TrieCachingStrategy::Noop, 
         true, 
         dest_compression_type);
-    marf_opts.force_db_migrate = true;
+    marf_opts.force_db_migrate = !external_blobs;
 
-    let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
+    info!("Opening trie file (migration expected)...");
+    let mut f = TrieFileStorage::open(&test_file, marf_opts.clone()).unwrap();
+    info!("Re-opening trie file (no migration should be needed)...");
+    f = TrieFileStorage::open(&test_file, marf_opts.clone()).unwrap();
     let mut marf = MARF::from_storage(f);
 
     // blobs file exists
@@ -257,8 +283,6 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
         blob_root_header_map
     };
 
-    //eprintln!("{:?}", blob_root_header_map);
-
     assert_eq!(blob_root_header_map.len(), root_header_map.len());
     for (e1, e2) in blob_root_header_map.iter().zip(root_header_map.iter()) {
         assert_eq!(e1, e2);
@@ -266,10 +290,7 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
 
     // verify that we can read everything from the blobs
     for (i, block_data) in data.iter().enumerate() {
-        //eprintln!(">> VERIFYING BLOCK #{} >>>>>>>>>>>", i);
         for (key, value) in block_data.iter() {
-            //eprintln!(">> VERIFYING KV {}: {}", key, value);
-            //eprintln!("{:02X?}", block_data);
             let path = TriePath::from_key(key);
             let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
 
@@ -282,8 +303,6 @@ fn test_migrate_existing_trie_blobs(dest_compression_type: BlobCompressionType) 
             .unwrap();
 
             assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
-            //eprintln!("<< VERIFYING KV {}: {}", key, value);
         }
-        //eprintln!("<< VERIFYING BLOCK #{} <<<<<<<<<<<", i);
     }
 }

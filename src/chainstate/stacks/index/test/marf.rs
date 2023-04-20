@@ -965,7 +965,6 @@ where
             {
                 // can only test if the hashes are materialized, which is not the case for
                 // deferred mode
-                eprintln!("*** Set root_table_cache (1)");
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,
@@ -1028,7 +1027,6 @@ where
 
             // can make a merkle proof to each one
             if check_merkle_proof {
-                eprintln!("*** Set root_table_cache (2)");
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,

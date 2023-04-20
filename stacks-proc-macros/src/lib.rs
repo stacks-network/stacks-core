@@ -4,10 +4,10 @@ extern crate syn;
 use proc_macro::TokenStream;
 use quote::{quote};
 use stacks_common::types::chainstate::*;
-use syn::{AttributeArgs, ItemFn, parse_macro_input, };
+use syn::{ItemFn, parse_macro_input, };
 
 #[proc_macro_attribute]
-pub fn generate_test_cases_for_marf_open_opts(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn generate_test_cases_for_marf_open_opts(_attr: TokenStream, item: TokenStream) -> TokenStream {
     //let args = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as ItemFn);
 

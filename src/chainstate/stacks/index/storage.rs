@@ -1431,12 +1431,12 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile2::exists(&db_path)? {
-                    eprintln!("Migrating trie blobs to external blobs file at {}.", &db_path);
+                    info!("Migrating trie blobs to external blobs file at {}.", &db_path);
                     // migrate blobs out of the old DB
                     blobs.export_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db, &db_path)?;
 
                     if marf_opts.external_blob_compression_type != BlobCompressionType::None {
-                        eprintln!("Compacting external trie blobs file at {}.", &db_path);
+                        info!("Compacting external trie blobs file at {}.", &db_path);
                         blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
                     }
                 }
@@ -1444,6 +1444,22 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
         if trie_sql::detect_partial_migration_for_schema_v2(&db)? {
             panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+        }
+
+        if blobs.is_some() && marf_opts.external_blobs {
+            if let Some(blobs) = blobs.as_mut() {
+                if TrieFile2::exists(&db_path)? {
+                    info!("Checking the MARF for compression inconsistencies...");
+                    if trie_sql::detect_external_blob_compression_type_inconsistencies(&db, &marf_opts.external_blob_compression_type)? {
+                        info!("Compression inconsistencies found, probably due to a configuration change.");
+                        info!("Rebuilding the MARF...");
+                        blobs.compress_trie_blobs::<T>(marf_opts.external_blob_compression_type, &db)?;
+                        info!("MARF rebuild successful.");
+                    } else {
+                        info!("No compression inconsistencies found.");
+                    }
+                }
+            }
         }
 
         debug!(
