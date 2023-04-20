@@ -477,6 +477,12 @@ impl fmt::Display for TrieCachingStrategy {
     }
 }
 
+impl Default for TrieCachingStrategy {
+    fn default() -> Self {
+        TrieCachingStrategy::Noop
+    }
+}
+
 /// Hash calculation mode
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum TrieHashCalculationMode {
@@ -515,6 +521,12 @@ pub enum BlobCompressionType {
     None,
     LZ4,
     ZStd(i32),
+}
+
+impl Default for BlobCompressionType {
+    fn default() -> Self {
+        BlobCompressionType::None
+    }
 }
 
 //#[cfg(test)]
