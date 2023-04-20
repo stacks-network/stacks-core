@@ -50,13 +50,14 @@ pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH
 // fourth byte == highest epoch supported by this node
 // - 0x05 for 2.05
 // - 0x06 for 2.1
-pub const PEER_VERSION_MAINNET: u32 = 0x18000006;
-pub const PEER_VERSION_TESTNET: u32 = 0xfacade06;
+pub const PEER_VERSION_MAINNET: u32 = 0x18000007;
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade07;
 
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
 pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
+pub const PEER_VERSION_EPOCH_2_2: u8 = 0x07;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
@@ -105,6 +106,7 @@ pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
 pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
 pub const BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT: u64 = 713_000;
 pub const BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT: u64 = 781_551;
+pub const BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT: u64 = 787_700;
 
 pub const BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT: u64 = 787_700;
 
@@ -228,7 +230,7 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 4] = [
+    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 5] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -253,9 +255,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch22,
+            start_height: BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_2
         },
     ];
 }
@@ -347,9 +356,18 @@ fn test_ord_for_stacks_epoch() {
     assert_eq!(epochs[0].cmp(&epochs[0]), Ordering::Equal);
     assert_eq!(epochs[1].cmp(&epochs[1]), Ordering::Equal);
     assert_eq!(epochs[2].cmp(&epochs[2]), Ordering::Equal);
+    assert_eq!(epochs[3].cmp(&epochs[3]), Ordering::Equal);
+    assert_eq!(epochs[4].cmp(&epochs[4]), Ordering::Equal);
     assert_eq!(epochs[2].cmp(&epochs[0]), Ordering::Greater);
     assert_eq!(epochs[2].cmp(&epochs[1]), Ordering::Greater);
     assert_eq!(epochs[1].cmp(&epochs[0]), Ordering::Greater);
+    assert_eq!(epochs[3].cmp(&epochs[0]), Ordering::Greater);
+    assert_eq!(epochs[3].cmp(&epochs[1]), Ordering::Greater);
+    assert_eq!(epochs[3].cmp(&epochs[2]), Ordering::Greater);
+    assert_eq!(epochs[4].cmp(&epochs[0]), Ordering::Greater);
+    assert_eq!(epochs[4].cmp(&epochs[1]), Ordering::Greater);
+    assert_eq!(epochs[4].cmp(&epochs[2]), Ordering::Greater);
+    assert_eq!(epochs[4].cmp(&epochs[3]), Ordering::Greater);
 }
 
 #[test]
