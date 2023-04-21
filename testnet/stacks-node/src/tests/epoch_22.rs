@@ -56,7 +56,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 ///
 /// Verification works using expected number of slots for burn and various PoX addresses.
 ///
-fn pox_2_stack_increase_epoch22_fix() {
+fn disable_pox() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -640,7 +640,14 @@ fn pox_2_unlock_all() {
     let spender_2_sk = StacksPrivateKey::new();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
+    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
+
     let mut initial_balances = vec![];
+
+    let spender_1_initial_balance = stacked + 100_000;
+    let spender_2_initial_balance = stacked + 100_000;
+    let tx_fee = 3000;
 
     initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -797,7 +804,7 @@ fn pox_2_unlock_all() {
     let tx = make_contract_call(
         &spender_sk,
         0,
-        3000,
+        tx_fee,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -845,7 +852,7 @@ fn pox_2_unlock_all() {
     let tx = make_contract_call(
         &spender_sk,
         1,
-        3000,
+        tx_fee,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -863,7 +870,7 @@ fn pox_2_unlock_all() {
     let tx = make_contract_call(
         &spender_2_sk,
         0,
-        3000,
+        tx_fee,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -890,17 +897,134 @@ fn pox_2_unlock_all() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
+    // this block activates 2.2
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    // this *burn block* is when the unlock occurs
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
 
     info!("spender_1_account = {:?}", spender_1_account);
     info!("spender_2_account = {:?}", spender_1_account);
 
+    assert_eq!(
+        spender_1_account.balance as u64,
+        spender_1_initial_balance - stacked - (2 * tx_fee),
+        "Spender 1 should still be locked"
+    );
+    assert_eq!(
+        spender_1_account.locked as u64, stacked,
+        "Spender 1 should still be locked"
+    );
+    assert_eq!(
+        spender_1_account.nonce, 2,
+        "Spender 1 should have two accepted transactions"
+    );
+
+    assert_eq!(
+        spender_2_account.balance as u64,
+        spender_2_initial_balance - stacked - (1 * tx_fee),
+        "Spender 2 should still be locked"
+    );
+    assert_eq!(
+        spender_2_account.locked as u64, stacked,
+        "Spender 2 should still be locked"
+    );
+    assert_eq!(
+        spender_2_account.nonce, 1,
+        "Spender 2 should have two accepted transactions"
+    );
+
+    // and this block is the first block whose parent has >= unlock burn block
+    //  (which is the criterion for the unlock)
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    let spender_1_account = get_account(&http_origin, &spender_addr);
+    let spender_2_account = get_account(&http_origin, &spender_2_addr);
+
+    info!("spender_1_account = {:?}", spender_1_account);
+    info!("spender_2_account = {:?}", spender_1_account);
+
+    assert_eq!(
+        spender_1_account.balance,
+        spender_1_initial_balance as u128 - (2 * tx_fee as u128),
+        "Spender 1 should be unlocked"
+    );
+    assert_eq!(spender_1_account.locked, 0, "Spender 1 should be unlocked");
+    assert_eq!(
+        spender_1_account.nonce, 2,
+        "Spender 1 should have two accepted transactions"
+    );
+
+    assert_eq!(
+        spender_2_account.balance,
+        spender_2_initial_balance as u128 - (1 * tx_fee as u128),
+        "Spender 2 should be unlocked"
+    );
+    assert_eq!(spender_2_account.locked, 0, "Spender 2 should be unlocked");
+    assert_eq!(
+        spender_2_account.nonce, 1,
+        "Spender 2 should have two accepted transactions"
+    );
+
+    // perform a transfer
+    let tx = make_stacks_transfer(&spender_sk, 2, tx_fee, &spender_3_addr, 1_000_000);
+
+    info!("Submit stack transfer tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    // this wakes up the node to mine the transaction
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    // this block selects the previously mined block
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    let spender_1_account = get_account(&http_origin, &spender_addr);
+    let spender_2_account = get_account(&http_origin, &spender_2_addr);
+    let spender_3_account = get_account(&http_origin, &spender_3_addr);
+
+    info!("spender_1_account = {:?}", spender_1_account);
+    info!("spender_2_account = {:?}", spender_1_account);
+
+    assert_eq!(
+        spender_3_account.balance, 1_000_000,
+        "Recipient account should have funds"
+    );
+    assert_eq!(
+        spender_3_account.locked, 0,
+        "Burn account should be unlocked"
+    );
+    assert_eq!(
+        spender_3_account.nonce, 0,
+        "Burn should have no accepted transactions"
+    );
+
+    assert_eq!(
+        spender_1_account.balance,
+        spender_1_initial_balance as u128 - (3 * tx_fee as u128) - 1_000_000,
+        "Spender 1 should be unlocked"
+    );
+    assert_eq!(spender_1_account.locked, 0, "Spender 1 should be unlocked");
+    assert_eq!(
+        spender_1_account.nonce, 3,
+        "Spender 1 should have three accepted transactions"
+    );
+
+    assert_eq!(
+        spender_2_account.balance,
+        spender_2_initial_balance as u128 - (1 * tx_fee as u128),
+        "Spender 2 should be unlocked"
+    );
+    assert_eq!(spender_2_account.locked, 0, "Spender 2 should be unlocked");
+    assert_eq!(
+        spender_2_account.nonce, 1,
+        "Spender 2 should have two accepted transactions"
+    );
 
     // finish the cycle after the 2.2 transition,
     //  and mine two more cycles
-    for _i in 0..14 {
+    for _i in 0..10 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
@@ -1010,61 +1134,44 @@ fn pox_2_unlock_all() {
     );
 
     let expected_slots = HashMap::from([
+        (42u64, HashMap::from([(pox_addr_1.clone(), 4u64)])),
+        (43, HashMap::from([(pox_addr_1.clone(), 4)])),
+        (44, HashMap::from([(pox_addr_1.clone(), 4)])),
+        // cycle 45 is the first 2.1, and in the setup of this test, there's not
+        //  enough time for the stackers to begin in this cycle
+        (45, HashMap::from([(burn_pox_addr.clone(), 4)])),
+        (46, HashMap::from([(burn_pox_addr.clone(), 4)])),
         (
-            21u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            47,
+            HashMap::from([(pox_addr_2.clone(), 2), (pox_addr_3.clone(), 2)]),
         ),
-        (
-            22u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
-        ),
-        (
-            23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
-        ),
-        // cycle 24 is the first 2.1, it should have pox_2 and pox_3 with equal
-        //  slots (because increase hasn't gone into effect yet) and 2 burn slots
-        (
-            24,
-            HashMap::from([
-                (pox_addr_2.clone(), 6u64),
-                (pox_addr_3.clone(), 6),
-                (burn_pox_addr.clone(), 2),
-            ]),
-        ),
-        // stack-increase has been invoked, and so the reward set is skewed.
-        //  pox_addr_2 should get the majority of slots (~ 67%)
-        (
-            25,
-            HashMap::from([
-                (pox_addr_2.clone(), 9u64),
-                (pox_addr_3.clone(), 4),
-                (burn_pox_addr.clone(), 1),
-            ]),
-        ),
-        // Epoch 2.2 has started, so the reward set should be fixed.
-        //  pox_addr_2 should get 1 extra slot, because stack-increase
-        //  did increase their stacked amount
-        (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
-        (27, HashMap::from([(burn_pox_addr.clone(), 14)])),
+        // Now 2.2 is active, everything should be a burn.
+        (48, HashMap::from([(burn_pox_addr.clone(), 4)])),
+        (49, HashMap::from([(burn_pox_addr.clone(), 4)])),
+        (50, HashMap::from([(burn_pox_addr.clone(), 4)])),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
-        let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
+        let cycle_counts = match reward_cycle_pox_addrs.get(&reward_cycle) {
+            Some(x) => x,
+            None => {
+                info!("No reward cycle entry = {}", reward_cycle);
+                continue;
+            }
+        };
         assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
         for (pox_addr, slots) in cycle_counts.iter() {
-            // assert_eq!(
-            //     *slots,
-            //     expected_slots[&reward_cycle][&pox_addr],
-            //     "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-            //     &pox_addr,
-            //     reward_cycle,
-            // );
+            assert_eq!(
+                *slots,
+                expected_slots[&reward_cycle][&pox_addr],
+                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
+                &pox_addr,
+                reward_cycle,
+            );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
     }
 
-    let mut abort_tested = false;
     let blocks = test_observer::get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -1079,8 +1186,6 @@ fn pox_2_unlock_all() {
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
         }
     }
-
-    assert!(abort_tested, "The stack-increase transaction must have been aborted, and it must have been tested in the tx receipts");
 
     test_observer::clear();
     channel.stop_chains_coordinator();
