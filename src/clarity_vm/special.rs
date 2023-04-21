@@ -992,12 +992,10 @@ pub fn handle_contract_call_special_cases(
         }
         return handle_pox_v1_api_contract_call(global_context, sender, function_name, result);
     } else if *contract_id == boot_code_id(POX_2_NAME, global_context.mainnet) {
-        if !is_pox_v2_read_only(function_name)
-            && global_context.database.get_v2_unlock_height()
-                <= global_context.database.get_current_burnchain_block_height()
+        if !is_pox_v2_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch22
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
-            warn!("PoX-1 function call attempted on an account after v2 unlock height";
+            warn!("PoX-2 function call attempted on an account after Epoch 2.2";
                   "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
                   "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
                   "function_name" => function_name,
