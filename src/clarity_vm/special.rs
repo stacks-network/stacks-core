@@ -940,6 +940,32 @@ fn is_pox_v1_read_only(func_name: &str) -> bool {
         || func_name == "get-pox-info"
 }
 
+fn is_pox_v2_read_only(func_name: &str) -> bool {
+    "get-pox-rejection" == func_name
+        || "is-pox-active" == func_name
+        || "burn-height-to-reward-cycle" == func_name
+        || "reward-cycle-to-burn-height" == func_name
+        || "current-pox-reward-cycle" == func_name
+        || "get-stacker-info" == func_name
+        || "get-check-delegation" == func_name
+        || "get-reward-set-size" == func_name
+        || "next-cycle-rejection-votes" == func_name
+        || "get-total-ustx-stacked" == func_name
+        || "get-reward-set-pox-address" == func_name
+        || "get-stacking-minimum" == func_name
+        || "check-pox-addr-version" == func_name
+        || "check-pox-addr-hashbytes" == func_name
+        || "check-pox-lock-period" == func_name
+        || "can-stack-stx" == func_name
+        || "minimal-can-stack-stx" == func_name
+        || "get-pox-info" == func_name
+        || "get-delegation-info" == func_name
+        || "get-allowance-contract-callers" == func_name
+        || "get-num-reward-set-pox-addresses" == func_name
+        || "get-partial-stacked-by-cycle" == func_name
+        || "get-total-pox-rejection" == func_name
+}
+
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
@@ -966,6 +992,20 @@ pub fn handle_contract_call_special_cases(
         }
         return handle_pox_v1_api_contract_call(global_context, sender, function_name, result);
     } else if *contract_id == boot_code_id(POX_2_NAME, global_context.mainnet) {
+        if !is_pox_v2_read_only(function_name)
+            && global_context.database.get_v2_unlock_height()
+                <= global_context.database.get_current_burnchain_block_height()
+        {
+            // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
+            warn!("PoX-1 function call attempted on an account after v2 unlock height";
+                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "function_name" => function_name,
+                  "contract_id" => %contract_id
+            );
+            return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
+        }
+
         return handle_pox_v2_api_contract_call(
             global_context,
             sender,

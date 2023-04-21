@@ -265,6 +265,11 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
+        if current_burn_height > burnchain.pox_constants.v2_unlock_height as u64 {
+            info!("PoX reward cycle defaulting to burn in Epoch 2.2");
+            return Ok(RewardSet::empty());
+        }
+
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
