@@ -4351,6 +4351,11 @@ impl HttpResponseType {
             HttpResponseType::ServiceUnavailable(_, ref msg) => {
                 self.error_response(fd, 503, msg)?
             }
+
+            HttpResponseType::StackerDbChunkMetadata(_, ref msg) => {
+                todo!()
+            }
+
             HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
@@ -5414,7 +5419,7 @@ mod test {
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
              HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
-             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])) 
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()]))
         ];
 
         for (data, request) in tests.iter() {

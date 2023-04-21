@@ -115,7 +115,7 @@ pub mod atlas;
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
-///     * rate limiting messages  
+///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
 /// Also has functionality to sign, verify, and ensure well-formedness of messages.
@@ -123,7 +123,7 @@ pub mod codec;
 pub mod connection;
 pub mod db;
 /// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.  
+/// which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -1287,6 +1287,10 @@ pub struct RPCPoxInfoData {
     pub contract_versions: Vec<RPCPoxContractVersion>,
 }
 
+/// The data we return on GET /v2/stackerdb/metadata/{chunk_id}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StackerDbChunkMetadata {}
+
 /// Headers response payload
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtendedStacksHeader {
@@ -1671,6 +1675,9 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+
+    GetStackerDbChunkMetadata(HttpRequestMetadata),
+
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1797,6 +1804,9 @@ pub enum HttpResponseType {
     NotFound(HttpResponseMetadata, String),
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
+
+    StackerDbChunkMetadata(HttpResponseMetadata, u64),
+
     Error(HttpResponseMetadata, u16, String),
 }
 

@@ -2926,6 +2926,9 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::GetStackerDbChunkMetadata(ref _md) => {
+                todo!()
+            }
             HttpRequestType::ClientError(ref _md, ref err) => {
                 let response_metadata = HttpResponseMetadata::from_http_request_type(
                     &req,
