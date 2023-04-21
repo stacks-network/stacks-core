@@ -1800,6 +1800,7 @@ fn stx_delegate_btc_integration_test() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -5825,6 +5826,7 @@ fn pox_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
         u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -10458,6 +10460,7 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
+            u32::MAX,
             u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();

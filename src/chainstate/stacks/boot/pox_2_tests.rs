@@ -1117,7 +1117,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -1142,7 +1146,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
@@ -1151,7 +1159,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // check that the total reward cycle amounts have decremented correctly

@@ -7166,11 +7166,12 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height) =
-            clarity_connection.with_clarity_db_readonly(|ref mut db| {
+        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
+            .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height() as u64,
                     db.get_v1_unlock_height(),
+                    db.get_v2_unlock_height(),
                 )
             });
 
@@ -7179,6 +7180,7 @@ impl StacksChainState {
             fee as u128,
             block_height,
             v1_unlock_height,
+            v2_unlock_height,
         ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -7187,9 +7189,11 @@ impl StacksChainState {
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         fee as u128,
-                        payer
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        payer.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
             }
@@ -7212,12 +7216,15 @@ impl StacksChainState {
                     total_spent,
                     block_height,
                     v1_unlock_height,
+                    v2_unlock_height,
                 ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
-                        origin
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        origin.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
 
@@ -7227,12 +7234,14 @@ impl StacksChainState {
                         fee as u128,
                         block_height,
                         v1_unlock_height,
+                        v2_unlock_height,
                     ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
                             payer.stx_balance.get_available_balance_at_burn_block(
                                 block_height,
                                 v1_unlock_height,
+                                v2_unlock_height,
                             ),
                         ));
                     }

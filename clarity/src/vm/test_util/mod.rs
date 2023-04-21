@@ -210,6 +210,10 @@ impl BurnStateDB for UnitTestBurnStateDB {
         u32::max_value()
     }
 
+    fn get_v2_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         1
     }

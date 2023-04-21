@@ -312,6 +312,8 @@ pub struct PoxConstants {
     /// also defines the burn height at which PoX reward sets are calculated using
     /// PoX v2 rather than v1
     pub v1_unlock_height: u32,
+    /// The auto unlock height for PoX v2 lockups during Epoch 2.2
+    pub v2_unlock_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -325,6 +327,7 @@ impl PoxConstants {
         sunset_start: u64,
         sunset_end: u64,
         v1_unlock_height: u32,
+        v2_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -339,13 +342,24 @@ impl PoxConstants {
             sunset_start,
             sunset_end,
             v1_unlock_height,
+            v2_unlock_height,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
+        PoxConstants::new(
+            10,
+            5,
+            3,
+            25,
+            5,
+            5000,
+            10000,
+            u32::max_value(),
+            u32::max_value(),
+        )
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
@@ -386,6 +400,7 @@ impl PoxConstants {
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
+            POX_V2_MAINNET_EARLY_UNLOCK_HEIGHT,
         )
     }
 
@@ -399,6 +414,7 @@ impl PoxConstants {
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
+            POX_V2_TESTNET_EARLY_UNLOCK_HEIGHT,
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
@@ -412,6 +428,7 @@ impl PoxConstants {
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             1_000_000,
+            2_000_000,
         )
     }
 

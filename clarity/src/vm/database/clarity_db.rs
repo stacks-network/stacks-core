@@ -113,6 +113,7 @@ pub trait HeadersDB {
 
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
+    fn get_v2_unlock_height(&self) -> u32;
 
     /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -195,6 +196,10 @@ impl HeadersDB for &dyn HeadersDB {
 impl BurnStateDB for &dyn BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32 {
         (*self).get_v1_unlock_height()
+    }
+
+    fn get_v2_unlock_height(&self) -> u32 {
+        (*self).get_v2_unlock_height()
     }
 
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -364,6 +369,10 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_v2_unlock_height(&self) -> u32 {
         u32::max_value()
     }
 
@@ -750,6 +759,12 @@ impl<'a> ClarityDatabase<'a> {
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {
         self.burn_state_db.get_v1_unlock_height()
+    }
+
+    /// Return the height for PoX v1 -> v2 auto unlocks
+    ///   from the burn state db
+    pub fn get_v2_unlock_height(&self) -> u32 {
+        self.burn_state_db.get_v2_unlock_height()
     }
 
     /// Get the last-known burnchain block height.
@@ -1777,8 +1792,8 @@ impl<'a> ClarityDatabase<'a> {
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
@@ -1796,8 +1811,8 @@ impl<'a> ClarityDatabase<'a> {
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }

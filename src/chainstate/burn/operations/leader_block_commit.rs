@@ -1769,7 +1769,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2302,7 +2302,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2992,7 +2992,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
