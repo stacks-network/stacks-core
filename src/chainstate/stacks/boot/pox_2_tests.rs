@@ -5436,3 +5436,304 @@ fn epoch_2_2_stack_increase_fix() {
     };
     check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
 }
+
+#[test]
+fn epoch_2_2_auto_unlock_disabled() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HEIGHT = 6;
+    let EXPECTED_FIRST_V2_CYCLE = 7;
+    let EXPECTED_LAST_V2_CYCLE = 10;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    // Epoch 2.2 **cannot** start on an exact reward_cycle_boundary,
+    //  i.e., (epoch_2_2_start - first_burn_height) % reward_cycle_len != 0 must be true.
+    // This is enforced via a new epoch validation routine in the sortdb
+    let EPOCH_2_2_START = EMPTY_SORTITIONS as u64 + 31;
+    let EPOCH_2_1_START = EMPTY_SORTITIONS as u64 + 5;
+    let LAST_2_1_START = EMPTY_SORTITIONS as u64 + 25;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.pox_participation_threshold_pct = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    let first_2_2_cycle = burnchain
+        .block_height_to_reward_cycle(EPOCH_2_2_START)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First Epoch 2.2 cycle = {}", first_2_2_cycle);
+
+    let epochs = StacksEpoch::epochs_to_2_2(0, 0, EPOCH_2_1_START, EPOCH_2_2_START);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("test_epoch22_autounlock_disabled"),
+        6006,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let mut alice_nonce = 0;
+
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+    let mut bob_nonce = 0;
+
+    let mut coinbase_nonce = 0;
+
+    let first_lockup_amt = POX_THRESHOLD_STEPS_USTX;
+    let bob_lockup_amt = 550 * POX_THRESHOLD_STEPS_USTX;
+    let total_balance = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let increase_amt = total_balance - first_lockup_amt;
+
+    // produce blocks until the epoch switch
+    for _i in 0..5 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        alice_nonce,
+        first_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    let bob_lockup = make_pox_2_lockup(
+        &bob,
+        bob_nonce,
+        bob_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    bob_nonce += 1;
+
+    // our "tenure counter" is now at 5
+    assert_eq!(tip.block_height, 5 + EMPTY_SORTITIONS as u64);
+
+    let mut latest_block = peer.tenure_with_txs(&[alice_lockup, bob_lockup], &mut coinbase_nonce);
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        first_lockup_amt,
+    );
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        total_balance,
+    );
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+        // ALICE is second by ordering
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt,);
+    }
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).unlock_height(),
+        65
+    );
+
+    // we'll produce blocks until the 1st reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 1) + 1;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward sets for all cycles contains entries for just bob now, since
+    // Alice unlocked
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+
+        // Alice was unlocked
+        assert_eq!(reward_set_entries.len(), 1);
+        // BOB is first by ordering
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+    }
+
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    // unlock accelerated for Alice
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).unlock_height(),
+        37
+    );
+
+    // now, we advance to just before epoch 2.2
+
+    let height_target = LAST_2_1_START;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // alice locks up once again
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        alice_nonce,
+        first_lockup_amt + 1,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    let mut latest_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        first_lockup_amt + 1,
+    );
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        total_balance,
+    );
+
+    // unlock no longer accelerated for Alice
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).unlock_height(),
+        85
+    );
+
+    let mut check_cycles_10_and_later = |peer: &mut TestPeer, latest_block: StacksBlockId| {
+        // Only Bob stacked in cycle 10
+        for cycle_number in [EXPECTED_LAST_V2_CYCLE] {
+            let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+            let reward_set_entries = get_reward_set_entries_at(peer, &latest_block, cycle_start);
+
+            assert_eq!(
+                get_reward_cycle_total(peer, &latest_block, cycle_number),
+                bob_lockup_amt,
+            );
+            assert_eq!(reward_set_entries.len(), 1);
+            assert_eq!(
+                reward_set_entries[0].reward_address.bytes(),
+                key_to_stacks_addr(&bob).bytes.0.to_vec()
+            );
+            assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+        }
+
+        // Both Alice and Bob are locked in cycles 11 and 12
+        for cycle_number in (EXPECTED_LAST_V2_CYCLE + 1)..(EXPECTED_LAST_V2_CYCLE + 3) {
+            assert_eq!(
+                get_reward_cycle_total(peer, &latest_block, cycle_number),
+                first_lockup_amt + 1 + bob_lockup_amt,
+            );
+            let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+            let reward_set_entries = get_reward_set_entries_at(peer, &latest_block, cycle_start);
+            assert_eq!(reward_set_entries.len(), 2);
+            // BOB is first by ordering
+            assert_eq!(
+                reward_set_entries[0].reward_address.bytes(),
+                key_to_stacks_addr(&bob).bytes.0.to_vec()
+            );
+            assert_eq!(reward_set_entries[0].amount_stacked, bob_lockup_amt,);
+
+            // ALICE is second by ordering
+            assert_eq!(
+                reward_set_entries[1].reward_address.bytes(),
+                key_to_stacks_addr(&alice).bytes.0.to_vec()
+            );
+            assert_eq!(reward_set_entries[1].amount_stacked, first_lockup_amt + 1,);
+        }
+
+        // Only Alice locked in cycles 13+
+        for cycle_number in (EXPECTED_LAST_V2_CYCLE + 3)..(EXPECTED_LAST_V2_CYCLE + 6) {
+            assert_eq!(
+                get_reward_cycle_total(peer, &latest_block, cycle_number),
+                first_lockup_amt + 1,
+            );
+            let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+            let reward_set_entries = get_reward_set_entries_at(peer, &latest_block, cycle_start);
+            assert_eq!(reward_set_entries.len(), 1);
+            assert_eq!(
+                reward_set_entries[0].reward_address.bytes(),
+                key_to_stacks_addr(&alice).bytes.0.to_vec()
+            );
+            assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt + 1,);
+        }
+    };
+
+    check_cycles_10_and_later(&mut peer, latest_block.clone());
+
+    // now, we advance to epoch 2.2
+    let height_target = EPOCH_2_2_START + 2;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // unlock *still* not accelerated for Alice
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).unlock_height(),
+        85
+    );
+
+    // Alice is *still* locked in pox-2
+    check_cycles_10_and_later(&mut peer, latest_block.clone());
+}

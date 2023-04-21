@@ -354,65 +354,74 @@ impl StacksChainState {
         let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
 
         let mut total_events = vec![];
-        for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
-            // we have to do several things for each principal
-            // 1. lookup their Stacks account and accelerate their unlock
-            // 2. remove the user's entries from every `reward-cycle-pox-address-list` they were in
-            //     (a) this can be done by moving the last entry to the now vacated spot,
-            //         and, if necessary, updating the associated `stacking-state` entry's pointer
-            //     (b) or, if they were the only entry in the list, then just deleting them from the list
-            // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
-            // 4. delete the user's stacking-state entry.
-            clarity.with_clarity_db(|db| {
-                // lookup the Stacks account and alter their unlock height to next block
-                let mut balance = db.get_stx_balance_snapshot(&principal);
-                if balance.canonical_balance_repr().amount_locked() < *amount_locked {
-                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", balance.canonical_balance_repr().amount_locked(), *amount_locked);
-                }
 
-                balance.accelerate_unlock();
-                balance.save();
-                Ok(())
-            }).expect("FATAL: failed to accelerate PoX unlock");
+        // short-circuit if auto-unlock no longer happens (as of epoch 2.2)
+        if clarity.get_epoch() >= StacksEpochId::Epoch22 {
+            debug!("PoX auto-unlock is disabled in this epoch"; "reward_cycle" => cycle_number);
+        } else {
+            debug!("PoX auto-unlock starting"; "reward_cycle" => cycle_number, "epoch" => %clarity.get_epoch());
+            for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
+                // we have to do several things for each principal
+                // 1. lookup their Stacks account and accelerate their unlock
+                // 2. remove the user's entries from every `reward-cycle-pox-address-list` they were in
+                //     (a) this can be done by moving the last entry to the now vacated spot,
+                //         and, if necessary, updating the associated `stacking-state` entry's pointer
+                //     (b) or, if they were the only entry in the list, then just deleting them from the list
+                // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
+                // 4. delete the user's stacking-state entry.
+                clarity.with_clarity_db(|db| {
+                    // lookup the Stacks account and alter their unlock height to next block
+                    let mut balance = db.get_stx_balance_snapshot(&principal);
+                    if balance.canonical_balance_repr().amount_locked() < *amount_locked {
+                        panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", balance.canonical_balance_repr().amount_locked(), *amount_locked);
+                    }
 
-            // query the stacking state for this user before deleting it
-            let user_data = Self::get_user_stacking_state(clarity, principal);
+                    balance.accelerate_unlock();
+                    balance.save();
+                    Ok(())
+                }).expect("FATAL: failed to accelerate PoX unlock");
 
-            // perform the unlock
-            let (result, _, mut events, _) = clarity
-                .with_abort_callback(
-                    |vm_env| {
-                        vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                            env.execute_contract_allow_private(
-                                &pox_contract,
-                                "handle-unlock",
-                                &[
-                                    SymbolicExpression::atom_value(principal.clone().into()),
-                                    SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
-                                    SymbolicExpression::atom_value(Value::UInt(
-                                        cycle_number.into(),
-                                    )),
-                                ],
-                                false,
-                            )
-                        })
-                    },
-                    |_, _| false,
-                )
-                .expect("FATAL: failed to handle PoX unlock");
+                // query the stacking state for this user before deleting it
+                let user_data = Self::get_user_stacking_state(clarity, principal);
 
-            // this must be infallible
-            result.expect_result_ok();
+                test_debug!("Unlock principal"; "principal" => %principal, "amount_locked" => *amount_locked, "reward_cycle" => cycle_number);
 
-            // extract metadata about the unlock
-            let event_info =
-                Self::synthesize_unlock_event_data(clarity, principal, cycle_number, user_data);
+                // perform the unlock
+                let (result, _, mut events, _) = clarity
+                    .with_abort_callback(
+                        |vm_env| {
+                            vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
+                                env.execute_contract_allow_private(
+                                    &pox_contract,
+                                    "handle-unlock",
+                                    &[
+                                        SymbolicExpression::atom_value(principal.clone().into()),
+                                        SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
+                                        SymbolicExpression::atom_value(Value::UInt(
+                                            cycle_number.into(),
+                                        )),
+                                    ],
+                                    false,
+                                )
+                            })
+                        },
+                        |_, _| false,
+                    )
+                    .expect("FATAL: failed to handle PoX unlock");
 
-            // Add synthetic print event for `handle-unlock`, since it alters stacking state
-            let tx_event =
-                Environment::construct_print_transaction_event(&pox_contract, &event_info);
-            events.push(tx_event);
-            total_events.extend(events.into_iter());
+                // this must be infallible
+                result.expect_result_ok();
+
+                // extract metadata about the unlock
+                let event_info =
+                    Self::synthesize_unlock_event_data(clarity, principal, cycle_number, user_data);
+
+                // Add synthetic print event for `handle-unlock`, since it alters stacking state
+                let tx_event =
+                    Environment::construct_print_transaction_event(&pox_contract, &event_info);
+                events.push(tx_event);
+                total_events.extend(events.into_iter());
+            }
         }
 
         Ok(total_events)
@@ -864,7 +873,8 @@ impl StacksChainState {
                     //                    "stackers" => %VecDisplay(&contributed_stackers),
                     "reward_address" => %address.clone().to_b58(),
                     "threshold" => threshold,
-                    "stacked_amount" => stacked_amt
+                    "stacked_amount" => stacked_amt,
+                    "epoch" => %epoch_id,
                 );
                 contributed_stackers
                     .sort_by_cached_key(|(stacker, ..)| to_hex(&stacker.serialize_to_vec()));
