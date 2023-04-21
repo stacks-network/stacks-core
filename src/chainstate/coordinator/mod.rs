@@ -265,7 +265,10 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
-        if current_burn_height > burnchain.pox_constants.v2_unlock_height as u64 {
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
+            &format!("FATAL: no epoch for burn height {}", current_burn_height),
+        );
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch22 {
             info!("PoX reward cycle defaulting to burn in Epoch 2.2");
             return Ok(RewardSet::empty());
         }
@@ -299,10 +302,6 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
         }
-
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
-            &format!("FATAL: no epoch for burn height {}", current_burn_height),
-        );
 
         Ok(StacksChainState::make_reward_set(
             threshold,
