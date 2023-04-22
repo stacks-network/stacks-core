@@ -176,6 +176,12 @@ fn handle_define_persisted_variable(
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
 
+    env.register_data_var_set_event(
+        &env.contract_context.contract_identifier,
+        &variable_str,
+        &value,
+    );
+
     Ok(DefineResult::PersistedVariable(
         variable_str.clone(),
         value_type_signature,

@@ -29,6 +29,7 @@ pub enum StacksTransactionEvent {
     STXEvent(STXEventType),
     NFTEvent(NFTEventType),
     FTEvent(FTEventType),
+    DataEvent(DataEventType),
 }
 
 impl StacksTransactionEvent {
@@ -116,6 +117,34 @@ impl StacksTransactionEvent {
                 "type": "ft_burn_event",
                 "ft_burn_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "data_var_set_event",
+                "data_var_set_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::DataEvent(DataEventType::MapInsertEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "data_map_insert_event",
+                "data_map_insert_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::DataEvent(DataEventType::MapUpdateEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "data_map_update_event",
+                "data_map_update_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::DataEvent(DataEventType::MapDeleteEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "data_map_delete_event",
+                "data_map_delete_event": event_data.json_serialize()
+            }),
         }
     }
 }
@@ -140,6 +169,14 @@ pub enum FTEventType {
     FTTransferEvent(FTTransferEventData),
     FTMintEvent(FTMintEventData),
     FTBurnEvent(FTBurnEventData),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataEventType {
+    VarSetEvent(VarSetEventData),
+    MapInsertEvent(MapInsertEventData),
+    MapUpdateEvent(MapUpdateEventData),
+    MapDeleteEvent(MapDeleteEventData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -356,6 +393,120 @@ impl SmartContractEventData {
             "topic": self.key.1,
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarSetEventData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub var: String,
+    pub new_value: Value,
+}
+
+impl VarSetEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let raw_new_value = {
+            let mut bytes = vec![];
+            self.new_value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        json!({
+            "contract_identifier": format!("{}", self.contract_identifier),
+            "var": format!("{}",self.var),
+            "new_value": self.new_value,
+            "raw_new_value": format!("0x{}", raw_new_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapInsertEventData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub map: String,
+    pub inserted_key: Value,
+    pub inserted_value: Value,
+}
+
+impl MapInsertEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let raw_inserted_key = {
+            let mut bytes = vec![];
+            self.inserted_key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        let raw_inserted_value = {
+            let mut bytes = vec![];
+            self.inserted_value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        json!({
+            "contract_identifier": format!("{}", self.contract_identifier),
+            "map": format!("{}",self.map),
+            "inserted_key": self.inserted_key,
+            "raw_inserted_key": format!("0x{}", raw_inserted_key.join("")),
+            "inserted_value": self.inserted_value,
+            "raw_inserted_value": format!("0x{}", raw_inserted_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapUpdateEventData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub map: String,
+    pub key: Value,
+    pub new_value: Value,
+}
+
+impl MapUpdateEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let raw_key = {
+            let mut bytes = vec![];
+            self.key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        let raw_new_value = {
+            let mut bytes = vec![];
+            self.new_value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        json!({
+            "contract_identifier": format!("{}", self.contract_identifier),
+            "map": format!("{}",self.map),
+            "key": self.key,
+            "raw_key": format!("0x{}", raw_key.join("")),
+            "new_value": self.new_value,
+            "raw_new_value": format!("0x{}", raw_new_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapDeleteEventData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub map: String,
+    pub deleted_key: Value,
+}
+
+impl MapDeleteEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let raw_deleted_key = {
+            let mut bytes = vec![];
+            self.deleted_key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            formatted_bytes
+        };
+        json!({
+            "contract_identifier": format!("{}", self.contract_identifier),
+            "map": format!("{}",self.map),
+            "deleted_key": self.deleted_key,
+            "raw_deleted_key": format!("0x{}", raw_deleted_key.join("")),
         })
     }
 }
