@@ -541,12 +541,12 @@ impl BitcoinRegtestController {
                         burnchain_error::BurnchainPeerBroken => {
                             // remote burnchain peer broke, and produced a shorter blockchain fork.
                             // just keep trying
-                            sleep_ms(5000);
+                            sleep_ms(1000);
                             continue;
                         }
                         _ => {
                             // delay and try again
-                            sleep_ms(5000);
+                            sleep_ms(1000);
                             continue;
                         }
                     }
