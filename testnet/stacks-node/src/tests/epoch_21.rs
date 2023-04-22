@@ -75,6 +75,7 @@ fn advance_to_2_1(
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -578,6 +579,7 @@ fn transition_fixes_bitcoin_rigidity() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -1472,6 +1474,7 @@ fn transition_removes_pox_sunset() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     conf.initial_balances.push(InitialBalance {
@@ -1788,6 +1791,7 @@ fn transition_empty_blocks() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -4743,6 +4747,7 @@ fn trait_invocation_cross_epoch() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -4991,6 +4996,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
     conf.initial_balances.append(&mut initial_balances);
 
@@ -5255,6 +5261,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
     conf.initial_balances.append(&mut initial_balances);
 

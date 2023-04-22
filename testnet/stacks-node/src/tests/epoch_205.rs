@@ -113,6 +113,7 @@ fn test_exact_block_costs() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -339,6 +340,7 @@ fn test_dynamic_db_method_costs() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -775,6 +777,7 @@ fn test_cost_limit_switch_version205() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -1033,6 +1036,7 @@ fn bigger_microblock_streams_in_2_05() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
