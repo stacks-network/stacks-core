@@ -768,7 +768,7 @@ impl Config {
             );
         }
 
-        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
+        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1, 2.2, 2.3, 2.4]
         let expected_list = [
             StacksEpochId::Epoch10,
             StacksEpochId::Epoch20,
@@ -985,9 +985,11 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
+                    let include_data_events = observer.include_data_events.unwrap_or(false);
                     observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
+                        include_data_events,
                     });
                 }
                 observers
@@ -997,14 +999,12 @@ impl Config {
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => {
-                events_observers.insert(EventObserverConfig {
-                    endpoint: val,
-                    events_keys: vec![EventKeyType::AnyEvent],
-                });
-                ()
-            }
-            _ => (),
+            Ok(val) => events_observers.insert(EventObserverConfig {
+                endpoint: val,
+                events_keys: vec![EventKeyType::AnyEvent],
+                include_data_events: false,
+            }),
+            _ => false,
         };
 
         let connection_options = match config_file.connection_options {
@@ -2356,12 +2356,14 @@ impl AtlasConfigFile {
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub include_data_events: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub include_data_events: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
