@@ -121,7 +121,14 @@ pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 2_422_101;
 pub const BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT: u64 = 2_431_300;
 pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_633;
 
-pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
+// On regtest networks, we need to matured coinbases for mining Stacks blocks.
+// We start at block #100 so we avoid indexing the first 100 non matured
+// coinbases.
+pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 100;
+pub const BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT: u64 = 120;
+pub const BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT: u64 = 140;
+pub const BITCOIN_REGTEST_STACKS_22_BURN_HEIGHT: u64 = 160;
+pub const BITCOIN_REGTEST_STACKS_23_BURN_HEIGHT: u64 = 180;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
@@ -327,7 +334,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 4] = [
+    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 6] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -337,24 +344,38 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 1000,
+            start_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 1000,
-            end_height: 2000,
+            start_height: BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
-            start_height: 2000,
-            end_height: STACKS_EPOCH_MAX,
+            start_height: BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_22_BURN_HEIGHT,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch22,
+            start_height: BITCOIN_REGTEST_STACKS_22_BURN_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_23_BURN_HEIGHT,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch23,
+            start_height: BITCOIN_REGTEST_STACKS_23_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_3
         },
     ];
 }

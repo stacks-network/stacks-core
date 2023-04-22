@@ -420,15 +420,15 @@ impl PoxConstants {
 
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
+            10,
+            4,
+            3,
+            25,
             5,
-            1,
-            1,
-            3333333333333333,
-            1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-            1_000_000,
-            2_000_000,
+            BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap(),
+            BITCOIN_REGTEST_STACKS_22_BURN_HEIGHT.try_into().unwrap(),
         )
     }
 
