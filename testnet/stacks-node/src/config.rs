@@ -3,6 +3,7 @@ use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
 use std::time::Duration;
 
 use clarity::vm::costs::ExecutionCost;
@@ -802,7 +803,7 @@ impl Config {
             );
         }
 
-        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
+        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1, 2.2, 2.3, 2.4]
         let expected_list = [
             StacksEpochId::Epoch10,
             StacksEpochId::Epoch20,
@@ -1017,9 +1018,11 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
+                    let include_data_events = observer.include_data_events.unwrap_or(false);
                     observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
+                        include_data_events,
                     });
                 }
                 observers
@@ -1033,6 +1036,7 @@ impl Config {
                 events_observers.insert(EventObserverConfig {
                     endpoint: val,
                     events_keys: vec![EventKeyType::AnyEvent],
+                    include_data_events: false,
                 });
                 ()
             }
@@ -1456,18 +1460,21 @@ impl BurnchainConfigFile {
                     // Using std::net::LookupHost would be preferable, but it's
                     // unfortunately unstable at this point.
                     // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                    let mut sock_addrs = format!("{}:1", &peer_host)
-                        .to_socket_addrs()
-                        .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
-                    let sock_addr = match sock_addrs.next() {
-                        Some(addr) => addr,
-                        None => {
+                    let mut attempts = 0;
+                    let mut addrs_iter = loop {
+                        if let Ok(addrs_iter) = format!("{}:1", peer_host).to_socket_addrs() {
+                            break addrs_iter;
+                        }
+                        attempts += 1;
+                        if attempts == 15 {
                             return Err(format!(
                                 "No IP address could be queried for '{}'",
                                 &peer_host
                             ));
                         }
+                        sleep(std::time::Duration::from_secs(5));
                     };
+                    let sock_addr = addrs_iter.next().unwrap();
                     format!("{}", sock_addr.ip())
                 }
                 None => default_burnchain_config.peer_host,
@@ -2522,12 +2529,14 @@ impl AtlasConfigFile {
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub include_data_events: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub include_data_events: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
