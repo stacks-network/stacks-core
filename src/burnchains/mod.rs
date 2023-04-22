@@ -23,6 +23,7 @@ use std::io;
 use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
+use stacks_common::consts::BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP;
 
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
@@ -404,14 +405,14 @@ impl PoxConstants {
 
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
+            10,
+            4,
+            3,
+            25,
             5,
-            1,
-            1,
-            3333333333333333,
-            1,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-            1_000_000,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap(),
         )
     }
 
