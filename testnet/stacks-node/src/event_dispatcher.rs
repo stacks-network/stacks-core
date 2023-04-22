@@ -26,7 +26,7 @@ use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBloc
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::costs::ExecutionCost;
-use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
+use stacks::vm::events::{DataEventType, FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
@@ -39,6 +39,7 @@ use stacks::chainstate::stacks::TransactionPayload;
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
+    include_data_events: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -584,6 +585,40 @@ impl EventDispatcher {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
+                    StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(_event_data)) => {
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapInsertEvent(
+                        _event_data,
+                    )) => {
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapUpdateEvent(
+                        _event_data,
+                    )) => {
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapDeleteEvent(
+                        _event_data,
+                    )) => {
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
                         if let Some(observer_indexes) =
                             self.contract_events_observers_lookup.get(&event_data.key)
@@ -592,12 +627,18 @@ impl EventDispatcher {
                                 dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
+                        for o_i in &self.any_event_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);
                         }
                     }
@@ -609,6 +650,9 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
@@ -616,6 +660,9 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
@@ -623,6 +670,9 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
@@ -630,6 +680,9 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
@@ -637,6 +690,9 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                     StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
@@ -644,12 +700,12 @@ impl EventDispatcher {
                             i,
                             &mut dispatch_matrix,
                         );
+                        for o_i in &self.any_event_observers_lookup {
+                            dispatch_matrix[*o_i as usize].insert(i);
+                        }
                     }
                 }
                 events.push((!receipt.post_condition_aborted, tx_hash, event));
-                for o_i in &self.any_event_observers_lookup {
-                    dispatch_matrix[*o_i as usize].insert(i);
-                }
                 i += 1;
             }
         }
@@ -944,6 +1000,7 @@ impl EventDispatcher {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
+            include_data_events: conf.include_data_events,
         };
 
         let observer_index = self.registered_observers.len() as u16;
@@ -1019,6 +1076,7 @@ mod test {
     fn build_block_processed_event() {
         let observer = EventObserver {
             endpoint: "nowhere".to_string(),
+            include_data_events: false,
         };
 
         let filtered_events = vec![];
