@@ -462,30 +462,6 @@ fn disable_pox() {
                         .insert(pox_addr_1, 1);
                 }
             }
-
-            // let mut have_expected_payout = false;
-            // if height < epoch_2_1 + (reward_cycle_len as u64) {
-            //         for addr_tuple in pox_addrs {
-            //             // can either pay to pox tuple 1, or burn
-            //             assert_ne!(addr_tuple, pox_addr_tuple_2);
-            //             if addr_tuple == pox_addr_tuple_1 {
-            //                 have_expected_payout = true;
-            //             }
-            //         }
-            //     }
-            // } else {
-            //     if pox_addrs.len() > 0 {
-            //         assert_eq!(pox_addrs.len(), 2);
-            //         for addr_tuple in pox_addrs {
-            //             // can either pay to pox tuple 2, or burn
-            //             assert_ne!(addr_tuple, pox_addr_tuple_1);
-            //             if addr_tuple == pox_addr_tuple_2 {
-            //                 have_expected_payout = true;
-            //             }
-            //         }
-            //     }
-            // }
-            // assert!(have_expected_payout);
         }
     }
 

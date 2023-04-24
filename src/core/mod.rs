@@ -649,7 +649,7 @@ impl StacksEpochExtension for StacksEpoch {
                     read_count: 210210,
                     runtime: 210210,
                 },
-                network_epoch: PEER_VERSION_EPOCH_2_1,
+                network_epoch: PEER_VERSION_EPOCH_2_2,
             },
         ]
     }
