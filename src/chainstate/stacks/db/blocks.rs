@@ -5202,10 +5202,10 @@ impl StacksChainState {
                         // strictly speaking this check is defensive. It will never be the case
                         // that a `miner_reward` has a `recipient_contract` that is `Some(..)`
                         // unless the block was mined in Epoch 2.1.  But you can't be too
-                        // careful... 
+                        // careful...
                         if evaluated_epoch >= StacksEpochId::Epoch21 {
                             // in 2.1 or later, the coinbase may optionally specify a contract into
-                            // which the tokens get sent.  If this is not given, then they are sent 
+                            // which the tokens get sent.  If this is not given, then they are sent
                             // to the miner address.
                             miner_reward.recipient.clone()
                         }

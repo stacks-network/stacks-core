@@ -1676,7 +1676,7 @@ pub enum HttpRequestType {
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
 
-    GetStackerDbChunkMetadata(HttpRequestMetadata),
+    GetStackerDBs(HttpRequestMetadata),
 
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
@@ -1805,7 +1805,7 @@ pub enum HttpResponseType {
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
 
-    StackerDbChunkMetadata(HttpResponseMetadata, u64),
+    StackerDBs(HttpResponseMetadata, Vec<ContractId>),
 
     Error(HttpResponseMetadata, u16, String),
 }

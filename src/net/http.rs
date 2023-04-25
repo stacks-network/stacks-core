@@ -159,6 +159,7 @@ lazy_static! {
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
+    static ref PATH_GET_STACKER_DBS: Regex = Regex::new(r#"^/v2/stackerdbs$"#).unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1602,6 +1603,11 @@ impl HttpRequestType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpRequestType::parse_post_mempool_query,
             ),
+            (
+                "GET",
+                &PATH_GET_STACKER_DBS,
+                &HttpRequestType::parse_get_stacker_dbs,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -2677,6 +2683,23 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_get_stacker_dbs<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetStackerDBs".to_string(),
+            ));
+        }
+        Ok(HttpRequestType::GetStackerDBs(
+            HttpRequestMetadata::from_preamble(preamble),
+        ))
+    }
+
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
@@ -2705,6 +2728,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
+            HttpRequestType::GetStackerDBs(ref md) => md,
         }
     }
 
@@ -2736,6 +2760,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
+            HttpRequestType::GetStackerDBs(ref mut md) => md,
         }
     }
 
@@ -2909,6 +2934,7 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+            HttpRequestType::GetStackerDBs(_md) => "/v2/stackerdbs".to_string(),
         }
     }
 
@@ -2945,6 +2971,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+            HttpRequestType::GetStackerDBs(..) => "/v2/stackerdbs",
         }
     }
 
@@ -3423,6 +3450,10 @@ impl HttpResponseType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpResponseType::parse_post_mempool_query,
             ),
+            (
+                &PATH_GET_STACKER_DBS,
+                &HttpResponseType::parse_get_stacker_dbs,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -3858,6 +3889,21 @@ impl HttpResponseType {
         Ok(Some(next_page))
     }
 
+    fn parse_get_stacker_dbs<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let stacker_dbs =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::StackerDBs(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            stacker_dbs,
+        ))
+    }
+
     /// Decode a transaction stream, returned from /v2/mempool/query.
     /// The wire format is a list of transactions (no SIP-003 length prefix), followed by an
     /// optional 32-byte page ID.  Obtain both the transactions and page ID, if it exists.
@@ -4021,6 +4067,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::StackerDBs(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -4351,11 +4398,10 @@ impl HttpResponseType {
             HttpResponseType::ServiceUnavailable(_, ref msg) => {
                 self.error_response(fd, 503, msg)?
             }
-
-            HttpResponseType::StackerDbChunkMetadata(_, ref msg) => {
-                todo!()
+            HttpResponseType::StackerDBs(ref md, ref contract_ids) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, contract_ids)?;
             }
-
             HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
@@ -4443,6 +4489,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
+                HttpRequestType::GetStackerDBs(_) => "HTTP(GetStackerDBs)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4484,6 +4531,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TransactionFeeEstimation(_, _) => {
                     "HTTP(TransactionFeeEstimation)"
                 }
+                HttpResponseType::StackerDBs(_, _) => "HTTP(StackerDBs)",
             },
         }
     }

@@ -1731,7 +1731,7 @@ impl MemPoolDB {
         nonce: u64,
     ) -> Result<Option<MemPoolTxMetadata>, db_error> {
         let sql = format!(
-            "SELECT 
+            "SELECT
                           txid,
                           origin_address,
                           origin_nonce,

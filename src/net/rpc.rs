@@ -2384,6 +2384,23 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
+    /// Handle a request for StackerDB chunk metadata
+    fn handle_get_stacker_dbs<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        canonical_stacks_tip_height: u64,
+        stacker_db: &StackerDB,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let contract_ids = stacker_db.get_stackerdbs()?;
+        let response = HttpResponseType::StackerDBs(response_metadata, contract_ids);
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -2926,8 +2943,16 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::GetStackerDbChunkMetadata(ref _md) => {
-                todo!()
+            HttpRequestType::GetStackerDBs(ref _md) => {
+                ConversationHttp::handle_get_stacker_dbs(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                    stacker_db,
+                )?;
+
+                None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {
                 let response_metadata = HttpResponseMetadata::from_http_request_type(
@@ -4142,6 +4167,7 @@ mod test {
                 &mut peer_1_stacks_node.chainstate,
                 &mut peer_1_mempool,
                 &RPCHandlerArgs::default(),
+                (), // TODO How do I create stacker DB here?
             )
             .unwrap();
 
@@ -4177,6 +4203,7 @@ mod test {
                 &mut peer_2_stacks_node.chainstate,
                 &mut peer_2_mempool,
                 &RPCHandlerArgs::default(),
+                (), // TODO How do I create stacker DB here?
             )
             .unwrap();
 

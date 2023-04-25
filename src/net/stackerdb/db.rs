@@ -83,7 +83,7 @@ const CHUNKS_DB_TABLE_BODY: &'static str = r#"
         data BLOB NOT NULL,
         -- UNIX timestamp when the chunk was written.
         write_time INTEGER NOT NULL,
-        
+
         PRIMARY KEY(rc_consensus_hash,chunk_id)
     );
     "#;
