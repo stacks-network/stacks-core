@@ -113,9 +113,10 @@ jobs:
       matrix:
         platform:
           [
-            windows-x64,
-            macos-x64,
-            macos-arm64,
+            # disable mac, windows builds until osxcross can be updated for buster
+            # windows-x64,
+            # macos-x64,
+            # macos-arm64,
             linux-x64,
             linux-musl-x64,
             linux-armv7,
@@ -302,9 +303,10 @@ jobs:
       matrix:
         platform:
           [
-            windows-x64,
-            macos-x64,
-            macos-arm64,
+            # disable mac, windows builds until osxcross can be updated for buster
+#            windows-x64,
+#            macos-x64,
+#            macos-arm64,
             linux-x64,
             linux-musl-x64,
             linux-armv7,
