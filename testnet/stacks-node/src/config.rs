@@ -409,6 +409,14 @@ impl Config {
             burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
         }
 
+        if let Some(pox_2_unlock_height) = self.burnchain.pox_2_unlock_height {
+            debug!(
+                "Override pox_2_unlock_height from {} to {}",
+                burnchain.pox_constants.v2_unlock_height, pox_2_unlock_height
+            );
+            burnchain.pox_constants.v2_unlock_height = pox_2_unlock_height;
+        }
+
         if let Some(sunset_start) = self.burnchain.sunset_start {
             debug!(
                 "Override sunset_start from {} to {}",
@@ -819,6 +827,9 @@ impl Config {
                     pox_2_activation: burnchain
                         .pox_2_activation
                         .or(default_burnchain_config.pox_2_activation),
+                    pox_2_unlock_height: burnchain
+                        .pox_2_unlock_height
+                        .or(default_burnchain_config.pox_2_unlock_height),
                     sunset_start: burnchain
                         .sunset_start
                         .or(default_burnchain_config.sunset_start),
@@ -1323,6 +1334,7 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
+    pub pox_2_unlock_height: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
@@ -1356,6 +1368,7 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
+            pox_2_unlock_height: None,
             sunset_start: None,
             sunset_end: None,
             wallet_name: "".to_string(),
@@ -1436,6 +1449,7 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_2_activation: Option<u32>,
+    pub pox_2_unlock_height: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,

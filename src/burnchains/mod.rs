@@ -427,8 +427,8 @@ impl PoxConstants {
             5,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-            BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap(),
-            BITCOIN_REGTEST_STACKS_22_BURN_HEIGHT.try_into().unwrap(),
+            POX_V1_REGTEST_EARLY_UNLOCK_HEIGHT,
+            POX_V2_REGTEST_EARLY_UNLOCK_HEIGHT,
         )
     }
 
