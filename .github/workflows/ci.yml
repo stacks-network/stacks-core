@@ -114,8 +114,9 @@ jobs:
         platform:
           [
             windows-x64,
-            macos-x64,
-            macos-arm64,
+            # disable mac builds until osxcross can be updated for buster
+            # macos-x64,
+            # macos-arm64,
             linux-x64,
             linux-musl-x64,
             linux-armv7,
