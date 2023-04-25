@@ -521,9 +521,7 @@ fn disable_pox() {
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
-        // Epoch 2.2 has started, so the reward set should be fixed.
-        //  pox_addr_2 should get 1 extra slot, because stack-increase
-        //  did increase their stacked amount
+        // Epoch 2.2 has started, so the reward set should be all burns.
         (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
         (27, HashMap::from([(burn_pox_addr.clone(), 14)])),
     ]);
