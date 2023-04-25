@@ -1,4 +1,4 @@
-FROM rust:stretch as build
+FROM rust:buster as build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
