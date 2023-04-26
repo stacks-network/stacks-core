@@ -761,7 +761,7 @@ impl<'a> ClarityDatabase<'a> {
         self.burn_state_db.get_v1_unlock_height()
     }
 
-    /// Return the height for PoX v1 -> v2 auto unlocks
+    /// Return the height for PoX v2 -> v3 auto unlocks
     ///   from the burn state db
     pub fn get_v2_unlock_height(&self) -> u32 {
         self.burn_state_db.get_v2_unlock_height()
