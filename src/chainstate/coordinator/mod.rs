@@ -2991,8 +2991,10 @@ impl<
                                     return Ok(Some(pox_anchor));
                                 }
                             }
-                            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
-                                // 2.1 behavior: the anchor block must also be the
+                            StacksEpochId::Epoch21
+                            | StacksEpochId::Epoch22
+                            | StacksEpochId::Epoch23 => {
+                                // 2.1 and onward behavior: the anchor block must also be the
                                 // heaviest-confirmed anchor block by BTC weight, and the highest
                                 // such anchor block if there are multiple contenders.
                                 if let Some(pox_anchor) =

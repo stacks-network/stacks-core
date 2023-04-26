@@ -4892,6 +4892,13 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch23 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4906,21 +4913,41 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
-                    StacksEpochId::Epoch21 => {
+                    StacksEpochId::Epoch21 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch22 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch22 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch22,
-                            "Should only transition from Epoch21 to Epoch22"
+                            StacksEpochId::Epoch23,
+                            "Should only transition from Epoch22 to Epoch23"
                         );
-                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch22 => {
-                        panic!("No defined transition from Epoch22 forward")
+                    StacksEpochId::Epoch23 => {
+                        panic!("No defined transition from Epoch23 forward")
                     }
                 }
             }
@@ -5507,7 +5534,7 @@ impl StacksChainState {
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
                 Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
