@@ -113,8 +113,8 @@ jobs:
       matrix:
         platform:
           [
-            # disable mac, windows builds until osxcross can be updated for buster
-            # windows-x64,
+            # disable mac builds until osxcross can be updated for bullseye
+            windows-x64,
             # macos-x64,
             # macos-arm64,
             linux-x64,
@@ -258,7 +258,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           platforms: linux/amd64
-          file: Dockerfile.stretch
+          file: Dockerfile.debian
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -303,8 +303,8 @@ jobs:
       matrix:
         platform:
           [
-            # disable mac, windows builds until osxcross can be updated for buster
-#            windows-x64,
+            # disable mac builds until osxcross can be updated for bullseye
+            windows-x64,
 #            macos-x64,
 #            macos-arm64,
             linux-x64,
