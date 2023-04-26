@@ -20,6 +20,7 @@ use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHead
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn;
 use stacks_common::deps_common::bitcoin::network::message as btc_message;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
@@ -307,6 +308,100 @@ impl BitcoinBlockParser {
         }
     }
 
+    /// Parse op_drop data from the first input to get a byte payload
+    ///
+    /// The data may be present in the redeem script directly or in the witness
+    ///
+    /// Note: We initially only support p2wsh-over-p2sh.
+    ///       Supporting plain p2wsh require having the scriptPubKey available,
+    ///       which entails a UTXO lookup and require larger changes to the code.
+    fn parse_op_drop_data(input: &TxIn) -> Option<(u8, Vec<u8>)> {
+        let instructions = bits::parse_script(&input.script_sig);
+
+        // TODO(3680): Test this logic and add appropriate logging
+        match instructions.as_slice() {
+            &[] => None, // Native segwit, not supported
+            &[Instruction::PushBytes(redeem_script)] => {
+                Self::parse_op_drop_data_from_redeem_script(
+                    &Script::from(redeem_script.to_vec()),
+                    &input.witness,
+                )
+            }
+            _ => None, // Invalid format
+        }
+    }
+
+    fn parse_op_drop_data_from_redeem_script(
+        redeem_script: &Script,
+        witness: &[impl AsRef<[u8]>],
+    ) -> Option<(u8, Vec<u8>)> {
+        let instructions = bits::parse_script(redeem_script);
+
+        match instructions.as_slice() {
+            // Segwit v0
+            &[Instruction::Op(btc_opcodes::OP_PUSHBYTES_0), Instruction::PushBytes(witness_hash)]
+                if witness_hash.len() == 32 =>
+            {
+                Self::parse_op_drop_data_from_segwit_v0_witness(witness)
+            }
+            // Taproot
+            &[Instruction::Op(btc_opcodes::OP_PUSHNUM_1), Instruction::PushBytes(witness_hash)]
+                if witness_hash.len() == 32 =>
+            {
+                Self::parse_op_drop_data_from_taproot_witness(witness)
+            }
+            // Redeem script
+            other => Self::extract_op_drop_data_from_parsed_script(other),
+        }
+    }
+
+    fn parse_op_drop_data_from_segwit_v0_witness(
+        witness: &[impl AsRef<[u8]>],
+    ) -> Option<(u8, Vec<u8>)> {
+        let script = Script::from(witness.last()?.as_ref().to_vec());
+        let instructions = bits::parse_script(&script);
+
+        Self::extract_op_drop_data_from_parsed_script(&instructions)
+    }
+
+    fn parse_op_drop_data_from_taproot_witness(
+        witness: &[impl AsRef<[u8]>],
+    ) -> Option<(u8, Vec<u8>)> {
+        let mut witness_elements = witness.iter().rev();
+
+        // Advance the iterator past control block. If the first element
+        // starts with 0x50, it's an annex and the second element is the
+        // control block. Else, the first element was the control block.
+        //
+        // Reference: https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#script-validation-rules
+        if witness_elements
+            .next()
+            .and_then(|element| element.as_ref().get(0))
+            == Some(&0x50)
+        {
+            witness_elements.next();
+        }
+
+        // The next element is the tapscript
+        let script = Script::from(witness_elements.next()?.as_ref().to_vec());
+        let instructions = bits::parse_script(&script);
+
+        Self::extract_op_drop_data_from_parsed_script(&instructions)
+    }
+
+    fn extract_op_drop_data_from_parsed_script(
+        instructions: &[Instruction],
+    ) -> Option<(u8, Vec<u8>)> {
+        match instructions {
+            &[Instruction::PushBytes(data), Instruction::Op(btc_opcodes::OP_DROP), ..] => {
+                let opcode = *data.get(0)?;
+                let op_data = data.get(1..78)?;
+                Some((opcode, op_data.to_vec()))
+            }
+            _ => None,
+        }
+    }
+
     /// Is this an acceptable transaction?  It must have
     /// * an OP_RETURN output at output 0
     /// * only p2pkh or p2sh outputs for outputs 1...n
@@ -433,6 +528,14 @@ impl BitcoinBlockParser {
         let data_amt = tx.output[0].value;
 
         let (opcode, data) = data_opt.unwrap();
+
+        let (opcode, data) = if opcode == 'w' as u8 {
+            // TODO(3680): Add to Opcodes?
+            Self::parse_op_drop_data(&tx.input[0]).unwrap() // TODO(3680): Ensure we don't crash on coinbase tx
+        } else {
+            (opcode, data)
+        };
+
         let inputs_opt = if BitcoinBlockParser::allow_raw_inputs(epoch_id) {
             Some(BitcoinBlockParser::parse_inputs_raw(tx))
         } else {
