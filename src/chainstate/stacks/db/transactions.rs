@@ -425,17 +425,22 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let (cur_burn_block_height, v1_unlock_ht) =
-            clarity_tx.with_clarity_db_readonly(|ref mut db| {
+        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht) = clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height(),
                     db.get_v1_unlock_height(),
+                    db.get_v2_unlock_height(),
                 )
             });
 
         let consolidated_balance = payer_account
             .stx_balance
-            .get_available_balance_at_burn_block(cur_burn_block_height as u64, v1_unlock_ht);
+            .get_available_balance_at_burn_block(
+                cur_burn_block_height as u64,
+                v1_unlock_ht,
+                v2_unlock_ht,
+            );
 
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);
@@ -7848,7 +7853,7 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_account(&mut conn, &addr.into())
                 .stx_balance
-                .get_available_balance_at_burn_block(0, 0),
+                .get_available_balance_at_burn_block(0, 0, 0),
             (1000000000 - fee) as u128
         );
 
@@ -8286,6 +8291,9 @@ pub mod test {
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }
+            fn get_v2_unlock_height(&self) -> u32 {
+                u32::max_value()
+            }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
             }
@@ -8347,6 +8355,7 @@ pub mod test {
                     StacksEpochId::Epoch20 => self.get_stacks_epoch(0),
                     StacksEpochId::Epoch2_05 => self.get_stacks_epoch(1),
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
+                    StacksEpochId::Epoch22 => self.get_stacks_epoch(3),
                 }
             }
             fn get_pox_payout_addrs(
@@ -8490,6 +8499,9 @@ pub mod test {
         impl BurnStateDB for MockedBurnDB {
             fn get_v1_unlock_height(&self) -> u32 {
                 2
+            }
+            fn get_v2_unlock_height(&self) -> u32 {
+                u32::max_value()
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)

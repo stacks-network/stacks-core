@@ -516,6 +516,7 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
             u64::max_value(),
             u64::max_value(),
             u32::max_value(),
+            u32::max_value(),
         )
     });
     b
@@ -953,6 +954,7 @@ fn missed_block_commits_2_05() {
         7010,
         sunset_ht,
         u32::max_value(),
+        u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -1268,6 +1270,7 @@ fn missed_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
+        u32::max_value(),
         u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -1608,6 +1611,7 @@ fn late_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
+        u32::max_value(),
         u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -2663,6 +2667,7 @@ fn test_pox_btc_ops() {
 
     let sunset_ht = 8000;
     let pox_v1_unlock_ht = u32::max_value();
+    let pox_v2_unlock_ht = u32::max_value();
     let pox_consts = Some(PoxConstants::new(
         5,
         3,
@@ -2672,6 +2677,7 @@ fn test_pox_btc_ops() {
         7010,
         sunset_ht,
         pox_v1_unlock_ht,
+        pox_v2_unlock_ht,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -2849,8 +2855,11 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked(), stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance
-                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
+                    stacker_balance.get_available_balance_at_burn_block(
+                        burn_height as u64,
+                        pox_v1_unlock_ht,
+                        pox_v2_unlock_ht
+                    ),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -2939,6 +2948,7 @@ fn test_stx_transfer_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = u32::max_value();
+    let pox_v2_unlock_ht = u32::max_value();
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         5,
@@ -2949,6 +2959,7 @@ fn test_stx_transfer_btc_ops() {
         7010,
         sunset_ht,
         pox_v1_unlock_ht,
+        pox_v2_unlock_ht,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3148,26 +3159,38 @@ fn test_stx_transfer_btc_ops() {
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance
-                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
+                    sender_balance.get_available_balance_at_burn_block(
+                        burn_height as u64,
+                        pox_v1_unlock_ht,
+                        pox_v2_unlock_ht
+                    ),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance
-                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
+                    recipient_balance.get_available_balance_at_burn_block(
+                        burn_height as u64,
+                        pox_v1_unlock_ht,
+                        pox_v2_unlock_ht
+                    ),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance
-                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
+                    sender_balance.get_available_balance_at_burn_block(
+                        burn_height as u64,
+                        pox_v1_unlock_ht,
+                        pox_v2_unlock_ht
+                    ),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance
-                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
+                    recipient_balance.get_available_balance_at_burn_block(
+                        burn_height as u64,
+                        pox_v1_unlock_ht,
+                        pox_v2_unlock_ht
+                    ),
                     0,
                 );
             }
@@ -3330,6 +3353,7 @@ fn test_delegate_stx_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
+    let pox_v2_unlock_ht = u32::max_value();
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         100,
@@ -3340,6 +3364,7 @@ fn test_delegate_stx_btc_ops() {
         7010,
         sunset_ht,
         pox_v1_unlock_ht,
+        pox_v2_unlock_ht,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3643,6 +3668,7 @@ fn test_initial_coinbase_reward_distributions() {
         7010,
         sunset_ht,
         u32::max_value(),
+        u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3880,6 +3906,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         10,
         sunset_ht,
         u32::max_value(),
+        u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4070,7 +4097,17 @@ fn test_epoch_switch_pox_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10));
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        10,
+        u32::max_value(),
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
@@ -4313,6 +4350,7 @@ fn test_epoch_verify_active_pox_contract() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
+    let pox_v2_unlock_ht = u32::max_value();
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         6,
@@ -4323,6 +4361,7 @@ fn test_epoch_verify_active_pox_contract() {
         7010,
         sunset_ht,
         pox_v1_unlock_ht,
+        pox_v2_unlock_ht,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4611,6 +4650,7 @@ fn test_sortition_with_sunset() {
         5,
         10,
         sunset_ht,
+        u32::max_value(),
         u32::max_value(),
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -4919,6 +4959,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         10,
         sunset_ht,
         v1_unlock_ht,
+        u32::max_value(),
     ));
 
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -5266,6 +5307,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         5,
         u64::MAX - 1,
         u64::MAX,
+        u32::max_value(),
         u32::max_value(),
     ));
     let b = get_burnchain(path, pox_consts.clone());

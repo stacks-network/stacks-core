@@ -4886,21 +4886,41 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch22 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
-                    StacksEpochId::Epoch2_05 => {
+                    StacksEpochId::Epoch2_05 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch21 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch22 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch21 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch21,
-                            "Should only transition from Epoch2_05 to Epoch21"
+                            StacksEpochId::Epoch22,
+                            "Should only transition from Epoch21 to Epoch22"
                         );
-                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch21 => {
-                        panic!("No defined transition from Epoch21 forward")
+                    StacksEpochId::Epoch22 => {
+                        panic!("No defined transition from Epoch22 forward")
                     }
                 }
             }
@@ -5487,7 +5507,7 @@ impl StacksChainState {
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
                 Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 => {
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -7146,11 +7166,12 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height) =
-            clarity_connection.with_clarity_db_readonly(|ref mut db| {
+        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
+            .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height() as u64,
                     db.get_v1_unlock_height(),
+                    db.get_v2_unlock_height(),
                 )
             });
 
@@ -7159,6 +7180,7 @@ impl StacksChainState {
             fee as u128,
             block_height,
             v1_unlock_height,
+            v2_unlock_height,
         ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -7167,9 +7189,11 @@ impl StacksChainState {
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         fee as u128,
-                        payer
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        payer.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
             }
@@ -7192,12 +7216,15 @@ impl StacksChainState {
                     total_spent,
                     block_height,
                     v1_unlock_height,
+                    v2_unlock_height,
                 ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
-                        origin
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        origin.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
 
@@ -7207,12 +7234,14 @@ impl StacksChainState {
                         fee as u128,
                         block_height,
                         v1_unlock_height,
+                        v2_unlock_height,
                     ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
                             payer.stx_balance.get_available_balance_at_burn_block(
                                 block_height,
                                 v1_unlock_height,
+                                v2_unlock_height,
                             ),
                         ));
                     }

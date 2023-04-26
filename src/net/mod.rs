@@ -2484,6 +2484,7 @@ pub mod test {
                 u64::max_value(),
                 u64::max_value(),
                 u32::max_value(),
+                u32::MAX,
             );
 
             let mut spending_account = TestMinerFactory::new().next_miner(

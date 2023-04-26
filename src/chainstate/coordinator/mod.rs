@@ -265,6 +265,14 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
+            &format!("FATAL: no epoch for burn height {}", current_burn_height),
+        );
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch22 {
+            info!("PoX reward cycle defaulting to burn in Epoch 2.2");
+            return Ok(RewardSet::empty());
+        }
+
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
@@ -294,10 +302,6 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
         }
-
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
-            &format!("FATAL: no epoch for burn height {}", current_burn_height),
-        );
 
         Ok(StacksChainState::make_reward_set(
             threshold,
@@ -2987,7 +2991,7 @@ impl<
                                     return Ok(Some(pox_anchor));
                                 }
                             }
-                            StacksEpochId::Epoch21 => {
+                            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
                                 // 2.1 behavior: the anchor block must also be the
                                 // heaviest-confirmed anchor block by BTC weight, and the highest
                                 // such anchor block if there are multiple contenders.

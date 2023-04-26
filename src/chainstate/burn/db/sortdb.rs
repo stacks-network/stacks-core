@@ -501,7 +501,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "4";
+pub const SORTITION_DB_VERSION: &'static str = "5";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -701,6 +701,11 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         block_height INTEGER NOT NULL
     );"#,
 ];
+
+/// The changes for version five *just* replace the existing epochs table
+///  by deleting all the current entries and inserting the new epochs definition.
+const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
+     DELETE FROM epochs;"#];
 
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
@@ -2657,6 +2662,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
+        SortitionDB::apply_schema_5(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -2813,7 +2819,9 @@ impl SortitionDB {
     }
 
     /// Get the schema version of a sortition DB, given the path to it.
-    /// Returns the version string, if it exists
+    /// Returns the version string, if it exists.
+    ///
+    /// Does **not** migrate the database (like `open()` or `connect()` would)
     pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
         if fs::metadata(path).is_err() {
             return Err(db_error::NoDBError);
@@ -2843,10 +2851,17 @@ impl SortitionDB {
         match epoch {
             StacksEpochId::Epoch10 => true,
             StacksEpochId::Epoch20 => {
-                version == "1" || version == "2" || version == "3" || version == "4"
+                version == "1"
+                    || version == "2"
+                    || version == "3"
+                    || version == "4"
+                    || version == "5"
             }
-            StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
-            StacksEpochId::Epoch21 => version == "3" || version == "4",
+            StacksEpochId::Epoch2_05 => {
+                version == "2" || version == "3" || version == "4" || version == "5"
+            }
+            StacksEpochId::Epoch21 => version == "3" || version == "4" || version == "5",
+            StacksEpochId::Epoch22 => version == "3" || version == "4" || version == "5",
         }
     }
 
@@ -2915,6 +2930,24 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        // the schema 5 changes simply **replace** the contents of the epochs table
+        //  by dropping all the current rows and then revalidating and inserting
+        //  `epochs`
+        for sql_exec in SORTITION_DB_SCHEMA_5 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["5"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2952,6 +2985,10 @@ impl SortitionDB {
                     } else if version == "3" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_4(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "4" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_5(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -9463,7 +9500,7 @@ pub mod tests {
 
         fs::create_dir_all(path_root).unwrap();
 
-        let pox_consts = PoxConstants::new(10, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX);
+        let pox_consts = PoxConstants::new(10, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX, u32::MAX);
 
         let mut burnchain = Burnchain::regtest(path_root);
         burnchain.pox_constants = pox_consts.clone();
