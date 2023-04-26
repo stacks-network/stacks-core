@@ -58,6 +58,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 2.2.
                 StacksEpochId::Epoch22 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.3.
+                StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
             }
         }
     };
