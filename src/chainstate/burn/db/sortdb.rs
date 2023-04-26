@@ -702,6 +702,8 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
     );"#,
 ];
 
+/// The changes for version five *just* replace the existing epochs table
+///  by deleting all the current entries and inserting the new epochs definition.
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
@@ -2660,6 +2662,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
+        SortitionDB::apply_schema_5(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -2928,6 +2931,9 @@ impl SortitionDB {
     }
 
     fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        // the schema 5 changes simply **replace** the contents of the epochs table
+        //  by dropping all the current rows and then revalidating and inserting
+        //  `epochs`
         for sql_exec in SORTITION_DB_SCHEMA_5 {
             tx.execute_batch(sql_exec)?;
         }

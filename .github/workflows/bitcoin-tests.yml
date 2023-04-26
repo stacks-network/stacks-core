@@ -100,6 +100,7 @@ jobs:
           - tests::epoch_21::trait_invocation_cross_epoch
           - tests::epoch_22::pox_2_unlock_all
           - tests::epoch_22::disable_pox
+          - tests::epoch_22::test_pox_reorg_one_flap
           - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2

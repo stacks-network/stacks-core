@@ -1985,7 +1985,7 @@ fn transition_empty_blocks() {
 }
 
 /// Check to see if there are stragglers between a set of nodes syncing
-fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
+pub fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
     loop {
         let mut straggler = false;
         let mut stacks_tip_ch = None;
