@@ -139,6 +139,11 @@ pub enum STXBalance {
         amount_locked: u128,
         unlock_height: u64,
     },
+    LockedPoxThree {
+        amount_unlocked: u128,
+        amount_locked: u128,
+        unlock_height: u64,
+    },
 }
 
 /// Lifetime-limited handle to an uncommitted balance structure.
@@ -200,6 +205,24 @@ impl ClaritySerializable for STXBalance {
                     .write_all(&unlock_height.to_be_bytes())
                     .expect("STXBalance serialization: failed writing unlock_height.");
             }
+            STXBalance::LockedPoxThree {
+                amount_unlocked,
+                amount_locked,
+                unlock_height,
+            } => {
+                buffer
+                    .write_all(&[STXBalance::pox_3_version])
+                    .expect("STXBalance serialization: failed to write PoX version byte");
+                buffer
+                    .write_all(&amount_unlocked.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing amount_unlocked.");
+                buffer
+                    .write_all(&amount_locked.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing amount_locked.");
+                buffer
+                    .write_all(&unlock_height.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing unlock_height.");
+            }
         }
         to_hex(buffer.as_slice())
     }
@@ -236,9 +259,9 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                     unlock_height,
                 }
             }
-        } else if bytes.len() == STXBalance::v2_size {
+        } else if bytes.len() == STXBalance::v2_and_v3_size {
             let version = &bytes[0];
-            if version != &STXBalance::pox_2_version {
+            if version != &STXBalance::pox_2_version || version != &STXBalance::pox_3_version {
                 panic!(
                     "Bad version byte in STX Balance serialization = {}",
                     version
@@ -264,12 +287,20 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                 STXBalance::Unlocked {
                     amount: amount_unlocked,
                 }
-            } else {
+            } else if version == &STXBalance::pox_2_version {
                 STXBalance::LockedPoxTwo {
                     amount_unlocked,
                     amount_locked,
                     unlock_height,
                 }
+            } else if version == &STXBalance::pox_3_version {
+                STXBalance::LockedPoxThree {
+                    amount_unlocked,
+                    amount_locked,
+                    unlock_height,
+                }
+            } else {
+                unreachable!("Version is checked for pox_3 or pox_2 version compliance above");
             }
         } else {
             panic!("Bad STX Balance serialization size = {}", bytes.len());
@@ -427,9 +458,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     ///  created by PoX v2.
     pub fn is_v2_locked(&self) -> bool {
         match self.canonical_balance_repr() {
-            STXBalance::Unlocked { .. } => false,
-            STXBalance::LockedPoxOne { .. } => false,
             STXBalance::LockedPoxTwo { .. } => true,
+            _ => false,
         }
     }
 
@@ -559,6 +589,15 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
                 amount_locked,
                 unlock_height: new_unlock_height,
             },
+            STXBalance::LockedPoxThree {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxThree {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
         };
     }
 
@@ -578,8 +617,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 // NOTE: do _not_ add mutation methods to this struct. Put them in STXBalanceSnapshot!
 impl STXBalance {
     pub const unlocked_and_v1_size: usize = 40;
-    pub const v2_size: usize = 41;
+    pub const v2_and_v3_size: usize = 41;
     pub const pox_2_version: u8 = 0;
+    pub const pox_3_version: u8 = 1;
 
     pub fn zero() -> STXBalance {
         STXBalance::Unlocked { amount: 0 }
@@ -595,12 +635,13 @@ impl STXBalance {
         match self {
             STXBalance::Unlocked { .. } => 0,
             STXBalance::LockedPoxOne { unlock_height, .. }
-            | STXBalance::LockedPoxTwo { unlock_height, .. } => *unlock_height,
+            | STXBalance::LockedPoxTwo { unlock_height, .. }
+            | STXBalance::LockedPoxThree { unlock_height, .. } => *unlock_height,
         }
     }
 
     /// This method returns the datastructure's lazy view of the unlock_height
-    ///  *while* factoring in the PoX 2 early unlock for PoX 1.
+    ///  *while* factoring in the PoX 2 early unlock for PoX 1 and PoX 3 early unlock for PoX 2.
     /// This value is still lazy: this unlock height may be less than the current
     ///  burn block height, if so it will be updated in a canonicalized view.
     pub fn effective_unlock_height(&self, v1_unlock_height: u32, v2_unlock_height: u32) -> u64 {
@@ -620,6 +661,7 @@ impl STXBalance {
                     *unlock_height
                 }
             }
+            STXBalance::LockedPoxThree { unlock_height, .. } => *unlock_height,
         }
     }
 
@@ -629,7 +671,8 @@ impl STXBalance {
         match self {
             STXBalance::Unlocked { .. } => 0,
             STXBalance::LockedPoxOne { amount_locked, .. }
-            | STXBalance::LockedPoxTwo { amount_locked, .. } => *amount_locked,
+            | STXBalance::LockedPoxTwo { amount_locked, .. }
+            | STXBalance::LockedPoxThree { amount_locked, .. } => *amount_locked,
         }
     }
 
@@ -645,6 +688,9 @@ impl STXBalance {
             }
             | STXBalance::LockedPoxTwo {
                 amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxThree {
+                amount_unlocked, ..
             } => *amount_unlocked,
         }
     }
@@ -658,6 +704,9 @@ impl STXBalance {
                 amount_unlocked, ..
             }
             | STXBalance::LockedPoxTwo {
+                amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxThree {
                 amount_unlocked, ..
             } => {
                 *amount_unlocked = amount_unlocked.checked_sub(delta).expect("STX underflow");
@@ -675,6 +724,9 @@ impl STXBalance {
             }
             | STXBalance::LockedPoxTwo {
                 amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxThree {
+                amount_unlocked, ..
             } => {
                 if let Some(new_amount) = amount_unlocked.checked_add(delta) {
                     *amount_unlocked = new_amount;
@@ -682,28 +734,6 @@ impl STXBalance {
                 } else {
                     None
                 }
-            }
-        }
-    }
-
-    fn set_locked(&mut self) {
-        match self {
-            STXBalance::Unlocked { .. } => {}
-            STXBalance::LockedPoxOne {
-                unlock_height,
-                amount_locked,
-                ..
-            } => {
-                *unlock_height = 0;
-                *amount_locked = 0;
-            }
-            STXBalance::LockedPoxTwo {
-                unlock_height,
-                amount_locked,
-                ..
-            } => {
-                *unlock_height = 0;
-                *amount_locked = 0;
             }
         }
     }
@@ -755,6 +785,9 @@ impl STXBalance {
                 STXBalance::LockedPoxTwo {
                     amount_unlocked, ..
                 } => *amount_unlocked,
+                STXBalance::LockedPoxThree {
+                    amount_unlocked, ..
+                } => *amount_unlocked,
             }
         }
     }
@@ -784,6 +817,11 @@ impl STXBalance {
                     unlock_height,
                     ..
                 } => (*amount_locked, *unlock_height),
+                STXBalance::LockedPoxThree {
+                    amount_locked,
+                    unlock_height,
+                    ..
+                } => (*amount_locked, *unlock_height),
             }
         }
     }
@@ -801,12 +839,33 @@ impl STXBalance {
                 amount_locked,
                 ..
             } => (*amount_unlocked, *amount_locked),
+            STXBalance::LockedPoxThree {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => (*amount_unlocked, *amount_locked),
         };
         unlocked.checked_add(locked).expect("STX overflow")
     }
 
+    pub fn was_locked_by_v1(&self) -> bool {
+        if let STXBalance::LockedPoxOne { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn was_locked_by_v2(&self) -> bool {
         if let STXBalance::LockedPoxTwo { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn was_locked_by_v3(&self) -> bool {
+        if let STXBalance::LockedPoxThree { .. } = self {
             true
         } else {
             false
@@ -856,6 +915,19 @@ impl STXBalance {
                 }
                 true
             }
+            STXBalance::LockedPoxThree {
+                amount_locked,
+                unlock_height,
+                ..
+            } => {
+                if *amount_locked == 0 {
+                    return false;
+                }
+                if *unlock_height <= burn_block_height {
+                    return false;
+                }
+                true
+            }
         }
     }
 
@@ -899,6 +971,20 @@ impl STXBalance {
                 }
                 // if unlockable due to Stacks 2.2 early unlock
                 if v2_unlock_height as u64 <= burn_block_height {
+                    return true;
+                }
+                false
+            }
+            STXBalance::LockedPoxThree {
+                amount_locked,
+                unlock_height,
+                ..
+            } => {
+                if *amount_locked == 0 {
+                    return false;
+                }
+                // if normally unlockable, return true
+                if *unlock_height <= burn_block_height {
                     return true;
                 }
                 false
