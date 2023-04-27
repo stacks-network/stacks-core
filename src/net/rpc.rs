@@ -24,6 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::sync::Mutex;
 use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
@@ -3240,7 +3241,7 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
+        stacker_db: &Mutex<StackerDB>,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response.is_some() {
@@ -4257,6 +4258,7 @@ mod test {
                 &mut peer_1_stacks_node.chainstate,
                 &mut peer_1_mempool,
                 &RPCHandlerArgs::default(),
+                (), // TODO How do I create stacker DB here?
             )
             .unwrap();
 

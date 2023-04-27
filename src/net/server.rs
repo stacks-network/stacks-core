@@ -30,6 +30,7 @@ use std::sync::mpsc::RecvError;
 use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
+use std::sync::Mutex;
 
 use crate::net::atlas::AtlasDB;
 use crate::net::connection::*;
@@ -435,7 +436,7 @@ impl HttpPeer {
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
+        stacker_db: &Mutex<StackerDB>,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -590,7 +591,7 @@ impl HttpPeer {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
+        stacker_db: &Mutex<StackerDB>,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -690,7 +691,7 @@ impl HttpPeer {
         mempool: &mut MemPoolDB,
         mut poll_state: NetworkPollState,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
+        stacker_db: &Mutex<StackerDB>,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
         self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state);

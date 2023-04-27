@@ -140,6 +140,8 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
     let tx = peer
         .network
         .stacker_db
+        .lock()
+        .unwrap()
         .tx_begin(stackerdb_config.clone())
         .unwrap();
 
@@ -179,12 +181,16 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(ChunkMetadata, Vec<u8>)> 
         let chunk_metadata = peer
             .network
             .stacker_db
+            .lock()
+            .unwrap()
             .get_chunk_metadata(&peer.config.stacker_dbs[idx], rc_consensus_hash, i as u32)
             .unwrap()
             .unwrap();
         let chunk = peer
             .network
             .stacker_db
+            .lock()
+            .unwrap()
             .get_latest_chunk(&peer.config.stacker_dbs[idx], rc_consensus_hash, i as u32)
             .unwrap();
         ret.push((chunk_metadata, chunk));
@@ -246,7 +252,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 
             if let Ok(res) = res_1 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_1.network.stacker_db,
+                    &mut peer_1.network.stacker_db.lock().unwrap(),
                     &peer_1_db_configs,
                     &peer_1.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
@@ -256,7 +262,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 
             if let Ok(res) = res_2 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_2.network.stacker_db,
+                    &mut peer_2.network.stacker_db.lock().unwrap(),
                     &peer_2_db_configs,
                     &peer_2.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
@@ -335,7 +341,7 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
 
             if let Ok(res) = res_1 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_1.network.stacker_db,
+                    &mut peer_1.network.stacker_db.lock().unwrap(),
                     &peer_1_db_configs,
                     &peer_1.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
@@ -345,7 +351,7 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
 
             if let Ok(res) = res_2 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_2.network.stacker_db,
+                    &mut peer_2.network.stacker_db.lock().unwrap(),
                     &peer_2_db_configs,
                     &peer_2.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
@@ -446,7 +452,7 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
                 if let Ok(res) = res {
                     let rc_consensus_hash = peers[i].network.chain_view.rc_consensus_hash.clone();
                     Relayer::process_stacker_db_chunks(
-                        &mut peers[i].network.stacker_db,
+                        &mut peers[i].network.stacker_db.lock().unwrap(),
                         &peer_db_configs[i],
                         &rc_consensus_hash,
                         &res.stacker_db_sync_results,
@@ -577,7 +583,7 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
                 if let Ok(res) = res {
                     let rc_consensus_hash = peers[i].network.chain_view.rc_consensus_hash.clone();
                     Relayer::process_stacker_db_chunks(
-                        &mut peers[i].network.stacker_db,
+                        &mut peers[i].network.stacker_db.lock().unwrap(),
                         &peer_db_configs[i],
                         &rc_consensus_hash,
                         &res.stacker_db_sync_results,
