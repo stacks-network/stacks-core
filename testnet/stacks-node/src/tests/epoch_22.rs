@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::thread;
+use std::time::Duration;
 
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -877,10 +878,10 @@ fn pox_2_unlock_all() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
 
-    // advance to 2 blocks before 2.2 activation
+    // advance to 3 blocks before 2.2 activation
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_2 - 2 {
+        if tip_info.burn_block_height >= epoch_2_2 - 3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -898,10 +899,7 @@ fn pox_2_unlock_all() {
 
     submit_tx(&http_origin, &tx);
     let nonce_of_2_1_unlock_ht_call = 3;
-    // this is the last block before 2.2 activates
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
-
-    // this block activates 2.2
+    // this will build the last block before 2.2 activates
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     let tx = make_contract_call(
@@ -917,7 +915,13 @@ fn pox_2_unlock_all() {
     submit_tx(&http_origin, &tx);
     let nonce_of_2_2_unlock_ht_call = 4;
 
+    // this block activates 2.2
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
     // this *burn block* is when the unlock occurs
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    // and this will wake up the node
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
@@ -928,7 +932,7 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_1_account.balance as u64,
-        spender_1_initial_balance - stacked - (4 * tx_fee),
+        spender_1_initial_balance - stacked - (5 * tx_fee),
         "Spender 1 should still be locked"
     );
     assert_eq!(
@@ -936,7 +940,7 @@ fn pox_2_unlock_all() {
         "Spender 1 should still be locked"
     );
     assert_eq!(
-        spender_1_account.nonce, 4,
+        spender_1_account.nonce, 5,
         "Spender 1 should have 4 accepted transactions"
     );
 
@@ -1233,7 +1237,7 @@ fn pox_2_unlock_all() {
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
                 .unwrap();
-                assert_eq!(result.to_string(), format!("(ok u{})", 225 + 60));
+                assert_eq!(result.to_string(), format!("(ok u{})", 230 + 60));
                 unlock_ht_21_tested = true;
             }
         }
