@@ -7,7 +7,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.2.0.0.1]
 
-This is a **consensus-breaking** release to address a bug and DoS vector in `stacks-increase`.
+This is a **consensus-breaking** release to address a bug and DoS vector in pox-2's `stack-increase` function.
 Additional context and rationale can be found in [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md).
 
 This release is compatible with chainstate directories from 2.1.0.0.x.
