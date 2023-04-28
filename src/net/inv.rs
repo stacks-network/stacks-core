@@ -3119,7 +3119,7 @@ mod test {
             u64::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX
+            u32::MAX,
         );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
