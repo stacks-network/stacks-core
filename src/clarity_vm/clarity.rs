@@ -27,7 +27,7 @@ use crate::chainstate::stacks::boot::POX_3_TESTNET_CODE;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_NAME, POX_3_NAME
+    COSTS_3_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -45,8 +45,7 @@ use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
 use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use crate::core::StacksEpoch;
-use crate::core::FIRST_STACKS_BLOCK_ID;
-use crate::core::{GENESIS_EPOCH, BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT};
+use crate::core::{FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::SortitionId;

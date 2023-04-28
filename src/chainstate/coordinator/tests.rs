@@ -39,9 +39,9 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_3_NAME, PoxStartCycleInfo};
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::boot::{PoxStartCycleInfo, POX_3_NAME};
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -4180,16 +4180,6 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         let b = get_burnchain(path, pox_consts.clone());
 
-        let next_mock_header = BurnchainBlockHeader {
-            block_height: burnchain_tip.block_height + 1,
-            block_hash: BurnchainHeaderHash([0; 32]),
-            parent_block_hash: burnchain_tip.block_hash,
-            num_txs: 0,
-            timestamp: 1,
-        };
-
-        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
-
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
@@ -4219,7 +4209,6 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let expected_winner = good_op.txid();
         let ops = vec![good_op];
 
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
             &b,
             &mut burnchain,
@@ -4321,18 +4310,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(
-        6,
-        3,
-        3,
-        25,
-        5,
-        10,
-        sunset_ht,
-        10,
-        14,
-        16,
-    ));
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10, 14, 16));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
