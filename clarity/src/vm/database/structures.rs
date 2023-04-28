@@ -353,7 +353,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         Ok(())
     }
 
-    pub fn get_available_balance(&self) -> u128 {
+    pub fn get_available_balance(&mut self) -> u128 {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height();
         self.balance.get_available_balance_at_burn_block(
@@ -363,7 +363,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         )
     }
 
-    pub fn canonical_balance_repr(&self) -> STXBalance {
+    pub fn canonical_balance_repr(&mut self) -> STXBalance {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height();
         self.balance
@@ -371,7 +371,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .0
     }
 
-    pub fn has_locked_tokens(&self) -> bool {
+    pub fn has_locked_tokens(&mut self) -> bool {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height();
         self.balance.has_locked_tokens_at_burn_block(
@@ -381,7 +381,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         )
     }
 
-    pub fn has_unlockable_tokens(&self) -> bool {
+    pub fn has_unlockable_tokens(&mut self) -> bool {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height();
         self.balance.has_unlockable_tokens_at_burn_block(
@@ -391,7 +391,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         )
     }
 
-    pub fn can_transfer(&self, amount: u128) -> bool {
+    pub fn can_transfer(&mut self, amount: u128) -> bool {
         self.get_available_balance() >= amount
     }
 
@@ -456,7 +456,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v2.
-    pub fn is_v2_locked(&self) -> bool {
+    pub fn is_v2_locked(&mut self) -> bool {
         match self.canonical_balance_repr() {
             STXBalance::LockedPoxTwo { .. } => true,
             _ => false,

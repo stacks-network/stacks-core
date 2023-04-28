@@ -763,8 +763,12 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Return the height for PoX v2 -> v3 auto unlocks
     ///   from the burn state db
-    pub fn get_v2_unlock_height(&self) -> u32 {
-        self.burn_state_db.get_v2_unlock_height()
+    pub fn get_v2_unlock_height(&mut self) -> u32 {
+        if self.get_clarity_epoch_version() >= StacksEpochId::Epoch22 {
+            self.burn_state_db.get_v2_unlock_height()
+        } else {
+            u32::MAX
+        }
     }
 
     /// Get the last-known burnchain block height.

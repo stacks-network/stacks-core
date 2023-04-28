@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::thread;
+use std::time::Duration;
 
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -828,9 +829,19 @@ fn pox_2_unlock_all() {
     )
     .unwrap()
     .unwrap();
-    let tx = make_contract_call(
+
+    let tx = make_contract_publish(
         &spender_sk,
         1,
+        tx_fee,
+        "unlock-height",
+        "(define-public (unlock-height (x principal)) (ok (get unlock-height (stx-account x))))",
+    );
+    submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        2,
         tx_fee,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
@@ -867,19 +878,50 @@ fn pox_2_unlock_all() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
 
-    // advance to 1 block before 2.2 activation
+    // advance to 3 blocks before 2.2 activation
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_2 - 1 {
+        if tip_info.burn_block_height >= epoch_2_2 - 3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
+    let tx = make_contract_call(
+        &spender_sk,
+        3,
+        tx_fee,
+        &to_addr(&spender_sk),
+        "unlock-height",
+        "unlock-height",
+        &[spender_addr.clone().into()],
+    );
+
+    submit_tx(&http_origin, &tx);
+    let nonce_of_2_1_unlock_ht_call = 3;
+    // this will build the last block before 2.2 activates
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        4,
+        tx_fee,
+        &to_addr(&spender_sk),
+        "unlock-height",
+        "unlock-height",
+        &[spender_addr.clone().into()],
+    );
+
+    submit_tx(&http_origin, &tx);
+    let nonce_of_2_2_unlock_ht_call = 4;
+
     // this block activates 2.2
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     // this *burn block* is when the unlock occurs
+    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+
+    // and this will wake up the node
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
@@ -890,7 +932,7 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_1_account.balance as u64,
-        spender_1_initial_balance - stacked - (2 * tx_fee),
+        spender_1_initial_balance - stacked - (5 * tx_fee),
         "Spender 1 should still be locked"
     );
     assert_eq!(
@@ -898,8 +940,8 @@ fn pox_2_unlock_all() {
         "Spender 1 should still be locked"
     );
     assert_eq!(
-        spender_1_account.nonce, 2,
-        "Spender 1 should have two accepted transactions"
+        spender_1_account.nonce, 5,
+        "Spender 1 should have 4 accepted transactions"
     );
 
     assert_eq!(
@@ -928,13 +970,13 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_1_account.balance,
-        spender_1_initial_balance as u128 - (2 * tx_fee as u128),
+        spender_1_initial_balance as u128 - (5 * tx_fee as u128),
         "Spender 1 should be unlocked"
     );
     assert_eq!(spender_1_account.locked, 0, "Spender 1 should be unlocked");
     assert_eq!(
-        spender_1_account.nonce, 2,
-        "Spender 1 should have two accepted transactions"
+        spender_1_account.nonce, 5,
+        "Spender 1 should have 5 accepted transactions"
     );
 
     assert_eq!(
@@ -949,7 +991,7 @@ fn pox_2_unlock_all() {
     );
 
     // perform a transfer
-    let tx = make_stacks_transfer(&spender_sk, 2, tx_fee, &spender_3_addr, 1_000_000);
+    let tx = make_stacks_transfer(&spender_sk, 5, tx_fee, &spender_3_addr, 1_000_000);
 
     info!("Submit stack transfer tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
@@ -981,12 +1023,12 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_1_account.balance,
-        spender_1_initial_balance as u128 - (3 * tx_fee as u128) - 1_000_000,
+        spender_1_initial_balance as u128 - (6 * tx_fee as u128) - 1_000_000,
         "Spender 1 should be unlocked"
     );
     assert_eq!(spender_1_account.locked, 0, "Spender 1 should be unlocked");
     assert_eq!(
-        spender_1_account.nonce, 3,
+        spender_1_account.nonce, 6,
         "Spender 1 should have three accepted transactions"
     );
 
@@ -1151,6 +1193,9 @@ fn pox_2_unlock_all() {
         }
     }
 
+    let mut unlock_ht_22_tested = false;
+    let mut unlock_ht_21_tested = false;
+
     let blocks = test_observer::get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -1163,8 +1208,43 @@ fn pox_2_unlock_all() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
+            if &tx_sender == &spender_addr
+                && parsed.auth.get_origin_nonce() == nonce_of_2_2_unlock_ht_call
+            {
+                let contract_call = match &parsed.payload {
+                    TransactionPayload::ContractCall(cc) => cc,
+                    _ => panic!("Expected aborted_increase_nonce to be a contract call"),
+                };
+                assert_eq!(contract_call.contract_name.as_str(), "unlock-height");
+                assert_eq!(contract_call.function_name.as_str(), "unlock-height");
+                let result = Value::try_deserialize_hex_untyped(
+                    tx.get("raw_result").unwrap().as_str().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(result.to_string(), format!("(ok u{})", epoch_2_2 + 1));
+                unlock_ht_22_tested = true;
+            }
+            if &tx_sender == &spender_addr
+                && parsed.auth.get_origin_nonce() == nonce_of_2_1_unlock_ht_call
+            {
+                let contract_call = match &parsed.payload {
+                    TransactionPayload::ContractCall(cc) => cc,
+                    _ => panic!("Expected aborted_increase_nonce to be a contract call"),
+                };
+                assert_eq!(contract_call.contract_name.as_str(), "unlock-height");
+                assert_eq!(contract_call.function_name.as_str(), "unlock-height");
+                let result = Value::try_deserialize_hex_untyped(
+                    tx.get("raw_result").unwrap().as_str().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(result.to_string(), format!("(ok u{})", 230 + 60));
+                unlock_ht_21_tested = true;
+            }
         }
     }
+
+    assert!(unlock_ht_21_tested);
+    assert!(unlock_ht_22_tested);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
