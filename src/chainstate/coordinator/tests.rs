@@ -39,7 +39,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::PoxStartCycleInfo;
+use crate::chainstate::stacks::boot::{POX_3_NAME, PoxStartCycleInfo};
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::{
@@ -4092,7 +4092,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 // and that the epoch transition is only applied once. If it were to be applied more than once,
 // the test would panic when trying to re-create the pox-2 contract.
 #[test]
-fn test_epoch_switch_pox_contract_instantiation() {
+fn test_epoch_switch_pox_2_contract_instantiation() {
     let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
     let _r = std::fs::remove_dir_all(path);
 
@@ -4307,6 +4307,230 @@ fn test_epoch_switch_pox_contract_instantiation() {
     }
 }
 
+// This test ensures the epoch transition from 2.05 to 2.1 is applied at the proper block boundaries,
+// and that the epoch transition is only applied once. If it were to be applied more than once,
+// the test would panic when trying to re-create the pox-2 contract.
+#[test]
+fn test_epoch_switch_pox_3_contract_instantiation() {
+    let path = "/tmp/stacks-blockchain-epoch-switch-pox-3-contract-instantiation";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        10,
+        14,
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch23,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    for ix in 0..18 {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        // Want to ensure that the pox-3 contract DNE for all blocks after the epoch transition height,
+        // and does exist for blocks after the boundary.
+        //                              Epoch 2.1 transition        Epoch 2.2 transition        Epoch 2.3 transition
+        //                                       ^                         ^                          ^
+        //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15
+        //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14
+        //                                                                                      \
+        //                                                                                        \
+        //                                                                                          _ _ _  S15 -> S16 -> ..
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else if ix == 15 {
+            stacks_blocks[ix - 2].1.header.block_hash()
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let ops = vec![good_op];
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &b,
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+        let burn_block_height = tip.block_height;
+
+        // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
+        let expected_epoch = match burn_block_height {
+            x if x < 4 => StacksEpochId::Epoch20,
+            x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
+            x if x >= 8 && x < 12 => StacksEpochId::Epoch21,
+            x if x >= 12 && x < 16 => StacksEpochId::Epoch22,
+            _ => StacksEpochId::Epoch23,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| conn.with_clarity_db_readonly(|db| db
+                        .get_stacks_epoch(burn_block_height as u32)
+                        .unwrap())
+                )
+                .unwrap()
+                .epoch_id,
+            expected_epoch
+        );
+
+        // These expectations are according to according to hard-coded values in
+        // `StacksEpoch::unit_test_2_3`.
+        let expected_runtime = match burn_block_height {
+            x if x < 4 => u64::MAX,
+            x if x >= 4 && x < 8 => 205205,
+            x if x >= 8 && x < 12 => 210210,
+            x if x >= 12 && x < 16 => 220220,
+            x => 230230,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_stacks_epoch(burn_block_height as u32).unwrap()
+                        })
+                    },
+                )
+                .unwrap()
+                .block_limit
+                .runtime,
+            expected_runtime
+        );
+
+        // check that pox-3 contract DNE before epoch 2.3, and that it does exist after
+        let does_pox_3_contract_exist = chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| {
+                    conn.with_clarity_db_readonly(|db| {
+                        db.get_contract(&boot_code_id(POX_3_NAME, false))
+                    })
+                },
+            )
+            .unwrap();
+
+        if burn_block_height < 16 {
+            assert!(does_pox_3_contract_exist.is_err())
+        } else {
+            assert!(does_pox_3_contract_exist.is_ok())
+        }
+    }
+}
+
+#[cfg(test)]
 fn get_total_stacked_info(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
