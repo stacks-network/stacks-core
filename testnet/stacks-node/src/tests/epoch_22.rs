@@ -899,6 +899,10 @@ fn pox_2_unlock_all() {
 
     submit_tx(&http_origin, &tx);
     let nonce_of_2_1_unlock_ht_call = 3;
+    // this mines bitcoin block epoch_2_2 - 2, and causes
+    //  the stacks-node to mine the stacks block which will be included
+    //  in bitcoin block epoch_2_2 - 1, so `nonce_of_2_1_unlock_ht_call`
+    //  will be included in that bitcoin block.
     // this will build the last block before 2.2 activates
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
@@ -915,13 +919,17 @@ fn pox_2_unlock_all() {
     submit_tx(&http_origin, &tx);
     let nonce_of_2_2_unlock_ht_call = 4;
 
+    // this mines bitcoin block epoch_2_2 - 1, and causes
+    //  the stacks-node to mine the stacks block which will be included
+    //  in bitcoin block epoch_2_2, so `nonce_of_2_2_unlock_ht_call`
+    //  will be included in that bitcoin block.
     // this block activates 2.2
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     // this *burn block* is when the unlock occurs
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
-    // and this will wake up the node
+    // and this will mine the first block whose parent is the unlock block
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
@@ -958,7 +966,7 @@ fn pox_2_unlock_all() {
         "Spender 2 should have two accepted transactions"
     );
 
-    // and this block is the first block whose parent has >= unlock burn block
+    // and this will mice the bitcoin block containing the first block whose parent has >= unlock burn block
     //  (which is the criterion for the unlock)
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
