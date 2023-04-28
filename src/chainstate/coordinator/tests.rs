@@ -4102,7 +4102,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 // the test would panic when trying to re-create the pox-2 contract.
 #[test]
 fn test_epoch_switch_pox_2_contract_instantiation() {
-    let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
+    let path = "/tmp/stacks-blockchain-epoch-switch-pox-2-contract-instantiation";
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
@@ -4123,17 +4123,12 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
-
     setup_states(
         &[path],
         &vrf_keys,
         &committers,
         pox_consts.clone(),
-        Some(initial_balances),
+        None,
         StacksEpochId::Epoch21,
     );
 
@@ -4165,7 +4160,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // Want to ensure that the pox-2 contract DNE for all blocks after the epoch transition height,
+        // Want to ensure that the pox-2 contract DNE for all blocks before the epoch transition height,
         // and does exist for blocks after the boundary.
         //                              Epoch 2.1 transition
         //                                       ^
@@ -4317,9 +4312,9 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     }
 }
 
-// This test ensures the epoch transition from 2.05 to 2.1 is applied at the proper block boundaries,
+// This test ensures the epoch transition from 2.2 to 2.3 is applied at the proper block boundaries,
 // and that the epoch transition is only applied once. If it were to be applied more than once,
-// the test would panic when trying to re-create the pox-2 contract.
+// the test would panic when trying to re-create the pox-3 contract.
 #[test]
 fn test_epoch_switch_pox_3_contract_instantiation() {
     let path = "/tmp/stacks-blockchain-epoch-switch-pox-3-contract-instantiation";
@@ -4343,17 +4338,12 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..25).map(|_| StacksPrivateKey::new()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
-
     setup_states(
         &[path],
         &vrf_keys,
         &committers,
         pox_consts.clone(),
-        Some(initial_balances),
+        None,
         StacksEpochId::Epoch23,
     );
 
@@ -4385,15 +4375,15 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // Want to ensure that the pox-3 contract DNE for all blocks after the epoch transition height,
+        // Want to ensure that the pox-3 contract DNE for all blocks before the epoch 2.3 transition height,
         // and does exist for blocks after the boundary.
-        //                              Epoch 2.1 transition        Epoch 2.2 transition        Epoch 2.3 transition
-        //                                       ^                         ^                          ^
-        //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15
-        //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14
-        //                                                                                      \
-        //                                                                                        \
-        //                                                                                          _ _ _  S15 -> S16 -> ..
+        //    Epoch 2.1 transition        Epoch 2.2 transition        Epoch 2.3 transition
+        //             ^                         ^                           ^
+        //..  -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15
+        //..  -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14
+        //                                                            \
+        //                                                              \
+        //                                                                _ _ _  S15 -> S16 -> ..
         let parent = if ix == 0 {
             BlockHeaderHash([0; 32])
         } else if ix == 15 {
@@ -4404,16 +4394,6 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         let b = get_burnchain(path, pox_consts.clone());
-
-        let next_mock_header = BurnchainBlockHeader {
-            block_height: burnchain_tip.block_height + 1,
-            block_hash: BurnchainHeaderHash([0; 32]),
-            parent_block_hash: burnchain_tip.block_hash,
-            num_txs: 0,
-            timestamp: 1,
-        };
-
-        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
@@ -4444,7 +4424,6 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         let expected_winner = good_op.txid();
         let ops = vec![good_op];
 
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
             &b,
             &mut burnchain,
