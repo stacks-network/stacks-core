@@ -9579,7 +9579,7 @@ pub mod tests {
 
         fs::create_dir_all(path_root).unwrap();
 
-        let pox_consts = PoxConstants::new(10, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX, u32::MAX);
+        let pox_consts = PoxConstants::new(10, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX, u32::MAX, u32::MAX);
 
         let mut burnchain = Burnchain::regtest(path_root);
         burnchain.pox_constants = pox_consts.clone();

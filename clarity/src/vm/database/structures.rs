@@ -261,7 +261,7 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
             }
         } else if bytes.len() == STXBalance::v2_and_v3_size {
             let version = &bytes[0];
-            if version != &STXBalance::pox_2_version || version != &STXBalance::pox_3_version {
+            if version != &STXBalance::pox_2_version && version != &STXBalance::pox_3_version {
                 panic!(
                     "Bad version byte in STX Balance serialization = {}",
                     version
