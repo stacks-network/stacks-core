@@ -734,9 +734,6 @@ impl LeaderBlockCommitOp {
 
     /// Check the epoch marker in the block commit, given the epoch we're in
     fn check_epoch_commit(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
-        info!("CHECKING EPOCH COMMIT: curr epoch: {:?}, marker: {:?}, expected for 2.2:{:?}",
-            epoch_id, self.memo[0], STACKS_EPOCH_2_2_MARKER
-        );
         match epoch_id {
             StacksEpochId::Epoch10 => {
                 panic!("FATAL: processed block-commit pre-Stacks 2.0");
@@ -1779,7 +1776,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2312,7 +2309,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -3002,7 +2999,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

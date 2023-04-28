@@ -1140,9 +1140,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
             let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
             let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+            let pox_3_activation_height = self.burn_state_db.get_pox_3_activation_height();
 
             let pox_3_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
-                BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT as u64,
+                pox_3_activation_height as u64,
                 first_block_height as u64,
                 pox_reward_cycle_length as u64,
             )
@@ -2444,11 +2445,15 @@ mod tests {
             }
 
             fn get_v2_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
             }
 
             fn get_v1_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
+            }
+
+            fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
             }
 
             fn get_pox_prepare_length(&self) -> u32 {

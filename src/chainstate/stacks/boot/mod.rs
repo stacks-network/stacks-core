@@ -982,8 +982,9 @@ pub mod test {
             5,
             5000,
             10000,
-            u32::max_value(),
-            u32::max_value(),
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
