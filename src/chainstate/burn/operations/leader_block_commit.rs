@@ -734,6 +734,9 @@ impl LeaderBlockCommitOp {
 
     /// Check the epoch marker in the block commit, given the epoch we're in
     fn check_epoch_commit(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
+        info!("CHECKING EPOCH COMMIT: curr epoch: {:?}, marker: {:?}, expected for 2.2:{:?}",
+            epoch_id, self.memo[0], STACKS_EPOCH_2_2_MARKER
+        );
         match epoch_id {
             StacksEpochId::Epoch10 => {
                 panic!("FATAL: processed block-commit pre-Stacks 2.0");
