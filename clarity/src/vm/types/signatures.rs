@@ -724,8 +724,11 @@ impl TypeSignature {
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
-            _ => self.clone(),
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch22 => self.clone(),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch23 => self.canonicalize_v2_1(),
         }
     }
 
