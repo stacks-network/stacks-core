@@ -1146,7 +1146,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 first_block_height as u64,
                 pox_reward_cycle_length as u64,
             )
-            .expect("PANIC: PoX-3 first reward cycle begins *before* first burn block height");
+            .expect("PANIC: PoX-3 first reward cycle begins *before* first burn block height")
+                + 1;
 
             // get tx_version & boot code account information for pox-3 contract init
             let tx_version = if mainnet {
