@@ -400,7 +400,7 @@ fn trait_invocation_205_with_stored_principal() {
 #[test]
 fn trait_invocation_cross_epoch() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 3, 5];
+    sim.epoch_bounds = vec![0, 3, 5, 7, 9];
 
     // Advance two blocks so we get to Stacks 2.05.
     sim.execute_next_block(|_env| {});
@@ -426,6 +426,7 @@ fn trait_invocation_cross_epoch() {
 
     let sender = StacksAddress::burn_address(false).into();
 
+    info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch);
@@ -434,6 +435,7 @@ fn trait_invocation_cross_epoch() {
         publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
     });
     // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
+    info!("Sim height = {}", sim.height);
     sim.execute_next_block(|_| {});
     // now in Stacks 2.1
     sim.execute_next_block_as_conn(|conn| {
@@ -443,6 +445,7 @@ fn trait_invocation_cross_epoch() {
         publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version).unwrap();
     });
 
+    info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -459,6 +462,55 @@ fn trait_invocation_cross_epoch() {
         });
     });
 
+    info!("Sim height = {}", sim.height);
+    // now in Stacks 2.2
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let error = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &invoke_contract_id,
+                    "invocation-2",
+                    &[Value::Principal(impl_contract_id.clone().into())],
+                    |_, _| false,
+                )
+                .unwrap_err();
+
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(TypeSignature::TraitReferenceType(_), value))) = error {
+                // pass
+            } else {
+                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+            };
+        });
+    });
+
+    info!("Sim height = {}", sim.height);
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let error = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &invoke_contract_id,
+                    "invocation-2",
+                    &[Value::Principal(impl_contract_id.clone().into())],
+                    |_, _| false,
+                )
+                .unwrap_err();
+
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(TypeSignature::TraitReferenceType(_), value))) = error {
+                // pass
+            } else {
+                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+            };
+        });
+    });
+
+    // should now be in Stacks 2.3, so the invocation should work again!
+    info!("Sim height = {}", sim.height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
@@ -467,8 +519,25 @@ fn trait_invocation_cross_epoch() {
                     &sender,
                     None,
                     &invoke_contract_id,
-                    "invocation-2",
-                    &[Value::Principal(impl_contract_id.into())],
+                    "invocation-1",
+                    &[],
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+    });
+
+    info!("Sim height = {}", sim.height);
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &invoke_contract_id,
+                    "invocation-1",
+                    &[],
                     |_, _| false,
                 )
                 .unwrap();

@@ -727,7 +727,9 @@ impl TypeSignature {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
             | StacksEpochId::Epoch2_05
+            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
             | StacksEpochId::Epoch22 => self.clone(),
+            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
             StacksEpochId::Epoch21 | StacksEpochId::Epoch23 => self.canonicalize_v2_1(),
         }
     }
