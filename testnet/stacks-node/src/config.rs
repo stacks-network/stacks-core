@@ -872,6 +872,7 @@ impl Config {
                 unprocessed_block_deadline_secs: miner
                     .unprocessed_block_deadline_secs
                     .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
+                wallet: miner.wallet.as_ref().map(|c| { c.clone() }).unwrap_or("".to_string()),
             },
             None => miner_default_config,
         };
@@ -1850,6 +1851,7 @@ pub struct MinerConfig {
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
+    pub wallet: String,
 }
 
 impl MinerConfig {
@@ -1866,6 +1868,7 @@ impl MinerConfig {
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
+            wallet: "".to_string(),
         }
     }
 }
@@ -1982,6 +1985,7 @@ pub struct MinerConfigFile {
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
+    pub wallet: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

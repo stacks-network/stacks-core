@@ -2138,7 +2138,7 @@ impl BitcoinRPCRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
-                "importaddress" | "listunspent" => Some("".to_string()),
+                "importaddress" | "listunspent" => Some(config.miner.wallet.clone()),
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);

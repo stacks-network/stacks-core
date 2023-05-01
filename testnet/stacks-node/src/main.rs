@@ -124,7 +124,8 @@ fn main() {
                 }
             };
             match Config::from_config_file(config_file) {
-                Ok(_) => {
+                Ok(cfg) => {
+                    debug!("Loaded config: {:?}", cfg);
                     info!("Loaded config!");
                     process::exit(0);
                 }
