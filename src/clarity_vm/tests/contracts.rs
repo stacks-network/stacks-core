@@ -397,6 +397,7 @@ fn trait_invocation_205_with_stored_principal() {
 }
 
 /// Publish a trait in epoch 2.05 and then invoke it in epoch 2.1.
+/// Test the behaviors in 2.2 and 2.3 as well.
 #[test]
 fn trait_invocation_cross_epoch() {
     let mut sim = ClarityTestSim::new();
@@ -536,8 +537,8 @@ fn trait_invocation_cross_epoch() {
                     &sender,
                     None,
                     &invoke_contract_id,
-                    "invocation-1",
-                    &[],
+                    "invocation-2",
+                    &[Value::Principal(impl_contract_id.clone().into())],
                     |_, _| false,
                 )
                 .unwrap();
