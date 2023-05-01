@@ -723,9 +723,10 @@ impl TypeSignature {
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
-        match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
-            _ => self.clone(),
+        if epoch <= &StacksEpochId::Epoch2_05 {
+            return self.clone();
+        } else {
+            return self.canonicalize_v2_1();
         }
     }
 
