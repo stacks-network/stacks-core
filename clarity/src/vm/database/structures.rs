@@ -454,6 +454,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    ////////////// Pox-2 /////////////////
+
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v2.
     pub fn is_v2_locked(&mut self) -> bool {
@@ -565,6 +567,122 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             unlock_height: unlock_burn_height,
         };
     }
+
+    //////////////// Pox-3 //////////////////
+
+    /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxThree" balance,
+    ///  because this method is only invoked as a result of PoX3 interactions
+    pub fn lock_tokens_v3(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        // caller needs to have checked this
+        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            panic!("FATAL: cannot set a lock with expired unlock burn height");
+        }
+
+        if self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account already has locked tokens");
+        }
+
+        // from `unlock_available_tokens_if_any` call above, `self.balance` should
+        //  be canonicalized already
+
+        let new_amount_unlocked = self
+            .balance
+            .get_total_balance()
+            .checked_sub(amount_to_lock)
+            .expect("STX underflow");
+
+        self.balance = STXBalance::LockedPoxThree {
+            amount_unlocked: new_amount_unlocked,
+            amount_locked: amount_to_lock,
+            unlock_height: unlock_burn_height,
+        };
+    }
+
+    /// Extend this account's current lock to `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxThree" balance,
+    ///  because this method is only invoked as a result of PoX3 interactions
+    pub fn extend_lock_v3(&mut self, unlock_burn_height: u64) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after extend-token-lock");
+        }
+
+        if !self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account does not have locked tokens");
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            panic!("FATAL: cannot set a lock with expired unlock burn height");
+        }
+
+        self.balance = STXBalance::LockedPoxThree {
+            amount_unlocked: self.balance.amount_unlocked(),
+            amount_locked: self.balance.amount_locked(),
+            unlock_height: unlock_burn_height,
+        };
+    }
+
+    /// Increase the account's current lock to `new_total_locked`.
+    /// Panics if `self` was not locked by V3 PoX.
+    pub fn increase_lock_v3(&mut self, new_total_locked: u128) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after extend-token-lock");
+        }
+
+        if !self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account does not have locked tokens");
+        }
+
+        if !self.is_v3_locked() {
+            // caller needs to have checked this
+            panic!("FATAL: account must be locked by pox-3");
+        }
+
+        assert!(
+            self.balance.amount_locked() <= new_total_locked,
+            "FATAL: account must lock more after `increase_lock_v3`"
+        );
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .expect("STX balance overflowed u128");
+        let amount_unlocked = total_amount
+            .checked_sub(new_total_locked)
+            .expect("STX underflow: more is locked than total balance");
+
+        self.balance = STXBalance::LockedPoxTwo {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: self.balance.unlock_height(),
+        };
+    }
+
+    /// Return true iff `self` represents a snapshot that has a lock
+    ///  created by PoX v3.
+    pub fn is_v3_locked(&mut self) -> bool {
+        match self.canonical_balance_repr() {
+            STXBalance::LockedPoxThree { .. } => true,
+            _ => false,
+        }
+    }
+
+    /////////////// GENERAL //////////////////////
 
     /// If this snapshot is locked, then alter the lock height to be
     /// the next burn block (i.e., `self.burn_block_height + 1`)
