@@ -43,6 +43,7 @@ mod bitcoin_regtest;
 mod epoch_205;
 mod epoch_21;
 mod epoch_22;
+mod epoch_23;
 mod integrations;
 mod mempool;
 pub mod neon_integrations;
