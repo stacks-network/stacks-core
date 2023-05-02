@@ -278,10 +278,19 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
 )));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+//#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for ListTypeData {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let max_len = u32::arbitrary(u)?;
+        let entry_type = TypeSignature::arbitrary(u)?;
+        ListTypeData::new_list(entry_type, max_len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1854,9 +1863,11 @@ impl TypeSignature {
     }
 
     pub fn size(&self) -> u32 {
-        self.inner_size().expect(
-            "FAIL: .size() overflowed on too large of a type. construction should have failed!",
-        )
+        let error_string = format!(
+            "FAIL: .size() overflowed on too large of a type. construction should have failed! {}",
+            self
+        );
+        self.inner_size().expect(&error_string)
     }
 
     fn inner_size(&self) -> Option<u32> {
