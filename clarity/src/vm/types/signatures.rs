@@ -74,11 +74,35 @@ pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for TupleTypeSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let type_map = BTreeMap::arbitrary(u)?;
+        Self::try_from(type_map).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BufferLength(u32);
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for BufferLength {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        BufferLength::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for StringUTF8Length {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        StringUTF8Length::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -115,7 +139,65 @@ pub enum TypeSignature {
     TraitReferenceType(TraitIdentifier),
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for TypeSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        // Note this should be `0..=10` if we want to include ListUnionType
+        let choice = u.int_in_range(0..=10)?;
+        let type_signature = match choice {
+            1 => TypeSignature::IntType,
+            2 => TypeSignature::UIntType,
+            3 => TypeSignature::BoolType,
+            4 => TypeSignature::SequenceType(SequenceSubtype::arbitrary(u)?),
+            5 => TypeSignature::PrincipalType,
+            6 => TypeSignature::TupleType(TupleTypeSignature::arbitrary(u)?),
+            7 => TypeSignature::new_option(TypeSignature::arbitrary(u)?)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            8 => TypeSignature::new_response(
+                TypeSignature::arbitrary(u)?,
+                TypeSignature::arbitrary(u)?,
+            )
+            .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            9 => TypeSignature::CallableType(CallableSubtype::arbitrary(u)?),
+            10 => TypeSignature::ListUnionType(HashSet::arbitrary(u)?),
+            _ => TypeSignature::NoType,
+        };
+        Ok(type_signature)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for ClarityName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        let selection =
+            match StringUTF8Length::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat) {
+                Ok(sel) => sel,
+                Err(e) => return Err(e),
+            };
+
+        ClarityName::try_from("clarity".to_string() + &selection.to_string())
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for ContractName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        let selection =
+            match StringUTF8Length::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat) {
+                Ok(sel) => sel,
+                Err(e) => return Err(e),
+            };
+
+        ContractName::try_from("contract".to_string() + &selection.to_string())
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SequenceSubtype {
     BufferType(BufferLength),
     ListType(ListTypeData),
@@ -143,12 +225,14 @@ impl SequenceSubtype {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum StringSubtype {
     ASCII(BufferLength),
     UTF8(StringUTF8Length),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
@@ -194,6 +278,7 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
 )));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
@@ -1294,6 +1379,126 @@ impl TypeSignature {
                     Err(CheckErrors::TypeError(a.clone(), b.clone()))
                 }
             }
+        }
+    }
+
+    // This function can be used when comparing the old and new least_supertype
+    // implementations. It converts uses of the new types to the old types.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_type_to_old(ty: &TypeSignature) -> Result<TypeSignature> {
+        match ty {
+            TypeSignature::OptionalType(inner_type) => {
+                TypeSignature::new_option(Self::new_type_to_old(inner_type)?)
+            }
+            TypeSignature::ResponseType(inner_types) => TypeSignature::new_response(
+                Self::new_type_to_old(&inner_types.0)?,
+                Self::new_type_to_old(&inner_types.1)?,
+            ),
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)) => Ok(SequenceType(
+                SequenceSubtype::ListType(ListTypeData::new_list(
+                    Self::new_type_to_old(&list_type.entry_type)?,
+                    list_type.max_len,
+                )?),
+            )),
+            TypeSignature::TupleType(tuple_type) => {
+                let mut type_map = BTreeMap::new();
+                for (name, field_type) in tuple_type.get_type_map() {
+                    type_map.insert(name.clone(), Self::new_type_to_old(field_type)?);
+                }
+                Ok(TypeSignature::TupleType(TupleTypeSignature::try_from(
+                    type_map,
+                )?))
+            }
+            ListUnionType(callables) => {
+                if callables.is_empty() {
+                    return Err(CheckErrors::InvalidTypeDescription);
+                }
+                for callable in callables {
+                    if let CallableSubtype::Trait(trait_id) = callable {
+                        return Ok(TypeSignature::TraitReferenceType(trait_id.clone()));
+                    }
+                }
+                Ok(PrincipalType)
+            }
+            CallableType(CallableSubtype::Principal(_)) => Ok(TypeSignature::PrincipalType),
+            CallableType(CallableSubtype::Trait(trait_id)) => {
+                Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+            }
+            _ => Ok(ty.clone()),
+        }
+    }
+
+    // This function checks recursively if NoType is anywhere in the type signature.
+    #[cfg(feature = "fuzzing")]
+    pub fn contains_invalid_type_lhs(ty: &TypeSignature) -> bool {
+        match ty {
+            NoType => true,
+            OptionalType(inner_type) => {
+                match inner_type.as_ref() {
+                    NoType => true, // NoType is a valid inner type for OptionalType
+                    inner_type => Self::contains_invalid_type_lhs(inner_type),
+                }
+            }
+            ResponseType(inner_types) => {
+                Self::contains_invalid_type_lhs(&inner_types.0)
+                    || Self::contains_invalid_type_lhs(&inner_types.1)
+            }
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                Self::contains_invalid_type_lhs(&list_type.entry_type)
+            }
+            TupleType(tuple_type) => {
+                for (_, field_type) in tuple_type.get_type_map() {
+                    if Self::contains_invalid_type_lhs(field_type) {
+                        return true;
+                    }
+                }
+                false
+            }
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => true,
+            IntType
+            | UIntType
+            | BoolType
+            | CallableType(_)
+            | PrincipalType
+            | SequenceType(_)
+            | TypeSignature::TraitReferenceType(_) => false,
+        }
+    }
+
+    // Is the right hand side (rhs) an invalid type? Unlike the lhs, NoType is permitted.
+    #[cfg(feature = "fuzzing")]
+    pub fn contains_invalid_type_rhs(ty: &TypeSignature) -> bool {
+        match ty {
+            NoType => true,
+            OptionalType(inner_type) => {
+                match inner_type.as_ref() {
+                    NoType => false, // NoType is a valid inner type for OptionalType
+                    inner_type => Self::contains_invalid_type_rhs(inner_type),
+                }
+            }
+            ResponseType(inner_types) => {
+                Self::contains_invalid_type_rhs(&inner_types.0)
+                    && Self::contains_invalid_type_rhs(&inner_types.1)
+            }
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                Self::contains_invalid_type_rhs(&list_type.entry_type)
+            }
+            TupleType(tuple_type) => {
+                for (_, field_type) in tuple_type.get_type_map() {
+                    if Self::contains_invalid_type_rhs(field_type) {
+                        return true;
+                    }
+                }
+                false
+            }
+            IntType
+            | UIntType
+            | BoolType
+            | ListUnionType(_)
+            | CallableType(_)
+            | PrincipalType
+            | SequenceType(_)
+            | TypeSignature::TraitReferenceType(_) => false,
         }
     }
 
