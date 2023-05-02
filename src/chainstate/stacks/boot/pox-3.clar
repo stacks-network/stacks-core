@@ -946,14 +946,15 @@
         (some { first-cycle: first-cycle, reward-cycle: (+ u1 reward-cycle), stacker: (get stacker data), add-amount: (get add-amount data) })
         (let ((existing-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })))
               (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
-              (total-ustx (+ (get total-ustx existing-total) (get add-amount data))))
+              (add-amount (get add-amount data))
+              (total-ustx (+ (get total-ustx existing-total) add-amount)))
             ;; stacker must match
             (asserts! (is-eq (get stacker existing-entry) (some (get stacker data))) none)
             ;; update the pox-address list
             (map-set reward-cycle-pox-address-list
                      { reward-cycle: reward-cycle, index: reward-cycle-index }
                      { pox-addr: (get pox-addr existing-entry),
-                       total-ustx: total-ustx,
+                       total-ustx: (+ (get total-ustx existing-entry) add-amount),
                        stacker: (some (get stacker data)) })
             ;; update the total
             (map-set reward-cycle-total-stacked
