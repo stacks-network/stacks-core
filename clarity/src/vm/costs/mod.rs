@@ -701,9 +701,10 @@ impl LimitedCostTracker {
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
-                COSTS_3_NAME.to_string()
-            }
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => COSTS_3_NAME.to_string(),
         }
     }
 }

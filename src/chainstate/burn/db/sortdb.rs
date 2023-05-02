@@ -501,7 +501,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "6";
+pub const SORTITION_DB_VERSION: &'static str = "7";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -708,6 +708,9 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
 const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
+     DELETE FROM epochs;"#];
+
+const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
 // update this to add new indexes
@@ -2667,6 +2670,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_4(&db_tx)?;
         SortitionDB::apply_schema_5(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
+        SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -2861,6 +2865,7 @@ impl SortitionDB {
                     || version == "4"
                     || version == "5"
                     || version == "6"
+                    || version == "7"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -2868,15 +2873,35 @@ impl SortitionDB {
                     || version == "4"
                     || version == "5"
                     || version == "6"
+                    || version == "7"
             }
             StacksEpochId::Epoch21 => {
-                version == "3" || version == "4" || version == "5" || version == "6"
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
             }
             StacksEpochId::Epoch22 => {
-                version == "3" || version == "4" || version == "5" || version == "6"
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
             }
             StacksEpochId::Epoch23 => {
-                version == "3" || version == "4" || version == "5" || version == "6"
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
+            }
+            StacksEpochId::Epoch24 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
             }
         }
     }
@@ -2979,6 +3004,21 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_7(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_7 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["7"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3024,6 +3064,10 @@ impl SortitionDB {
                     } else if version == "5" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_6(&tx.deref(), epochs)?;
+                        tx.commit()?;
+                    } else if version == "6" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_7(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
