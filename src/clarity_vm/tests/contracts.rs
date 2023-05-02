@@ -473,8 +473,8 @@ fn trait_invocation_cross_epoch() {
                     &sender,
                     None,
                     &invoke_contract_id,
-                    "invocation-2",
-                    &[Value::Principal(impl_contract_id.clone().into())],
+                    "invocation-1",
+                    &[],
                     |_, _| false,
                 )
                 .unwrap_err();

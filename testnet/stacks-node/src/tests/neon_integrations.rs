@@ -7754,7 +7754,7 @@ fn atlas_stress_integration_test() {
             let total_time = ts_end.saturating_sub(ts_begin);
             eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
 
-            // requests should take no more than 20ms
+            // requests should take no more than max_request_time_ms
             assert!(
                 total_time < attempts * max_request_time_ms,
                 "Atlas inventory request is too slow: {} >= {} * {}",
@@ -7796,7 +7796,7 @@ fn atlas_stress_integration_test() {
             let total_time = ts_end.saturating_sub(ts_begin);
             eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
 
-            // requests should take no more than 40ms
+            // requests should take no more than max_request_time_ms
             assert!(
                 total_time < attempts * max_request_time_ms,
                 "Atlas chunk request is too slow: {} >= {} * {}",

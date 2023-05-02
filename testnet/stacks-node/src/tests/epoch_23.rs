@@ -362,7 +362,7 @@ fn trait_invocation_behavior() {
     // epoch_2_2 - 1, so these are the last transactions processed pre-2.2.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let publish_invoke = make_contract_publish(
+    let publish_wrap = make_contract_publish(
         &spender_sk,
         spender_nonce,
         fee_amount,
@@ -371,7 +371,7 @@ fn trait_invocation_behavior() {
     );
 
     spender_nonce += 1;
-    submit_tx(&http_origin, &publish_invoke);
+    submit_tx(&http_origin, &publish_wrap);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
