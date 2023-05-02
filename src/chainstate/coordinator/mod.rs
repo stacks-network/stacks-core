@@ -2993,7 +2993,8 @@ impl<
                             }
                             StacksEpochId::Epoch21
                             | StacksEpochId::Epoch22
-                            | StacksEpochId::Epoch23 => {
+                            | StacksEpochId::Epoch23
+                            | StacksEpochId::Epoch24 => {
                                 // 2.1 and onward behavior: the anchor block must also be the
                                 // heaviest-confirmed anchor block by BTC weight, and the highest
                                 // such anchor block if there are multiple contenders.

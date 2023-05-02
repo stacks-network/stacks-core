@@ -38,6 +38,8 @@ use stacks_common::types::StacksEpochId;
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn test_clarity_versions_trait_checker(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
