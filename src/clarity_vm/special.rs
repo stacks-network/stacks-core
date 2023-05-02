@@ -48,7 +48,7 @@ use stacks_common::util::hash::Hash160;
 use crate::vm::costs::runtime_cost;
 
 /// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
-///  from pox-2.clar into a format more readily digestible in rust.
+///  from pox-2.clar or pox-3.clar into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_stacking_result(
     result: &Value,
@@ -119,7 +119,7 @@ fn parse_pox_stacking_result_v1(
     }
 }
 
-/// Parse the returned value from PoX2 `stack-extend` and `delegate-stack-extend` functions
+/// Parse the returned value from PoX2 or PoX3 `stack-extend` and `delegate-stack-extend` functions
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
@@ -1022,7 +1022,7 @@ fn handle_stack_lockup_extension_pox_v3(
                         locked_amount,
                         unlock_height,
                         locked_address: stacker,
-                        contract_identifier: boot_code_id("pox-3", global_context.mainnet),
+                        contract_identifier: boot_code_id(POX_3_NAME, global_context.mainnet),
                     },
                 ));
                 return Ok(Some(event));
@@ -1084,7 +1084,7 @@ fn handle_stack_lockup_increase_pox_v3(
                         locked_amount: new_balance.amount_locked(),
                         unlock_height: new_balance.unlock_height(),
                         locked_address: stacker,
-                        contract_identifier: boot_code_id("pox-3", global_context.mainnet),
+                        contract_identifier: boot_code_id(POX_3_NAME, global_context.mainnet),
                     },
                 ));
 
@@ -1268,7 +1268,7 @@ pub fn handle_contract_call_special_cases(
         && global_context.database.get_pox_3_activation_height()
             >= global_context.database.get_current_burnchain_block_height()
     {
-        return handle_pox_v2_api_contract_call(
+        return handle_pox_v3_api_contract_call(
             global_context,
             sender,
             contract_id,
