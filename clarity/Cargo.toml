@@ -30,6 +30,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 stacks_common = { package = "stacks-common", path = "../stacks-common/." }
 rstest = "0.11.0"
 rstest_reuse = "0.1.3"
+arbitrary = { version = "1", optional = true, features = ["derive"] }
 
 [dependencies.serde_json]
 version = "1.0"
@@ -47,6 +48,7 @@ features = ["std"]
 rstest = "0.11.0"
 rstest_reuse = "0.1.3"
 assert-json-diff = "1.0.0"
+proptest = "1.0.0"
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
@@ -56,6 +58,7 @@ default = ["developer-mode"]
 developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
+fuzzing = ["arbitrary"]
 
 [profile.dev.package.regex]
 opt-level = 2
