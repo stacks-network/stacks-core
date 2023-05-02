@@ -52,6 +52,8 @@ fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, Contr
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[template]
