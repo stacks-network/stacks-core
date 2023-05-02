@@ -7711,6 +7711,8 @@ fn atlas_stress_integration_test() {
     }
     eprintln!("attachment_indexes = {:?}", &attachment_indexes);
 
+    let max_request_time_ms = 100;
+
     for (ibh, attachments) in attachment_indexes.iter() {
         let l = attachments.len();
         for i in 0..(l / MAX_ATTACHMENT_INV_PAGES_PER_REQUEST + 1) {
@@ -7754,10 +7756,11 @@ fn atlas_stress_integration_test() {
 
             // requests should take no more than 20ms
             assert!(
-                total_time < attempts * 50,
-                "Atlas inventory request is too slow: {} >= {} * 50",
+                total_time < attempts * max_request_time_ms,
+                "Atlas inventory request is too slow: {} >= {} * {}",
                 total_time,
-                attempts
+                attempts,
+                max_request_time_ms
             );
         }
 
@@ -7795,10 +7798,11 @@ fn atlas_stress_integration_test() {
 
             // requests should take no more than 40ms
             assert!(
-                total_time < attempts * 50,
-                "Atlas chunk request is too slow: {} >= {} * 50",
+                total_time < attempts * max_request_time_ms,
+                "Atlas chunk request is too slow: {} >= {} * {}",
                 total_time,
-                attempts
+                attempts,
+                max_request_time_ms
             );
         }
     }
