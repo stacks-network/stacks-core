@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.3.0.0.0]
+
+This is a **consensus-breaking** release to address a Clarity VM bug discovered in 2.2.0.0.1.
+Tx and read-only calls to functions with traits as parameters are rejected with unchecked TypeValueError.
+Additional context and rationale can be found in [SIP-023](https://github.com/stacksgov/sips/blob/main/sips/sip-023/sip-023-emergency-fix-traits.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
 ## [2.2.0.0.1]
 
 This is a **consensus-breaking** release to address a bug and DoS vector in pox-2's `stack-increase` function.
