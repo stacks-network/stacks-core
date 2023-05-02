@@ -106,7 +106,7 @@ pub fn special_stx_balance(
 
     if let Value::Principal(ref principal) = owner {
         let balance = {
-            let snapshot = env
+            let mut snapshot = env
                 .global_context
                 .database
                 .get_stx_balance_snapshot(principal);
@@ -149,7 +149,7 @@ pub fn stx_transfer_consolidated(
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-    let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
+    let mut sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
     if !sender_snapshot.can_transfer(amount) {
         return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
     }

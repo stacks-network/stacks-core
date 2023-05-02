@@ -724,8 +724,13 @@ impl TypeSignature {
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
-            _ => self.clone(),
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+            | StacksEpochId::Epoch22 => self.clone(),
+            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch23 => self.canonicalize_v2_1(),
         }
     }
 
@@ -1936,6 +1941,10 @@ mod test {
     #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
     #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
     #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
     fn test_clarity_versions_signatures(
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,

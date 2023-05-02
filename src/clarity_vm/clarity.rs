@@ -1126,7 +1126,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     })
                     .unwrap();
 
-                // require 2.2 rules henceforth in this connection as well
+                // require 2.3 rules henceforth in this connection as well
                 tx_conn.epoch = StacksEpochId::Epoch23;
             });
 

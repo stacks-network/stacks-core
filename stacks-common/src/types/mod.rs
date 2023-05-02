@@ -78,7 +78,7 @@ pub enum StacksEpochId {
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch22
+        StacksEpochId::Epoch23
     }
 }
 
