@@ -37,7 +37,10 @@ use crate::vm::ContractContext;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
 fn test_epoch_clarity_versions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[apply(test_epoch_clarity_versions)]

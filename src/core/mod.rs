@@ -119,7 +119,7 @@ pub const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
 pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2_104_380;
 pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 2_422_101;
 pub const BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT: u64 = 2_431_300;
-pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_648;
+pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_633;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -280,7 +280,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 5] = [
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 6] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
