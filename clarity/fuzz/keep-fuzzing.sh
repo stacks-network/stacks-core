@@ -9,7 +9,7 @@ if [ $# -eq 0 ]; then
 fi
 
 while true; do
-    cargo fuzz run $1
+    cargo fuzz run $1 -- -rss_limit_mb=4096
     FUZZ_STATUS="$?"
     echo "$FUZZ_STATUS"
     if [ $FUZZ_STATUS -eq 0 ]; then
