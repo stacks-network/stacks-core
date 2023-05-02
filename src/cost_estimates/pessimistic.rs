@@ -232,6 +232,8 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch21 => ":2.1",
                     // reuse cost estimates in Epoch22
                     StacksEpochId::Epoch22 => ":2.1",
+                    // reuse cost estimates in Epoch23
+                    StacksEpochId::Epoch23 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",

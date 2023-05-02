@@ -8356,6 +8356,7 @@ pub mod test {
                     StacksEpochId::Epoch2_05 => self.get_stacks_epoch(1),
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
                     StacksEpochId::Epoch22 => self.get_stacks_epoch(3),
+                    StacksEpochId::Epoch23 => self.get_stacks_epoch(4),
                 }
             }
             fn get_pox_payout_addrs(

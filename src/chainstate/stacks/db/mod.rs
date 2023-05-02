@@ -224,6 +224,7 @@ impl DBConfig {
             }
             StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
         }
     }
 }

@@ -529,7 +529,9 @@ impl TypeSignature {
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&other),
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => self.admits_type_v2_1(other),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
+                self.admits_type_v2_1(other)
+            }
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
     }
@@ -722,8 +724,13 @@ impl TypeSignature {
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
-            _ => self.clone(),
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+            | StacksEpochId::Epoch22 => self.clone(),
+            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch23 => self.canonicalize_v2_1(),
         }
     }
 
@@ -1045,7 +1052,9 @@ impl TypeSignature {
     ) -> Result<TypeSignature> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => Self::least_supertype_v2_1(a, b),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
+                Self::least_supertype_v2_1(a, b)
+            }
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
     }
@@ -1932,6 +1941,10 @@ mod test {
     #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
     #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
     #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
     fn test_clarity_versions_signatures(
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,

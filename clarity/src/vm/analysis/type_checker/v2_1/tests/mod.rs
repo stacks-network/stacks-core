@@ -58,6 +58,10 @@ pub mod contracts;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
 fn test_clarity_versions_type_checker(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
