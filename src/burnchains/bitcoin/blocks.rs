@@ -659,7 +659,9 @@ mod tests {
     use stacks_common::util::log;
 
     use super::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+    use crate::burnchains::bitcoin::address::{
+        BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+    };
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::bitcoin::{
@@ -1110,38 +1112,31 @@ mod tests {
         let tx_fixtures = vec![
             TxFixture {
                 // Peg out request transaction with p2tr-over-p2sh data
-                txstr: "020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff23225120e2b11b17abe209eb739f33545006c481789508b634cfc81360101507870e2354ffffffff030000000000000000056a03696477390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a000000000000002251200000000000000000000000000000000000000000000000000000000000000000027e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd01030307000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad613c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c00000000".to_owned(),
+                txstr: "020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff23225120273cb9363da5933fe6f2bdcc3fd27f06865227cb526641cc6dc47de5e9ee06edffffffff030000000000000000056a03696477390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a000000000000002251200000000000000000000000000000000000000000000000000000000000000000027e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad613c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c00000000".to_owned(),
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
-                    txid: to_txid(&hex_bytes("185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1").unwrap()),
+                    txid: to_txid(&hex_bytes("8d890bf2f7f77c4384f3cf62584a7ce5ac419068d3b43348c774204efa544694").unwrap()),
                     vtxindex: vtxindex,
-                    opcode: '+' as u8,
-                    data: hex_bytes("fae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe").unwrap(),
+                    opcode: '>' as u8,
+                    data: hex_bytes("000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd01030307").unwrap(),
                     inputs: vec![
                         BitcoinTxInputRaw {
-                            scriptSig: hex_bytes("483045022100be57031bf2c095945ba2876e97b3f86ee051643a29b908f22ed45ccf58620103022061e056e5f48c5a51c66604a1ca28e4bfaabab1478424c9bbb396cc6afe5c222e0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
-                            witness: vec![],
+                            scriptSig: hex_bytes("").unwrap(),
+                            witness: vec![
+                                hex_bytes("4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad").unwrap(),
+                                hex_bytes("3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c").unwrap(),
+                            ],
                             tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 2),
                         }.into(),
-                        BitcoinTxInputRaw {
-                            scriptSig: hex_bytes("483045022100fd9c04b330810694cb4bfef793b193f9cbfaa07325700f217b9cb03e5207005302202f07e7c9c6774c5619a043752444f6da6fd81b9d9d008ec965796d87271598de0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
-                            witness: vec![],
-                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 1),
-                        }.into(),
-                        BitcoinTxInputRaw {
-                            scriptSig: hex_bytes("47304402205e24943a40b8ef876cc218a7e8994f4be7afb7aa02403bb73510fac01b33ead3022033e5fb811c396b2fb50a825cd1d86e82eb83483901a1793d0eb15e3e9f1d1c5b814104c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
-                            witness: vec![],
-                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 4),
-                        }.into()
                     ],
                     outputs: vec![
                         BitcoinTxOutput {
-                            units: 27500,
-                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                            units: 1337,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
                         },
                         BitcoinTxOutput {
-                            units: 70341,
-                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
+                            units: 42,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
                         }
                     ]
                 })
