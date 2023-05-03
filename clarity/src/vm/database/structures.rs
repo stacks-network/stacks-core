@@ -599,7 +599,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .balance
             .get_total_balance()
             .checked_sub(amount_to_lock)
-            .expect("STX underflow");
+            .expect("FATAL: account locks more STX than balance possessed");
 
         self.balance = STXBalance::LockedPoxThree {
             amount_unlocked: new_amount_unlocked,
