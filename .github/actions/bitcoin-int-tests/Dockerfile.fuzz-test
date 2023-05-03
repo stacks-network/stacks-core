@@ -4,6 +4,10 @@ WORKDIR /build
 
 ENV CARGO_MANIFEST_DIR="$(pwd)"
 
+RUN apt update
+
+RUN apt install -y parallel
+
 RUN rustup component add llvm-tools-preview && \
     cargo install grcov
 
@@ -16,7 +20,4 @@ RUN cargo build --workspace && \
     cd clarity/fuzz && \
     cargo build --workspace
 
-RUN for target in $(cargo fuzz list); \
-    do; \
-        cargo fuzz run $target -- -max_total_time=1800 -rss_limit_mb=4096 \
-    ; done
+RUN echo $(cargo fuzz list) | tr ' ' "\n" | parallel -I% --lb --max-args 1 -k "echo % && cargo fuzz run % -- -max_total_time=3600 -rss_limit_mb=4096"
