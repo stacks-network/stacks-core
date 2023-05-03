@@ -954,6 +954,7 @@
             (map-set reward-cycle-pox-address-list
                      { reward-cycle: reward-cycle, index: reward-cycle-index }
                      { pox-addr: (get pox-addr existing-entry),
+                       ;; This addresses the bug in pox-2 (see SIP-022)
                        total-ustx: (+ (get total-ustx existing-entry) add-amount),
                        stacker: (some (get stacker data)) })
             ;; update the total
@@ -974,7 +975,6 @@
          (amount-stacked (get locked stacker-info))
          (amount-unlocked (get unlocked stacker-info))
          (unlock-height (get unlock-height stacker-info))
-         (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
          (cur-cycle (current-pox-reward-cycle))
          (first-increased-cycle (+ cur-cycle u1))
          (stacker-state (unwrap! (map-get? stacking-state
@@ -1021,11 +1021,7 @@
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
          (cur-cycle (current-pox-reward-cycle))
-         (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
-         ;; if the account unlocks *during* this cycle (should only occur during testing),
-         ;; set first-extend-cycle to the next cycle.
-         (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
-                                    (+ cur-cycle u1) unlock-in-cycle))
+         (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
          ;; new first cycle should be max(cur-cycle, stacker-state.first-reward-cycle)
          (cur-first-reward-cycle (get first-reward-cycle stacker-state))
          (first-reward-cycle (if (> cur-cycle cur-first-reward-cycle) cur-cycle cur-first-reward-cycle)))
@@ -1196,12 +1192,8 @@
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
-          (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
-          ;; if the account unlocks *during* this cycle (should only occur during testing),
-          ;; set first-extend-cycle to the next cycle.
+          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
           (cur-cycle (current-pox-reward-cycle))
-          (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
-                                     (+ cur-cycle u1) unlock-in-cycle))
           ;; new first cycle should be max(cur-cycle, stacker-state.first-reward-cycle)
           (cur-first-reward-cycle (get first-reward-cycle stacker-state))
           (first-reward-cycle (if (> cur-cycle cur-first-reward-cycle) cur-cycle cur-first-reward-cycle)))
