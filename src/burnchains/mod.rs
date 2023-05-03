@@ -408,7 +408,7 @@ impl PoxConstants {
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_MAINNET_EARLY_UNLOCK_HEIGHT,
-            BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT
+            BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
         )
@@ -425,7 +425,7 @@ impl PoxConstants {
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_TESTNET_EARLY_UNLOCK_HEIGHT,
-            BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT
+            BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
