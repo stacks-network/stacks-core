@@ -1118,15 +1118,15 @@ mod tests {
                     txid: to_txid(&hex_bytes("8d890bf2f7f77c4384f3cf62584a7ce5ac419068d3b43348c774204efa544694").unwrap()),
                     vtxindex: vtxindex,
                     opcode: '>' as u8,
-                    data: hex_bytes("000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd01030307").unwrap(),
+                    data: hex_bytes("000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef").unwrap(),
                     inputs: vec![
                         BitcoinTxInputRaw {
-                            scriptSig: hex_bytes("").unwrap(),
+                            scriptSig: hex_bytes("225120273cb9363da5933fe6f2bdcc3fd27f06865227cb526641cc6dc47de5e9ee06ed").unwrap(),
                             witness: vec![
                                 hex_bytes("4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad").unwrap(),
                                 hex_bytes("3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c").unwrap(),
                             ],
-                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 2),
+                            tx_ref: (Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), 4294967295),
                         }.into(),
                     ],
                     outputs: vec![
