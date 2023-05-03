@@ -54,6 +54,18 @@ jobs:
           name: unit_tests
           fail_ci_if_error: false
 
+  fuzz-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run fuzz testing (1 hour)
+        env:
+          DOCKER_BUILDKIT: 1
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.fuzz-test .
+
   open-api-validation:
     runs-on: ubuntu-latest
     steps:
