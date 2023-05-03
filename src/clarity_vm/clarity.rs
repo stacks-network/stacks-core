@@ -1135,7 +1135,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             debug!("Epoch 2.3 initialized");
 
-            (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
+            (old_cost_tracker, Ok(vec![]))
         })
     }
 
@@ -1160,7 +1160,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch24;
             });
 
-             /////////////////// .pox-3 ////////////////////////
+            /////////////////// .pox-3 ////////////////////////
             let mainnet = self.mainnet;
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
@@ -1273,7 +1273,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             debug!("Epoch 2.4 initialized");
 
-            (old_cost_tracker, Ok(vec![]))
+            (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
         })
     }
 

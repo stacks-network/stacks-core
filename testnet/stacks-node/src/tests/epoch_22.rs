@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::env;
 use std::thread;
-use std::time::Duration;
 
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -18,7 +17,6 @@ use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
 use crate::neon;
 use crate::neon_node::StacksNode;
-use crate::node::get_account_balances;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::epoch_21::wait_pox_stragglers;
 use crate::tests::neon_integrations::*;
@@ -186,6 +184,7 @@ fn disable_pox() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -612,7 +611,6 @@ fn pox_2_unlock_all() {
     let epoch_2_2 = 239; // one block before a prepare phase
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -720,6 +718,7 @@ fn pox_2_unlock_all() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1414,6 +1413,7 @@ fn test_pox_reorg_one_flap() {
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
             v2_unlock_height.try_into().unwrap(),
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
