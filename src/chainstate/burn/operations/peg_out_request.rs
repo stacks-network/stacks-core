@@ -583,6 +583,20 @@ mod tests {
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() }),
             },
+            // OP_DROP data in p2wsh-over-p2sh
+            OpFixture {
+            txstr: "020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff23220020273cb9363da5933fe6f2bdcc3fd27f06865227cb526641cc6dc47de5e9ee06edffffffff030000000000000000056a03696477390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a000000000000002251200000000000000000000000000000000000000000000000000000000000000000017e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad00000000",
+            signer: StacksAddress::from_string("ST3W2ATS1H9RF29DMYW5QP7NYJ643WNP2YFT4Z45C").unwrap(),
+            result: Ok(PegOutRequestOp {
+                amount: 1337,
+                recipient: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                signature: MessageSignature::from_hex("00dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cd").unwrap(),
+                peg_wallet_address: PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                fulfillment_fee: 42, memo: vec![222, 173, 190, 239], txid: Txid::from_hex("4d2b347a247c41b32f80c10c7d1c7aa42d4944557ab6bfdfbc829628f196e02f").unwrap(),
+                vtxindex: 1,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() }),
+            },
 
         ];
 

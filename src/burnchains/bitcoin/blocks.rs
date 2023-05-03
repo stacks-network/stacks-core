@@ -320,14 +320,24 @@ impl BitcoinBlockParser {
 
         // TODO(3680): Test this logic and add appropriate logging
         match instructions.as_slice() {
-            &[] => None, // Native segwit, not supported
+            &[] => {
+                test_debug!("Empty script sig suggests native segwit which is not supported.");
+                None
+            }
             &[Instruction::PushBytes(redeem_script)] => {
+                test_debug!(
+                    "Parsing OP_DROP data from redeem script: {:?}",
+                    redeem_script
+                );
                 Self::parse_op_drop_data_from_redeem_script(
                     &Script::from(redeem_script.to_vec()),
                     &input.witness,
                 )
             }
-            _ => None, // Invalid format
+            _ => {
+                test_debug!("Invalid script sig format");
+                None
+            }
         }
     }
 
@@ -339,15 +349,17 @@ impl BitcoinBlockParser {
 
         match instructions.as_slice() {
             // Segwit v0
-            &[Instruction::Op(btc_opcodes::OP_PUSHBYTES_0), Instruction::PushBytes(witness_hash)]
+            &[Instruction::PushBytes([]), Instruction::PushBytes(witness_hash)]
                 if witness_hash.len() == 32 =>
             {
+                test_debug!("Parsing segwit v0 data");
                 Self::parse_op_drop_data_from_segwit_v0_witness(witness)
             }
             // Taproot
             &[Instruction::Op(btc_opcodes::OP_PUSHNUM_1), Instruction::PushBytes(witness_hash)]
                 if witness_hash.len() == 32 =>
             {
+                test_debug!("Parsing taproot data");
                 Self::parse_op_drop_data_from_taproot_witness(witness)
             }
             // Redeem script
@@ -531,6 +543,7 @@ impl BitcoinBlockParser {
 
         let (opcode, data) = if opcode == 'w' as u8 {
             // TODO(3680): Add to Opcodes?
+            test_debug!("Parsing OP_DROP data");
             Self::parse_op_drop_data(&tx.input[0]).unwrap() // TODO(3680): Ensure we don't crash on coinbase tx
         } else {
             (opcode, data)
@@ -1125,6 +1138,36 @@ mod tests {
                             witness: vec![
                                 hex_bytes("4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad").unwrap(),
                                 hex_bytes("3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c").unwrap(),
+                            ],
+                            tx_ref: (Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), 4294967295),
+                        }.into(),
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 1337,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
+                        },
+                        BitcoinTxOutput {
+                            units: 42,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
+                        }
+                    ]
+                })
+            },
+            TxFixture {
+                // Peg out request transaction with p2wsh-over-p2sh data
+                txstr: "020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff23220020273cb9363da5933fe6f2bdcc3fd27f06865227cb526641cc6dc47de5e9ee06edffffffff030000000000000000056a03696477390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a000000000000002251200000000000000000000000000000000000000000000000000000000000000000017e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad00000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("4d2b347a247c41b32f80c10c7d1c7aa42d4944557ab6bfdfbc829628f196e02f").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '>' as u8,
+                    data: hex_bytes("000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("220020273cb9363da5933fe6f2bdcc3fd27f06865227cb526641cc6dc47de5e9ee06ed").unwrap(),
+                            witness: vec![
+                                hex_bytes("4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad").unwrap(),
                             ],
                             tx_ref: (Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), 4294967295),
                         }.into(),
