@@ -660,7 +660,7 @@ fn make_genesis_block_with_recipients(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_3_MARKER],
+        memo: vec![STACKS_EPOCH_2_4_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -923,7 +923,7 @@ fn make_stacks_block_with_input(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_3_MARKER],
+        memo: vec![STACKS_EPOCH_2_4_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -4301,7 +4301,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     }
 }
 
-// This test ensures the epoch transition from 2.2 to 2.3 is applied at the proper block boundaries,
+// This test ensures the epoch transition from 2.3 to 2.4 is applied at the proper block boundaries,
 // and that the epoch transition is only applied once. If it were to be applied more than once,
 // the test would panic when trying to re-create the pox-3 contract.
 #[test]
@@ -4322,7 +4322,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         &committers,
         pox_consts.clone(),
         None,
-        StacksEpochId::Epoch23,
+        StacksEpochId::Epoch24,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -4353,15 +4353,15 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // Want to ensure that the pox-3 contract DNE for all blocks before the epoch 2.3 transition height,
+        // Want to ensure that the pox-3 contract DNE for all blocks before the epoch 2.4 transition height,
         // and does exist for blocks after the boundary.
-        //    Epoch 2.1 transition        Epoch 2.2 transition        Epoch 2.3 transition
-        //             ^                         ^                           ^
-        //..  -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15
-        //..  -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14
-        //                                                            \
-        //                                                              \
-        //                                                                _ _ _  S15 -> S16 -> ..
+        //    Epoch 2.1 transition        Epoch 2.2 transition        Epoch 2.3 transition      Epoch 2.4 transition
+        //             ^                         ^                           ^                           ^
+        //..  -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15 -> B16 -> B17 -> B18 -> B19
+        //..  -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14 -> S15 -> S16 -> S17 -> S18
+                                    //                                                            \
+                                    //                                                              \
+                                    //                                                                _ _ _  S19 -> S20 -> ..
         let parent = if ix == 0 {
             BlockHeaderHash([0; 32])
         } else if ix == 15 {
@@ -4435,7 +4435,8 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
             x if x >= 8 && x < 12 => StacksEpochId::Epoch21,
             x if x >= 12 && x < 16 => StacksEpochId::Epoch22,
-            _ => StacksEpochId::Epoch23,
+            x if x >= 16 && x < 20 => StacksEpochId::Epoch23,
+            _ => StacksEpochId::Epoch24,
         };
         assert_eq!(
             chainstate
@@ -4452,13 +4453,11 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         );
 
         // These expectations are according to according to hard-coded values in
-        // `StacksEpoch::unit_test_2_3`.
+        // `StacksEpoch::unit_test_2_4`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
             x if x >= 4 && x < 8 => 205205,
-            x if x >= 8 && x < 12 => 210210,
-            x if x >= 12 && x < 16 => 220220,
-            x => 230230,
+            x => 210210
         };
         assert_eq!(
             chainstate
@@ -4477,7 +4476,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             expected_runtime
         );
 
-        // check that pox-3 contract DNE before epoch 2.3, and that it does exist after
+        // check that pox-3 contract DNE before epoch 2.4, and that it does exist after
         let does_pox_3_contract_exist = chainstate
             .with_read_only_clarity_tx(
                 &sort_db.index_conn(),
@@ -4490,7 +4489,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             )
             .unwrap();
 
-        if burn_block_height < 16 {
+        if burn_block_height < 20 {
             assert!(does_pox_3_contract_exist.is_err())
         } else {
             assert!(does_pox_3_contract_exist.is_ok())

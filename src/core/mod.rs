@@ -782,7 +782,7 @@ impl StacksEpochExtension for StacksEpoch {
     #[cfg(test)]
     fn unit_test_2_4(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
-            "StacksEpoch unit_test_2_3 first_burn_height = {}",
+            "StacksEpoch unit_test_2_4 first_burn_height = {}",
             first_burnchain_height
         );
 
