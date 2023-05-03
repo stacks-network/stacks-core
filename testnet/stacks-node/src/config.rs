@@ -412,14 +412,14 @@ impl Config {
             // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch23
             if let Some(epoch) = epochs
                 .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch23)
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
             {
                 // Override v2_unlock_height to the start_height of epoch2.3
                 debug!(
                     "Override v2_unlock_height from {} to {}",
                     burnchain.pox_constants.v2_unlock_height, epoch.start_height
                 );
-                burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32;
+                burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
             }
 
             if let Some(epoch) = epochs
