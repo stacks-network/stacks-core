@@ -989,15 +989,15 @@
       ;; stacker must have enough stx to lock
       (asserts! (>= amount-unlocked increase-by)
                 (err ERR_STACKING_INSUFFICIENT_FUNDS))
-      ;; stacker must not be delegating
-      (asserts! (is-none (get delegated-to stacker-state))
-                (err ERR_STACKING_IS_DELEGATED))
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
       ;; stacker must be directly stacking
       (asserts! (> (len (get reward-set-indexes stacker-state)) u0)
-                (err ERR_STACKING_ALREADY_DELEGATED))
+                (err ERR_STACKING_IS_DELEGATED))
+      ;; stacker must not be delegating
+      (asserts! (is-none (get delegated-to stacker-state))
+                (err ERR_STACKING_IS_DELEGATED))
       ;; update reward cycle amounts
       (asserts! (is-some (fold increase-reward-cycle-entry
             (get reward-set-indexes stacker-state)
@@ -1034,9 +1034,16 @@
     (asserts! (>= extend-count u1)
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
+    ;; stacker must be directly stacking
+      (asserts! (> (len (get reward-set-indexes stacker-state)) u0)
+                (err ERR_STACKING_IS_DELEGATED))
+
     ;; stacker must not be delegating
     (asserts! (is-none (get delegated-to stacker-state))
               (err ERR_STACKING_IS_DELEGATED))
+
+    ;; TODO: add more assertions to sanity check the `stacker-info` values with
+    ;;       the `stacker-state` values
 
     (let ((last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
           (lock-period (+ u1 (- last-extend-cycle first-reward-cycle)))
@@ -1120,6 +1127,10 @@
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
         (err ERR_STACKING_PERMISSION_DENIED))
+
+      ;; stacker must not be directly stacking
+      (asserts! (is-eq (len (get reward-set-indexes stacker-state)) u0)
+                (err ERR_STACKING_NOT_DELEGATED))
 
       ;; stacker must be delegated to tx-sender
       (asserts! (is-eq (unwrap! (get delegated-to stacker-state)
@@ -1211,6 +1222,10 @@
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
         (err ERR_STACKING_PERMISSION_DENIED))
+
+      ;; stacker must not be directly stacking
+      (asserts! (is-eq (len (get reward-set-indexes stacker-state)) u0)
+                (err ERR_STACKING_NOT_DELEGATED))
 
       ;; stacker must be delegated to tx-sender
       (asserts! (is-eq (unwrap! (get delegated-to stacker-state)
