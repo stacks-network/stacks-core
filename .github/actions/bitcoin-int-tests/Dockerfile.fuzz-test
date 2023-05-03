@@ -14,8 +14,9 @@ COPY . .
 
 RUN cargo build --workspace && \
     cd clarity/fuzz && \
-    cargo build --workspace && \
-    for target in $(cargo fuzz list) \
-    do \
+    cargo build --workspace
+
+RUN for target in $(cargo fuzz list); \
+    do; \
         cargo fuzz run $target -- -max_total_time=1800 -rss_limit_mb=4096 \
-    done
+    ; done
