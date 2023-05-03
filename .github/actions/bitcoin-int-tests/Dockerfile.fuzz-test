@@ -15,5 +15,7 @@ COPY . .
 RUN cargo build --workspace && \
     cd clarity/fuzz && \
     cargo build --workspace && \
-    cargo fuzz run fuzz_admits_type -- -max_total_time 1800 && \
-    cargo fuzz run fuzz_least_supertype -- -max_total_time 1800
+    for target in $(cargo fuzz list) \
+    do \
+        cargo fuzz run $target -- -max_total_time=1800 -rss_limit_mb=4096 \
+    done
