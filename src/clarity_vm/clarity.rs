@@ -1133,7 +1133,34 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch23;
             });
 
-            /////////////////// .pox-3 ////////////////////////
+            debug!("Epoch 2.3 initialized");
+
+            (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
+        })
+    }
+
+    pub fn initialize_epoch_2_4(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch24;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch24);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 2.4 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch24;
+            });
+
+             /////////////////// .pox-3 ////////////////////////
             let mainnet = self.mainnet;
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
@@ -1243,33 +1270,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &pox_3_initialization_receipt
                 );
             }
-
-            debug!("Epoch 2.3 initialized");
-
-            (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
-        })
-    }
-
-    pub fn initialize_epoch_2_4(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        // use the `using!` statement to ensure that the old cost_tracker is placed
-        //  back in all branches after initialization
-        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
-            // epoch initialization is *free*.
-            // NOTE: this also means that cost functions won't be evaluated.
-            self.cost_track.replace(LimitedCostTracker::new_free());
-            self.epoch = StacksEpochId::Epoch24;
-            self.as_transaction(|tx_conn| {
-                // bump the epoch in the Clarity DB
-                tx_conn
-                    .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch24);
-                        Ok(())
-                    })
-                    .unwrap();
-
-                // require 2.4 rules henceforth in this connection as well
-                tx_conn.epoch = StacksEpochId::Epoch24;
-            });
 
             debug!("Epoch 2.4 initialized");
 
