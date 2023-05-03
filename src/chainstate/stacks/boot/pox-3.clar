@@ -1021,6 +1021,7 @@
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
          (cur-cycle (current-pox-reward-cycle))
+         ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
          ;; new first cycle should be max(cur-cycle, stacker-state.first-reward-cycle)
          (cur-first-reward-cycle (get first-reward-cycle stacker-state))
@@ -1192,6 +1193,7 @@
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
+          ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
           (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
           (cur-cycle (current-pox-reward-cycle))
           ;; new first cycle should be max(cur-cycle, stacker-state.first-reward-cycle)
