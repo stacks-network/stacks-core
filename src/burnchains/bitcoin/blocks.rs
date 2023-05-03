@@ -1184,6 +1184,34 @@ mod tests {
                     ]
                 })
             },
+            TxFixture {
+                // Peg out request transaction with p2sh data
+                txstr: "02000000010000000000000000000000000000000000000000000000000000000000000000ffffffff804c7e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87adffffffff030000000000000000056a03696477390500000000000022512000000000000000000000000000000000000000000000000000000000000000002a00000000000000225120000000000000000000000000000000000000000000000000000000000000000000000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("f270c1e86449b53b7ed54b1727c20d9317fb17a13a301126eeae0cdc811001b4").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '>' as u8,
+                    data: hex_bytes("000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("4c7e4c563e000000000000053900dc18d08e2ee9f476a89c4c195edd402610176bb6264ec56f3f9e42e7386c543846e09282b6f03495c663c8509df7c97ffbcd2adc537bbabe23abd828a52bc8cddeadbeef000000000000002a7576a9200c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c87ad").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(), 4294967295),
+                        }.into(),
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 1337,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
+                        },
+                        BitcoinTxOutput {
+                            units: 42,
+                            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, [0; 32]))
+                        }
+                    ]
+                })
+            },
         ];
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([105, 100])); // "id"
