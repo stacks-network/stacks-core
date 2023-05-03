@@ -35,6 +35,8 @@ use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::PEER_VERSION_EPOCH_2_2;
+use crate::core::PEER_VERSION_EPOCH_2_3;
 use crate::monitoring;
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
