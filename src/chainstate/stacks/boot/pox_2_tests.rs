@@ -7,7 +7,8 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_3_NAME,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
+    POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -298,6 +299,7 @@ pub fn check_stacking_state_invariants(
     tip: &StacksBlockId,
     stacker: &PrincipalData,
     expect_indexes: bool,
+    active_pox_contract: &str,
 ) -> StackingStateCheckData {
     let account_state = with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(stacker)
@@ -312,14 +314,11 @@ pub fn check_stacking_state_invariants(
     .unwrap()
     .burn_header_height;
 
-    let active_pox_contract = peer
-        .config
-        .burnchain
-        .pox_constants
-        .active_pox_contract(tip_burn_height.into());
-
     let stacking_state_entry = get_stacking_state_pox(peer, tip, stacker, active_pox_contract)
-        .expect("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state")
+        .expect(&format!(
+            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
+            active_pox_contract,
+        ))
         .expect_tuple();
     let first_cycle = stacking_state_entry
         .get("first-reward-cycle")
@@ -451,6 +450,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         .unwrap()
         .unwrap();
 
+    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height(cycle_number),
+    );
+
     if cycle_start_epoch.epoch_id == StacksEpochId::Epoch22
         || cycle_start_epoch.epoch_id == StacksEpochId::Epoch23
     {
@@ -461,15 +466,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         return;
     }
 
-    if cycle_start_epoch.epoch_id == StacksEpochId::Epoch24
-        && cycle_start
-            <= peer
-                .config
-                .burnchain
-                .pox_constants
-                .pox_3_activation_height
-                .into()
-    {
+    if cycle_start_epoch.epoch_id == StacksEpochId::Epoch24 && active_pox_contract != POX_3_NAME {
         info!(
             "Skipping validation of reward set that started in Epoch24, but its cycle starts before pox-3 activation";
             "cycle" => cycle_number,
@@ -527,7 +524,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 pox_addr,
                 cycle_indexes,
                 ..
-            } = check_stacking_state_invariants(peer, tip, stacker, true);
+            } = check_stacking_state_invariants(peer, tip, stacker, true, active_pox_contract);
 
             assert_eq!(&entry.reward_address, &pox_addr, "Invariant violated: reward-cycle entry has a different PoX addr than in stacker-state");
             assert_eq!(
@@ -3000,12 +2997,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
@@ -3053,12 +3062,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
@@ -3109,12 +3130,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
