@@ -308,8 +308,7 @@ impl RPCPoxInfoData {
             .block_height_to_reward_cycle(burnchain.first_block_height as u64)
             .ok_or(net_error::ChainstateError(
                 "PoX-1 first reward cycle begins before first burn block height".to_string(),
-            ))?
-            + 1;
+            ))?;
 
         let pox_2_first_cycle = burnchain
             .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
