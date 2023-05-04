@@ -30,6 +30,7 @@ use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::POX_3_NAME;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -314,6 +315,8 @@ pub struct PoxConstants {
     pub v1_unlock_height: u32,
     /// The auto unlock height for PoX v2 lockups during Epoch 2.2
     pub v2_unlock_height: u32,
+    /// After this burn height, reward cycles use pox-3 for reward set data
+    pub pox_3_activation_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -328,10 +331,13 @@ impl PoxConstants {
         sunset_end: u64,
         v1_unlock_height: u32,
         v2_unlock_height: u32,
+        pox_3_activation_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
         assert!(sunset_start <= sunset_end);
+        assert!(v2_unlock_height >= v1_unlock_height);
+        assert!(pox_3_activation_height >= v2_unlock_height);
 
         PoxConstants {
             reward_cycle_length,
@@ -343,28 +349,25 @@ impl PoxConstants {
             sunset_end,
             v1_unlock_height,
             v2_unlock_height,
+            pox_3_activation_height,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(
-            10,
-            5,
-            3,
-            25,
-            5,
-            5000,
-            10000,
-            u32::max_value(),
-            u32::max_value(),
-        )
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX)
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
-    pub fn static_active_pox_contract(v1_unlock_height: u64, burn_height: u64) -> &'static str {
-        if burn_height > v1_unlock_height {
+    pub fn static_active_pox_contract(
+        v1_unlock_height: u64,
+        pox_3_activation_height: u64,
+        burn_height: u64,
+    ) -> &'static str {
+        if burn_height > pox_3_activation_height {
+            POX_3_NAME
+        } else if burn_height > v1_unlock_height {
             POX_2_NAME
         } else {
             POX_1_NAME
@@ -373,7 +376,11 @@ impl PoxConstants {
 
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
-        Self::static_active_pox_contract(self.v1_unlock_height as u64, burn_height)
+        Self::static_active_pox_contract(
+            self.v1_unlock_height as u64,
+            self.pox_3_activation_height as u64,
+            burn_height,
+        )
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -401,6 +408,9 @@ impl PoxConstants {
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_MAINNET_EARLY_UNLOCK_HEIGHT,
+            BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
@@ -415,6 +425,9 @@ impl PoxConstants {
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
             POX_V2_TESTNET_EARLY_UNLOCK_HEIGHT,
+            BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
@@ -429,6 +442,7 @@ impl PoxConstants {
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             1_000_000,
             2_000_000,
+            3_000_000,
         )
     }
 

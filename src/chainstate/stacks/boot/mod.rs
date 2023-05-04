@@ -81,10 +81,10 @@ pub const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
+pub const POX_3_NAME: &'static str = "pox-3";
 
-const POX_2_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
-const POX_2_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
+const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -101,6 +101,10 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
     pub static ref POX_2_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
+    pub static ref POX_3_MAINNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
+    pub static ref POX_3_TESTNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -970,17 +974,8 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(
-            501,
-            1,
-            1,
-            1,
-            5,
-            5000,
-            10000,
-            u32::max_value(),
-            u32::max_value(),
-        );
+        let test_pox_constants =
+            PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX);
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;

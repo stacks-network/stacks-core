@@ -22,10 +22,12 @@ use std::thread;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
+use crate::chainstate::stacks::boot::POX_3_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_3_TESTNET_CODE;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_NAME,
+    COSTS_3_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -43,8 +45,7 @@ use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
 use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use crate::core::StacksEpoch;
-use crate::core::FIRST_STACKS_BLOCK_ID;
-use crate::core::GENESIS_EPOCH;
+use crate::core::{FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::SortitionId;
@@ -1116,6 +1117,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             // epoch initialization is *free*.
             // NOTE: this also means that cost functions won't be evaluated.
             self.cost_track.replace(LimitedCostTracker::new_free());
+
+            // first, upgrade the epoch
             self.epoch = StacksEpochId::Epoch23;
             self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1157,9 +1160,120 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch24;
             });
 
+            /////////////////// .pox-3 ////////////////////////
+            let mainnet = self.mainnet;
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
+            let pox_3_activation_height = self.burn_state_db.get_pox_3_activation_height();
+
+            let pox_3_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                pox_3_activation_height as u64,
+                first_block_height as u64,
+                pox_reward_cycle_length as u64,
+            )
+            .expect("PANIC: PoX-3 first reward cycle begins *before* first burn block height")
+                + 1;
+
+            // get tx_version & boot code account information for pox-3 contract init
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = TransactionAuth::Standard(
+                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                    signer: boot_code_address.bytes.clone(),
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                    nonce: 0,
+                    tx_fee: 0,
+                    signature: MessageSignature::empty(),
+                }),
+            );
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
+
+            let pox_3_code = if mainnet {
+                &*POX_3_MAINNET_CODE
+            } else {
+                &*POX_3_TESTNET_CODE
+            };
+
+            let pox_3_contract_id = boot_code_id(POX_3_NAME, mainnet);
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(POX_3_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(pox_3_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
+
+            let pox_3_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &pox_3_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &pox_3_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process PoX 3 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_3_contract_id.clone());
+                let params = vec![
+                    Value::UInt(first_block_height as u128),
+                    Value::UInt(pox_prepare_length as u128),
+                    Value::UInt(pox_reward_cycle_length as u128),
+                    Value::UInt(pox_rejection_fraction as u128),
+                    Value::UInt(pox_3_first_cycle as u128),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_3_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-3 contract");
+
+                receipt
+            });
+
+            if pox_3_initialization_receipt.result != Value::okay_true()
+                || pox_3_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing PoX 3 contract initialization: {:#?}",
+                    &pox_3_initialization_receipt
+                );
+            }
+
             debug!("Epoch 2.4 initialized");
 
-            (old_cost_tracker, Ok(vec![]))
+            (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
         })
     }
 
@@ -2331,11 +2445,15 @@ mod tests {
             }
 
             fn get_v2_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
             }
 
             fn get_v1_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
+            }
+
+            fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
             }
 
             fn get_pox_prepare_length(&self) -> u32 {

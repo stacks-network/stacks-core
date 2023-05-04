@@ -3115,9 +3115,10 @@ mod test {
             3,
             25,
             5,
-            u64::max_value(),
-            u64::max_value(),
-            u32::max_value(),
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
         );
 
@@ -3143,9 +3144,10 @@ mod test {
             3,
             25,
             5,
-            u64::max_value(),
-            u64::max_value(),
-            u32::max_value(),
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
         );
 

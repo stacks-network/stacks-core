@@ -152,6 +152,7 @@ fn trait_invocation_behavior() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 

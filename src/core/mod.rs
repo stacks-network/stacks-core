@@ -129,6 +129,7 @@ pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2_104_380;
 pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 2_422_101;
 pub const BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT: u64 = 2_431_300;
 pub const BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT: u64 = 2_431_633;
+pub const BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT: u64 = 2_433_033;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -754,11 +755,11 @@ impl StacksEpochExtension for StacksEpoch {
                 start_height: first_burnchain_height + 12,
                 end_height: first_burnchain_height + 16,
                 block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
+                    write_length: 220220,
+                    write_count: 220220,
+                    read_length: 220220,
+                    read_count: 220220,
+                    runtime: 220220,
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_2,
             },
@@ -767,11 +768,11 @@ impl StacksEpochExtension for StacksEpoch {
                 start_height: first_burnchain_height + 16,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost {
-                    write_length: 210210,
-                    write_count: 210210,
-                    read_length: 210210,
-                    read_count: 210210,
-                    runtime: 210210,
+                    write_length: 230230,
+                    write_count: 230230,
+                    read_length: 230230,
+                    read_count: 230230,
+                    runtime: 230230,
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_3,
             },
@@ -781,7 +782,7 @@ impl StacksEpochExtension for StacksEpoch {
     #[cfg(test)]
     fn unit_test_2_4(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
-            "StacksEpoch unit_test_2_3 first_burn_height = {}",
+            "StacksEpoch unit_test_2_4 first_burn_height = {}",
             first_burnchain_height
         );
 
