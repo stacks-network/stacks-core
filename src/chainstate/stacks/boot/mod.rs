@@ -35,6 +35,7 @@ use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
+use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
@@ -44,6 +45,7 @@ use clarity::vm::costs::{
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::InterpreterError;
+use clarity::vm::errors::Error as VmError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
@@ -145,7 +147,7 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
@@ -688,6 +690,7 @@ impl StacksChainState {
             .iter()
             .fold(0, |agg, entry| agg + entry.amount_stacked);
 
+        info!("CALCULATING REWARD SET: checking total ustx");
         assert!(
             participation <= liquid_ustx,
             "CORRUPTION: More stacking participation than liquid STX"
@@ -988,7 +991,7 @@ impl StacksChainState {
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
-        match pox_contract_name {
+        let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
             x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
@@ -996,6 +999,14 @@ impl StacksChainState {
                 panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
                        unknown_contract);
             }
+        };
+
+        match result {
+            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(CheckErrors::NoSuchContract(_))))) => {
+                warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
+                return Ok(vec![])
+            }
+            x => x,
         }
     }
 }

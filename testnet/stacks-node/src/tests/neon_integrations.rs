@@ -594,7 +594,7 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         );
         return res;
     } else {
-        eprintln!("{}", res.text().unwrap());
+        eprintln!("Submit tx error: {}", res.text().unwrap());
         panic!("");
     }
 }
