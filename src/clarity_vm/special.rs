@@ -1265,12 +1265,6 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_3_NAME, global_context.mainnet) {
-        if global_context.database.get_current_burnchain_block_height()
-            < global_context.database.get_pox_3_activation_height()
-        {
-            warn!("PoX-3 contract invoked before PoX-3 activation height");
-            return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
-        }
         return handle_pox_v3_api_contract_call(
             global_context,
             sender,
