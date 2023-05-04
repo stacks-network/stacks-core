@@ -107,7 +107,7 @@ pub fn get_stx_account_at(
 }
 
 /// get the stacking-state entry for an account at the chaintip
-fn get_stacking_state_pox(
+pub fn get_stacking_state_pox(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     account: &PrincipalData,
@@ -175,7 +175,6 @@ pub fn check_all_stacker_link_invariants(
     }
 }
 
-#[cfg(test)]
 pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
     let byte_vec = hex_bytes(str_hash).unwrap();
     let pox_addr_tuple = TupleData::from_data(vec![
@@ -187,19 +186,17 @@ pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
     Value::Tuple(pox_addr_tuple)
 }
 
-#[cfg(test)]
-struct PoxPrintFields {
-    op_name: String,
-    stacker: Value,
-    balance: Value,
-    locked: Value,
-    burnchain_unlock_height: Value,
+pub struct PoxPrintFields {
+    pub op_name: String,
+    pub stacker: Value,
+    pub balance: Value,
+    pub locked: Value,
+    pub burnchain_unlock_height: Value,
 }
 
-#[cfg(test)]
 // This function takes in a StacksTransactionEvent for a print statement from a pox function that modifies
 // a stacker's state. It verifies that the values in the print statement are as expected.
-fn check_pox_print_event(
+pub fn check_pox_print_event(
     event: &StacksTransactionEvent,
     common_data: PoxPrintFields,
     op_data: HashMap<&str, Value>,
