@@ -847,6 +847,95 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    fn get_reward_addresses_pox_3(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(vec![]);
+        }
+
+        // how many in this cycle?
+        let num_addrs = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_3_NAME,
+                &format!("(get-reward-set-size u{})", reward_cycle),
+            )?
+            .expect_u128();
+
+        debug!(
+            "At block {:?} (reward cycle {}): {} PoX reward addresses",
+            block_id, reward_cycle, num_addrs
+        );
+
+        let mut ret = vec![];
+        for i in 0..num_addrs {
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            let tuple = self
+                .eval_boot_code_read_only(
+                    sortdb,
+                    block_id,
+                    POX_3_NAME,
+                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    i, num_addrs, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = tuple
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = tuple
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = tuple
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            debug!(
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
+            );
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+            })
+        }
+
+        Ok(ret)
+    }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -870,6 +959,7 @@ impl StacksChainState {
         match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
+            x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
             unknown_contract => {
                 panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
                        unknown_contract);
@@ -1342,6 +1432,29 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
+        make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_2_NAME)
+    }
+
+    pub fn make_pox_3_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: PoxAddress,
+        lock_period: u128,
+        burn_ht: u64,
+    ) -> StacksTransaction {
+        make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
+    }
+
+    pub fn make_pox_2_or_3_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: PoxAddress,
+        lock_period: u128,
+        burn_ht: u64,
+        contract_name: &str,
+    ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         //                           (burn-height uint)
@@ -1349,7 +1462,7 @@ pub mod test {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
-            POX_2_NAME,
+            contract_name,
             "stack-stx",
             vec![
                 Value::UInt(amount),
