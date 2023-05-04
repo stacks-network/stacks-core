@@ -417,7 +417,8 @@ impl Config {
                 // Override v2_unlock_height to the start_height of epoch2.3
                 debug!(
                     "Override v2_unlock_height from {} to {}",
-                    burnchain.pox_constants.v2_unlock_height, epoch.start_height
+                    burnchain.pox_constants.v2_unlock_height,
+                    epoch.start_height + 1
                 );
                 burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
             }
