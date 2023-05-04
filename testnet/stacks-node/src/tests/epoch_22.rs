@@ -105,7 +105,7 @@ fn disable_pox() {
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -115,7 +115,7 @@ fn disable_pox() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
@@ -125,7 +125,7 @@ fn disable_pox() {
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
@@ -231,15 +231,15 @@ fn disable_pox() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -287,8 +287,8 @@ fn disable_pox() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
     let tx = make_contract_call(
         &spender_sk,
         1,
@@ -398,7 +398,7 @@ fn disable_pox() {
         &conf.get_chainstate_path_str(),
         None,
     )
-    .unwrap();
+        .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     let mut reward_cycle_pox_addrs = HashMap::new();
@@ -566,7 +566,7 @@ fn disable_pox() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), "(err none)");
                 abort_tested = true;
             }
@@ -635,7 +635,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -645,7 +645,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
@@ -655,7 +655,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
@@ -761,15 +761,15 @@ fn pox_2_unlock_all() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -817,8 +817,8 @@ fn pox_2_unlock_all() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_publish(
         &spender_sk,
@@ -1062,7 +1062,7 @@ fn pox_2_unlock_all() {
         &conf.get_chainstate_path_str(),
         None,
     )
-    .unwrap();
+        .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     let mut reward_cycle_pox_addrs = HashMap::new();
@@ -1218,7 +1218,7 @@ fn pox_2_unlock_all() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), format!("(ok u{})", epoch_2_2 + 1));
                 unlock_ht_22_tested = true;
             }
@@ -1234,7 +1234,7 @@ fn pox_2_unlock_all() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), format!("(ok u{})", 230 + 60));
                 unlock_ht_21_tested = true;
             }
@@ -1498,7 +1498,7 @@ fn test_pox_reorg_one_flap() {
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey)
             .to_bytes()
@@ -1525,8 +1525,8 @@ fn test_pox_reorg_one_flap() {
                         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
                         ClarityVersion::Clarity1,
                     )
-                    .unwrap()
-                    .unwrap(),
+                        .unwrap()
+                        .unwrap(),
                     Value::UInt((sort_height + 1) as u128),
                     Value::UInt(12),
                 ],
