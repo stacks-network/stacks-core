@@ -77,7 +77,11 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     let EPOCH_2_1_HEIGHT = 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
     let EPOCH_2_3_HEIGHT = EPOCH_2_2_HEIGHT + 2; // 52
+                                                 // epoch-2.4 will start at the first block of cycle 11!
+                                                 //  this means that cycle 11 should also be treated like a "burn"
     let EPOCH_2_4_HEIGHT = EPOCH_2_2_HEIGHT + 6; // 56
+
+    // cycle 11 = 60
 
     let epochs = vec![
         StacksEpoch {
@@ -188,10 +192,8 @@ fn simple_pox_lockup_transition_pox_2() {
         Some(&observer),
     );
 
-    // TODO: this is set to None for now, because I have to think through how this
-    //  check should handle the case when PoX-3 hasn't been published yet!
     peer.config.check_pox_invariants =
-        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 20));
 
     let alice = keys.pop().unwrap();
     let bob = keys.pop().unwrap();
@@ -200,75 +202,6 @@ fn simple_pox_lockup_transition_pox_2() {
     let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
 
     let mut coinbase_nonce = 0;
-
-    // these checks are very repetitive
-    let reward_cycle_checks = |tip_index_block| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) =
-            with_sortdb(&mut peer, |ref mut c, ref sortdb| {
-                (
-                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
-                        .unwrap(),
-                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                        .unwrap(),
-                )
-            });
-
-        eprintln!(
-            "\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal-stacked: {}\n",
-            cur_reward_cycle, min_ustx, &reward_addrs, total_stacked
-        );
-
-        if cur_reward_cycle < EXPECTED_ALICE_FIRST_REWARD_CYCLE {
-            // no reward addresses yet
-            assert_eq!(reward_addrs.len(), 0);
-        } else if cur_reward_cycle < EXPECTED_FIRST_V2_CYCLE as u128 {
-            // After the start of Alice's first cycle, but before the first V2 cycle,
-            //  Alice is the only Stacker, so check that.
-            let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
-                get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-            eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
-
-            // one reward address, and it's Alice's
-            // either way, there's a single reward address
-            assert_eq!(reward_addrs.len(), 1);
-            assert_eq!(
-                (reward_addrs[0].0).version(),
-                AddressHashMode::SerializeP2PKH as u8
-            );
-            assert_eq!(
-                (reward_addrs[0].0).hash160(),
-                key_to_stacks_addr(&alice).bytes
-            );
-            assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
-        } else {
-            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
-            assert_eq!(reward_addrs.len(), 2);
-            assert_eq!(
-                (reward_addrs[0].0).version(),
-                AddressHashMode::SerializeP2PKH as u8
-            );
-            assert_eq!(
-                (reward_addrs[0].0).hash160(),
-                key_to_stacks_addr(&bob).bytes
-            );
-            assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
-
-            assert_eq!(
-                (reward_addrs[1].0).version(),
-                AddressHashMode::SerializeP2PKH as u8
-            );
-            assert_eq!(
-                (reward_addrs[1].0).hash160(),
-                key_to_stacks_addr(&alice).bytes
-            );
-            assert_eq!(reward_addrs[1].1, 512 * POX_THRESHOLD_STEPS_USTX);
-        }
-    };
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.sortdb.as_ref());
@@ -500,8 +433,7 @@ fn simple_pox_lockup_transition_pox_2() {
     let mut bob_txs = HashMap::new();
     let mut charlie_txs = HashMap::new();
 
-    eprintln!("Alice addr: {}", alice_address);
-    eprintln!("Bob addr: {}", bob_address);
+    debug!("Alice addr: {}, Bob addr: {}", alice_address, bob_address);
 
     let mut tested_charlie = false;
 
@@ -509,7 +441,7 @@ fn simple_pox_lockup_transition_pox_2() {
         for r in b.receipts.into_iter() {
             if let TransactionOrigin::Stacks(ref t) = r.transaction {
                 let addr = t.auth.origin().address_testnet();
-                eprintln!("TX addr: {}", addr);
+                debug!("Transaction addr: {}", addr);
                 if addr == alice_address {
                     alice_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == bob_address {
