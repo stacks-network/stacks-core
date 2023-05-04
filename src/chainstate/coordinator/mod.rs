@@ -44,6 +44,7 @@ use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::POX_3_NAME;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     db::{
@@ -246,7 +247,7 @@ impl From<DBError> for Error {
 pub trait RewardSetProvider {
     fn get_reward_set(
         &self,
-        current_burn_height: u64,
+        cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -259,6 +260,7 @@ pub struct OnChainRewardSetProvider();
 impl RewardSetProvider for OnChainRewardSetProvider {
     fn get_reward_set(
         &self,
+        // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
         current_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
@@ -268,10 +270,33 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
             &format!("FATAL: no epoch for burn height {}", current_burn_height),
         );
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch22 {
-            info!("PoX reward cycle defaulting to burn in Epoch 2.2");
-            return Ok(RewardSet::empty());
-        }
+        match cur_epoch.epoch_id {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21 => {
+                // Epochs 1.0 - 2.1 compute reward sets
+            }
+            StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
+                info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
+                return Ok(RewardSet::empty());
+            }
+            StacksEpochId::Epoch24 => {
+                // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
+                if burnchain
+                    .pox_constants
+                    .active_pox_contract(current_burn_height)
+                    != POX_3_NAME
+                {
+                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                    //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
+                    //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
+                    //   start height
+                    info!("PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation");
+                    return Ok(RewardSet::empty());
+                }
+            }
+        };
 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
