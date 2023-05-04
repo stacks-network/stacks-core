@@ -7,7 +7,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -144,6 +144,18 @@ pub fn check_all_stacker_link_invariants(
 
     info!("Invoked check all"; "tip" => %tip, "first" => first_cycle_number, "last" => max_cycle_number);
     for cycle in first_cycle_number..(max_cycle_number + 1) {
+        // check if it makes sense to test invariants yet.
+        // For cycles where PoX-3 is active, check if Epoch24 has activated first.
+        let active_pox_contract = peer
+            .config
+            .burnchain
+            .pox_constants
+            .active_pox_contract(peer.config.burnchain.reward_cycle_to_block_height(cycle));
+        if active_pox_contract == POX_3_NAME && epoch < StacksEpochId::Epoch24 {
+            info!("Skipping check on a PoX-3 reward cycle because Epoch24 has not started yet");
+            continue;
+        }
+
         check_stacker_link_invariants(peer, tip, cycle);
     }
 }
@@ -402,11 +414,27 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         .config
         .burnchain
         .reward_cycle_to_block_height(cycle_number);
+
+    let tip_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), current_burn_height as u64)
+        .unwrap()
+        .unwrap();
+
+    let cycle_start_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), cycle_start)
+        .unwrap()
+        .unwrap();
+
+    if cycle_start_epoch.epoch_id == StacksEpochId::Epoch22
+        || cycle_start_epoch.epoch_id == StacksEpochId::Epoch23
+    {
+        info!("Skipping reward set validation checks on reward cycles that start in Epoch 2.2 or Epoch 2.3");
+        return;
+    }
+
     let reward_set_entries = get_reward_set_entries_index_order_at(peer, tip, cycle_start);
     let mut checked_total = 0;
     for (actual_index, entry) in reward_set_entries.iter().enumerate() {
         debug!(
-            "Cycle {}: Check {:?} (stacked={}, stacker={})",
+            "Cycle {}: Check {:?} (stacked={}, stacker={}, tip_epoch={})",
             cycle_number,
             &entry.reward_address,
             entry.amount_stacked,
@@ -414,15 +442,25 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 .stacker
                 .as_ref()
                 .map(|s| format!("{}", &s))
-                .unwrap_or("(none)".to_string())
+                .unwrap_or("(none)".to_string()),
+            &tip_epoch.epoch_id,
         );
         checked_total += entry.amount_stacked;
         if let Some(stacker) = &entry.stacker {
-            if tip_cycle > cycle_start {
+            if tip_cycle > cycle_number {
                 // if the checked cycle is before the tip's cycle,
                 // the reward-set-entrie's stacker links are no longer necessarily valid
                 // (because the reward cycles for those entries has passed)
                 // so we continue here to skip the stacker reference checks
+                continue;
+            }
+
+            if tip_epoch.epoch_id == StacksEpochId::Epoch22
+                || tip_epoch.epoch_id == StacksEpochId::Epoch23
+            {
+                // if the current tip is epoch-2.2 or epoch-2.3, the stacker invariant checks
+                // no longer make sense: the stacker has unlocked, even though a reward cycle
+                // is still active (i.e., the last active cycle from epoch-2.1).
                 continue;
             }
 
@@ -446,6 +484,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
 pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
+    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height(cycle_number),
+    );
+
     with_clarity_db_ro(peer, tip, |db| {
         let total_stacked_key = TupleData::from_data(vec![(
             "reward-cycle".into(),
@@ -454,7 +498,7 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         .unwrap()
         .into();
         db.fetch_entry_unknown_descriptor(
-            &boot_code_id(boot::POX_2_NAME, false),
+            &boot_code_id(active_pox_contract, false),
             "reward-cycle-total-stacked",
             &total_stacked_key,
         )

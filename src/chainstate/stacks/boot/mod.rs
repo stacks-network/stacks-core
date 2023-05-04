@@ -972,6 +972,8 @@ impl StacksChainState {
 pub mod contract_tests;
 #[cfg(test)]
 pub mod pox_2_tests;
+#[cfg(test)]
+pub mod pox_3_tests;
 
 #[cfg(test)]
 pub mod test {
