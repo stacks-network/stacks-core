@@ -48,10 +48,8 @@ pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH
 // first byte == major network protocol version (currently 0x18)
 // second and third bytes are unused
 // fourth byte == highest epoch supported by this node
-// - 0x05 for 2.05
-// - 0x06 for 2.1
-pub const PEER_VERSION_MAINNET: u32 = 0x18000007;
-pub const PEER_VERSION_TESTNET: u32 = 0xfacade07;
+pub const PEER_VERSION_MAINNET_MAJOR: u32 = 0x18000000;
+pub const PEER_VERSION_TESTNET_MAJOR: u32 = 0xfacade00;
 
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
@@ -60,6 +58,14 @@ pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
 pub const PEER_VERSION_EPOCH_2_2: u8 = 0x07;
 pub const PEER_VERSION_EPOCH_2_3: u8 = 0x08;
 pub const PEER_VERSION_EPOCH_2_4: u8 = 0x09;
+
+// this should be updated to the latest network epoch version supported by
+//  this node. this will be checked by the `validate_epochs()` method.
+pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_4 as u32;
+
+// set the fourth byte of the peer version
+pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
+pub const PEER_VERSION_TESTNET: u32 = PEER_VERSION_TESTNET_MAJOR | PEER_NETWORK_EPOCH;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
@@ -973,6 +979,20 @@ impl StacksEpochExtension for StacksEpoch {
         let mut epochs = epochs_ref.to_vec();
         let mut seen_epochs = HashSet::new();
         epochs.sort();
+
+        let max_epoch = epochs_ref
+            .iter()
+            .max()
+            .expect("FATAL: expect at least one epoch");
+        assert!(
+            max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
+        );
+
+        assert!(
+            StacksEpochId::latest() >= max_epoch.epoch_id,
+            "StacksEpochId::latest() should be greater than or equal to any epoch defined in the node"
+        );
 
         let mut epoch_end_height = 0;
         for epoch in epochs.iter() {
