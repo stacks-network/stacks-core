@@ -877,7 +877,7 @@
           first-reward-cycle: first-reward-cycle,
           reward-set-indexes: (list),
           lock-period: lock-period,
-          delegated-to: tx-sender })
+          delegated-to: (some tx-sender) })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
@@ -1069,16 +1069,15 @@
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
       (let ((extended-reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender)))
-            (reward-set-indexes (match stacker-state
-                                       ;; if there's active stacker state, we need to extend the existing reward-set-indexes
-                                       old-state (let ((cur-cycle-index (- first-reward-cycle (get first-reward-cycle old-state)))
-                                                       (old-indexes (get reward-set-indexes old-state))
-                                                       ;; build index list by taking the old-indexes starting from cur cycle
-                                                       ;;  and adding the new indexes to it. this way, the index is valid starting from the current cycle
-                                                       (new-list (concat (default-to (list) (slice? old-indexes cur-cycle-index (len old-indexes)))
-                                                                                   extended-reward-set-indexes)))
-                                            (unwrap-panic (as-max-len? new-list u12)))
-                                       extended-reward-set-indexes)))
+            (reward-set-indexes
+                ;; use the active stacker state and extend the existing reward-set-indexes
+                (let ((cur-cycle-index (- first-reward-cycle (get first-reward-cycle stacker-state)))
+                      (old-indexes (get reward-set-indexes stacker-state))
+                      ;; build index list by taking the old-indexes starting from cur cycle
+                      ;;  and adding the new indexes to it. this way, the index is valid starting from the current cycle
+                      (new-list (concat (default-to (list) (slice? old-indexes cur-cycle-index (len old-indexes)))
+                                        extended-reward-set-indexes)))
+                  (unwrap-panic (as-max-len? new-list u12)))))
           ;; update stacker record
           (map-set stacking-state
             { stacker: tx-sender }
@@ -1268,7 +1267,7 @@
           reward-set-indexes: (list),
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period,
-          delegated-to: tx-sender })
+          delegated-to: (some tx-sender) })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,

@@ -4359,9 +4359,9 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         //             ^                         ^                           ^                           ^
         //..  -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12 -> B13 -> B14 -> B15 -> B16 -> B17 -> B18 -> B19
         //..  -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11 -> S12 -> S13 -> S14 -> S15 -> S16 -> S17 -> S18
-                                    //                                                            \
-                                    //                                                              \
-                                    //                                                                _ _ _  S19 -> S20 -> ..
+        //                                                            \
+        //                                                              \
+        //                                                                _ _ _  S19 -> S20 -> ..
         let parent = if ix == 0 {
             BlockHeaderHash([0; 32])
         } else if ix == 15 {
@@ -4457,7 +4457,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
             x if x >= 4 && x < 8 => 205205,
-            x => 210210
+            x => 210210,
         };
         assert_eq!(
             chainstate
