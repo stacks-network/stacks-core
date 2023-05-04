@@ -321,7 +321,8 @@ impl RPCPoxInfoData {
             .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
             .ok_or(net_error::ChainstateError(
                 "PoX-3 first reward cycle begins before first burn block height".to_string(),
-            ))?;
+            ))?
+            + 1;
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
