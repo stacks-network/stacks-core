@@ -268,10 +268,21 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
             &format!("FATAL: no epoch for burn height {}", current_burn_height),
         );
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch22 {
-            info!("PoX reward cycle defaulting to burn in Epoch 2.2");
-            return Ok(RewardSet::empty());
-        }
+        match cur_epoch.epoch_id {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21 => {
+                // Epochs 1.0 - 2.1 compute reward sets
+            }
+            StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
+                info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
+                return Ok(RewardSet::empty());
+            }
+            StacksEpochId::Epoch24 => {
+                // Epoch 2.4 computes reward sets
+            }
+        };
 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
