@@ -98,13 +98,16 @@ pub fn get_reward_set_entries_index_order_at(
     })
 }
 
-/// Get the STXBalance for `account` at the given chaintip
+/// Get the canonicalized STXBalance for `account` at the given chaintip
 pub fn get_stx_account_at(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> STXBalance {
-    with_clarity_db_ro(peer, tip, |db| db.get_account_stx_balance(account))
+    with_clarity_db_ro(peer, tip, |db| {
+        db.get_stx_balance_snapshot(account)
+            .canonical_balance_repr()
+    })
 }
 
 /// get the stacking-state entry for an account at the chaintip
@@ -585,6 +588,7 @@ pub fn get_partial_stacked(
     pox_addr: &Value,
     cycle_number: u64,
     sender: &PrincipalData,
+    pox_contract: &str,
 ) -> u128 {
     with_clarity_db_ro(peer, tip, |db| {
         let key = TupleData::from_data(vec![
@@ -595,7 +599,7 @@ pub fn get_partial_stacked(
         .unwrap()
         .into();
         db.fetch_entry_unknown_descriptor(
-            &boot_code_id(boot::POX_2_NAME, false),
+            &boot_code_id(pox_contract, false),
             "partial-stacked-by-cycle",
             &key,
         )
@@ -1501,6 +1505,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -1525,6 +1530,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -1606,6 +1612,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_first_lock_amount);
     }
@@ -1617,6 +1624,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_delegation_amount,);
     }
@@ -4530,6 +4538,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -4556,6 +4565,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -4629,6 +4639,7 @@ fn stack_aggregation_increase() {
         &bob_pox_addr,
         cur_reward_cycle + 1,
         &bob_principal,
+        POX_2_NAME,
     );
     assert_eq!(partial_stacked, 1);
 
@@ -4640,6 +4651,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_delegation_amount);
     }
