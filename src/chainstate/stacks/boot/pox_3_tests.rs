@@ -1590,3 +1590,431 @@ fn delegate_stack_increase() {
         check_pox_print_event(delegate_stack_increase_tx, common_data, delegate_op_data);
     }
 }
+
+#[test]
+fn stack_increase() {
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    let first_v3_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("pox_3_stack_increase"),
+        7105,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let num_blocks = 35;
+
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let mut alice_nonce = 0;
+
+    let mut coinbase_nonce = 0;
+
+    let first_lockup_amt = 512 * POX_THRESHOLD_STEPS_USTX;
+    let total_balance = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let increase_amt = total_balance - first_lockup_amt;
+
+    // produce blocks until epoch 2.1
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[3].start_height {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // submit an increase: this should fail, because Alice is not yet locked
+    let fail_no_lock_tx = alice_nonce;
+    let alice_increase = make_pox_2_increase(&alice, alice_nonce, increase_amt);
+    alice_nonce += 1;
+
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        alice_nonce,
+        first_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    let mut latest_block =
+        peer.tenure_with_txs(&[alice_increase, alice_lockup], &mut coinbase_nonce);
+
+    let expected_pox_2_unlock_ht =
+        burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 6) - 1;
+    let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    assert_eq!(alice_bal.amount_locked(), first_lockup_amt);
+    assert_eq!(alice_bal.unlock_height(), expected_pox_2_unlock_ht);
+    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..first_v3_cycle {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    // we'll produce blocks until the 1st reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 1) + 1;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward sets for all cycles contains entries for alice
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..first_v3_cycle {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    let mut txs_to_submit = vec![];
+    let fail_bad_amount = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, 0));
+    alice_nonce += 1;
+
+    // this stack-increase tx should work
+    let pox_2_success_increase = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, increase_amt));
+    alice_nonce += 1;
+
+    // increase by an amount we don't have!
+    let fail_not_enough_funds = alice_nonce;
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, 1));
+    alice_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
+
+    let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    assert_eq!(alice_bal.amount_locked(), first_lockup_amt + increase_amt,);
+    assert_eq!(alice_bal.unlock_height(), expected_pox_2_unlock_ht);
+    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+
+    // check that the total reward cycle amounts have incremented correctly
+    for cycle_number in first_v2_cycle..(first_v2_cycle + 2) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    assert!(
+        first_v2_cycle + 2 < first_v3_cycle,
+        "Make sure that we can actually test a stack-increase in pox-2 before pox-3 activates"
+    );
+
+    for cycle_number in (first_v2_cycle + 2)..first_v3_cycle {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // Roll to Epoch-2.4 and re-do the above tests
+    // okay, now let's progress through epochs 2.2-2.4, and perform the delegation tests
+    //  on pox-3
+
+    // roll the chain forward until just before Epoch-2.2
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // at this point, alice's balance should always include this half lockup
+        assert_eq!(
+            get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // this block is mined in epoch-2.2
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        first_lockup_amt + increase_amt,
+    );
+
+    // this block should unlock alice's balance
+
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        0,
+    );
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_unlocked(),
+        total_balance,
+    );
+
+    // Roll to Epoch-2.4 and re-do the above stack-increase tests
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // submit an increase: this should fail, because Alice is not yet locked
+    let pox_3_fail_no_lock_tx = alice_nonce;
+    let alice_increase = make_pox_3_contract_call(
+        &alice,
+        alice_nonce,
+        "stack-increase",
+        vec![Value::UInt(increase_amt)],
+    );
+    alice_nonce += 1;
+
+    let alice_lockup = make_pox_3_lockup(
+        &alice,
+        alice_nonce,
+        first_lockup_amt,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    let mut latest_block =
+        peer.tenure_with_txs(&[alice_increase, alice_lockup], &mut coinbase_nonce);
+
+    let expected_pox_3_unlock_ht = burnchain.reward_cycle_to_block_height(first_v3_cycle + 6) - 1;
+    let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    assert_eq!(alice_bal.amount_locked(), first_lockup_amt);
+    assert_eq!(alice_bal.unlock_height(), expected_pox_3_unlock_ht);
+    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(first_v3_cycle + 3) + 1;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    let mut txs_to_submit = vec![];
+    let pox_3_fail_bad_amount = alice_nonce;
+    let bad_amount_tx =
+        make_pox_3_contract_call(&alice, alice_nonce, "stack-increase", vec![Value::UInt(0)]);
+    txs_to_submit.push(bad_amount_tx);
+    alice_nonce += 1;
+
+    // this stack-increase tx should work
+    let pox_3_success_increase = alice_nonce;
+    let good_amount_tx = make_pox_3_contract_call(
+        &alice,
+        alice_nonce,
+        "stack-increase",
+        vec![Value::UInt(increase_amt)],
+    );
+    txs_to_submit.push(good_amount_tx);
+    alice_nonce += 1;
+
+    // increase by an amount we don't have!
+    let pox_3_fail_not_enough_funds = alice_nonce;
+    let not_enough_tx =
+        make_pox_3_contract_call(&alice, alice_nonce, "stack-increase", vec![Value::UInt(1)]);
+    txs_to_submit.push(not_enough_tx);
+    alice_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
+
+    let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    assert_eq!(alice_bal.amount_locked(), first_lockup_amt + increase_amt,);
+    assert_eq!(alice_bal.unlock_height(), expected_pox_3_unlock_ht);
+    assert_eq!(alice_bal.get_total_balance(), total_balance,);
+
+    // check that the total reward cycle amounts have incremented correctly
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 4) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
+    }
+
+    for cycle_number in (first_v3_cycle + 4)..(first_v3_cycle + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            first_lockup_amt + increase_amt,
+        );
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_lockup_amt + increase_amt,
+        );
+    }
+
+    // now let's check some tx receipts
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len() as u64, alice_nonce);
+
+    // transaction should fail because lock isn't applied
+    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 27)");
+
+    // transaction should fail because Alice doesn't have enough funds
+    assert_eq!(
+        &alice_txs[&fail_not_enough_funds].result.to_string(),
+        "(err 1)"
+    );
+
+    // transaction should fail because the amount supplied is invalid (i.e., 0)
+    assert_eq!(&alice_txs[&fail_bad_amount].result.to_string(), "(err 18)");
+
+    // transaction should fail because lock isn't applied
+    assert_eq!(
+        &alice_txs[&pox_3_fail_no_lock_tx].result.to_string(),
+        "(err 27)"
+    );
+
+    // transaction should fail because Alice doesn't have enough funds
+    assert_eq!(
+        &alice_txs[&pox_3_fail_not_enough_funds].result.to_string(),
+        "(err 1)"
+    );
+
+    // transaction should fail because the amount supplied is invalid (i.e., 0)
+    assert_eq!(
+        &alice_txs[&pox_3_fail_bad_amount].result.to_string(),
+        "(err 18)"
+    );
+
+    // Check that the call to `stack-increase` has a well-formed print event.
+    for (increase_nonce, unlock_height) in [
+        (pox_2_success_increase, expected_pox_2_unlock_ht),
+        (pox_3_success_increase, expected_pox_3_unlock_ht),
+    ] {
+        let stack_increase_tx = &alice_txs.get(&increase_nonce).unwrap().clone().events[0];
+        let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
+        let stack_op_data = HashMap::from([
+            ("increase-by", Value::UInt(5120000000000)),
+            ("total-locked", Value::UInt(10240000000000)),
+            ("pox-addr", pox_addr_val),
+        ]);
+        let common_data = PoxPrintFields {
+            op_name: "stack-increase".to_string(),
+            stacker: Value::Principal(
+                StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                    .unwrap()
+                    .to_account_principal(),
+            ),
+            balance: Value::UInt(5120000000000),
+            locked: Value::UInt(5120000000000),
+            burnchain_unlock_height: Value::UInt(unlock_height.into()),
+        };
+        check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
+    }
+}
