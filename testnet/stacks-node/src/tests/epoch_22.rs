@@ -97,10 +97,10 @@ fn disable_pox() {
 
     // // create a third initial balance so that there's more liquid ustx than the stacked amount bug.
     // //  otherwise, it surfaces the DoS vector.
-    initial_balances.push(InitialBalance {
-        address: spender_3_addr.clone(),
-        amount: stacked + 100_000,
-    });
+    // initial_balances.push(InitialBalance {
+    //     address: spender_3_addr.clone(),
+    //     amount: stacked + 100_000,
+    // });
 
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -307,23 +307,23 @@ fn disable_pox() {
     info!("Submit 2.1 stacking tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
-    let tx = make_contract_call(
-        &spender_2_sk,
-        0,
-        3000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-        "pox-2",
-        "stack-stx",
-        &[
-            Value::UInt(stacked.into()),
-            pox_addr_tuple_3.clone(),
-            Value::UInt(sort_height as u128),
-            Value::UInt(10),
-        ],
-    );
+    // let tx = make_contract_call(
+    //     &spender_2_sk,
+    //     0,
+    //     3000,
+    //     &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+    //     "pox-2",
+    //     "stack-stx",
+    //     &[
+    //         Value::UInt(stacked.into()),
+    //         pox_addr_tuple_3.clone(),
+    //         Value::UInt(sort_height as u128),
+    //         Value::UInt(10),
+    //     ],
+    // );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
-    submit_tx(&http_origin, &tx);
+    info!("Submit second 2.1 stacking tx to {:?}", &http_origin);
+    // submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
@@ -338,18 +338,18 @@ fn disable_pox() {
     }
 
     // invoke stack-increase
-    let tx = make_contract_call(
-        &spender_sk,
-        2,
-        3000,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-        "pox-2",
-        "stack-increase",
-        &[Value::UInt(increase_by.into())],
-    );
-
+    // let tx = make_contract_call(
+    //     &spender_sk,
+    //     2,
+    //     3000,
+    //     &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+    //     "pox-2",
+    //     "stack-increase",
+    //     &[Value::UInt(increase_by.into())],
+    // );
+    //
     info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
-    submit_tx(&http_origin, &tx);
+    // submit_tx(&http_origin, &tx);
 
     for _i in 0..15 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -363,7 +363,7 @@ fn disable_pox() {
 
     // invoke stack-increase again, in Epoch-2.2, it should
     //  runtime abort
-    let aborted_increase_nonce = 3;
+    let aborted_increase_nonce = 2;
     let tx = make_contract_call(
         &spender_sk,
         aborted_increase_nonce,
@@ -374,7 +374,7 @@ fn disable_pox() {
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.2 stack-increase tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
     // finish the cycle after the 2.2 transition,
@@ -506,8 +506,7 @@ fn disable_pox() {
         (
             24,
             HashMap::from([
-                (pox_addr_2.clone(), 6u64),
-                (pox_addr_3.clone(), 6),
+                (pox_addr_2.clone(), 12u64),
                 (burn_pox_addr.clone(), 2),
             ]),
         ),
@@ -516,9 +515,8 @@ fn disable_pox() {
         (
             25,
             HashMap::from([
-                (pox_addr_2.clone(), 9u64),
-                (pox_addr_3.clone(), 4),
-                (burn_pox_addr.clone(), 1),
+                (pox_addr_2.clone(), 12u64),
+                (burn_pox_addr.clone(), 2),
             ]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.

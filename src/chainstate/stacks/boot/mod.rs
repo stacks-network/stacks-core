@@ -688,6 +688,7 @@ impl StacksChainState {
             .iter()
             .fold(0, |agg, entry| agg + entry.amount_stacked);
 
+        info!("CALCULATING REWARD SET: checking total ustx");
         assert!(
             participation <= liquid_ustx,
             "CORRUPTION: More stacking participation than liquid STX"
