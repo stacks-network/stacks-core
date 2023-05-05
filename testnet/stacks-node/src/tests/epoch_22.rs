@@ -7,7 +7,6 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::chainstate::stacks::miner::signal_mining_ready;
-use stacks::core::PEER_VERSION_EPOCH_2_2;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::types::chainstate::StacksAddress;
 use stacks::types::PrivateKey;
@@ -163,13 +162,9 @@ fn disable_pox() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -697,13 +692,9 @@ fn pox_2_unlock_all() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -1298,14 +1289,9 @@ fn test_pox_reorg_one_flap() {
     epochs[2].end_height = 151;
     epochs[3].start_height = 151;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
-
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
