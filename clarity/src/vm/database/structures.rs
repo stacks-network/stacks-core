@@ -666,7 +666,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .checked_sub(new_total_locked)
             .expect("STX underflow: more is locked than total balance");
 
-        self.balance = STXBalance::LockedPoxTwo {
+        self.balance = STXBalance::LockedPoxThree {
             amount_unlocked,
             amount_locked: new_total_locked,
             unlock_height: self.balance.unlock_height(),
