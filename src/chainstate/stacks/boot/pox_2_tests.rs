@@ -288,11 +288,11 @@ pub fn check_pox_print_event(
 }
 
 pub struct StackingStateCheckData {
-    pox_addr: PoxAddress,
+    pub pox_addr: PoxAddress,
     /// this is a map from reward cycle number to the value in reward-set-indexes
-    cycle_indexes: HashMap<u128, u128>,
-    first_cycle: u128,
-    lock_period: u128,
+    pub cycle_indexes: HashMap<u128, u128>,
+    pub first_cycle: u128,
+    pub lock_period: u128,
 }
 
 /// Check the stacking-state invariants of `stacker`
