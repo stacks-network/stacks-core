@@ -8,9 +8,9 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
-    check_pox_print_event, generate_pox_clarity_value, get_partial_stacked, get_reward_cycle_total,
-    get_reward_set_entries_at, get_stacking_state_pox, get_stacking_state_pox_2,
-    get_stx_account_at, PoxPrintFields,
+    check_pox_print_event, check_stacking_state_invariants, generate_pox_clarity_value,
+    get_partial_stacked, get_reward_cycle_total, get_reward_set_entries_at, get_stacking_state_pox,
+    get_stacking_state_pox_2, get_stx_account_at, PoxPrintFields, StackingStateCheckData,
 };
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
@@ -2017,4 +2017,1013 @@ fn stack_increase() {
         };
         check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
     }
+}
+
+#[test]
+fn pox_extend_transition() {
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    let first_v3_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("pox_3_pox_extend_transition"),
+        7110,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+
+    let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
+    let mut coinbase_nonce = 0;
+
+    let INITIAL_BALANCE = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let ALICE_LOCKUP = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let BOB_LOCKUP = 512 * POX_THRESHOLD_STEPS_USTX;
+
+    // these checks should pass between Alice's first reward cycle,
+    //  and the start of V2 reward cycles
+    let alice_rewards_to_v2_start_checks = |tip_index_block, peer: &mut TestPeer| {
+        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip_burn_block_height)
+            .unwrap() as u128;
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+            (
+                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
+                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    .unwrap(),
+            )
+        });
+
+        assert!(
+            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
+                && cur_reward_cycle < first_v2_cycle as u128
+        );
+        //  Alice is the only Stacker, so check that.
+        let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
+            get_stacker_info(peer, &key_to_stacks_addr(&alice).into()).unwrap();
+        eprintln!(
+            "\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n",
+            amount_ustx, lock_period, &pox_addr, first_reward_cycle
+        );
+
+        // one reward address, and it's Alice's
+        // either way, there's a single reward address
+        assert_eq!(reward_addrs.len(), 1);
+        assert_eq!(
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
+        );
+        assert_eq!(
+            (reward_addrs[0].0).hash160(),
+            key_to_stacks_addr(&alice).bytes
+        );
+        assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
+    };
+
+    // these checks should pass after the start of V2 reward cycles
+    let v2_rewards_checks = |tip_index_block, peer: &mut TestPeer| {
+        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip_burn_block_height)
+            .unwrap() as u128;
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+            (
+                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
+                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                    .unwrap(),
+            )
+        });
+
+        eprintln!(
+            "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
+            cur_reward_cycle,
+            reward_addrs.len(),
+            total_stacked
+        );
+
+        assert!(cur_reward_cycle >= first_v2_cycle as u128);
+        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+        assert_eq!(reward_addrs.len(), 2);
+        assert_eq!(
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
+        );
+        assert_eq!(
+            (reward_addrs[0].0).hash160(),
+            key_to_stacks_addr(&bob).bytes
+        );
+        assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
+
+        assert_eq!(
+            (reward_addrs[1].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
+        );
+        assert_eq!(
+            (reward_addrs[1].0).hash160(),
+            key_to_stacks_addr(&alice).bytes
+        );
+        assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
+    };
+
+    // first tenure is empty
+    let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_account.stx_balance.amount_unlocked(), INITIAL_BALANCE);
+    assert_eq!(alice_account.stx_balance.amount_locked(), 0);
+    assert_eq!(alice_account.stx_balance.unlock_height(), 0);
+
+    // next tenure include Alice's lockup
+    let tip = get_tip(peer.sortdb.as_ref());
+    let alice_lockup = make_pox_lockup(
+        &alice,
+        0,
+        ALICE_LOCKUP,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        4,
+        tip.block_height,
+    );
+
+    let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+
+    // check the stacking minimum
+    let total_liquid_ustx = get_liquid_ustx(&mut peer);
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+        chainstate.get_stacking_minimum(sortdb, &tip_index_block)
+    })
+    .unwrap();
+    assert_eq!(
+        min_ustx,
+        total_liquid_ustx / POX_TESTNET_STACKING_THRESHOLD_25
+    );
+
+    // no reward addresses
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+        get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
+    })
+    .unwrap();
+    assert_eq!(reward_addrs.len(), 0);
+
+    // check the first reward cycle when Alice's tokens get stacked
+    let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+    let alice_first_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(tip_burn_block_height)
+        .unwrap();
+
+    assert_eq!(
+        alice_first_reward_cycle as u128,
+        EXPECTED_ALICE_FIRST_REWARD_CYCLE
+    );
+    let height_target = burnchain.reward_cycle_to_block_height(alice_first_reward_cycle) + 1;
+
+    // alice locked, so balance should be 0
+    let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_balance, 0);
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // produce blocks until epoch 2.1
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[3].start_height {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    // Lets have Bob lock up for v2
+    // this will lock for cycles 8, 9, 10
+    //  the first v2 cycle will be 8
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let bob_lockup = make_pox_2_lockup(
+        &bob,
+        0,
+        BOB_LOCKUP,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
+        3,
+        tip.block_height,
+    );
+
+    // Alice _will_ auto-unlock: she can stack-extend in PoX v2
+    let alice_lockup = make_pox_2_extend(
+        &alice,
+        1,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+    );
+
+    latest_block = peer.tenure_with_txs(&[bob_lockup, alice_lockup], &mut coinbase_nonce);
+    alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+
+    // Extend bob's lockup via `stack-extend` for 1 more cycle
+    let bob_extend = make_pox_2_extend(
+        &bob,
+        1,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
+        1,
+    );
+
+    latest_block = peer.tenure_with_txs(&[bob_extend], &mut coinbase_nonce);
+
+    alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+
+    // produce blocks until the v2 reward cycles start
+    let height_target = burnchain.reward_cycle_to_block_height(first_v2_cycle) - 1;
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // alice is still locked, balance should be 0
+        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+        assert_eq!(alice_balance, 0);
+
+        alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+    }
+
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    v2_rewards_checks(latest_block, &mut peer);
+
+    // Roll to Epoch-2.4 and re-do the above tests
+
+    // roll the chain forward until just before Epoch-2.2
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // at this point, alice's balance should be locked, and so should bob's
+        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+        assert_eq!(alice_balance, 0);
+        let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob).into());
+        assert_eq!(bob_balance, 512 * POX_THRESHOLD_STEPS_USTX);
+    }
+
+    // this block is mined in epoch-2.2
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_balance, 0);
+    let bob_balance = get_balance(&mut peer, &key_to_stacks_addr(&bob).into());
+    assert_eq!(bob_balance, 512 * POX_THRESHOLD_STEPS_USTX);
+
+    // this block should unlock alice and bob's balance
+
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    let alice_account = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    let bob_account = get_stx_account_at(&mut peer, &latest_block, &bob_principal);
+    assert_eq!(alice_account.amount_locked(), 0);
+    assert_eq!(alice_account.amount_unlocked(), INITIAL_BALANCE);
+    assert_eq!(bob_account.amount_locked(), 0);
+    assert_eq!(bob_account.amount_unlocked(), INITIAL_BALANCE);
+
+    // Roll to Epoch-2.4 and re-do the above stack-extend tests
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let alice_lockup = make_pox_3_lockup(
+        &alice,
+        2,
+        ALICE_LOCKUP,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        4,
+        tip.block_height,
+    );
+    let alice_pox_3_lock_nonce = 2;
+    let alice_first_pox_3_unlock_height =
+        burnchain.reward_cycle_to_block_height(first_v3_cycle + 4) - 1;
+    let alice_pox_3_start_burn_height = tip.block_height;
+
+    latest_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 4) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
+    }
+
+    // check the first reward cycle when Alice's tokens get stacked
+    let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &latest_block);
+    let alice_first_v3_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(tip_burn_block_height)
+        .unwrap();
+
+    let height_target = burnchain.reward_cycle_to_block_height(alice_first_v3_reward_cycle) + 1;
+
+    // alice locked, so balance should be 0
+    let alice_balance = get_balance(&mut peer, &alice_principal);
+    assert_eq!(alice_balance, 0);
+
+    // advance to the first v3 reward cycle
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let bob_lockup = make_pox_3_lockup(
+        &bob,
+        2,
+        BOB_LOCKUP,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
+        3,
+        tip.block_height,
+    );
+
+    // Alice can stack-extend in PoX v2
+    let alice_lockup = make_pox_3_extend(
+        &alice,
+        3,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
+        6,
+    );
+
+    let alice_pox_3_extend_nonce = 3;
+    let alice_extend_pox_3_unlock_height =
+        burnchain.reward_cycle_to_block_height(first_v3_cycle + 10) - 1;
+
+    latest_block = peer.tenure_with_txs(&[bob_lockup, alice_lockup], &mut coinbase_nonce);
+
+    // check that the "raw" reward set will contain entries for alice at the cycle start
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 1) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
+    }
+
+    for cycle_number in (first_v3_cycle + 1)..(first_v3_cycle + 4) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[1].amount_stacked, ALICE_LOCKUP,);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, BOB_LOCKUP,);
+    }
+
+    for cycle_number in (first_v3_cycle + 4)..(first_v3_cycle + 10) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
+    }
+
+    // now let's check some tx receipts
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), 4);
+    assert_eq!(bob_txs.len(), 3);
+
+    for tx in alice_txs.iter() {
+        assert!(
+            if let Value::Response(ref r) = tx.1.result {
+                r.committed
+            } else {
+                false
+            },
+            "Alice txs should all have committed okay"
+        );
+    }
+
+    for tx in bob_txs.iter() {
+        assert!(
+            if let Value::Response(ref r) = tx.1.result {
+                r.committed
+            } else {
+                false
+            },
+            "Bob txs should all have committed okay"
+        );
+    }
+
+    // Check that the call to `stack-stx` has a well-formed print event.
+    let stack_tx = &alice_txs
+        .get(&alice_pox_3_lock_nonce)
+        .unwrap()
+        .clone()
+        .events[0];
+    let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
+    let stack_op_data = HashMap::from([
+        ("lock-amount", Value::UInt(ALICE_LOCKUP)),
+        (
+            "unlock-burn-height",
+            Value::UInt(alice_first_pox_3_unlock_height.into()),
+        ),
+        (
+            "start-burn-height",
+            Value::UInt(alice_pox_3_start_burn_height.into()),
+        ),
+        ("pox-addr", pox_addr_val.clone()),
+        ("lock-period", Value::UInt(4)),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-stx".to_string(),
+        stacker: Value::Principal(alice_principal.clone()),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(stack_tx, common_data, stack_op_data);
+
+    // Check that the call to `stack-extend` has a well-formed print event.
+    let stack_extend_tx = &alice_txs
+        .get(&alice_pox_3_extend_nonce)
+        .unwrap()
+        .clone()
+        .events[0];
+    let stack_ext_op_data = HashMap::from([
+        ("extend-count", Value::UInt(6)),
+        ("pox-addr", pox_addr_val),
+        (
+            "unlock-burn-height",
+            Value::UInt(alice_extend_pox_3_unlock_height.into()),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-extend".to_string(),
+        stacker: Value::Principal(alice_principal.clone()),
+        balance: Value::UInt(0),
+        locked: Value::UInt(ALICE_LOCKUP),
+        burnchain_unlock_height: Value::UInt(alice_first_pox_3_unlock_height.into()),
+    };
+    check_pox_print_event(stack_extend_tx, common_data, stack_ext_op_data);
+}
+
+#[test]
+fn delegate_extend_transition_pox_3() {
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let first_v3_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+        .unwrap()
+        + 1;
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "pox_3_delegate_extend_transition_pox_2",
+        7114,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants = Some((first_v3_cycle, first_v3_cycle + 10));
+
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let charlie = keys.pop().unwrap();
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
+
+    let mut coinbase_nonce = 0;
+
+    let INITIAL_BALANCE = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
+
+    // our "tenure counter" is now at 0
+    let tip = get_tip(peer.sortdb.as_ref());
+    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+
+    // first tenure is empty
+    let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    // Roll to Epoch-2.4 and perform the delegate-stack-extend tests
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    // Lets have Bob lock up for v2
+    // this will lock for cycles 8, 9, 10
+    //  the first v2 cycle will be 8
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let mut alice_nonce = 0;
+    let mut bob_nonce = 0;
+    let mut charlie_nonce = 0;
+
+    let bob_delegate_tx = make_pox_3_contract_call(
+        &bob,
+        bob_nonce,
+        "delegate-stx",
+        vec![
+            Value::UInt(2048 * POX_THRESHOLD_STEPS_USTX),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::none(),
+        ],
+    );
+    bob_nonce += 1;
+
+    let alice_delegate_tx = make_pox_3_contract_call(
+        &alice,
+        alice_nonce,
+        "delegate-stx",
+        vec![
+            Value::UInt(2048 * POX_THRESHOLD_STEPS_USTX),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::none(),
+        ],
+    );
+    alice_nonce += 1;
+
+    let delegate_stack_tx = make_pox_3_contract_call(
+        &charlie,
+        charlie_nonce,
+        "delegate-stack-stx",
+        vec![
+            PrincipalData::from(bob_address.clone()).into(),
+            Value::UInt(LOCKUP_AMT),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(tip.block_height as u128),
+            Value::UInt(3),
+        ],
+    );
+    let delegate_stack_stx_nonce = charlie_nonce;
+    let delegate_stack_stx_unlock_ht =
+        burnchain.reward_cycle_to_block_height(first_v3_cycle + 3) - 1;
+    let delegate_stack_stx_lock_ht = tip.block_height;
+    charlie_nonce += 1;
+
+    let delegate_alice_stack_tx = make_pox_3_contract_call(
+        &charlie,
+        charlie_nonce,
+        "delegate-stack-stx",
+        vec![
+            PrincipalData::from(alice_address.clone()).into(),
+            Value::UInt(LOCKUP_AMT),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(tip.block_height as u128),
+            Value::UInt(6),
+        ],
+    );
+    charlie_nonce += 1;
+
+    // Charlie agg commits the first 3 cycles, but wait until delegate-extended bob to
+    //   agg commit the 4th cycle
+    // aggregate commit to each cycle delegate-stack-stx locked for (cycles 6, 7, 8, 9)
+    let agg_commit_txs = [0, 1, 2].map(|ix| {
+        let tx = make_pox_3_contract_call(
+            &charlie,
+            charlie_nonce,
+            "stack-aggregation-commit",
+            vec![
+                make_pox_addr(
+                    AddressHashMode::SerializeP2PKH,
+                    charlie_address.bytes.clone(),
+                ),
+                Value::UInt(first_v3_cycle as u128 + ix),
+            ],
+        );
+        charlie_nonce += 1;
+        tx
+    });
+    let mut txs = vec![
+        bob_delegate_tx,
+        alice_delegate_tx,
+        delegate_stack_tx,
+        delegate_alice_stack_tx,
+    ];
+
+    txs.extend(agg_commit_txs);
+
+    latest_block = peer.tenure_with_txs(txs.as_slice(), &mut coinbase_nonce);
+
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 3) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&charlie).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, 2 * LOCKUP_AMT);
+    }
+
+    for cycle_number in (first_v3_cycle + 3)..(first_v3_cycle + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 0);
+    }
+
+    let alice_principal = alice_address.clone().into();
+    let bob_principal = bob_address.clone().into();
+    let charlie_principal: PrincipalData = charlie_address.clone().into();
+
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &alice_principal,
+        false,
+        POX_3_NAME,
+    );
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &bob_principal,
+        false,
+        POX_3_NAME,
+    );
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v3_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v3_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 3);
+
+    // Extend bob's lockup via `delegate-stack-extend` for 1 more cycle
+    let delegate_extend_tx = make_pox_3_contract_call(
+        &charlie,
+        charlie_nonce,
+        "delegate-stack-extend",
+        vec![
+            PrincipalData::from(bob_address.clone()).into(),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(1),
+        ],
+    );
+    let delegate_stack_extend_nonce = charlie_nonce;
+    let delegate_stack_extend_unlock_ht =
+        burnchain.reward_cycle_to_block_height(first_v3_cycle + 4) - 1;
+    charlie_nonce += 1;
+
+    let agg_commit_tx = make_pox_3_contract_call(
+        &charlie,
+        charlie_nonce,
+        "stack-aggregation-commit",
+        vec![
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(first_v3_cycle as u128 + 3),
+        ],
+    );
+    let stack_agg_nonce = charlie_nonce;
+    let stack_agg_cycle = first_v3_cycle + 3;
+    let delegate_stack_extend_unlock_ht =
+        burnchain.reward_cycle_to_block_height(first_v3_cycle + 4) - 1;
+    charlie_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&[delegate_extend_tx, agg_commit_tx], &mut coinbase_nonce);
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &alice_principal,
+        false,
+        POX_3_NAME,
+    );
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &bob_principal,
+        false,
+        POX_3_NAME,
+    );
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v3_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v3_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 4);
+
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 4) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&charlie).bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, 2 * LOCKUP_AMT);
+    }
+
+    let height_target = burnchain.reward_cycle_to_block_height(first_v3_cycle) + 1;
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+        assert_eq!(alice_balance, 0);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // Extend bob's lockup via `delegate-stack-extend` for 1 more cycle
+    //  so that we can check the first-reward-cycle is correctly updated
+    let delegate_extend_tx = make_pox_3_contract_call(
+        &charlie,
+        charlie_nonce,
+        "delegate-stack-extend",
+        vec![
+            PrincipalData::from(bob_address.clone()).into(),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(3),
+        ],
+    );
+    charlie_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&[delegate_extend_tx], &mut coinbase_nonce);
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &alice_principal,
+        false,
+        POX_3_NAME,
+    );
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &latest_block,
+        &bob_principal,
+        false,
+        POX_3_NAME,
+    );
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v3_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v3_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 7);
+
+    // now let's check some tx receipts
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+    let mut charlie_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == charlie_address {
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), alice_nonce as usize);
+    assert_eq!(bob_txs.len(), bob_nonce as usize);
+    assert_eq!(charlie_txs.len(), charlie_nonce as usize);
+
+    for tx in alice_txs.iter() {
+        assert!(
+            if let Value::Response(ref r) = tx.1.result {
+                r.committed
+            } else {
+                false
+            },
+            "Alice txs should all have committed okay"
+        );
+    }
+    for tx in bob_txs.iter() {
+        assert!(
+            if let Value::Response(ref r) = tx.1.result {
+                r.committed
+            } else {
+                false
+            },
+            "Bob txs should all have committed okay"
+        );
+    }
+    for tx in charlie_txs.iter() {
+        assert!(
+            if let Value::Response(ref r) = tx.1.result {
+                r.committed
+            } else {
+                false
+            },
+            "Charlie txs should all have committed okay"
+        );
+    }
+
+    // Check that the call to `delegate-stack-stx` has a well-formed print event.
+    let delegate_stack_tx = &charlie_txs
+        .get(&delegate_stack_stx_nonce)
+        .unwrap()
+        .clone()
+        .events[0];
+    let pox_addr_val = generate_pox_clarity_value("12d93ae7b61e5b7d905c85828d4320e7c221f433");
+    let delegate_op_data = HashMap::from([
+        ("lock-amount", Value::UInt(LOCKUP_AMT)),
+        (
+            "unlock-burn-height",
+            Value::UInt(delegate_stack_stx_unlock_ht.into()),
+        ),
+        (
+            "start-burn-height",
+            Value::UInt(delegate_stack_stx_lock_ht.into()),
+        ),
+        ("pox-addr", pox_addr_val.clone()),
+        ("lock-period", Value::UInt(3)),
+        ("delegator", Value::Principal(charlie_principal.clone())),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-stx".to_string(),
+        stacker: Value::Principal(bob_principal.clone()),
+        balance: Value::UInt(LOCKUP_AMT),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(delegate_stack_tx, common_data, delegate_op_data);
+
+    // Check that the call to `delegate-stack-extend` has a well-formed print event.
+    let delegate_stack_extend_tx = &charlie_txs
+        .get(&delegate_stack_extend_nonce)
+        .unwrap()
+        .clone()
+        .events[0];
+    let delegate_ext_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val.clone()),
+        (
+            "unlock-burn-height",
+            Value::UInt(delegate_stack_extend_unlock_ht.into()),
+        ),
+        ("extend-count", Value::UInt(1)),
+        ("delegator", Value::Principal(charlie_principal.clone())),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-extend".to_string(),
+        stacker: Value::Principal(bob_principal.clone()),
+        balance: Value::UInt(0),
+        locked: Value::UInt(LOCKUP_AMT),
+        burnchain_unlock_height: Value::UInt(delegate_stack_stx_unlock_ht.into()),
+    };
+    check_pox_print_event(delegate_stack_extend_tx, common_data, delegate_ext_op_data);
+
+    // Check that the call to `stack-aggregation-commit` has a well-formed print event.
+    let stack_agg_commit_tx = &charlie_txs.get(&stack_agg_nonce).unwrap().clone().events[0];
+    let stack_agg_commit_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val),
+        ("reward-cycle", Value::UInt(stack_agg_cycle.into())),
+        ("amount-ustx", Value::UInt(2 * LOCKUP_AMT)),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-aggregation-commit".to_string(),
+        stacker: Value::Principal(charlie_principal.clone()),
+        balance: Value::UInt(LOCKUP_AMT),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(stack_agg_commit_tx, common_data, stack_agg_commit_op_data);
 }
