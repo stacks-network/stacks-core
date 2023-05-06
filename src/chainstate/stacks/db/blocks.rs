@@ -5941,7 +5941,7 @@ impl StacksChainState {
     /// necessary so that the Headers database and Clarity database's
     /// transactions can commit very close to one another, after the
     /// event observer has emitted.
-    fn append_block<'a>(
+    pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
@@ -6371,7 +6371,7 @@ impl StacksChainState {
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
     /// * checks .header.total_work.work
     /// * checks .header.parent_block
-    fn check_block_attachment(
+    pub fn check_block_attachment(
         parent_block_header: &StacksBlockHeader,
         block_header: &StacksBlockHeader,
     ) -> bool {
@@ -6398,7 +6398,7 @@ impl StacksChainState {
     /// The header info will be pulled from the headers DB, so this method only succeeds if the
     /// parent block has been processed.
     /// If it's not known, return None.
-    fn get_parent_header_info(
+    pub fn get_parent_header_info(
         chainstate_tx: &mut ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
@@ -6440,7 +6440,7 @@ impl StacksChainState {
     }
 
     /// Extract and parse the block from a loaded staging block, and verify its integrity.
-    fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
+    pub fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
         let block = {
             StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
                 .map_err(Error::CodecError)?
@@ -6462,7 +6462,7 @@ impl StacksChainState {
     /// header info), determine which branch connects to the given block.  If there are multiple
     /// branches, punish the parent.  Return the portion of the branch that actually connects to
     /// the given block.
-    fn extract_connecting_microblocks(
+    pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
         next_staging_block: &StagingBlock,
         block: &StacksBlock,
