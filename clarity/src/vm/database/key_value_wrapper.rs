@@ -19,6 +19,7 @@ use std::{clone::Clone, cmp::Eq, hash::Hash};
 
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::Value;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -367,29 +368,31 @@ impl<'a> RollbackWrapper<'a> {
 
     /// Get a Clarity value from the underlying Clarity KV store.
     /// Returns Some if found, with the Clarity Value and the serialized byte length of the value.
-    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<ValueResult> {
+    pub fn get_value(
+        &mut self,
+        key: &str,
+        expected: &TypeSignature,
+    ) -> std::result::Result<Option<ValueResult>, SerializationError> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
-        let lookup_result = if self.query_pending_data {
-            self.lookup_map
-                .get(key)
-                .and_then(|x| x.last())
-                .map(|x| ValueResult {
-                    value: Value::deserialize(x, expected),
+        if self.query_pending_data {
+            if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
+                return Ok(Some(ValueResult {
+                    value: Value::try_deserialize_hex(x, expected)?,
                     serialized_byte_len: x.len() as u64 / 2,
-                })
-        } else {
-            None
-        };
+                }));
+            }
+        }
 
-        lookup_result.or_else(|| {
-            self.store.get(key).map(|x| ValueResult {
-                value: Value::deserialize(&x, expected),
+        match self.store.get(key) {
+            Some(x) => Ok(Some(ValueResult {
+                value: Value::try_deserialize_hex(&x, expected)?,
                 serialized_byte_len: x.len() as u64 / 2,
-            })
-        })
+            })),
+            None => Ok(None),
+        }
     }
 
     /// This is the height we are currently constructing. It comes from the MARF.
