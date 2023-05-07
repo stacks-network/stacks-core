@@ -26,7 +26,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPriva
 use stacks_common::util::hash::{bytes_to_hex, Hash160, hex_bytes};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{get_chain_info, neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop};
+use crate::tests::neon_integrations::{get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop};
 use crate::tests::{make_contract_call, to_addr};
 
 use stacks::core;
@@ -614,10 +614,9 @@ fn disable_pox_v2() {
     let epoch_2_1 = 230;
     let v1_unlock_height = 231;
     let epoch_2_2 = 255; // two blocks before next prepare phase.
-    let epoch_2_2 = 255; // two blocks before next prepare phase.
-    let epoch_2_3 = 260;
-    // TODO(pavi): verify
-    let epoch_2_4 = 268; // two blocks before next prepare phase
+    let epoch_2_3 = 265;
+    let epoch_2_4 = 280;
+    let pox_3_activation_height = epoch_2_4;
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -745,7 +744,7 @@ fn disable_pox_v2() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
-        u32::MAX,
+        pox_3_activation_height as u32,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -832,6 +831,10 @@ fn disable_pox_v2() {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        let pox_info = get_pox_info(&http_origin);
+        info!("curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
 
     // skip a couple sortitions
@@ -925,6 +928,10 @@ fn disable_pox_v2() {
         } else {
             panic!("FATAL: failed to mine");
         }
+
+        let pox_info = get_pox_info(&http_origin);
+        info!("curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
 
     // invoke stack-increase again, in Epoch-2.2, it should
@@ -963,6 +970,10 @@ fn disable_pox_v2() {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        let pox_info = get_pox_info(&http_origin);
+        info!("curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
 
     // invoke stack-increase again, in Epoch-2.3, it should
@@ -981,17 +992,110 @@ fn disable_pox_v2() {
     info!("Submit 2.3 stack-increase tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
-    // transition to epoch 2.4
+    // transition to 2 blocks before epoch 2.4
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_4 + 1 {
+        if tip_info.burn_block_height >= epoch_2_4 - 2 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+        let pox_info = get_pox_info(&http_origin);
+        info!("curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
 
-    // now, try stacking in pox-3
+    // skip a couple sortitions
+    btc_regtest_controller.bootstrap_chain(4);
+    sleep_ms(5000);
 
+    let sort_height = channel.get_sortitions_processed();
+    assert!(sort_height > epoch_2_4);
+
+    // *now* advance to 2.4
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    info!("Test passed processing 2.4");
+
+    // now, try stacking in pox-3
+    let sort_height = channel.get_sortitions_processed();
+    let tx = make_contract_call(
+        &spender_sk,
+        4,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-3",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_2.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    info!("Submit 2.4 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    let tx = make_contract_call(
+        &spender_2_sk,
+        0,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-3",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_3.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(10),
+        ],
+    );
+
+    info!("Submit second 2.4 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    // that it can mine _at all_ is a success criterion
+    let mut last_block_height = get_chain_info(&conf).burn_block_height;
+    for _i in 0..5 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height > last_block_height {
+            last_block_height = tip_info.burn_block_height;
+        } else {
+            panic!("FATAL: failed to mine");
+        }
+    }
+
+    // invoke stack-increase
+    let tx = make_contract_call(
+        &spender_sk,
+        5,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-3",
+        "stack-increase",
+        &[Value::UInt(increase_by.into())],
+    );
+
+    info!("Submit 2.4 stack-increase tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
+
+    for _i in 0..15 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height > last_block_height {
+            last_block_height = tip_info.burn_block_height;
+        } else {
+            panic!("FATAL: failed to mine");
+        }
+        let pox_info = get_pox_info(&http_origin);
+        info!("curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
+    }
 
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
@@ -1105,34 +1209,54 @@ fn disable_pox_v2() {
             23u64,
             HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
-        // cycle 24 is the first 2.1, it should have pox_2 and pox_3 with equal
-        //  slots (because increase hasn't gone into effect yet) and 2 burn slots
+        // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
             24,
             HashMap::from([
-                (pox_addr_2.clone(), 6u64),
-                (pox_addr_3.clone(), 6),
-                (burn_pox_addr.clone(), 2),
+                (pox_addr_2.clone(), 13u64),
+                (burn_pox_addr.clone(), 1),
             ]),
         ),
-        // stack-increase has been invoked, and so the reward set is skewed.
-        //  pox_addr_2 should get the majority of slots (~ 67%)
         (
             25,
             HashMap::from([
-                (pox_addr_2.clone(), 9u64),
-                (pox_addr_3.clone(), 4),
+                (pox_addr_2.clone(), 13u64),
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.
         (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
+        // Epoch 2.3 has started, so the reward set should be all burns.
         (27, HashMap::from([(burn_pox_addr.clone(), 14)])),
+        (28, HashMap::from([(burn_pox_addr.clone(), 14)])),
+
+        // TODO(pavi) verify
+        // cycle 29 is the first 2.4 cycle, it should have pox_2 and pox_3 with equal
+        //  slots (because increase hasn't gone into effect yet) and 2 burn slots
+        (
+            29,
+            HashMap::from([
+                (pox_addr_2.clone(), 7u64),
+                (pox_addr_3.clone(), 6),
+            ]),
+        ),
+        // stack-increase has been invoked, but this should not skew reward set
+        // because pox-3 fixes the total-locked bug
+        (
+            30,
+            HashMap::from([
+                (pox_addr_2.clone(), 7u64),
+                (pox_addr_3.clone(), 6),
+            ]),
+        ),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
         assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+
+        // TODO(pavi): delete
+        info!("The expected slots for rc {} are {:?}", reward_cycle, expected_slots);
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
@@ -1145,7 +1269,8 @@ fn disable_pox_v2() {
         }
     }
 
-    let mut abort_tested = false;
+    let mut abort_tested_2_2 = false;
+    let mut abort_tested_2_3 = false;
     let blocks = test_observer::get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -1159,11 +1284,12 @@ fn disable_pox_v2() {
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr
-                && parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2
+                && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2 ||
+                parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3)
             {
                 let contract_call = match &parsed.payload {
                     TransactionPayload::ContractCall(cc) => cc,
-                    _ => panic!("Expected aborted_increase_nonce_2_2 to be a contract call"),
+                    _ => panic!("Expected aborted_increase_nonce to be a contract call"),
                 };
                 assert_eq!(contract_call.contract_name.as_str(), "pox-2");
                 assert_eq!(contract_call.function_name.as_str(), "stack-increase");
@@ -1172,12 +1298,21 @@ fn disable_pox_v2() {
                 )
                     .unwrap();
                 assert_eq!(result.to_string(), "(err none)");
-                abort_tested = true;
+                if parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2 {
+                    abort_tested_2_2 = true;
+                } else if parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3 {
+                    abort_tested_2_3 = true;
+                } else {
+                    panic!("Unexpected nonce for the aborted stack-increase transaction.")
+                }
             }
         }
     }
 
-    assert!(abort_tested, "The stack-increase transaction must have been aborted, and it must have been tested in the tx receipts");
+    assert!(abort_tested_2_2, "The stack-increase transaction must have been aborted in Epoch 2.2, \
+            and it must have been tested in the tx receipts");
+    assert!(abort_tested_2_3, "The stack-increase transaction must have been aborted in Epoch 2.3, \
+            and it must have been tested in the tx receipts");
 
     test_observer::clear();
     channel.stop_chains_coordinator();
