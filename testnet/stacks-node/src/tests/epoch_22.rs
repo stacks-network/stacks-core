@@ -97,15 +97,15 @@ fn disable_pox() {
 
     // // create a third initial balance so that there's more liquid ustx than the stacked amount bug.
     // //  otherwise, it surfaces the DoS vector.
-    // initial_balances.push(InitialBalance {
-    //     address: spender_3_addr.clone(),
-    //     amount: stacked + 100_000,
-    // });
+    initial_balances.push(InitialBalance {
+        address: spender_3_addr.clone(),
+        amount: stacked + 100_000,
+    });
 
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -115,7 +115,7 @@ fn disable_pox() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
@@ -125,7 +125,7 @@ fn disable_pox() {
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
@@ -231,15 +231,15 @@ fn disable_pox() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -287,8 +287,8 @@ fn disable_pox() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
     let tx = make_contract_call(
         &spender_sk,
         1,
@@ -307,23 +307,23 @@ fn disable_pox() {
     info!("Submit 2.1 stacking tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
-    // let tx = make_contract_call(
-    //     &spender_2_sk,
-    //     0,
-    //     3000,
-    //     &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-    //     "pox-2",
-    //     "stack-stx",
-    //     &[
-    //         Value::UInt(stacked.into()),
-    //         pox_addr_tuple_3.clone(),
-    //         Value::UInt(sort_height as u128),
-    //         Value::UInt(10),
-    //     ],
-    // );
+    let tx = make_contract_call(
+        &spender_2_sk,
+        0,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-stx",
+        &[
+            Value::UInt(stacked.into()),
+            pox_addr_tuple_3.clone(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(10),
+        ],
+    );
 
-    info!("Submit second 2.1 stacking tx to {:?}", &http_origin);
-    // submit_tx(&http_origin, &tx);
+    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
@@ -338,18 +338,18 @@ fn disable_pox() {
     }
 
     // invoke stack-increase
-    // let tx = make_contract_call(
-    //     &spender_sk,
-    //     2,
-    //     3000,
-    //     &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-    //     "pox-2",
-    //     "stack-increase",
-    //     &[Value::UInt(increase_by.into())],
-    // );
-    //
+    let tx = make_contract_call(
+        &spender_sk,
+        2,
+        3000,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-increase",
+        &[Value::UInt(increase_by.into())],
+    );
+
     info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
-    // submit_tx(&http_origin, &tx);
+    submit_tx(&http_origin, &tx);
 
     for _i in 0..15 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -363,7 +363,7 @@ fn disable_pox() {
 
     // invoke stack-increase again, in Epoch-2.2, it should
     //  runtime abort
-    let aborted_increase_nonce = 2;
+    let aborted_increase_nonce = 3;
     let tx = make_contract_call(
         &spender_sk,
         aborted_increase_nonce,
@@ -374,7 +374,7 @@ fn disable_pox() {
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.2 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
     // finish the cycle after the 2.2 transition,
@@ -398,7 +398,7 @@ fn disable_pox() {
         &conf.get_chainstate_path_str(),
         None,
     )
-    .unwrap();
+        .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     let mut reward_cycle_pox_addrs = HashMap::new();
@@ -506,7 +506,8 @@ fn disable_pox() {
         (
             24,
             HashMap::from([
-                (pox_addr_2.clone(), 12u64),
+                (pox_addr_2.clone(), 6u64),
+                (pox_addr_3.clone(), 6),
                 (burn_pox_addr.clone(), 2),
             ]),
         ),
@@ -515,8 +516,9 @@ fn disable_pox() {
         (
             25,
             HashMap::from([
-                (pox_addr_2.clone(), 12u64),
-                (burn_pox_addr.clone(), 2),
+                (pox_addr_2.clone(), 9u64),
+                (pox_addr_3.clone(), 4),
+                (burn_pox_addr.clone(), 1),
             ]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.
@@ -564,7 +566,7 @@ fn disable_pox() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), "(err none)");
                 abort_tested = true;
             }
@@ -633,7 +635,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -643,7 +645,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
@@ -653,7 +655,7 @@ fn pox_2_unlock_all() {
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
@@ -759,15 +761,15 @@ fn pox_2_unlock_all() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -815,8 +817,8 @@ fn pox_2_unlock_all() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-    .unwrap()
-    .unwrap();
+        .unwrap()
+        .unwrap();
 
     let tx = make_contract_publish(
         &spender_sk,
@@ -1060,7 +1062,7 @@ fn pox_2_unlock_all() {
         &conf.get_chainstate_path_str(),
         None,
     )
-    .unwrap();
+        .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     let mut reward_cycle_pox_addrs = HashMap::new();
@@ -1216,7 +1218,7 @@ fn pox_2_unlock_all() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), format!("(ok u{})", epoch_2_2 + 1));
                 unlock_ht_22_tested = true;
             }
@@ -1232,7 +1234,7 @@ fn pox_2_unlock_all() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                .unwrap();
+                    .unwrap();
                 assert_eq!(result.to_string(), format!("(ok u{})", 230 + 60));
                 unlock_ht_21_tested = true;
             }
@@ -1496,7 +1498,7 @@ fn test_pox_reorg_one_flap() {
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-    .unwrap();
+        .unwrap();
     let pox_pubkey_hash = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey)
             .to_bytes()
@@ -1523,8 +1525,8 @@ fn test_pox_reorg_one_flap() {
                         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
                         ClarityVersion::Clarity1,
                     )
-                    .unwrap()
-                    .unwrap(),
+                        .unwrap()
+                        .unwrap(),
                     Value::UInt((sort_height + 1) as u128),
                     Value::UInt(12),
                 ],
