@@ -31,8 +31,6 @@ use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use mio;
 use mio::net as mio_net;
@@ -324,7 +322,7 @@ pub struct PeerNetwork {
     // configuration state for stacker DBs (loaded at runtime from smart contracts)
     pub stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
     // handle to the stacker DB
-    pub stacker_db: Arc<Mutex<StackerDB>>,
+    pub stacker_db: StackerDB,
 
     // outstanding request to perform a mempool sync
     // * mempool_sync_deadline is when the next mempool sync must start
@@ -476,7 +474,7 @@ impl PeerNetwork {
 
             stacker_db_syncs: Some(stacker_db_sync_map),
             stacker_db_configs: HashMap::new(),
-            stacker_db: Arc::new(Mutex::new(stackerdb)),
+            stacker_db: stackerdb,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
@@ -1710,7 +1708,7 @@ impl PeerNetwork {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        stackerdb: &Mutex<StackerDB>,
+        stackerdb: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,

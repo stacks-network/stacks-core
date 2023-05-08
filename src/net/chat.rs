@@ -23,7 +23,6 @@ use std::io::Read;
 use std::io::Write;
 use std::mem;
 use std::net::SocketAddr;
-use std::sync::Mutex;
 
 use rand;
 use rand::thread_rng;
@@ -1723,7 +1722,7 @@ impl ConversationP2P {
     fn make_stacker_db_getchunkinv_response(
         local_peer: &LocalPeer,
         burnchain_view: &BurnchainView,
-        stacker_db: &Mutex<StackerDB>,
+        stacker_db: &StackerDB,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
         if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
@@ -1737,8 +1736,6 @@ impl ConversationP2P {
         }
 
         let chunk_versions = match stacker_db
-            .lock()
-            .unwrap()
             .get_chunk_versions(&getchunkinv.contract_id, &getchunkinv.rc_consensus_hash)
         {
             Ok(versions) => versions,
@@ -1766,7 +1763,7 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         burnchain_view: &BurnchainView,
-        stacker_db: &Mutex<StackerDB>,
+        stacker_db: &StackerDB,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -1786,7 +1783,7 @@ impl ConversationP2P {
     fn make_stacker_db_getchunk_response(
         local_peer: &LocalPeer,
         burnchain_view: &BurnchainView,
-        stacker_db: &Mutex<StackerDB>,
+        stacker_db: &StackerDB,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<StacksMessageType, net_error> {
         if burnchain_view.rc_consensus_hash != getchunk.rc_consensus_hash {
@@ -1799,7 +1796,7 @@ impl ConversationP2P {
             )));
         }
 
-        let chunk = match stacker_db.lock().unwrap().get_chunk(
+        let chunk = match stacker_db.get_chunk(
             &getchunk.contract_id,
             &getchunk.rc_consensus_hash,
             getchunk.chunk_id,
@@ -1838,7 +1835,7 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         burnchain_view: &BurnchainView,
-        stacker_db: &Mutex<StackerDB>,
+        stacker_db: &StackerDB,
         preamble: &Preamble,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -2059,7 +2056,7 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        stacker_db: &Mutex<StackerDB>,
+        stacker_db: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -2523,7 +2520,7 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        stackerdb: &Mutex<StackerDB>,
+        stackerdb: &StackerDB,
         pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
@@ -3115,7 +3112,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3131,7 +3128,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3381,7 +3378,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -3397,7 +3394,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -3559,7 +3556,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &Mutex::new(stackerdb_2),
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -3574,7 +3571,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3706,7 +3703,7 @@ mod test {
             &local_peer_2,
             &mut peerdb_2,
             &sortdb_2,
-            &Mutex::new(stackerdb_2),
+            &stackerdb_2,
             &pox_id_2,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
@@ -3720,7 +3717,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3841,7 +3838,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -3856,7 +3853,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_2,
                 &sortdb_2,
-                &Mutex::new(stackerdb_2),
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4001,7 +3998,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &Mutex::new(stackerdb_2),
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4022,7 +4019,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -4173,7 +4170,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4192,7 +4189,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4382,7 +4379,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &Mutex::new(stackerdb_2),
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4397,7 +4394,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
@@ -4529,7 +4526,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4545,7 +4542,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4630,7 +4627,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4646,7 +4643,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4701,7 +4698,7 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &Mutex::new(stackerdb_2),
+                    &stackerdb_2,
                     &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
@@ -4717,7 +4714,7 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &Mutex::new(stackerdb_1),
+                    &stackerdb_1,
                     &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
@@ -4841,7 +4838,7 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &Mutex::new(stackerdb_2),
+                &stackerdb_2,
                 &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
@@ -4857,7 +4854,7 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &Mutex::new(stackerdb_1),
+                &stackerdb_1,
                 &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
