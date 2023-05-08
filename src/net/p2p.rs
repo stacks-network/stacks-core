@@ -5462,7 +5462,6 @@ impl PeerNetwork {
                     mempool,
                     http_poll_state,
                     handler_args,
-                    &self.stacker_db,
                 )
             });
             network_result.consume_http_uploads(http_stacks_msgs);

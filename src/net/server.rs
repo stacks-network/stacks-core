@@ -435,7 +435,6 @@ impl HttpPeer {
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -503,14 +502,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(
-            network,
-            sortdb,
-            chainstate,
-            mempool,
-            handler_args,
-            stacker_db,
-        ) {
+        let msgs = match convo.chat(network, sortdb, chainstate, mempool, handler_args) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!(
@@ -590,7 +582,6 @@ impl HttpPeer {
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -622,7 +613,6 @@ impl HttpPeer {
                         client_sock,
                         convo,
                         handler_args,
-                        stacker_db,
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
@@ -690,7 +680,6 @@ impl HttpPeer {
         mempool: &mut MemPoolDB,
         mut poll_state: NetworkPollState,
         handler_args: &RPCHandlerArgs,
-        stacker_db: &StackerDB,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
         self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state);
@@ -706,7 +695,6 @@ impl HttpPeer {
             chainstate,
             mempool,
             handler_args,
-            stacker_db,
         );
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
