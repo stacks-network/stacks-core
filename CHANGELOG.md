@@ -7,7 +7,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.3.0.0.1]
 
-This is a hotfix release to update the peer version identifier used by the stacks-node p2p network.
+This is a hotfix release to update:
+- peer version identifier used by the stacks-node p2p network.
+- yield interpreter errors in deser_hex
 
 This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
 
