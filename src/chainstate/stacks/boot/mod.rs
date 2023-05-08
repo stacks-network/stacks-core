@@ -224,11 +224,12 @@ impl StacksChainState {
     fn get_user_stacking_state(
         clarity: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
+        pox_contract_name: &str,
     ) -> TupleData {
         // query the stacking state for this user before deleting it
         let is_mainnet = clarity.is_mainnet();
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
         let user_stacking_state = clarity
             .with_readonly_clarity_env(
                 is_mainnet,
@@ -326,14 +327,45 @@ impl StacksChainState {
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
-    pub fn handle_pox_cycle_start(
+    ///
+    /// This should only be called for PoX v2 cycles.
+    pub fn handle_pox_cycle_start_pox_2(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_2_NAME)
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    ///
+    /// This should only be called for PoX v3 cycles.
+    pub fn handle_pox_cycle_start_pox_3(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    ///
+    fn handle_pox_cycle_start(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+        pox_contract_name: &str,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
 
-        debug!("Handling PoX reward cycle start"; "reward_cycle" => cycle_number, "cycle_active" => cycle_info.is_some());
+        debug!(
+            "Handling PoX reward cycle start";
+            "reward_cycle" => cycle_number,
+            "cycle_active" => cycle_info.is_some(),
+            "pox_contract" => pox_contract_name
+        );
 
         let cycle_info = match cycle_info {
             Some(x) => x,
@@ -341,7 +373,7 @@ impl StacksChainState {
         };
 
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
 
         let mut total_events = vec![];
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
@@ -366,7 +398,7 @@ impl StacksChainState {
             }).expect("FATAL: failed to accelerate PoX unlock");
 
             // query the stacking state for this user before deleting it
-            let user_data = Self::get_user_stacking_state(clarity, principal);
+            let user_data = Self::get_user_stacking_state(clarity, principal, pox_contract_name);
 
             // perform the unlock
             let (result, _, mut events, _) = clarity
@@ -1512,6 +1544,24 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_3_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr: PoxAddress,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_3_NAME,
+            "stack-extend",
+            vec![Value::UInt(lock_period), addr_tuple],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1557,6 +1607,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_2_NAME,
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_3_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_3_NAME,
             function_name,
             args,
         )
