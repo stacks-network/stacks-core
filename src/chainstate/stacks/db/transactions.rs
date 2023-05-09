@@ -329,6 +329,9 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 err_type: "short return/panic",
             }
         }
+        clarity_error::Interpreter(InterpreterError::Unchecked(CheckErrors::SupertypeTooLarge)) => {
+            ClarityRuntimeTxError::Rejectable(error)
+        }
         clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
             ClarityRuntimeTxError::AnalysisError(check_error)
         }
@@ -1113,6 +1116,12 @@ impl StacksChainState {
                                             }
                                             _ => {}
                                         }
+                                    }
+                                }
+                                if let clarity_error::Analysis(err) = &other_error {
+                                    if let CheckErrors::SupertypeTooLarge = err.err {
+                                        info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
+                                        return Err(Error::ClarityError(other_error));
                                     }
                                 }
                                 // this analysis isn't free -- convert to runtime error
