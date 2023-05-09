@@ -329,8 +329,9 @@ fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
     ) {
-        Some(v) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
-        None => return Ok(CostStateSummary::empty()),
+        Ok(Some(v)) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
+        Ok(None) => return Ok(CostStateSummary::empty()),
+        Err(e) => return Err(CostErrors::CostComputationFailed(e.to_string())),
     };
 
     let metadata_result = clarity_db
@@ -388,6 +389,7 @@ fn load_cost_functions(
 ) -> Result<CostStateSummary> {
     let last_processed_count = clarity_db
         .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
+        .map_err(|_e| CostErrors::CostContractLoadFailure)?
         .map(|result| result.value)
         .unwrap_or(Value::UInt(0))
         .expect_u128();

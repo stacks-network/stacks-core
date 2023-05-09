@@ -50,8 +50,8 @@ pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH
 // fourth byte == highest epoch supported by this node
 // - 0x05 for 2.05
 // - 0x06 for 2.1
-pub const PEER_VERSION_MAINNET: u32 = 0x18000007;
-pub const PEER_VERSION_TESTNET: u32 = 0xfacade07;
+pub const PEER_VERSION_MAINNET: u32 = 0x18000008;
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade08;
 
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
