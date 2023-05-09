@@ -20,4 +20,6 @@ RUN cargo build --workspace && \
     cd clarity/fuzz && \
     cargo build --workspace
 
+RUN cargo install cargo-fuzz
+
 RUN echo $(cargo fuzz list) | tr ' ' "\n" | parallel -I% --lb --max-args 1 -k "echo % && cargo fuzz run % -- -max_total_time=3600 -rss_limit_mb=4096"
