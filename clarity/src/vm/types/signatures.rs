@@ -1073,8 +1073,9 @@ impl TypeSignature {
                     let entry_out = Self::least_supertype_v2_0(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
-                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
-                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
+                Ok(TupleTypeSignature::try_from(type_map_out)
+                    .map(|x| x.into())
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1095,7 +1096,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
@@ -1174,8 +1175,9 @@ impl TypeSignature {
                     let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
-                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
-                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+                Ok(TupleTypeSignature::try_from(type_map_out)
+                    .map(|x| x.into())
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1196,7 +1198,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
