@@ -267,6 +267,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
+        info!("checkpoint 3: in get_reward_set");
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
             &format!("FATAL: no epoch for burn height {}", current_burn_height),
         );
@@ -282,6 +283,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                 return Ok(RewardSet::empty());
             }
             StacksEpochId::Epoch24 => {
+                info!("checkpoint 4: curr epoch is 2.4, checking if pox contract is active");
                 // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
                 if burnchain
                     .pox_constants
@@ -300,6 +302,8 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
+
+        info!("checkpoint 9: got all the reward addresses");
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
@@ -614,6 +618,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             )?;
             let anchor_status = if anchor_block_known {
                 let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
+                info!("checkpoint 2: getting reward set");
                 let reward_set = provider.get_reward_set(
                     burn_height,
                     chain_state,
@@ -2180,6 +2185,7 @@ impl<
             None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
         };
 
+        info!("checkpoint 1: inner handle burn block");
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         // let canonical_affirmation_map = self.get_canonical_affirmation_map()?;
         let canonical_affirmation_map =

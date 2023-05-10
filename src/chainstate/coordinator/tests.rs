@@ -476,6 +476,7 @@ impl RewardSetProvider for StubbedRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, chainstate::coordinator::Error> {
+        info!("checkpoint 4: stubbed get reward set");
         Ok(RewardSet {
             rewarded_addresses: self.0.clone(),
             start_cycle_state: PoxStartCycleInfo {

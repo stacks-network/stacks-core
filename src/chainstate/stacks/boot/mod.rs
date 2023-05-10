@@ -35,6 +35,7 @@ use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
+use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
@@ -44,6 +45,7 @@ use clarity::vm::costs::{
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::InterpreterError;
+use clarity::vm::errors::Error as VmError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
@@ -886,6 +888,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        info!("checkpoint 7: get reward addresses pox 3");
         if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -903,6 +906,8 @@ impl StacksChainState {
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
+
+        info!("checkpoint 8: successfully got the number of addresses in pox 3");
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -979,6 +984,7 @@ impl StacksChainState {
         current_burn_height: u64,
         block_id: &StacksBlockId,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        info!("checkpoint 6: getting reward addresses");
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
@@ -989,7 +995,7 @@ impl StacksChainState {
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
-        match pox_contract_name {
+        let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
             x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
@@ -997,6 +1003,14 @@ impl StacksChainState {
                 panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
                        unknown_contract);
             }
+        };
+
+        match result {
+            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(CheckErrors::NoSuchContract(_))))) => {
+                warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
+                return Ok(vec![])
+            }
+            x => x,
         }
     }
 }
