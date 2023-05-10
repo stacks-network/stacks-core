@@ -1006,176 +1006,43 @@ simulating a miner.
     }
 
     if argv[1] == "replay-block" {
-        let index_block_hash = &argv[3];
-        let index_block_hash = StacksBlockId::from_hex(&index_block_hash).unwrap();
-        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
-        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
-        let burn_db_path = format!("{}/mainnet/burnchain/burnchain.sqlite", &argv[2]);
-        let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
-
-        let (mut chainstate, _) =
-            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
-
-        let mut sortdb = SortitionDB::connect(
-            &sort_db_path,
-            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-            STACKS_EPOCHS_MAINNET.as_ref(),
-            PoxConstants::mainnet_default(),
-            true,
-        )
-        .unwrap();
-        let mut sort_tx = sortdb.tx_begin_at_tip();
-
-        let blocks_path = chainstate.blocks_path.clone();
-        let (mut chainstate_tx, clarity_instance) = chainstate
-            .chainstate_tx_begin()
-            .expect("Failed to start chainstate tx");
-        let mut next_staging_block =
-            StacksChainState::load_staging_block_info(&chainstate_tx.tx, &index_block_hash)
-                .expect("Failed to load staging block data")
-                .expect("No such index block hash in block database");
-
-        next_staging_block.block_data = StacksChainState::load_block_bytes(
-            &blocks_path,
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )
-        .unwrap()
-        .unwrap_or(vec![]);
-
-        let next_microblocks =
-            StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
-                .unwrap()
-                .unwrap();
-
-        let (burn_header_hash, burn_header_height, burn_header_timestamp, winning_block_txid) =
-            match SortitionDB::get_block_snapshot_consensus(
-                &sort_tx,
-                &next_staging_block.consensus_hash,
-            )
-            .unwrap()
-            {
-                Some(sn) => (
-                    sn.burn_header_hash,
-                    sn.block_height as u32,
-                    sn.burn_header_timestamp,
-                    sn.winning_block_txid,
-                ),
-                None => {
-                    // shouldn't happen
-                    panic!(
-                        "CORRUPTION: staging block {}/{} does not correspond to a burn block",
-                        &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash
-                    );
-                }
-            };
-
-        info!(
-            "Process block {}/{} = {} in burn block {}, parent microblock {}",
-            next_staging_block.consensus_hash,
-            next_staging_block.anchored_block_hash,
-            &index_block_hash,
-            &burn_header_hash,
-            &next_staging_block.parent_microblock_hash,
-        );
-
-        let parent_header_info =
-            match StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block)
-                .unwrap()
-            {
-                Some(hinfo) => hinfo,
-                None => panic!("Failed to load parent head info for block"),
-            };
-
-        let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
-        let block_size = next_staging_block.block_data.len() as u64;
-
-        if !StacksChainState::check_block_attachment(
-            &parent_header_info.anchored_header,
-            &block.header,
-        ) {
-            let msg = format!(
-                "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
-                &next_staging_block.consensus_hash,
-                block.block_hash(),
-                parent_header_info.anchored_header.block_hash(),
-                &parent_header_info.consensus_hash
+        if argv.len() < 3 {
+            eprintln!(
+                "Usage: {} chainstate_path index-block-hash-prefix",
+                &argv[0]
             );
-            warn!("{}", &msg);
             process::exit(1);
         }
+        let stacks_path = &argv[2];
+        let index_block_hash_prefix = &argv[3];
+        let staging_blocks_db_path = format!("{}/mainnet/chainstate/vm/index.sqlite", stacks_path);
+        let conn =
+            Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
+                index_block_hash_prefix
+            ))
+            .unwrap();
+        let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
 
-        // validation check -- validate parent microblocks and find the ones that connect the
-        // block's parent to this block.
-        let next_microblocks = StacksChainState::extract_connecting_microblocks(
-            &parent_header_info,
-            &next_staging_block,
-            &block,
-            next_microblocks,
-        )
-        .unwrap();
-        let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-            0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
-            _ => {
-                let l = next_microblocks.len();
-                (
-                    next_microblocks[l - 1].block_hash(),
-                    next_microblocks[l - 1].header.sequence,
-                )
+        let mut index_block_hashes: Vec<String> = vec![];
+        while let Ok(Some(row)) = hashes_set.next() {
+            index_block_hashes.push(row.get(0).unwrap());
+        }
+
+        let total = index_block_hashes.len();
+        let mut i = 1;
+        println!("Will check {} blocks.", total);
+        for index_block_hash in index_block_hashes.iter() {
+            if i % 100 == 0 {
+                println!("Checked {}...", i);
             }
-        };
-        assert_eq!(
-            next_staging_block.parent_microblock_hash,
-            last_microblock_hash
-        );
-        assert_eq!(
-            next_staging_block.parent_microblock_seq,
-            last_microblock_seq
-        );
-
-        // user supports were never activated
-        let user_supports = vec![];
-
-        let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-            &burnchain_blocks_db,
-            sort_tx.tx(),
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )
-        .unwrap();
-
-        let pox_constants = sort_tx.context.pox_constants.clone();
-
-        let epoch_receipt = match StacksChainState::append_block(
-            &mut chainstate_tx,
-            clarity_instance,
-            &mut sort_tx,
-            &pox_constants,
-            &parent_header_info,
-            &next_staging_block.consensus_hash,
-            &burn_header_hash,
-            burn_header_height,
-            burn_header_timestamp,
-            &block,
-            block_size,
-            &next_microblocks,
-            next_staging_block.commit_burn,
-            next_staging_block.sortition_burn,
-            &user_supports,
-            block_am.weight(),
-            true,
-        ) {
-            Ok((receipt, _)) => {
-                info!("Block processed successfully!");
-                receipt
-            }
-            Err(e) => {
-                error!("Failed processing block"; "error" => ?e);
-                process::exit(1)
-            }
-        };
+            i += 1;
+            replay_block(stacks_path, index_block_hash);
+        }
+        process::exit(0);
     }
 
     if argv[1] == "replay-chainstate" {
@@ -1707,4 +1574,175 @@ simulating a miner.
     }
 
     process::exit(0);
+}
+
+fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
+    let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
+    let chain_state_path = format!("{}/mainnet/chainstate/", stacks_path);
+    let sort_db_path = format!("{}/mainnet/burnchain/sortition", stacks_path);
+    let burn_db_path = format!("{}/mainnet/burnchain/burnchain.sqlite", stacks_path);
+    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
+
+    let (mut chainstate, _) =
+        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+
+    let mut sortdb = SortitionDB::connect(
+        &sort_db_path,
+        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
+        STACKS_EPOCHS_MAINNET.as_ref(),
+        PoxConstants::mainnet_default(),
+        true,
+    )
+    .unwrap();
+    let mut sort_tx = sortdb.tx_begin_at_tip();
+
+    let blocks_path = chainstate.blocks_path.clone();
+    let (mut chainstate_tx, clarity_instance) = chainstate
+        .chainstate_tx_begin()
+        .expect("Failed to start chainstate tx");
+    let mut next_staging_block =
+        StacksChainState::load_staging_block_info(&chainstate_tx.tx, &index_block_hash)
+            .expect("Failed to load staging block data")
+            .expect("No such index block hash in block database");
+
+    next_staging_block.block_data = StacksChainState::load_block_bytes(
+        &blocks_path,
+        &next_staging_block.consensus_hash,
+        &next_staging_block.anchored_block_hash,
+    )
+    .unwrap()
+    .unwrap_or(vec![]);
+
+    let next_microblocks =
+        StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
+            .unwrap()
+            .unwrap();
+
+    let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
+        match SortitionDB::get_block_snapshot_consensus(
+            &sort_tx,
+            &next_staging_block.consensus_hash,
+        )
+        .unwrap()
+        {
+            Some(sn) => (
+                sn.burn_header_hash,
+                sn.block_height as u32,
+                sn.burn_header_timestamp,
+                sn.winning_block_txid,
+            ),
+            None => {
+                // shouldn't happen
+                panic!(
+                    "CORRUPTION: staging block {}/{} does not correspond to a burn block",
+                    &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash
+                );
+            }
+        };
+
+    info!(
+        "Process block {}/{} = {} in burn block {}, parent microblock {}",
+        next_staging_block.consensus_hash,
+        next_staging_block.anchored_block_hash,
+        &index_block_hash,
+        &burn_header_hash,
+        &next_staging_block.parent_microblock_hash,
+    );
+
+    let parent_header_info =
+        match StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block)
+            .unwrap()
+        {
+            Some(hinfo) => hinfo,
+            None => panic!("Failed to load parent head info for block"),
+        };
+
+    let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
+    let block_size = next_staging_block.block_data.len() as u64;
+
+    if !StacksChainState::check_block_attachment(&parent_header_info.anchored_header, &block.header)
+    {
+        let msg = format!(
+            "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
+            &next_staging_block.consensus_hash,
+            block.block_hash(),
+            parent_header_info.anchored_header.block_hash(),
+            &parent_header_info.consensus_hash
+        );
+        println!("{}", &msg);
+        return;
+    }
+
+    // validation check -- validate parent microblocks and find the ones that connect the
+    // block's parent to this block.
+    let next_microblocks = StacksChainState::extract_connecting_microblocks(
+        &parent_header_info,
+        &next_staging_block,
+        &block,
+        next_microblocks,
+    )
+    .unwrap();
+    let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
+        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+        _ => {
+            let l = next_microblocks.len();
+            (
+                next_microblocks[l - 1].block_hash(),
+                next_microblocks[l - 1].header.sequence,
+            )
+        }
+    };
+    assert_eq!(
+        next_staging_block.parent_microblock_hash,
+        last_microblock_hash
+    );
+    assert_eq!(
+        next_staging_block.parent_microblock_seq,
+        last_microblock_seq
+    );
+
+    // user supports were never activated
+    let user_supports = vec![];
+
+    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
+        &burnchain_blocks_db,
+        sort_tx.tx(),
+        &next_staging_block.consensus_hash,
+        &next_staging_block.anchored_block_hash,
+    )
+    .unwrap();
+
+    let pox_constants = sort_tx.context.pox_constants.clone();
+
+    let epoch_receipt = match StacksChainState::append_block(
+        &mut chainstate_tx,
+        clarity_instance,
+        &mut sort_tx,
+        &pox_constants,
+        &parent_header_info,
+        &next_staging_block.consensus_hash,
+        &burn_header_hash,
+        burn_header_height,
+        burn_header_timestamp,
+        &block,
+        block_size,
+        &next_microblocks,
+        next_staging_block.commit_burn,
+        next_staging_block.sortition_burn,
+        &user_supports,
+        block_am.weight(),
+        true,
+    ) {
+        Ok((_receipt, _)) => {
+            info!("Block processed successfully! block = {}", index_block_hash);
+        }
+        Err(e) => {
+            println!(
+                "Failed processing block! block = {}, error = {:?}",
+                index_block_hash, e
+            );
+        }
+    };
 }

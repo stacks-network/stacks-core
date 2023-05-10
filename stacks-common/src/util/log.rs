@@ -251,6 +251,8 @@ fn inner_get_loglevel() -> slog::Level {
         slog::Level::Debug
     } else if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) {
         slog::Level::Debug
+    } else if env::var("STACKS_LOG_CRITONLY") == Ok("1".into()) {
+        slog::Level::Critical
     } else {
         slog::Level::Info
     }
