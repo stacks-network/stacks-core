@@ -1116,79 +1116,38 @@ simulating a miner.
                 parent_header_info.anchored_header.block_hash(),
                 &parent_header_info.consensus_hash
             );
-            warn!("{}", &msg);
             process::exit(1);
         }
+        let stacks_path = &argv[2];
+        let index_block_hash_prefix = &argv[3];
+        let staging_blocks_db_path = format!("{}/mainnet/chainstate/vm/index.sqlite", stacks_path);
+        let conn =
+            Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
+                index_block_hash_prefix
+            ))
+            .unwrap();
+        let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
 
-        // validation check -- validate parent microblocks and find the ones that connect the
-        // block's parent to this block.
-        let next_microblocks = StacksChainState::extract_connecting_microblocks(
-            &parent_header_info,
-            &next_staging_block,
-            &block,
-            next_microblocks,
-        )
-        .unwrap();
-        let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-            0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
-            _ => {
-                let l = next_microblocks.len();
-                (
-                    next_microblocks[l - 1].block_hash(),
-                    next_microblocks[l - 1].header.sequence,
-                )
+        let mut index_block_hashes: Vec<String> = vec![];
+        while let Ok(Some(row)) = hashes_set.next() {
+            index_block_hashes.push(row.get(0).unwrap());
+        }
+
+        let total = index_block_hashes.len();
+        let mut i = 1;
+        println!("Will check {} blocks.", total);
+        for index_block_hash in index_block_hashes.iter() {
+            if i % 100 == 0 {
+                println!("Checked {}...", i);
             }
-        };
-        assert_eq!(
-            next_staging_block.parent_microblock_hash,
-            last_microblock_hash
-        );
-        assert_eq!(
-            next_staging_block.parent_microblock_seq,
-            last_microblock_seq
-        );
-
-        // user supports were never activated
-        let user_supports = vec![];
-
-        let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-            &burnchain_blocks_db,
-            sort_tx.tx(),
-            &next_staging_block.consensus_hash,
-            &next_staging_block.anchored_block_hash,
-        )
-        .unwrap();
-
-        let pox_constants = sort_tx.context.pox_constants.clone();
-
-        let epoch_receipt = match StacksChainState::append_block(
-            &mut chainstate_tx,
-            clarity_instance,
-            &mut sort_tx,
-            &pox_constants,
-            &parent_header_info,
-            &next_staging_block.consensus_hash,
-            &burn_header_hash,
-            burn_header_height,
-            burn_header_timestamp,
-            &block,
-            block_size,
-            &next_microblocks,
-            next_staging_block.commit_burn,
-            next_staging_block.sortition_burn,
-            &user_supports,
-            block_am.weight(),
-            true,
-        ) {
-            Ok((receipt, _)) => {
-                info!("Block processed successfully!");
-                receipt
-            }
-            Err(e) => {
-                error!("Failed processing block"; "error" => ?e);
-                process::exit(1)
-            }
-        };
+            i += 1;
+            replay_block(stacks_path, index_block_hash);
+        }
+        process::exit(0);
     }
 
     if argv[1] == "replay-chainstate" {
