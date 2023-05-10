@@ -6,7 +6,7 @@ RUN git clone https://github.com/stacks-network/stacks-blockchain.git
 
 WORKDIR /stacks-blockchain
 
-RUN git checkout feat/stackerdb-sync
+RUN git checkout 3509-sbtc-stackerdb-rpc-interface
 
 RUN mkdir /out
 

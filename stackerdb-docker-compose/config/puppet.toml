@@ -6,7 +6,7 @@ faucet_address = "n2pGfZaAVztWqFzuy8iLS3VSuHB2SimWUR"
 bitcoind_rpc_host = "bitcoind:18443"
 bitcoind_rpc_user = "admin"
 bitcoind_rpc_pass = "admin"
-genesis_timestamp = 1681824510
+genesis_timestamp = 1683539443
 whitelisted_rpc_calls = [
     "listunspent",
     "importaddress",
