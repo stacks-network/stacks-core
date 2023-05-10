@@ -5958,6 +5958,7 @@ impl StacksChainState {
         burnchain_sortition_burn: u64,
         user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
+        do_not_advance: bool,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -6322,6 +6323,24 @@ impl StacksChainState {
         let matured_rewards_info = miner_payouts_opt
             .as_ref()
             .map(|(_, _, _, info)| info.clone());
+
+        if do_not_advance {
+            let epoch_receipt = StacksEpochReceipt {
+                header: StacksHeaderInfo::regtest_genesis(),
+                tx_receipts,
+                matured_rewards,
+                matured_rewards_info,
+                parent_microblocks_cost: microblock_execution_cost,
+                anchored_block_cost: block_execution_cost,
+                parent_burn_block_hash,
+                parent_burn_block_height,
+                parent_burn_block_timestamp,
+                evaluated_epoch,
+                epoch_transition: applied_epoch_transition,
+            };
+
+            return Ok((epoch_receipt, clarity_commit));
+        }
 
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
@@ -6707,6 +6726,7 @@ impl StacksChainState {
             next_staging_block.sortition_burn,
             &user_supports,
             block_am.weight(),
+            false,
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {

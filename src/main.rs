@@ -1016,17 +1016,35 @@ simulating a miner.
         let (mut chainstate, _) =
             StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
 
-        let mut sortdb =
-            SortitionDB::open(&sort_db_path, true, PoxConstants::mainnet_default()).unwrap();
+        let mut sortdb = SortitionDB::connect(
+            &sort_db_path,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
+            STACKS_EPOCHS_MAINNET.as_ref(),
+            PoxConstants::mainnet_default(),
+            true,
+        )
+        .unwrap();
         let mut sort_tx = sortdb.tx_begin_at_tip();
 
+        let blocks_path = chainstate.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = chainstate
             .chainstate_tx_begin()
             .expect("Failed to start chainstate tx");
-        let next_staging_block =
+        let mut next_staging_block =
             StacksChainState::load_staging_block_info(&chainstate_tx.tx, &index_block_hash)
                 .expect("Failed to load staging block data")
                 .expect("No such index block hash in block database");
+
+        next_staging_block.block_data = StacksChainState::load_block_bytes(
+            &blocks_path,
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )
+        .unwrap()
+        .unwrap_or(vec![]);
+
         let next_microblocks =
             StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
                 .unwrap()
@@ -1147,6 +1165,7 @@ simulating a miner.
             next_staging_block.sortition_burn,
             &user_supports,
             block_am.weight(),
+            true,
         ) {
             Ok((receipt, _)) => {
                 info!("Block processed successfully!");
