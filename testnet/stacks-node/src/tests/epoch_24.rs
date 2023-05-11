@@ -19,14 +19,16 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::{ClarityVersion, Value};
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, PoxConstants};
-use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::util::hash::{bytes_to_hex, Hash160, hex_bytes};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop};
+use crate::tests::neon_integrations::{get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop};
 use crate::tests::{make_contract_call, to_addr};
 
 use stacks::core;
@@ -39,6 +41,22 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::util::sleep_ms;
+
+#[cfg(test)]
+pub fn get_reward_set_entries_at_block(
+    state: &mut StacksChainState,
+    burnchain: &Burnchain,
+    sortdb: &SortitionDB,
+    block_id: &StacksBlockId,
+    burn_block_height: u64,
+) -> Result<Vec<RawRewardSetEntry>, Error> {
+    state
+        .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
+        .and_then(|mut addrs| {
+            addrs.sort_by_key(|k| k.reward_address.bytes());
+            Ok(addrs)
+        })
+}
 
 #[test]
 #[ignore]
@@ -690,9 +708,11 @@ fn verify_auto_unlock_behavior() {
     let small_stacked = 17_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let spender_sk = StacksPrivateKey::new();
+    let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
@@ -791,6 +811,11 @@ fn verify_auto_unlock_behavior() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
+    let first_v3_cycle = burnchain_config
+        .block_height_to_reward_cycle(burnchain_config.pox_constants.pox_3_activation_height as u64)
+        .unwrap()
+        + 1;
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -874,21 +899,13 @@ fn verify_auto_unlock_behavior() {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-        let pox_info = get_pox_info(&http_origin);
-        info!("curr height: {}, curr cycle id: {}, pox active: {}",
-            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
-
-    let sort_height = channel.get_sortitions_processed();
-    info!("pre bootstrap 2.1, sort_height: {}, epoch_2_1: {}", sort_height, epoch_2_1);
 
     // skip a couple sortitions
     btc_regtest_controller.bootstrap_chain(4);
     sleep_ms(5000);
 
     let sort_height = channel.get_sortitions_processed();
-    info!("after bootstrap,sort_height: {}, epoch_2_1: {}", sort_height, epoch_2_1);
     assert!(sort_height > epoch_2_1);
     assert!(sort_height > v1_unlock_height);
 
@@ -936,14 +953,9 @@ fn verify_auto_unlock_behavior() {
         } else {
             panic!("FATAL: failed to mine");
         }
-
-        let pox_info = get_pox_info(&http_origin);
-        info!("curr height: {}, curr cycle id: {}, pox active: {}",
-            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
-    }
+   }
 
     info!("Successfully transitioned to Epoch 2.2");
-
 
     // transition to epoch 2.3
     loop {
@@ -983,7 +995,6 @@ fn verify_auto_unlock_behavior() {
     // *now* advance to 2.4
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.4");
@@ -1039,6 +1050,54 @@ fn verify_auto_unlock_behavior() {
         }
     }
 
+    // Check the locked balance of addr 1
+    let account = get_account(&http_origin, &spender_stx_addr);
+    assert_eq!(account.locked, first_stacked_init);
+
+    // Check the locked balance of addr 2
+    let account = get_account(&http_origin, &spender_2_stx_addr);
+    assert_eq!(account.locked, small_stacked);
+
+    // check that the "raw" reward sets for all cycles just contains entries for both addrs
+    //  at the cycle start
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+            .unwrap();
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip_info = get_chain_info(&conf);
+        let tip_block_id = StacksBlockId::new(
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip
+        );
+
+        let reward_set_entries = get_reward_set_entries_at_block(
+            &mut chainstate,
+            &burnchain_config,
+            sortdb,
+            &tip_block_id,
+            tip_info.burn_block_height
+        )
+            .unwrap();
+
+        assert_eq!(reward_set_entries.len(), 2);
+        info!("Reward set entries: pre stacks increase: {:?}", reward_set_entries);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            spender_stx_addr.bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, 200_000_000_000_000_000);
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            spender_2_stx_addr.bytes.0.to_vec()
+        );
+        assert_eq!(reward_set_entries[0].amount_stacked, 17_000_000_000_000_000);
+    }
+
     // invoke stack-increase
     let tx = make_contract_call(
         &spender_sk,
@@ -1064,6 +1123,48 @@ fn verify_auto_unlock_behavior() {
         let pox_info = get_pox_info(&http_origin);
         info!("curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
+    }
+
+    // Check that the locked balance of addr 1 has not changed
+    let account = get_account(&http_origin, &spender_stx_addr);
+    assert_eq!(account.locked, first_stacked_init + first_stacked_incr);
+
+    // Check that addr 2 has no locked tokens at this height
+    let account = get_account(&http_origin, &spender_2_stx_addr);
+    assert_eq!(account.locked, 0);
+
+    // check that the "raw" reward sets for all cycles just contains entries for the first
+    //  address at the cycle start, since spender_addr_2 was auto-unlocked.
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+            .unwrap();
+        let sortdb = btc_regtest_controller.sortdb_mut();
+        let tip_info = get_chain_info(&conf);
+        let tip_block_id = StacksBlockId::new(
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip
+        );
+
+        let reward_set_entries = get_reward_set_entries_at_block(
+            &mut chainstate,
+            &burnchain_config,
+            sortdb,
+            &tip_block_id,
+            tip_info.burn_block_height
+        )
+            .unwrap();
+
+        assert_eq!(reward_set_entries.len(), 1);
+        info!("Reward set entries: post stacks increase: {:?}", reward_set_entries);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            spender_stx_addr.bytes.0.to_vec()
+        );
     }
 
     let tip_info = get_chain_info(&conf);
@@ -1198,10 +1299,8 @@ fn verify_auto_unlock_behavior() {
         // Epoch 2.3 has started, so the reward set should be all burns.
         (27, HashMap::from([(burn_pox_addr.clone(), 14)])),
         (28, HashMap::from([(burn_pox_addr.clone(), 14)])),
-
-        // TODO - verify
         // cycle 29 is the first 2.4 cycle, it should have pox_2 and pox_3 with equal
-        //  slots (because increase hasn't gone into effect yet)
+        //  slots (because increase hasn't gone into effect yet).
         (
             29,
             HashMap::from([
@@ -1210,8 +1309,8 @@ fn verify_auto_unlock_behavior() {
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
-        // stack-increase has been invoked, but this should not skew reward set heavily
-        // because pox-3 fixes the total-locked bug
+        // stack-increase has been invoked, which causes spender_addr_2 to be below the stacking
+        // minimum, and thus they have zero reward addresses in reward cycle 30.
         (
             30,
             HashMap::from([
@@ -1221,10 +1320,8 @@ fn verify_auto_unlock_behavior() {
         ),
     ]);
 
-    info!("all cycle counts: {:?}", reward_cycle_pox_addrs);
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        info!("cycle counts for rc {}: {:?}", reward_cycle, cycle_counts);
         assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
