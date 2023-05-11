@@ -888,7 +888,6 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        info!("checkpoint 7: get reward addresses pox 3");
         if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -906,8 +905,6 @@ impl StacksChainState {
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
-
-        info!("checkpoint 8: successfully got the number of addresses in pox 3");
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -984,7 +981,6 @@ impl StacksChainState {
         current_burn_height: u64,
         block_id: &StacksBlockId,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        info!("checkpoint 6: getting reward addresses");
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
