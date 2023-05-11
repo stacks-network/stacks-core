@@ -44,8 +44,8 @@ use clarity::vm::costs::{
 };
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::InterpreterError;
 use clarity::vm::errors::Error as VmError;
+use clarity::vm::errors::InterpreterError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
@@ -690,7 +690,6 @@ impl StacksChainState {
             .iter()
             .fold(0, |agg, entry| agg + entry.amount_stacked);
 
-        info!("CALCULATING REWARD SET: checking total ustx");
         assert!(
             participation <= liquid_ustx,
             "CORRUPTION: More stacking participation than liquid STX"
@@ -1001,10 +1000,14 @@ impl StacksChainState {
             }
         };
 
+        // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
+        // there hasn't yet been a Stacks block.
         match result {
-            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(CheckErrors::NoSuchContract(_))))) => {
+            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(
+                CheckErrors::NoSuchContract(_),
+            )))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
-                return Ok(vec![])
+                return Ok(vec![]);
             }
             x => x,
         }

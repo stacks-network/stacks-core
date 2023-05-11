@@ -103,6 +103,8 @@ jobs:
           - tests::epoch_22::test_pox_reorg_one_flap
           - tests::epoch_23::trait_invocation_behavior
           - tests::neon_integrations::bad_microblock_pubkey
+          - tests::epoch_24::fix_to_pox_contract
+          - tests::epoch_24::verify_auto_unlock_behavior
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
