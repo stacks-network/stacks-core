@@ -13,33 +13,38 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{env, thread};
-use std::collections::HashMap;
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::tests::neon_integrations::{
+    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
+    submit_tx, test_observer, wait_for_runloop,
+};
+use crate::tests::{make_contract_call, to_addr};
 use clarity::boot_util::boot_code_id;
-use clarity::vm::{ClarityVersion, Value};
 use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityVersion, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
-use stacks_common::util::hash::{bytes_to_hex, Hash160, hex_bytes};
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop};
-use crate::tests::{make_contract_call, to_addr};
+use std::collections::HashMap;
+use std::{env, thread};
 
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::{neon, BitcoinRegtestController, BurnchainController};
+use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
-use stacks::core::{PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, StacksEpoch};
+use stacks::core::{
+    StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
+};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::{Address, StacksEpochId};
-use crate::{BitcoinRegtestController, BurnchainController, neon};
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use stacks::clarity_cli::vm_execute as execute;
-use stacks_common::address::AddressHashMode;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::util::sleep_ms;
 
 #[cfg(test)]
@@ -60,10 +65,10 @@ pub fn get_reward_set_entries_at_block(
 
 #[test]
 #[ignore]
-/// Verify the buggy stacks-increase behavior that was possible in PoX-2, and does not crash the
+/// Verify the buggy stacks-increase behavior that was possible in PoX-2 does not crash the
 /// node in Epoch 2.4
 ///
-/// Verify that transition to Epoch 2.4 occurs smoothly even if miners do not mine in the
+/// Verify that the transition to Epoch 2.4 occurs smoothly even if miners do not mine in the
 /// same block as the PoX-3 activation height.
 ///
 /// Verify the PoX-3 payouts get made to the expected recipients.
@@ -106,7 +111,7 @@ fn fix_to_pox_contract() {
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -116,7 +121,7 @@ fn fix_to_pox_contract() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
@@ -126,7 +131,7 @@ fn fix_to_pox_contract() {
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
@@ -235,15 +240,15 @@ fn fix_to_pox_contract() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -292,8 +297,8 @@ fn fix_to_pox_contract() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
     let tx = make_contract_call(
         &spender_sk,
         1,
@@ -312,7 +317,6 @@ fn fix_to_pox_contract() {
     info!("Submit 2.1 stacking tx to {:?}", &http_origin);
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
-
 
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
@@ -341,7 +345,6 @@ fn fix_to_pox_contract() {
 
     info!("Submit 2.2 stack-increase tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
-
 
     // transition to epoch 2.3
     loop {
@@ -475,7 +478,7 @@ fn fix_to_pox_contract() {
         &conf.get_chainstate_path_str(),
         None,
     )
-        .unwrap();
+    .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     let mut reward_cycle_pox_addrs = HashMap::new();
@@ -581,17 +584,11 @@ fn fix_to_pox_contract() {
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
             24,
-            HashMap::from([
-                (pox_addr_2.clone(), 13u64),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         (
             25,
-            HashMap::from([
-                (pox_addr_2.clone(), 13u64),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.
         (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
@@ -650,8 +647,8 @@ fn fix_to_pox_contract() {
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr
-                && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2 ||
-                parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3)
+                && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2
+                    || parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3)
             {
                 let contract_call = match &parsed.payload {
                     TransactionPayload::ContractCall(cc) => cc,
@@ -662,7 +659,7 @@ fn fix_to_pox_contract() {
                 let result = Value::try_deserialize_hex_untyped(
                     tx.get("raw_result").unwrap().as_str().unwrap(),
                 )
-                    .unwrap();
+                .unwrap();
                 assert_eq!(result.to_string(), "(err none)");
                 if parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2 {
                     abort_tested_2_2 = true;
@@ -675,15 +672,20 @@ fn fix_to_pox_contract() {
         }
     }
 
-    assert!(abort_tested_2_2, "The stack-increase transaction must have been aborted in Epoch 2.2, \
-            and it must have been tested in the tx receipts");
-    assert!(abort_tested_2_3, "The stack-increase transaction must have been aborted in Epoch 2.3, \
-            and it must have been tested in the tx receipts");
+    assert!(
+        abort_tested_2_2,
+        "The stack-increase transaction must have been aborted in Epoch 2.2, \
+            and it must have been tested in the tx receipts"
+    );
+    assert!(
+        abort_tested_2_3,
+        "The stack-increase transaction must have been aborted in Epoch 2.3, \
+            and it must have been tested in the tx receipts"
+    );
 
     test_observer::clear();
     channel.stop_chains_coordinator();
 }
-
 
 #[test]
 #[ignore]
@@ -730,7 +732,7 @@ fn verify_auto_unlock_behavior() {
     let pox_pubkey_1 = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_1 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_1)
             .to_bytes()
@@ -740,22 +742,36 @@ fn verify_auto_unlock_behavior() {
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_2 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_2)
             .to_bytes()
             .to_vec(),
     );
+    let pox_pubkey_2_stx_addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pox_pubkey_2],
+    )
+    .unwrap();
 
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
-        .unwrap();
+    .unwrap();
     let pox_pubkey_hash_3 = bytes_to_hex(
         &Hash160::from_node_public_key(&pox_pubkey_3)
             .to_bytes()
             .to_vec(),
     );
+    let pox_pubkey_3_stx_addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pox_pubkey_3],
+    )
+    .unwrap();
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -864,15 +880,15 @@ fn verify_auto_unlock_behavior() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
 
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
 
     let tx = make_contract_call(
         &spender_sk,
@@ -921,8 +937,8 @@ fn verify_auto_unlock_behavior() {
         &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
         ClarityVersion::Clarity2,
     )
-        .unwrap()
-        .unwrap();
+    .unwrap()
+    .unwrap();
     let tx = make_contract_call(
         &spender_sk,
         1,
@@ -942,7 +958,6 @@ fn verify_auto_unlock_behavior() {
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
-
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..20 {
@@ -953,7 +968,7 @@ fn verify_auto_unlock_behavior() {
         } else {
             panic!("FATAL: failed to mine");
         }
-   }
+    }
 
     info!("Successfully transitioned to Epoch 2.2");
 
@@ -966,8 +981,12 @@ fn verify_auto_unlock_behavior() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
         let pox_info = get_pox_info(&http_origin);
-        info!("curr height: {}, curr cycle id: {}, pox active: {}",
-            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
+        info!(
+            "curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height,
+            pox_info.current_cycle.id,
+            pox_info.current_cycle.is_pox_active
+        );
     }
 
     info!("Successfully transitioned to Epoch 2.3");
@@ -981,8 +1000,12 @@ fn verify_auto_unlock_behavior() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
         let pox_info = get_pox_info(&http_origin);
-        info!("curr height: {}, curr cycle id: {}, pox active: {}",
-            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
+        info!(
+            "curr height: {}, curr cycle id: {}, pox active: {}",
+            tip_info.burn_block_height,
+            pox_info.current_cycle.id,
+            pox_info.current_cycle.is_pox_active
+        );
     }
 
     // skip a couple sortitions
@@ -1050,16 +1073,16 @@ fn verify_auto_unlock_behavior() {
         }
     }
 
-    // Check the locked balance of addr 1
+    // Check the locked balance of addr 1.
     let account = get_account(&http_origin, &spender_stx_addr);
-    assert_eq!(account.locked, first_stacked_init);
+    assert_eq!(account.locked, first_stacked_init as u128);
 
-    // Check the locked balance of addr 2
+    // Check the locked balance of addr 2.
     let account = get_account(&http_origin, &spender_2_stx_addr);
-    assert_eq!(account.locked, small_stacked);
+    assert_eq!(account.locked, small_stacked as u128);
 
-    // check that the "raw" reward sets for all cycles just contains entries for both addrs
-    //  at the cycle start
+    // Check that the "raw" reward sets for all cycles just contains entries for both addrs
+    //  for the next few cycles.
     for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let (mut chainstate, _) = StacksChainState::open(
             false,
@@ -1067,35 +1090,37 @@ fn verify_auto_unlock_behavior() {
             &conf.get_chainstate_path_str(),
             None,
         )
-            .unwrap();
+        .unwrap();
         let sortdb = btc_regtest_controller.sortdb_mut();
+
         let tip_info = get_chain_info(&conf);
-        let tip_block_id = StacksBlockId::new(
-            &tip_info.stacks_tip_consensus_hash,
-            &tip_info.stacks_tip
-        );
+        let tip_block_id =
+            StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
         let reward_set_entries = get_reward_set_entries_at_block(
             &mut chainstate,
             &burnchain_config,
             sortdb,
             &tip_block_id,
-            tip_info.burn_block_height
+            tip_info.burn_block_height,
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(reward_set_entries.len(), 2);
-        info!("Reward set entries: pre stacks increase: {:?}", reward_set_entries);
+        info!("reward set entries: {:?}", reward_set_entries);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            spender_stx_addr.bytes.0.to_vec()
+            pox_pubkey_2_stx_addr.bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[0].amount_stacked, 200_000_000_000_000_000);
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            first_stacked_init as u128
+        );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            spender_2_stx_addr.bytes.0.to_vec()
+            pox_pubkey_3_stx_addr.bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[0].amount_stacked, 17_000_000_000_000_000);
+        assert_eq!(reward_set_entries[1].amount_stacked, small_stacked as u128);
     }
 
     // invoke stack-increase
@@ -1120,55 +1145,18 @@ fn verify_auto_unlock_behavior() {
         } else {
             panic!("FATAL: failed to mine");
         }
-        let pox_info = get_pox_info(&http_origin);
-        info!("curr height: {}, curr cycle id: {}, pox active: {}",
-            tip_info.burn_block_height, pox_info.current_cycle.id, pox_info.current_cycle.is_pox_active);
     }
 
-    // Check that the locked balance of addr 1 has not changed
+    // Check that the locked balance of addr 1 has not changed.
     let account = get_account(&http_origin, &spender_stx_addr);
-    assert_eq!(account.locked, first_stacked_init + first_stacked_incr);
+    assert_eq!(
+        account.locked,
+        (first_stacked_init + first_stacked_incr) as u128
+    );
 
-    // Check that addr 2 has no locked tokens at this height
+    // Check that addr 2 has no locked tokens at this height (was auto-unlocked).
     let account = get_account(&http_origin, &spender_2_stx_addr);
     assert_eq!(account.locked, 0);
-
-    // check that the "raw" reward sets for all cycles just contains entries for the first
-    //  address at the cycle start, since spender_addr_2 was auto-unlocked.
-    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
-        let (mut chainstate, _) = StacksChainState::open(
-            false,
-            conf.burnchain.chain_id,
-            &conf.get_chainstate_path_str(),
-            None,
-        )
-            .unwrap();
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip_info = get_chain_info(&conf);
-        let tip_block_id = StacksBlockId::new(
-            &tip_info.stacks_tip_consensus_hash,
-            &tip_info.stacks_tip
-        );
-
-        let reward_set_entries = get_reward_set_entries_at_block(
-            &mut chainstate,
-            &burnchain_config,
-            sortdb,
-            &tip_block_id,
-            tip_info.burn_block_height
-        )
-            .unwrap();
-
-        assert_eq!(reward_set_entries.len(), 1);
-        info!("Reward set entries: post stacks increase: {:?}", reward_set_entries);
-        assert_eq!(
-            reward_set_entries[0].reward_address.bytes(),
-            spender_stx_addr.bytes.0.to_vec()
-        );
-    }
-
-    let tip_info = get_chain_info(&conf);
-    let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
     let (mut chainstate, _) = StacksChainState::open(
         false,
@@ -1176,8 +1164,38 @@ fn verify_auto_unlock_behavior() {
         &conf.get_chainstate_path_str(),
         None,
     )
-        .unwrap();
+    .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
+
+    // Check that the "raw" reward sets for all cycles just contains entries for the first
+    //  address at the cycle start, since addr 2 was auto-unlocked.
+    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+        let tip_info = get_chain_info(&conf);
+        let tip_block_id =
+            StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
+
+        let reward_set_entries = get_reward_set_entries_at_block(
+            &mut chainstate,
+            &burnchain_config,
+            sortdb,
+            &tip_block_id,
+            tip_info.burn_block_height,
+        )
+        .unwrap();
+
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            pox_pubkey_2_stx_addr.bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[0].amount_stacked,
+            (first_stacked_init + first_stacked_incr) as u128
+        );
+    }
+
+    let tip_info = get_chain_info(&conf);
+    let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
     let mut reward_cycle_pox_addrs = HashMap::new();
 
@@ -1207,7 +1225,6 @@ fn verify_auto_unlock_behavior() {
             .unwrap()
             .expect_list();
 
-        debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {
             if pox_addrs.len() > 0 {
                 assert_eq!(pox_addrs.len(), 2);
@@ -1282,17 +1299,11 @@ fn verify_auto_unlock_behavior() {
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
             24,
-            HashMap::from([
-                (pox_addr_2.clone(), 13u64),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         (
             25,
-            HashMap::from([
-                (pox_addr_2.clone(), 13u64),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.
         (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
@@ -1313,10 +1324,7 @@ fn verify_auto_unlock_behavior() {
         // minimum, and thus they have zero reward addresses in reward cycle 30.
         (
             30,
-            HashMap::from([
-                (pox_addr_2.clone(), 13u64),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
         ),
     ]);
 
