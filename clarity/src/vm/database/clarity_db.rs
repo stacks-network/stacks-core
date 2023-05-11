@@ -34,6 +34,7 @@ use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, PrincipalData, QualifiedContractIdentifier,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use crate::vm::InterpreterError;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::types::chainstate::{

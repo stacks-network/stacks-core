@@ -428,7 +428,7 @@ where
             row_hashes.reserve(nodes[i].len() / 2);
 
             for j in 0..(nodes[i].len() / 2) {
-                let h = MerkleTree::get_node_hash(&nodes[i][(2 * j)], &nodes[i][2 * j + 1]);
+                let h = MerkleTree::get_node_hash(&nodes[i][2 * j], &nodes[i][2 * j + 1]);
                 row_hashes.push(h);
             }
 
