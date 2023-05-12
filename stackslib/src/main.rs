@@ -1147,6 +1147,7 @@ simulating a miner.
             i += 1;
             replay_block(stacks_path, index_block_hash);
         }
+        println!("Finished!");
         process::exit(0);
     }
 
