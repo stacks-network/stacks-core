@@ -1190,11 +1190,13 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                  confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
+        let epoch = db.get_clarity_epoch_version();
         db.set_entry_unknown_descriptor(
             voting_contract_to_use,
             "confirmed-proposals",
             execute_on_network("{ confirmed-id: u0 }", use_mainnet),
             execute_on_network(&value, use_mainnet),
+            &epoch,
         )
         .unwrap();
         db.commit();
@@ -1504,11 +1506,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                      confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
                 &COST_VOTING_TESTNET_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }
@@ -1602,11 +1606,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
                 &COST_VOTING_TESTNET_CONTRACT,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }

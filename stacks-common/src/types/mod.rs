@@ -81,6 +81,12 @@ impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
         StacksEpochId::Epoch24
     }
+
+    /// Returns whether or not this Epoch should perform
+    ///  Clarity value sanitization
+    pub fn value_sanitizing(&self) -> bool {
+        self >= &StacksEpochId::Epoch24
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

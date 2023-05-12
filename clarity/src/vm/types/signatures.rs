@@ -849,6 +849,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
 }
 
 impl TupleTypeSignature {
+    /// Return the number of fields in this tuple type
     pub fn len(&self) -> u64 {
         self.type_map.len() as u64
     }
