@@ -1363,15 +1363,15 @@ impl ConversationHttp {
                         var_name,
                     );
 
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get::<Value>(&key).map(|a| (a, None))?
+                        clarity_db.get(&key).map(|a| (a, None))?
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     Some(DataVarResponse { data, marf_proof })
                 })
             }) {
@@ -1416,25 +1416,22 @@ impl ConversationHttp {
                         map_name,
                         key,
                     );
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), Some("".into()))
+                                (Value::none().serialize_to_hex(), Some("".into()))
                             })
                     } else {
-                        clarity_db
-                            .get::<Value>(&key)
-                            .map(|a| (a, None))
-                            .unwrap_or_else(|| {
-                                test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), None)
-                            })
+                        clarity_db.get(&key).map(|a| (a, None)).unwrap_or_else(|| {
+                            test_debug!("No value for '{}' in {}", &key, tip);
+                            (Value::none().serialize_to_hex(), None)
+                        })
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     MapEntryResponse { data, marf_proof }
                 })
             }) {
@@ -1528,7 +1525,7 @@ impl ConversationHttp {
                 response_metadata,
                 CallReadOnlyResponse {
                     okay: true,
-                    result: Some(format!("0x{}", data.serialize())),
+                    result: Some(format!("0x{}", data.serialize_to_hex())),
                     cause: None,
                 },
             ),

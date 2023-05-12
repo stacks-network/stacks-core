@@ -121,10 +121,12 @@ pub fn get_stacking_state_pox(
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
         );
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(pox_contract, false),
             "stacking-state",
             &lookup_tuple,
+            &epoch,
         )
         .unwrap()
         .expect_optional()
@@ -378,10 +380,12 @@ pub fn check_stacking_state_invariants(
                 .unwrap(),
             );
             let entry_value = with_clarity_db_ro(peer, tip, |db| {
+                let epoch = db.get_clarity_epoch_version();
                 db.fetch_entry_unknown_descriptor(
                     &boot_code_id(active_pox_contract, false),
                     "reward-cycle-pox-address-list",
-                    &entry_key
+                    &entry_key,
+                    &epoch,
                 )
                     .unwrap()
                     .expect_optional()
@@ -560,10 +564,12 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         )])
         .unwrap()
         .into();
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(active_pox_contract, false),
             "reward-cycle-total-stacked",
             &total_stacked_key,
+            &epoch,
         )
         .map(|v| {
             v.expect_optional()
@@ -598,10 +604,12 @@ pub fn get_partial_stacked(
         ])
         .unwrap()
         .into();
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(pox_contract, false),
             "partial-stacked-by-cycle",
             &key,
+            &epoch,
         )
         .map(|v| {
             v.expect_optional()

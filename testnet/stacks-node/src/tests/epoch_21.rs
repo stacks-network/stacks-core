@@ -444,9 +444,12 @@ fn transition_adds_burn_block_height() {
                             .unwrap(),
                         )
                         .unwrap();
-                        let clarity_value =
-                            Value::deserialize_read(&mut &clarity_serialized_value[..], None)
-                                .unwrap();
+                        let clarity_value = Value::deserialize_read(
+                            &mut &clarity_serialized_value[..],
+                            None,
+                            false,
+                        )
+                        .unwrap();
                         let pair = clarity_value.expect_tuple();
                         let height = pair.get("height").unwrap().clone().expect_u128() as u64;
                         let bhh_opt =
@@ -1273,9 +1276,12 @@ fn transition_adds_get_pox_addr_recipients() {
                             .unwrap(),
                         )
                         .unwrap();
-                        let clarity_value =
-                            Value::deserialize_read(&mut &clarity_serialized_value[..], None)
-                                .unwrap();
+                        let clarity_value = Value::deserialize_read(
+                            &mut &clarity_serialized_value[..],
+                            None,
+                            false,
+                        )
+                        .unwrap();
                         let pair = clarity_value.expect_tuple();
                         let burn_block_height =
                             pair.get("burn-height").unwrap().clone().expect_u128() as u64;
