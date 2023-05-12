@@ -1042,6 +1042,7 @@ simulating a miner.
             i += 1;
             replay_block(stacks_path, index_block_hash);
         }
+        println!("Finished!");
         process::exit(0);
     }
 
@@ -1615,10 +1616,18 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
     .unwrap()
     .unwrap_or(vec![]);
 
-    let next_microblocks =
-        StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
-            .unwrap()
-            .unwrap();
+    let next_microblocks = match StacksChainState::find_parent_microblock_stream(
+        &chainstate_tx.tx,
+        &next_staging_block,
+    )
+    .unwrap()
+    {
+        Some(x) => x,
+        None => {
+            println!("No microblock stream found for {}", index_block_hash_hex);
+            return;
+        }
+    };
 
     let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
         match SortitionDB::get_block_snapshot_consensus(
@@ -1656,7 +1665,13 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
             .unwrap()
         {
             Some(hinfo) => hinfo,
-            None => panic!("Failed to load parent head info for block"),
+            None => {
+                println!(
+                    "Failed to load parent head info for block: {}",
+                    index_block_hash_hex
+                );
+                return;
+            }
         };
 
     let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
