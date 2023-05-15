@@ -1859,11 +1859,157 @@ mod tests {
         let t_4_bad_1 =
             TypeSignature::from_string("(list 5 (tuple (b (optional uint))))", version, epoch);
 
+        let v_5 = Value::okay(
+            Value::list_from(vec![
+                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
+                    .unwrap()
+                    .into(),
+                TupleData::from_data(vec![
+                    ("a".into(), Value::some(Value::Int(1)).unwrap()),
+                    ("b".into(), Value::none()),
+                    ("c".into(), Value::some(Value::Int(3)).unwrap()),
+                ])
+                .unwrap()
+                .into(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        let v_5_good = Value::okay(
+            Value::list_from(vec![
+                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
+                    .unwrap()
+                    .into(),
+                TupleData::from_data(vec![("b".into(), Value::none())])
+                    .unwrap()
+                    .into(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+
+        let t_5_good_0 = TypeSignature::from_string(
+            "(response (list 5 (tuple (b (optional int)))) int)",
+            version,
+            epoch,
+        );
+        let t_5_good_1 = TypeSignature::from_string(
+            "(response (list 2 (tuple (b (optional int)))) int)",
+            version,
+            epoch,
+        );
+        let t_5_good_2 = TypeSignature::from_string(
+            "(response (list 2 (tuple (b (optional int)))) bool)",
+            version,
+            epoch,
+        );
+        let t_5_bad_0 = TypeSignature::from_string(
+            "(response (list 5 (tuple (b (optional int)) (a (optional int)))) uint)",
+            version,
+            epoch,
+        );
+        let t_5_bad_1 = TypeSignature::from_string(
+            "(response (list 5 (tuple (b (optional uint)))) int)",
+            version,
+            epoch,
+        );
+        let t_5_bad_2 = TypeSignature::from_string(
+            "(response int (list 5 (tuple (b (optional int)))))",
+            version,
+            epoch,
+        );
+        let t_5_bad_3 = TypeSignature::from_string(
+            "(list 5 (tuple (b (optional int)) (a (optional int))))",
+            version,
+            epoch,
+        );
+
+        let v_6 = Value::error(
+            Value::list_from(vec![
+                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
+                    .unwrap()
+                    .into(),
+                TupleData::from_data(vec![
+                    ("a".into(), Value::some(Value::Int(1)).unwrap()),
+                    ("b".into(), Value::none()),
+                    ("c".into(), Value::some(Value::Int(3)).unwrap()),
+                ])
+                .unwrap()
+                .into(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        let v_6_good = Value::error(
+            Value::list_from(vec![
+                TupleData::from_data(vec![("b".into(), Value::some(Value::Int(2)).unwrap())])
+                    .unwrap()
+                    .into(),
+                TupleData::from_data(vec![("b".into(), Value::none())])
+                    .unwrap()
+                    .into(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+
+        let t_6_good_0 = TypeSignature::from_string(
+            "(response int (list 5 (tuple (b (optional int)))))",
+            version,
+            epoch,
+        );
+        let t_6_good_1 = TypeSignature::from_string(
+            "(response int (list 2 (tuple (b (optional int)))))",
+            version,
+            epoch,
+        );
+        let t_6_good_2 = TypeSignature::from_string(
+            "(response bool (list 2 (tuple (b (optional int)))))",
+            version,
+            epoch,
+        );
+        let t_6_bad_0 = TypeSignature::from_string(
+            "(response uint (list 5 (tuple (b (optional int)) (a (optional int)))))",
+            version,
+            epoch,
+        );
+        let t_6_bad_1 = TypeSignature::from_string(
+            "(response int (list 5 (tuple (b (optional uint)))))",
+            version,
+            epoch,
+        );
+        let t_6_bad_2 = TypeSignature::from_string(
+            "(response (list 5 (tuple (b (optional int)))) int)",
+            version,
+            epoch,
+        );
+        let t_6_bad_3 = TypeSignature::from_string(
+            "(list 5 (tuple (b (optional int)) (a (optional int))))",
+            version,
+            epoch,
+        );
+
         let test_cases = [
             (v_1, v_1_good, t_1_good, vec![t_1_bad_0, t_1_bad_1]),
             (v_2, v_2_good, t_2_good, vec![t_2_bad_0, t_2_bad_1]),
             (v_3, v_3_good, t_3_good, vec![t_3_bad_0, t_3_bad_1]),
             (v_4, v_4_good, t_4_good, vec![t_4_bad_0, t_4_bad_1]),
+            (
+                v_5.clone(),
+                v_5_good.clone(),
+                t_5_good_0,
+                vec![t_5_bad_0, t_5_bad_1, t_5_bad_2, t_5_bad_3],
+            ),
+            (v_5.clone(), v_5_good.clone(), t_5_good_1, vec![]),
+            (v_5, v_5_good, t_5_good_2, vec![]),
+            (
+                v_6.clone(),
+                v_6_good.clone(),
+                t_6_good_0,
+                vec![t_6_bad_0, t_6_bad_1, t_6_bad_2, t_6_bad_3],
+            ),
+            (v_6.clone(), v_6_good.clone(), t_6_good_1, vec![]),
+            (v_6, v_6_good, t_6_good_2, vec![]),
         ];
 
         for (input_val, expected_out, good_type, bad_types) in test_cases.iter() {
