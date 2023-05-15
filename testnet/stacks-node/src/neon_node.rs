@@ -2293,6 +2293,7 @@ impl RelayerThread {
                 warn!("Relayer: oops, unconfirmed state is uninitialized but there are microblock events");
             }
         }
+        // TODO(map)
 
         // Dispatch retrieved attachments, if any.
         if net_result.has_attachments() {

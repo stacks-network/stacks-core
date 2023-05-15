@@ -13,6 +13,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   from the source code are now attached to the `SymbolicExpression` nodes. This
   will be useful for tools that use the Clarity library to analyze and
   manipulate Clarity source code, e.g. a formatter.
+- Antientropy protocol for unconfirmed microblocks, which improves on best-effort 
+  microblock propagation. nodes asynchronously monitor each other's unconfirmed 
+  chain tips, and if one discovers that the other has a higher chain tip, it pulls 
+  the missing microblocks and forwards them to neighbors that are also missing them. 
+  This makes microblocks more reliable.
+- Fixes #2031. 
 
 ### Fixed
 

@@ -920,8 +920,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> (HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>, u64) {
-        let mut ret = HashMap::new();
+    ) -> (HashMap<ConsensusHash, (StacksBlockId, HashSet<StacksMicroblock>)>, u64) {
+        let mut downloaded_microblock_map = HashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -965,7 +965,7 @@ impl Relayer {
                 }
             };
 
-            let mut stored = false;
+            let mut stored_microblocks = HashSet::new();
             for mblock in microblock_stream.iter() {
                 debug!(
                     "Preprocess downloaded microblock {}/{}-{}",
@@ -988,7 +988,9 @@ impl Relayer {
                     mblock,
                 ) {
                     Ok(s) => {
-                        stored = s;
+                        if s {
+                            stored_microblocks.insert(mblock.clone());
+                        }
                     }
                     Err(e) => {
                         warn!(
@@ -1002,23 +1004,24 @@ impl Relayer {
                 }
             }
 
-            // if we did indeed store this microblock (i.e. we didn't have it), then we can relay it
-            if stored {
+            // If we did store any microblocks (i.e. we didn't have it), then we can relay it
+            if stored_microblocks.len() > 0 {
                 let index_block_hash =
                     StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
-                ret.insert(
+                downloaded_microblock_map.insert(
                     (*consensus_hash).clone(),
-                    (index_block_hash, microblock_stream.clone()),
+                    (index_block_hash, stored_microblocks),
                 );
             }
         }
 
         let mut num_synced_microblocks = 0;
-        // we don't relay any microblocks obtained through the microblock tip sync protocol
+        // We relay the microblocks obtained through the microblock tip sync protocol, add them to
+        // `downloaded_microblock_map`.
         if let Some(result) = &network_result.synced_microblock_result
         {
             if result.microblocks.len() == 0 {
-                return (ret, num_synced_microblocks);
+                return (downloaded_microblock_map, num_synced_microblocks);
             }
 
             let consensus_hash = result.stacks_tip_consensus_hash;
@@ -1032,11 +1035,11 @@ impl Relayer {
                             "Failed to load parent anchored block snapshot for {}/{}",
                             consensus_hash, &anchored_block_hash
                         );
-                        return (ret, num_synced_microblocks);
+                        return (downloaded_microblock_map, num_synced_microblocks);
                     }
                     Err(e) => {
                         warn!("Failed to load parent stacks block snapshot: {:?}", &e);
-                        return (ret, num_synced_microblocks);
+                        return (downloaded_microblock_map, num_synced_microblocks);
                     }
                 };
 
@@ -1044,9 +1047,10 @@ impl Relayer {
                 Ok(rules) => rules,
                 Err(e) => {
                     error!("Failed to load current AST rules: {:?}", &e);
-                    return (ret, num_synced_microblocks);
+                    return (downloaded_microblock_map, num_synced_microblocks);
                 }
             };
+
             let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
             {
                 Ok(Some(epoch)) => epoch.epoch_id,
@@ -1055,10 +1059,11 @@ impl Relayer {
                 }
                 Err(e) => {
                     error!("Failed to load epoch: {:?}", &e);
-                    return (ret, num_synced_microblocks);
+                    return (downloaded_microblock_map, num_synced_microblocks);
                 }
             };
 
+            let mut stored_microblocks = HashSet::new();
             for microblock in result.microblocks.iter() {
                 debug!(
                     "Preprocess synced microblock {}/{}-{}",
@@ -1082,7 +1087,8 @@ impl Relayer {
                 ) {
                     Ok(stored) => {
                         if stored {
-                            num_synced_microblocks += 1;
+                            stored_microblocks.insert(microblock.clone());
+                            num_synced_microblocks += 1
                         }
                     }
                     Err(e) => {
@@ -1096,10 +1102,27 @@ impl Relayer {
                     }
                 }
             }
+
+            // If we did stored any microblocks (i.e. we didn't have it), then we can relay it
+            if stored_microblocks.len() > 0 {
+                let index_block_hash =
+                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
+                if downloaded_microblock_map.contains_key(&consensus_hash) {
+                    let (id, mbs) = downloaded_microblock_map.get(&consensus_hash);
+                    let mb_set = HashSet::from_iter(mbs);
+                    mb_set.extend(stored_microblocks);
+                    downloaded_microblock_map.insert(consensus_hash, (id, mb_set.into_iter().collect()))
+                } else {
+                    downloaded_microblock_map.insert(
+                        (*consensus_hash).clone(),
+                        (index_block_hash, stored_microblocks),
+                    );
+                }
+            }
         }
 
-
-        (ret, num_synced_microblocks)
+        // TODO(map) - do I still need to be keeping track of the number of synced microblocks?
+        (downloaded_microblock_map, num_synced_microblocks)
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
@@ -1440,7 +1463,7 @@ impl Relayer {
     ) -> Result<
         (
             HashMap<ConsensusHash, StacksBlock>,
-            HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+            HashMap<ConsensusHash, (StacksBlockId, HashSet<StacksMicroblock>)>,
             Vec<(Vec<RelayData>, MicroblocksData)>,
             u64,
             Vec<NeighborKey>,
@@ -1506,6 +1529,9 @@ impl Relayer {
             }
         }
 
+        // TODO(map): consider making type of downloaded microblocks a vec (instead of hash set)
+        // before returning from preproces_downloaded...  
+
         // process microblocks we downloaded
         let (new_downloaded_microblocks, num_synced_microblocks) =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
@@ -1519,6 +1545,7 @@ impl Relayer {
 
         if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_downloaded_microblocks.len() > 0
         {
+            // TODO(map): this info statement is wrong .. new_downloaded_microblocks.len() != # of synced microblocks
             info!(
                 "Processing newly received Stacks blocks: {}, microblocks: {}, downloaded microblocks: {}",
                 new_blocks.len(),
@@ -1821,6 +1848,7 @@ impl Relayer {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, num_synced_microblocks, bad_block_neighbors)) => {
                 // report quantities of new data in the receipts
                 num_new_blocks = new_blocks.len() as u64;
+                // TODO(map): this number is wrong // maybe just update num_new_synced_microblocks & what it means
                 num_new_confirmed_microblocks = new_confirmed_microblocks.len() as u64;
                 num_new_unconfirmed_microblocks = new_microblocks.len() as u64;
                 num_new_synced_microblocks = num_synced_microblocks;

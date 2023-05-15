@@ -165,9 +165,13 @@ impl NetworkHandle {
     pub fn advertize_microblocks(
         &mut self,
         microblocks: BlocksAvailableMap,
-        microblock_data: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+        microblock_data: HashMap<ConsensusHash, (StacksBlockId, HashSet<StacksMicroblock>)>,
     ) -> Result<(), net_error> {
-        let req = NetworkRequest::AdvertizeMicroblocks(microblocks, microblock_data);
+        // Convert the
+        let transformed_data = microblock_data.iter().map(
+            |(ch, (id, mbs))| (ch, (id, mbs.iter().collect()))
+        ).collect();
+        let req = NetworkRequest::AdvertizeMicroblocks(microblocks, transformed_data);
         self.send_request(req)
     }
 
