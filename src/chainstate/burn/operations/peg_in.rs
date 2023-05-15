@@ -190,6 +190,8 @@ impl From<ClarityRuntimeError> for ParseError {
 
 #[cfg(test)]
 mod tests {
+    use rand::{distributions::Alphanumeric, Rng};
+
     use super::*;
     use crate::chainstate::burn::operations::test;
 
@@ -206,6 +208,7 @@ mod tests {
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
+        data.push(0); // Contract name not provided, so size is 0
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
         let header = test::burnchain_block_header();
@@ -231,7 +234,7 @@ mod tests {
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
-        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.push(0); // Contract name not provided, so size is 0
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -260,8 +263,8 @@ mod tests {
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
+        data.push(contract_name.len() as u8);
         data.extend_from_slice(contract_name.as_bytes());
-        data.extend_from_slice(&[0; 11]); // Padding contract name
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -293,8 +296,8 @@ mod tests {
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
+        data.push(contract_name.len() as u8);
         data.extend_from_slice(contract_name.as_bytes());
-        data.extend_from_slice(&[0; 4]); // Padding contract name
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -322,7 +325,7 @@ mod tests {
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
-        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.push(0); // Contract name not provided, so size is 0
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -351,8 +354,8 @@ mod tests {
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
+        data.push(invalid_utf8_byte_sequence.len() as u8);
         data.extend_from_slice(&invalid_utf8_byte_sequence);
-        data.extend_from_slice(&[0; 40]); // Padding contract name
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -376,7 +379,7 @@ mod tests {
         let mut data = vec![1];
         let addr_bytes: [u8; 20] = test::random_bytes(&mut rng);
         data.extend_from_slice(&addr_bytes);
-        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.push(0); // Contract name not provided, so size is 0
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, None, opcode);
@@ -425,7 +428,7 @@ mod tests {
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
-        data.extend_from_slice(&[0; 40]); // Padding contract name
+        data.push(0); // Contract name not provided, so size is 0
         data.extend_from_slice(&memo);
 
         let create_op = move |amount| {
