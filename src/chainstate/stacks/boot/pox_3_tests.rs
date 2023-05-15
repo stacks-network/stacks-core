@@ -1829,7 +1829,7 @@ fn stack_increase() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // in the next tenure, PoX 2 should now exist.
+    // in the next tenure, PoX 3 should now exist.
     let tip = get_tip(peer.sortdb.as_ref());
 
     // submit an increase: this should fail, because Alice is not yet locked
@@ -2762,12 +2762,12 @@ fn delegate_extend_pox_3() {
 
     assert_eq!(
         alice_first_cycle as u64, first_v3_cycle,
-        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+        "Alice's first cycle in PoX-3 stacking state is the next cycle, which is 12"
     );
     assert_eq!(alice_lock_period, 6);
     assert_eq!(
         bob_first_cycle as u64, first_v3_cycle,
-        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+        "Bob's first cycle in PoX-3 stacking state is the next cycle, which is 12"
     );
     assert_eq!(bob_lock_period, 3);
 
