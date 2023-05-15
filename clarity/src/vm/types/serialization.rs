@@ -548,7 +548,7 @@ impl Value {
             let expect_size = match expected_type.max_serialized_size() {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!(
+                    debug!(
                         "Failed to determine max serialized size when checking expected_type argument";
                         "err" => ?e
                     );
