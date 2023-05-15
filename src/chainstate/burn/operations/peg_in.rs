@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::str;
+
 use stacks_common::codec::StacksMessageCodec;
 
 use crate::burnchains::BurnchainBlockHeader;
@@ -76,11 +78,17 @@ impl PegInOp {
 
             0      2  3                  24                            64       80
             |------|--|------------------|-----------------------------|--------|
-             magic  op   Stacks address      Contract name (optional)     memo
+             magic  op   Stacks address    Size prefixed contract name    memo
+                                               (optional, see note)
 
-             Note that `data` is missing the first 3 bytes -- the magic and op must
+             # Notes
+
+             `data` is missing the first 3 bytes -- the magic and op must
              be stripped before this method is called. At the time of writing,
              this is done in `burnchains::bitcoin::blocks::BitcoinBlockParser::parse_data`.
+
+             Contract name is prefixed by a single byte size followed by the UTF-8 encoded
+             payload. If the size is 0, the contract name is omitted.
         */
 
         if data.len() < 21 {
@@ -100,17 +108,17 @@ impl PegInOp {
 
         let standard_principal_data = StandardPrincipalData(version, address_data);
 
-        let memo = data.get(61..).unwrap_or(&[]).to_vec();
+        let (recipient, bytes_read) =
+            if let Some((contract_name, bytes_read)) = Self::read_contract_name(&data[21..])? {
+                let contract_id =
+                    QualifiedContractIdentifier::new(standard_principal_data, contract_name);
 
-        let recipient: PrincipalData =
-            if let Some(contract_bytes) = Self::leading_non_zero_bytes(data, 21, 61) {
-                let contract_name: String = std::str::from_utf8(contract_bytes)?.to_owned();
-
-                QualifiedContractIdentifier::new(standard_principal_data, contract_name.try_into()?)
-                    .into()
+                (contract_id.into(), 21 + bytes_read)
             } else {
-                standard_principal_data.into()
+                (standard_principal_data.into(), 22)
             };
+
+        let memo = data.get(bytes_read..).unwrap_or(&[]).to_vec();
 
         Ok(ParsedData { recipient, memo })
     }
@@ -124,30 +132,24 @@ impl PegInOp {
         Ok(())
     }
 
-    /// Returns the leading non-zero bytes of the subslice `data[from..to]`
+    /// Returns the contract identifier and the number of bytes read
     ///
-    /// # Panics
-    ///
-    /// Panics if `from` is larger than or equal to `to`
-    fn leading_non_zero_bytes(data: &[u8], from: usize, to: usize) -> Option<&[u8]> {
-        assert!(from < to);
+    /// # Errors
+    /// - `Utf8Error` if the contract name is not valid UTF-8
+    /// - `ParseError` if the contract name is not a valid `ContractName`
+    fn read_contract_name(data: &[u8]) -> Result<Option<(ContractName, usize)>, ParseError> {
+        let size = data[0] as usize;
 
-        let end_of_non_zero_slice = {
-            let mut end = to.min(data.len());
-            for i in from..end {
-                if data[i] == 0 {
-                    end = i;
-                    break;
-                }
-            }
-            end
-        };
-
-        if from == end_of_non_zero_slice {
-            return None;
+        if size == 0 {
+            return Ok(None);
         }
 
-        data.get(from..end_of_non_zero_slice)
+        let contract_name_bytes = &data[1..1 + size];
+        let contract_name: ContractName = str::from_utf8(contract_name_bytes)?
+            .to_string()
+            .try_into()?;
+
+        Ok(Some((contract_name, 1 + size)))
     }
 }
 
@@ -168,8 +170,8 @@ impl From<ParseError> for OpError {
     }
 }
 
-impl From<std::str::Utf8Error> for ParseError {
-    fn from(_: std::str::Utf8Error) -> Self {
+impl From<str::Utf8Error> for ParseError {
+    fn from(_: str::Utf8Error) -> Self {
         Self::Utf8Error
     }
 }
