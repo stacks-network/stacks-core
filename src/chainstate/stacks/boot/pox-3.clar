@@ -658,6 +658,8 @@
       ;; delegate-stack-* functions assert that
       ;; 1. users can't swim in two pools at the same time.
       ;; 2. users can't switch pools without cool down cycle.
+      ;;    Other pool admins can't increase or extend.
+      ;; 3. users can't join a pool while already directly stacking.
 
       ;; pox-addr, if given, must be valid
       (match pox-addr
