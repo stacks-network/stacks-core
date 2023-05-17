@@ -1098,6 +1098,8 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
     }
 
+    /// Try to deserialize a value from a hex string without type information. This *does not*
+    /// perform sanitization.
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
         let hex = if hex.starts_with("0x") {
             &hex[2..]
