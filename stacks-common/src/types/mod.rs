@@ -85,7 +85,15 @@ impl StacksEpochId {
     /// Returns whether or not this Epoch should perform
     ///  Clarity value sanitization
     pub fn value_sanitizing(&self) -> bool {
-        self >= &StacksEpochId::Epoch24
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23 => false,
+            StacksEpochId::Epoch24 => true,
+        }
     }
 }
 
