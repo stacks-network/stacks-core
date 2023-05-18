@@ -653,9 +653,13 @@
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
 
-      ;; tx-sender principal must not be stacking
-      (asserts! (is-none (get-stacker-info tx-sender))
-        (err ERR_STACKING_ALREADY_STACKED))
+      ;; delegate-stx no longer requires the delegator to not currently
+      ;; be stacking.
+      ;; delegate-stack-* functions assert that
+      ;; 1. users can't swim in two pools at the same time.
+      ;; 2. users can't switch pools without cool down cycle.
+      ;;    Other pool admins can't increase or extend.
+      ;; 3. users can't join a pool while already directly stacking.
 
       ;; pox-addr, if given, must be valid
       (match pox-addr
