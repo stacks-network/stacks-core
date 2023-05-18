@@ -192,7 +192,7 @@ fn simple_pox_lockup_transition_pox_2() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3_tests::simple_pox_lockup_transition_pox_2",
+        function_name!(),
         7104,
         Some(epochs.clone()),
         Some(&observer),
@@ -540,30 +540,29 @@ fn simple_pox_lockup_transition_pox_2() {
 }
 
 #[test]
-fn test_simple_pox_2_auto_unlock_ab() {
-    test_simple_pox_2_auto_unlock(true)
+fn pox_auto_unlock_ab() {
+    pox_auto_unlock(true)
 }
 
 #[test]
-fn test_simple_pox_2_auto_unlock_ba() {
-    test_simple_pox_2_auto_unlock(false)
+fn pox_auto_unlock_ba() {
+    pox_auto_unlock(false)
 }
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
-///  PoX v1 contract and PoX v2 contract across the epoch transition.
+///  PoX v1 contract and PoX v2 contract across the epoch transition, and then again
+///  in PoX v3.
 ///
 /// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
 ///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
 ///        After the early unlock, Alice re-stacks in PoX v2
-///        Alice tries to stack again via PoX v1, which is allowed by the contract,
-///        but forbidden by the VM (because PoX has transitioned to v2)
 /// Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1 as well,
 ///        but is forbidden because he has already placed an account lock via PoX v2.
 ///
 /// Note: this test is symmetric over the order of alice and bob's stacking calls.
 ///       when alice goes first, the auto-unlock code doesn't need to perform a "move"
 ///       when bob goes first, the auto-unlock code does need to perform a "move"
-fn test_simple_pox_2_auto_unlock(alice_first: bool) {
+fn pox_auto_unlock(alice_first: bool) {
     let EXPECTED_FIRST_V2_CYCLE = 8;
     // the sim environment produces 25 empty sortitions before
     //  tenures start being tracked.
@@ -595,8 +594,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_3_tests::simple_pox_auto_unlock_{}", alice_first),
-        7102,
+        &format!("{}-{}", function_name!(), alice_first),
+        7102 + if alice_first { 0 } else { 20 },
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -697,20 +696,34 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         );
     }
 
-    // now check that bob has no locked tokens at (height_target + 1)
+    // now check that bob has an unlock height of `height_target`
     let bob_bal = get_stx_account_at(
         &mut peer,
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     );
-    assert_eq!(bob_bal.amount_locked(), 0);
+    assert_eq!(bob_bal.unlock_height(), height_target);
 
     // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
+    assert_eq!(bob_bal.amount_locked(), 10000000000);
+
+    // check that the total reward cycle amounts have decremented correctly
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..first_v3_cycle {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            1024 * POX_THRESHOLD_STEPS_USTX
+        );
+    }
+
+    // check that bob is fully unlocked at next block
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
     let bob_bal = get_stx_account_at(
         &mut peer,
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     );
+    assert_eq!(bob_bal.unlock_height(), 0);
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // check that the total reward cycle amounts have decremented correctly
@@ -840,21 +853,15 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         );
     }
 
-    // now check that bob has no locked tokens at (height_target + 1)
+    // now check that bob has an unlock height of `height_target`
     let bob_bal = get_stx_account_at(
         &mut peer,
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     );
-    assert_eq!(bob_bal.amount_locked(), 0);
-
+    assert_eq!(bob_bal.unlock_height(), height_target);
     // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
-    let bob_bal = get_stx_account_at(
-        &mut peer,
-        &latest_block,
-        &key_to_stacks_addr(&bob).to_account_principal(),
-    );
-    assert_eq!(bob_bal.amount_locked(), 0);
+    assert_eq!(bob_bal.amount_locked(), 10000000000);
 
     // check that the total reward cycle amounts have decremented correctly
     for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
@@ -886,6 +893,17 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     .expect_tuple();
     let reward_indexes_str = format!("{}", alice_state.get("reward-set-indexes").unwrap());
     assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
+
+    // check that bob is fully unlocked at next block
+    latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    let bob_bal = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(&bob).to_account_principal(),
+    );
+    assert_eq!(bob_bal.unlock_height(), 0);
+    assert_eq!(bob_bal.amount_locked(), 0);
 
     // now let's check some tx receipts
 
@@ -929,7 +947,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         "Bob tx0 should have committed okay"
     );
 
-    assert_eq!(coinbase_txs.len(), 37);
+    assert_eq!(coinbase_txs.len(), 38);
 
     info!(
         "Expected first auto-unlock coinbase index: {}",
@@ -1002,7 +1020,7 @@ fn delegate_stack_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_3_delegate_stack_increase"),
+        function_name!(),
         7103,
         Some(epochs.clone()),
         Some(&observer),
@@ -1622,7 +1640,7 @@ fn stack_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_3_stack_increase"),
+        function_name!(),
         7105,
         Some(epochs.clone()),
         Some(&observer),
@@ -1811,7 +1829,7 @@ fn stack_increase() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // in the next tenure, PoX 2 should now exist.
+    // in the next tenure, PoX 3 should now exist.
     let tip = get_tip(peer.sortdb.as_ref());
 
     // submit an increase: this should fail, because Alice is not yet locked
@@ -2050,7 +2068,7 @@ fn pox_extend_transition() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_3_pox_extend_transition"),
+        function_name!(),
         7110,
         Some(epochs.clone()),
         Some(&observer),
@@ -2563,7 +2581,7 @@ fn delegate_extend_pox_3() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3_delegate_extend",
+        function_name!(),
         7114,
         Some(epochs.clone()),
         Some(&observer),
@@ -2744,12 +2762,12 @@ fn delegate_extend_pox_3() {
 
     assert_eq!(
         alice_first_cycle as u64, first_v3_cycle,
-        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+        "Alice's first cycle in PoX-3 stacking state is the next cycle, which is 12"
     );
     assert_eq!(alice_lock_period, 6);
     assert_eq!(
         bob_first_cycle as u64, first_v3_cycle,
-        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+        "Bob's first cycle in PoX-3 stacking state is the next cycle, which is 12"
     );
     assert_eq!(bob_lock_period, 3);
 
@@ -3049,7 +3067,7 @@ fn pox_3_getters() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3_getters",
+        function_name!(),
         7115,
         Some(epochs.clone()),
         Some(&observer),
@@ -3384,8 +3402,8 @@ fn get_pox_addrs() {
 
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3_tests::get_pox_addrs",
-        7102,
+        function_name!(),
+        7142,
         Some(epochs.clone()),
         None,
     );
@@ -3596,7 +3614,7 @@ fn stack_with_segwit() {
 
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3_tests::stack_with_segwit",
+        function_name!(),
         7120,
         Some(epochs.clone()),
         None,
@@ -3811,7 +3829,7 @@ fn stack_aggregation_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3::stack_aggregation_increase",
+        function_name!(),
         7117,
         Some(epochs.clone()),
         Some(&observer),
@@ -4249,7 +4267,7 @@ fn pox_3_delegate_stx_addr_validation() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "pox_3::delegate_stx_addr",
+        function_name!(),
         7100,
         Some(epochs.clone()),
         None,
