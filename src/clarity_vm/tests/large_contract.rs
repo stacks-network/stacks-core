@@ -156,10 +156,12 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     |_, _| false,
                 )
-                    .unwrap();
+                .unwrap();
             }
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 |
-            StacksEpochId::Epoch23 | StacksEpochId::Epoch24 => {
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => {
                 let (ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-3", false),
@@ -176,11 +178,10 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     |_, _| false,
                 )
-                    .unwrap();
+                .unwrap();
             }
             _ => panic!("Epoch {} not covered.", &epoch),
         }
-
     });
 
     gb.commit_block();

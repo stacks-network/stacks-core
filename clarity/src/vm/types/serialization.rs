@@ -306,6 +306,10 @@ macro_rules! check_match {
     };
 }
 
+/// `DeserializeStackItem` objects are used by the deserializer to indicate
+///  how the deserialization loop's current object is to be handled once it is
+///  deserialized: i.e., is the object the top-level object for the serialization
+///  or is it an entry in a composite type (e.g., a list or tuple)?
 enum DeserializeStackItem {
     List {
         items: Vec<Value>,
@@ -336,6 +340,9 @@ enum DeserializeStackItem {
 
 impl DeserializeStackItem {
     /// What is the expected type for the child of this deserialization stack item?
+    ///
+    /// Returns `None` if this stack item either doesn't have an expected type, or the
+    ///   next child is going to be sanitized/elided.
     fn next_expected_type(&self) -> Result<Option<TypeSignature>, SerializationError> {
         match self {
             DeserializeStackItem::List { expected_type, .. } => Ok(expected_type
@@ -772,6 +779,13 @@ impl Value {
                     if len > 0 {
                         let items = Vec::with_capacity(expected_len as usize);
                         let first_key = ClarityName::deserialize_read(r)?;
+                        // figure out if the next (key, value) pair for this
+                        //  tuple will be elided (or sanitized) from the tuple.
+                        // the logic here is that the next pair should be elided if:
+                        //    * `sanitize` parameter is true
+                        //    * `tuple_type` is some (i.e., there is an expected type for the
+                        //       tuple)
+                        //    * `tuple_type` does not contain an entry for `key`
                         let next_sanitize = sanitize
                             && tuple_type
                                 .map(|tt| tt.field_type(&first_key).is_none())
@@ -864,7 +878,11 @@ impl Value {
                     stack_item
                 } else {
                     // this should be unreachable!
-                    return Ok(item);
+                    warn!(
+                        "Deserializer reached unexpected path: item processed, but deserializer stack does not expect another value";
+                        "item" => %item,
+                    );
+                    return Err("Deserializer processed item, but deserializer stack does not expect another value".into());
                 };
                 match stack_bottom {
                     DeserializeStackItem::TopLevel { .. } => return Ok(item),
@@ -948,6 +966,13 @@ impl Value {
                         } else {
                             // tuple is not finished, read the next key name and reinsert on stack
                             let key = ClarityName::deserialize_read(r)?;
+                            // figure out if the next (key, value) pair for this
+                            //  tuple will be elided (or sanitized) from the tuple.
+                            // the logic here is that the next pair should be elided if:
+                            //    * `sanitize` parameter is true
+                            //    * `tuple_type` is some (i.e., there is an expected type for the
+                            //       tuple)
+                            //    * `tuple_type` does not contain an entry for `key`
                             let next_sanitize = sanitize
                                 && expected_type
                                     .as_ref()
@@ -1201,7 +1226,7 @@ impl Value {
                     _ => return None,
                 };
                 let mut sanitized_tuple_entries = vec![];
-                let tuple_data_len = tuple_data.len();
+                let original_tuple_len = tuple_data.len();
                 let mut tuple_data_map = tuple_data.data_map;
                 let mut did_sanitize_children = false;
                 for (key, expect_key_type) in tt.get_type_map().iter() {
@@ -1211,7 +1236,13 @@ impl Value {
                     sanitized_tuple_entries.push((key.clone(), sanitized_field));
                     did_sanitize_children = did_sanitize_children || did_sanitize;
                 }
-                let did_sanitize_tuple = did_sanitize_children || (tt.len() != tuple_data_len);
+                if sanitized_tuple_entries.len() as u64 != tt.len() {
+                    // this code should be unreachable, because I think any case that
+                    //    could trigger this would have returned None earlier
+                    warn!("Sanitizer handled path that should have errored earlier, skipping sanitization");
+                    return None;
+                }
+                let did_sanitize_tuple = did_sanitize_children || (tt.len() != original_tuple_len);
                 (
                     Value::Tuple(TupleData::from_data(sanitized_tuple_entries).ok()?),
                     did_sanitize_tuple,
