@@ -1687,8 +1687,8 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
 #[test]
 fn test_cost_voting_integration_mainnet() {
-   test_cost_voting_integration(true, ClarityVersion::Clarity1);
-   test_cost_voting_integration(true, ClarityVersion::Clarity2);
+    test_cost_voting_integration(true, ClarityVersion::Clarity1);
+    test_cost_voting_integration(true, ClarityVersion::Clarity2);
 }
 
 #[test]

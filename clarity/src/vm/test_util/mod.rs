@@ -45,10 +45,13 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
             epoch_id,
             ast_rules: ASTRules::Typical,
         },
-        StacksEpochId::Epoch2_05  | StacksEpochId::Epoch21 | StacksEpochId::Epoch22 |
-        StacksEpochId::Epoch23 | StacksEpochId::Epoch24 => UnitTestBurnStateDB {
+        StacksEpochId::Epoch2_05
+        | StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24 => UnitTestBurnStateDB {
             epoch_id,
-            ast_rules: ASTRules::PrecheckSize
+            ast_rules: ASTRules::PrecheckSize,
         },
         _ => panic!("Epoch {} not covered", &epoch_id),
     }
