@@ -230,7 +230,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![p1.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![p1.clone(), p1.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -240,7 +240,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -250,7 +250,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), p1.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -260,7 +260,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
         );
     }
 }
@@ -278,7 +278,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
             false
         )
         .unwrap(),
-        Value::list_from(vec![sponsor.clone()]).unwrap()
+        Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
     );
     assert_eq!(
         env.execute_contract(
@@ -288,7 +288,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
             false
         )
         .unwrap(),
-        Value::list_from(vec![sponsor.clone()]).unwrap()
+        Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
     );
     assert_eq!(
         env.execute_contract(
@@ -298,7 +298,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
             false
         )
         .unwrap(),
-        Value::list_from(vec![sponsor.clone()]).unwrap()
+        Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
     );
     assert_eq!(
         env.execute_contract(
@@ -308,7 +308,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
             false
         )
         .unwrap(),
-        Value::list_from(vec![sponsor.clone()]).unwrap()
+        Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
     );
 }
 
@@ -431,7 +431,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![p1.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![p1.clone(), p1.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -441,7 +441,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -451,7 +451,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), p1.clone()]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
@@ -461,7 +461,7 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
-            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
         );
     }
 }

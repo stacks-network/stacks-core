@@ -1005,6 +1005,59 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "deserialize-db" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
+            process::exit(1);
+        }
+        let db_path = &argv[2];
+        let byte_prefix = &argv[3];
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let query = format!(
+            "SELECT value FROM data_table WHERE key LIKE \"{}%\"",
+            byte_prefix
+        );
+        let mut stmt = conn.prepare(&query).unwrap();
+        let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        while let Ok(Some(row)) = rows.next() {
+            let val_string: String = row.get(0).unwrap();
+            let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {
+                Ok(x) => x,
+                Err(_e) => continue,
+            };
+            println!("{} => {}", val_string, clarity_value);
+        }
+
+        process::exit(0);
+    }
+
+    if argv[1] == "check-deser-data" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} check-file.txt", &argv[0]);
+            process::exit(1);
+        }
+        let txt_path = &argv[2];
+        let check_file = File::open(txt_path).unwrap();
+        let mut i = 1;
+        for line in io::BufReader::new(check_file).lines() {
+            if i % 100000 == 0 {
+                println!("{}...", i);
+            }
+            i += 1;
+            let line = line.unwrap().trim().to_string();
+            if line.len() == 0 {
+                continue;
+            }
+            let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
+            let hex_string = &vals[0];
+            let expected_value_display = &vals[1];
+            let value = clarity::vm::Value::try_deserialize_hex_untyped(&hex_string).unwrap();
+            assert_eq!(&value.to_string(), expected_value_display);
+        }
+
+        process::exit(0);
+    }
+
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);

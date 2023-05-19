@@ -81,6 +81,20 @@ impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
         StacksEpochId::Epoch24
     }
+
+    /// Returns whether or not this Epoch should perform
+    ///  Clarity value sanitization
+    pub fn value_sanitizing(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23 => false,
+            StacksEpochId::Epoch24 => true,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

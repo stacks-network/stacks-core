@@ -573,11 +573,9 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
                         test_debug!("Skip too-early block commit");
                         continue;
                     }
-                    if (opdata.parent_block_ptr as u64) < first_block_height {
-                        if opdata.parent_block_ptr != 0 || opdata.parent_vtxindex != 0 {
-                            test_debug!("Skip orphaned block-commit");
-                            continue;
-                        }
+                    if (opdata.parent_block_ptr as u64) <= first_block_height {
+                        test_debug!("Skip orphaned block-commit");
+                        continue;
                     }
                     if opdata.block_height <= opdata.parent_block_ptr as u64 {
                         test_debug!("Skip block-commit whose 'parent' comes at or after it");

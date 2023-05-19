@@ -61,6 +61,12 @@ use crate::util_lib::boot::boot_code_id;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn clarity_version_template(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 fn test_block_headers(n: u8) -> StacksBlockId {
@@ -116,12 +122,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             .unwrap(),
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-    let burn_db = match epoch {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch);
 
     let mut gb = clarity.begin_test_genesis_block(
         &StacksBlockId::sentinel(),
@@ -137,44 +138,49 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         })
         .unwrap();
 
-        if epoch == StacksEpochId::Epoch2_05 {
-            let (ast, _analysis) = tx
-                .analyze_smart_contract(
+        match epoch {
+            StacksEpochId::Epoch2_05 => {
+                let (ast, _analysis) = tx
+                    .analyze_smart_contract(
+                        &boot_code_id("costs-2", false),
+                        ClarityVersion::Clarity1,
+                        BOOT_CODE_COSTS_2,
+                        ASTRules::PrecheckSize,
+                    )
+                    .unwrap();
+                tx.initialize_smart_contract(
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
+                    &ast,
                     BOOT_CODE_COSTS_2,
-                    ASTRules::PrecheckSize,
+                    None,
+                    |_, _| false,
                 )
                 .unwrap();
-            tx.initialize_smart_contract(
-                &boot_code_id("costs-2", false),
-                ClarityVersion::Clarity1,
-                &ast,
-                BOOT_CODE_COSTS_2,
-                None,
-                |_, _| false,
-            )
-            .unwrap();
-        }
-
-        if epoch == StacksEpochId::Epoch21 {
-            let (ast, _analysis) = tx
-                .analyze_smart_contract(
+            }
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => {
+                let (ast, _analysis) = tx
+                    .analyze_smart_contract(
+                        &boot_code_id("costs-3", false),
+                        ClarityVersion::Clarity2,
+                        BOOT_CODE_COSTS_3,
+                        ASTRules::PrecheckSize,
+                    )
+                    .unwrap();
+                tx.initialize_smart_contract(
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
+                    &ast,
                     BOOT_CODE_COSTS_3,
-                    ASTRules::PrecheckSize,
+                    None,
+                    |_, _| false,
                 )
                 .unwrap();
-            tx.initialize_smart_contract(
-                &boot_code_id("costs-3", false),
-                ClarityVersion::Clarity2,
-                &ast,
-                BOOT_CODE_COSTS_3,
-                None,
-                |_, _| false,
-            )
-            .unwrap();
+            }
+            _ => panic!("Epoch {} not covered.", &epoch),
         }
     });
 
@@ -674,12 +680,7 @@ pub fn rollback_log_memory_test(
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
-    let burn_db = match epoch_id {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch_id),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     clarity_instance
@@ -748,12 +749,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
-    let burn_db = match epoch_id {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch_id),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -833,12 +829,7 @@ pub fn argument_memory_test(
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    let burn_db = match epoch_id {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch_id),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch_id);
 
     clarity_instance
         .begin_test_genesis_block(
@@ -912,12 +903,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
-    let burn_db = match epoch_id {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch_id),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1037,12 +1023,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
-    let burn_db = match epoch_id {
-        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
-        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
-        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
-        _ => panic!("Epoch {} not covered", &epoch_id),
-    };
+    let burn_db = &generate_test_burn_state_db(epoch_id);
 
     clarity_instance
         .begin_test_genesis_block(
