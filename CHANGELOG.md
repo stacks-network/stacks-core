@@ -14,7 +14,7 @@ This is a **consensus-breaking** release to revert consensus to PoX, and is the 
 ### Fixed
 - PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
 - Peer network id is updated to `0x18000009`
-- Refactoring of the deserialization routine from recursive to iterative
+- Adds the type sanitization described in SIP-024
 
 This release is compatible with chainstate directories from 2.1.0.0.x and 2.3.0.0.x
 
