@@ -1999,8 +1999,10 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
-            || self.synced_microblock_result.as_ref().map_or(
-            false, |result| result.microblocks.len() > 0)
+            || self
+                .synced_microblock_result
+                .as_ref()
+                .map_or(false, |result| result.microblocks.len() > 0)
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -2540,8 +2542,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port))
-                    .unwrap();
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port)).unwrap();
             config
         }
 
@@ -2553,8 +2554,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port))
-                    .unwrap();
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port)).unwrap();
             config
         }
 

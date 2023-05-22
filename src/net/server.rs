@@ -599,7 +599,7 @@ impl HttpPeer {
                     to_remove.push(*event_id);
                     continue;
                 }
-                Some(client_sock) => client_sock
+                Some(client_sock) => client_sock,
             };
 
             match self.peers.get_mut(event_id) {

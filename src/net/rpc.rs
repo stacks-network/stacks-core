@@ -1747,12 +1747,10 @@ impl ConversationHttp {
                     index_anchor_block_hash.clone(),
                     min_seq,
                 ) {
-                    Ok(stream) => {
-                        (
-                            HttpResponseType::MicroblockStream(response_metadata),
-                            Some(stream),
-                        )
-                    },
+                    Ok(stream) => (
+                        HttpResponseType::MicroblockStream(response_metadata),
+                        Some(stream),
+                    ),
                     Err(chain_error::NoSuchBlockError) => (
                         HttpResponseType::NotFound(
                             response_metadata,
