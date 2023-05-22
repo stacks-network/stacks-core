@@ -54,6 +54,11 @@ lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
 }
 
+const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;
+const MAX_UNINSTANTIATED_ATTACHMENTS_MIN: u32 = 50_000;
+const UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN: u32 = 86_400;
+const UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN: u32 = 172_800;
+
 #[derive(Debug, Clone)]
 pub struct AtlasConfig {
     pub contracts: HashSet<QualifiedContractIdentifier>,
@@ -65,16 +70,47 @@ pub struct AtlasConfig {
 }
 
 impl AtlasConfig {
-    pub fn default(mainnet: bool) -> AtlasConfig {
+    pub fn new(mainnet: bool) -> AtlasConfig {
         let mut contracts = HashSet::new();
         contracts.insert(boot_code_id("bns", mainnet));
         AtlasConfig {
             contracts,
-            attachments_max_size: 1_048_576,
-            max_uninstantiated_attachments: 10_000,
-            uninstantiated_attachments_expire_after: 3_600,
-            unresolved_attachment_instances_expire_after: 172_800,
+            attachments_max_size: ATTACHMENTS_MAX_SIZE_MIN,
+            max_uninstantiated_attachments: MAX_UNINSTANTIATED_ATTACHMENTS_MIN,
+            uninstantiated_attachments_expire_after: UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN,
+            unresolved_attachment_instances_expire_after:
+                UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN,
             genesis_attachments: None,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.attachments_max_size < ATTACHMENTS_MAX_SIZE_MIN {
+            Err(format!(
+                "Invalid value for `attachments_max_size`: {}. Expected {} or greater",
+                self.attachments_max_size, ATTACHMENTS_MAX_SIZE_MIN
+            ))
+        } else if self.max_uninstantiated_attachments < MAX_UNINSTANTIATED_ATTACHMENTS_MIN {
+            Err(format!(
+                "Invalid value for `max_uninstantiated_attachments`: {}. Expected {} or greater",
+                self.max_uninstantiated_attachments, MAX_UNINSTANTIATED_ATTACHMENTS_MIN
+            ))
+        } else if self.uninstantiated_attachments_expire_after
+            < UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN
+        {
+            Err(format!(
+                "Invalid value for `uninstantiated_attachments_expire_after`: {}. Expected {} or greater",
+                self.uninstantiated_attachments_expire_after, UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN
+            ))
+        } else if self.unresolved_attachment_instances_expire_after
+            < UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN
+        {
+            Err(format!(
+                "Invalid value for `unresolved_attachment_instances_expire_after`: {}. Expected {} or greater",
+                self.unresolved_attachment_instances_expire_after, UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN
+            ))
+        } else {
+            Ok(())
         }
     }
 }

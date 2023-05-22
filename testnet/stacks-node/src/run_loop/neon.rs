@@ -504,7 +504,7 @@ impl RunLoop {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis Atlas attachments
-        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
             .into_iter()
@@ -515,7 +515,7 @@ impl RunLoop {
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
         // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
-        let moved_atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
