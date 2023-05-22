@@ -174,6 +174,7 @@ fn fix_to_pox_contract() {
     epochs[5].end_height = epoch_2_4;
     epochs[6].start_height = epoch_2_4;
     epochs[6].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(7);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -809,6 +810,7 @@ fn verify_auto_unlock_behavior() {
     epochs[5].end_height = epoch_2_4;
     epochs[6].start_height = epoch_2_4;
     epochs[6].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(7);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
