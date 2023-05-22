@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.4.0.0.0]
+This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
+
+- [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md)
+- [SIP-024](https://github.com/stacksgov/sips/blob/main/sips/sip-024/sip-024-least-supertype-fix.md)
+
+### Fixed
+- PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
+- Peer network id is updated to `0x18000009`
+- Refactoring of the deserialization routine from recursive to iterative
+
+This release is compatible with chainstate directories from 2.1.0.0.x and 2.3.0.0.x
+
 ## [2.3.0.0.2]
 
 This is a high-priority hotfix release to address a bug in the
