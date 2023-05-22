@@ -72,6 +72,11 @@ const DESERIALIZATION_TYPE_CHECK_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 ///  supported, so we increase the bound to a higher level limit imposed by the cost checker.
 const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 
+/// Before epoch-2.4, this is the deserialization depth limit.
+/// After epoch-2.4, with type sanitization support, the full
+///  clarity depth limit is supported.
+const UNSANITIZED_DEPTH_CHECK: usize = 16;
+
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -578,7 +583,12 @@ impl Value {
         }];
 
         while !stack.is_empty() {
-            if stack.len() > MAX_TYPE_DEPTH as usize {
+            let depth_check = if sanitize {
+                MAX_TYPE_DEPTH as usize
+            } else {
+                UNSANITIZED_DEPTH_CHECK
+            };
+            if stack.len() > depth_check {
                 return Err(CheckErrors::TypeSignatureTooDeep.into());
             }
 
