@@ -914,7 +914,7 @@ impl Relayer {
     ///   through the microblock tip sync protocol.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks
-    ///   that produced these streams, as well as the number of microblocks obtained through
+    ///   that produced these streams, as well as an option of the microblocks obtained through
     ///   the microblock tip sync protocol.
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
@@ -1023,8 +1023,7 @@ impl Relayer {
             }
         }
 
-        // We relay the microblocks obtained through the microblock tip sync protocol, add them to
-        // `downloaded_microblock_map`.
+        // Now, process and store microblocks obtained through the microblock tip sync protocol.
         if let Some(result) = &network_result.synced_microblock_result {
             if result.microblocks.len() == 0 {
                 return (downloaded_microblock_map, None);
@@ -1108,7 +1107,7 @@ impl Relayer {
                 }
             }
 
-            // If we did stored any microblocks (i.e. we didn't have it), then we can relay them
+            // If we did store any microblocks (i.e. we didn't have it), then we relay them
             if stored_microblocks.len() > 0 {
                 info!(
                     "Stored {} microblocks obtained from the tip sync protocol.",
@@ -1451,7 +1450,7 @@ impl Relayer {
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
-    /// * the number of microblocks synced through the microblock tip sync protocol
+    /// * an tuple of the microblocks synced through the microblock tip sync protocol & the block ID of the tip they were built off of (as an option)
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
@@ -1528,13 +1527,15 @@ impl Relayer {
         }
 
         // Process microblocks we downloaded.
-        let (new_downloaded_microblocks, new_synced_microblocks) =
+        let (new_confirmed_microblocks, new_synced_microblocks) =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
 
-        let num_new_downloaded_microblocks: usize = new_downloaded_microblocks
+        let num_new_confirmed_microblocks: usize = new_confirmed_microblocks
             .iter()
             .map(|(_ch, (_id, mbs))| mbs.len())
             .fold(0, |a, b| a + b);
+
+        let num_synced_microblocks = new_synced_microblocks.as_ref().map_or(0, |(_, mbs)| mbs.len());
 
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
         // (these ones will have already been processed, but we need to report them as
@@ -1543,13 +1544,16 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_downloaded_microblocks.len() > 0
+        if new_blocks.len() > 0 || new_microblocks.len() > 0 || num_new_confirmed_microblocks > 0
+            || num_synced_microblocks > 0
         {
             info!(
-                "Processing newly received Stacks blocks: {}, microblocks: {}, downloaded microblocks: {}",
+                "Processing newly received Stacks blocks: {}, microblocks: {}, \
+                confirmed microblocks: {}, synced microblocks: {}",
                 new_blocks.len(),
                 new_microblocks.len(),
-                num_new_downloaded_microblocks,
+                num_new_confirmed_microblocks,
+                num_synced_microblocks,
             );
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
@@ -1560,7 +1564,7 @@ impl Relayer {
 
         Ok((
             new_blocks,
-            new_downloaded_microblocks,
+            new_confirmed_microblocks,
             new_microblocks,
             new_synced_microblocks,
             bad_neighbors,
@@ -1932,7 +1936,7 @@ impl Relayer {
                     // have the p2p thread forward all new unconfirmed microblocks obtained through tip sync protocol
                     if let Some((id, mbs)) = new_synced_microblocks {
                         if mbs.len() > 0 {
-                            debug!("{:?}: Unconfirmed microblocks: {}", &_local_peer, mbs.len());
+                            debug!("{:?}: Microblocks from tip sync protocol: {}", &_local_peer, mbs.len());
                             let mblocks_msg = MicroblocksData {
                                 index_anchor_block: id,
                                 microblocks: mbs,

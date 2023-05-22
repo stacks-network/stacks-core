@@ -2305,7 +2305,7 @@ impl PeerNetwork {
         };
     }
 
-    // Do a microblock antientropy pull. This function mainly modifies
+    // Do a microblock antientropy tip sync. This function mainly modifies
     // meta-variables tracking timing + metrics of the microblock tip sync.
     fn do_network_microblock_tip_sync(
         &mut self,

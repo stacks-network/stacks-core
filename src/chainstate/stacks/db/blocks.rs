@@ -1402,7 +1402,6 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[&block_hash, &consensus_hash];
         let rows = query_row_columns::<Hash160, _>(block_conn, sql, args, "microblock_pubkey_hash")
             .map_err(Error::DBError)?;
-
         match rows.len() {
             0 => Ok(None),
             1 => Ok(Some(rows[0].clone())),
@@ -4295,7 +4294,7 @@ impl StacksChainState {
 
         // already queued or already processed?
         if self.has_descendant_microblock_indexed(&parent_index_hash, &microblock.block_hash())? {
-            info!(
+            debug!(
                 "Microblock already stored and/or processed: {}/{} {} {}",
                 parent_consensus_hash,
                 &parent_anchored_block_hash,
