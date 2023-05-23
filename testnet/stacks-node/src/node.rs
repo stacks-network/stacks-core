@@ -446,7 +446,7 @@ impl Node {
     }
 
     fn make_atlas_config() -> AtlasConfig {
-        AtlasConfig::default(false)
+        AtlasConfig::new(false)
     }
 
     pub fn make_atlas_db(&self) -> AtlasDB {

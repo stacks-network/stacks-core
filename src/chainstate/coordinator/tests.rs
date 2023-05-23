@@ -4343,7 +4343,7 @@ fn atlas_stop_start() {
     let initial_balances = vec![(signer_pk.clone().into(), balance)];
     let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
     // include our simple contract in the atlas config
-    let mut atlas_config = AtlasConfig::default(false);
+    let mut atlas_config = AtlasConfig::new(false);
     atlas_config.contracts.insert(atlas_qci.clone());
 
     setup_states(

@@ -218,7 +218,6 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;
@@ -3808,25 +3807,6 @@ impl PeerThread {
 }
 
 impl StacksNode {
-    /// Create a StacksPrivateKey from a given seed buffer
-    pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
-        let node_privkey = {
-            let mut re_hashed_seed = seed.to_vec();
-            let my_private_key = loop {
-                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
-                    Ok(sk) => break sk,
-                    Err(_) => {
-                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                            .as_bytes()
-                            .to_vec()
-                    }
-                }
-            };
-            my_private_key
-        };
-        node_privkey
-    }
-
     /// Set up the AST size-precheck height, if configured
     fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
         if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
@@ -3898,8 +3878,7 @@ impl StacksNode {
             "Failed to parse socket: {}",
             &config.node.p2p_address
         ));
-        let node_privkey =
-            StacksNode::make_node_private_key_from_seed(&config.node.local_peer_seed);
+        let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_file_path(),
@@ -4121,7 +4100,7 @@ impl StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
-        let atlas_config = AtlasConfig::default(config.is_mainnet());
+        let atlas_config = config.atlas.clone();
         let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
@@ -4131,7 +4110,7 @@ impl StacksNode {
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         Self::setup_ast_size_precheck(&config, &mut sortdb);
 
