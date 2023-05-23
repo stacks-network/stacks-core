@@ -7,7 +7,8 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
+    POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -97,33 +98,48 @@ pub fn get_reward_set_entries_index_order_at(
     })
 }
 
-/// Get the STXBalance for `account` at the given chaintip
+/// Get the canonicalized STXBalance for `account` at the given chaintip
 pub fn get_stx_account_at(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> STXBalance {
-    with_clarity_db_ro(peer, tip, |db| db.get_account_stx_balance(account))
+    with_clarity_db_ro(peer, tip, |db| {
+        db.get_stx_balance_snapshot(account)
+            .canonical_balance_repr()
+    })
 }
 
-/// Get the STXBalance for `account` at the given chaintip
-pub fn get_stacking_state_pox_2(
+/// get the stacking-state entry for an account at the chaintip
+pub fn get_stacking_state_pox(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     account: &PrincipalData,
+    pox_contract: &str,
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
         );
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
-            &boot_code_id(boot::POX_2_NAME, false),
+            &boot_code_id(pox_contract, false),
             "stacking-state",
             &lookup_tuple,
+            &epoch,
         )
         .unwrap()
         .expect_optional()
     })
+}
+
+/// Get the pox-2 stacking-state entry for `account` at the given chaintip
+pub fn get_stacking_state_pox_2(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    account: &PrincipalData,
+) -> Option<Value> {
+    get_stacking_state_pox(peer, tip, account, boot::POX_2_NAME)
 }
 
 /// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
@@ -144,11 +160,27 @@ pub fn check_all_stacker_link_invariants(
 
     info!("Invoked check all"; "tip" => %tip, "first" => first_cycle_number, "last" => max_cycle_number);
     for cycle in first_cycle_number..(max_cycle_number + 1) {
+        // check if it makes sense to test invariants yet.
+        // For cycles where PoX-3 is active, check if Epoch24 has activated first.
+        let active_pox_contract = peer
+            .config
+            .burnchain
+            .pox_constants
+            .active_pox_contract(peer.config.burnchain.reward_cycle_to_block_height(cycle));
+        if active_pox_contract == POX_3_NAME && epoch < StacksEpochId::Epoch24 {
+            info!(
+                "Skipping check on a PoX-3 reward cycle because Epoch24 has not started yet";
+                "cycle" => cycle,
+                "epoch" => %epoch,
+                "active_pox_contract" => %active_pox_contract,
+            );
+            continue;
+        }
+
         check_stacker_link_invariants(peer, tip, cycle);
     }
 }
 
-#[cfg(test)]
 pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
     let byte_vec = hex_bytes(str_hash).unwrap();
     let pox_addr_tuple = TupleData::from_data(vec![
@@ -160,19 +192,17 @@ pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
     Value::Tuple(pox_addr_tuple)
 }
 
-#[cfg(test)]
-struct PoxPrintFields {
-    op_name: String,
-    stacker: Value,
-    balance: Value,
-    locked: Value,
-    burnchain_unlock_height: Value,
+pub struct PoxPrintFields {
+    pub op_name: String,
+    pub stacker: Value,
+    pub balance: Value,
+    pub locked: Value,
+    pub burnchain_unlock_height: Value,
 }
 
-#[cfg(test)]
 // This function takes in a StacksTransactionEvent for a print statement from a pox function that modifies
 // a stacker's state. It verifies that the values in the print statement are as expected.
-fn check_pox_print_event(
+pub fn check_pox_print_event(
     event: &StacksTransactionEvent,
     common_data: PoxPrintFields,
     op_data: HashMap<&str, Value>,
@@ -260,11 +290,11 @@ fn check_pox_print_event(
 }
 
 pub struct StackingStateCheckData {
-    pox_addr: PoxAddress,
+    pub pox_addr: PoxAddress,
     /// this is a map from reward cycle number to the value in reward-set-indexes
-    cycle_indexes: HashMap<u128, u128>,
-    first_cycle: u128,
-    lock_period: u128,
+    pub cycle_indexes: HashMap<u128, u128>,
+    pub first_cycle: u128,
+    pub lock_period: u128,
 }
 
 /// Check the stacking-state invariants of `stacker`
@@ -274,14 +304,26 @@ pub fn check_stacking_state_invariants(
     tip: &StacksBlockId,
     stacker: &PrincipalData,
     expect_indexes: bool,
+    active_pox_contract: &str,
 ) -> StackingStateCheckData {
     let account_state = with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(stacker)
             .canonical_balance_repr()
     });
 
-    let stacking_state_entry = get_stacking_state_pox_2(peer, tip, stacker)
-        .expect("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state")
+    let tip_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+        peer.chainstate().db(),
+        tip,
+    )
+    .unwrap()
+    .unwrap()
+    .burn_header_height;
+
+    let stacking_state_entry = get_stacking_state_pox(peer, tip, stacker, active_pox_contract)
+        .expect(&format!(
+            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
+            active_pox_contract,
+        ))
         .expect_tuple();
     let first_cycle = stacking_state_entry
         .get("first-reward-cycle")
@@ -312,7 +354,9 @@ pub fn check_stacking_state_invariants(
     assert_eq!(
         account_state.unlock_height() + 1,
         stacking_state_unlock_ht,
-        "Invariant violated: stacking-state and account state have different unlock heights"
+        "Invariant violated: stacking-state and account state have different unlock heights. Tip height = {}, PoX Contract: {}",
+        tip_burn_height,
+        active_pox_contract,
     );
 
     let mut cycle_indexes = HashMap::new();
@@ -336,10 +380,12 @@ pub fn check_stacking_state_invariants(
                 .unwrap(),
             );
             let entry_value = with_clarity_db_ro(peer, tip, |db| {
+                let epoch = db.get_clarity_epoch_version();
                 db.fetch_entry_unknown_descriptor(
-                    &boot_code_id(boot::POX_2_NAME, false),
+                    &boot_code_id(active_pox_contract, false),
                     "reward-cycle-pox-address-list",
-                    &entry_key
+                    &entry_key,
+                    &epoch,
                 )
                     .unwrap()
                     .expect_optional()
@@ -402,11 +448,47 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         .config
         .burnchain
         .reward_cycle_to_block_height(cycle_number);
+
+    let tip_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), current_burn_height as u64)
+        .unwrap()
+        .unwrap();
+
+    let cycle_start_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), cycle_start)
+        .unwrap()
+        .unwrap();
+
+    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height(cycle_number),
+    );
+
+    if cycle_start_epoch.epoch_id == StacksEpochId::Epoch22
+        || cycle_start_epoch.epoch_id == StacksEpochId::Epoch23
+    {
+        info!(
+            "Skipping reward set validation checks on reward cycles that start in Epoch 2.2 or Epoch 2.3";
+            "cycle" => cycle_number,
+        );
+        return;
+    }
+
+    if cycle_start_epoch.epoch_id == StacksEpochId::Epoch24 && active_pox_contract != POX_3_NAME {
+        info!(
+            "Skipping validation of reward set that started in Epoch24, but its cycle starts before pox-3 activation";
+            "cycle" => cycle_number,
+            "cycle_start" => cycle_start,
+            "pox_3_activation" => peer.config.burnchain.pox_constants.pox_3_activation_height,
+            "epoch_2_4_start" => cycle_start_epoch.start_height,
+        );
+        return;
+    }
+
     let reward_set_entries = get_reward_set_entries_index_order_at(peer, tip, cycle_start);
     let mut checked_total = 0;
     for (actual_index, entry) in reward_set_entries.iter().enumerate() {
         debug!(
-            "Cycle {}: Check {:?} (stacked={}, stacker={})",
+            "Cycle {}: Check {:?} (stacked={}, stacker={}, tip_epoch={})",
             cycle_number,
             &entry.reward_address,
             entry.amount_stacked,
@@ -414,11 +496,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 .stacker
                 .as_ref()
                 .map(|s| format!("{}", &s))
-                .unwrap_or("(none)".to_string())
+                .unwrap_or("(none)".to_string()),
+            &tip_epoch.epoch_id,
         );
         checked_total += entry.amount_stacked;
         if let Some(stacker) = &entry.stacker {
-            if tip_cycle > cycle_start {
+            if tip_cycle > cycle_number {
                 // if the checked cycle is before the tip's cycle,
                 // the reward-set-entrie's stacker links are no longer necessarily valid
                 // (because the reward cycles for those entries has passed)
@@ -426,14 +509,36 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 continue;
             }
 
+            if tip_epoch.epoch_id == StacksEpochId::Epoch22
+                || tip_epoch.epoch_id == StacksEpochId::Epoch23
+            {
+                // if the current tip is epoch-2.2 or epoch-2.3, the stacker invariant checks
+                // no longer make sense: the stacker has unlocked, even though a reward cycle
+                // is still active (i.e., the last active cycle from epoch-2.1).
+                continue;
+            }
+
+            if tip_epoch.epoch_id >= StacksEpochId::Epoch24
+                && current_burn_height
+                    <= peer.config.burnchain.pox_constants.pox_3_activation_height
+            {
+                // if the tip is epoch-2.4, and pox-3 isn't the active pox contract yet,
+                //  the invariant checks will not make sense for the same reasons as above
+                continue;
+            }
+
             let StackingStateCheckData {
                 pox_addr,
                 cycle_indexes,
                 ..
-            } = check_stacking_state_invariants(peer, tip, stacker, true);
+            } = check_stacking_state_invariants(peer, tip, stacker, true, active_pox_contract);
 
             assert_eq!(&entry.reward_address, &pox_addr, "Invariant violated: reward-cycle entry has a different PoX addr than in stacker-state");
-            assert_eq!(cycle_indexes.get(&(cycle_number as u128)).cloned().unwrap(), actual_index as u128, "Invariant violated: stacking-state.reward-set-indexes entry at cycle_number must point to this stacker's entry");
+            assert_eq!(
+                cycle_indexes.get(&(cycle_number as u128)).cloned().unwrap(),
+                actual_index as u128,
+                "Invariant violated: stacking-state.reward-set-indexes entry at cycle_number must point to this stacker's entry"
+            );
         }
     }
     let expected_total = get_reward_cycle_total(peer, tip, cycle_number);
@@ -446,6 +551,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
 pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
+    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
+        peer.config
+            .burnchain
+            .reward_cycle_to_block_height(cycle_number),
+    );
+
     with_clarity_db_ro(peer, tip, |db| {
         let total_stacked_key = TupleData::from_data(vec![(
             "reward-cycle".into(),
@@ -453,10 +564,12 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         )])
         .unwrap()
         .into();
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
-            &boot_code_id(boot::POX_2_NAME, false),
+            &boot_code_id(active_pox_contract, false),
             "reward-cycle-total-stacked",
             &total_stacked_key,
+            &epoch,
         )
         .map(|v| {
             v.expect_optional()
@@ -481,6 +594,7 @@ pub fn get_partial_stacked(
     pox_addr: &Value,
     cycle_number: u64,
     sender: &PrincipalData,
+    pox_contract: &str,
 ) -> u128 {
     with_clarity_db_ro(peer, tip, |db| {
         let key = TupleData::from_data(vec![
@@ -490,10 +604,12 @@ pub fn get_partial_stacked(
         ])
         .unwrap()
         .into();
+        let epoch = db.get_clarity_epoch_version();
         db.fetch_entry_unknown_descriptor(
-            &boot_code_id(boot::POX_2_NAME, false),
+            &boot_code_id(pox_contract, false),
             "partial-stacked-by-cycle",
             &key,
+            &epoch,
         )
         .map(|v| {
             v.expect_optional()
@@ -1117,7 +1233,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -1142,7 +1262,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
@@ -1151,7 +1275,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &latest_block,
         &key_to_stacks_addr(&bob).to_account_principal(),
     )
-    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    .canonical_repr_at_block(
+        height_target + 1,
+        burnchain.pox_constants.v1_unlock_height,
+        burnchain.pox_constants.v2_unlock_height,
+    );
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // check that the total reward cycle amounts have decremented correctly
@@ -1385,6 +1513,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -1409,6 +1538,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -1490,6 +1620,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_first_lock_amount);
     }
@@ -1501,6 +1632,7 @@ fn delegate_stack_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_delegation_amount,);
     }
@@ -2881,12 +3013,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
@@ -2934,12 +3078,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
@@ -2990,12 +3146,24 @@ fn test_delegate_extend_transition_pox_2() {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &alice_principal,
+        false,
+        POX_2_NAME,
+    );
     let StackingStateCheckData {
         first_cycle: bob_first_cycle,
         lock_period: bob_lock_period,
         ..
-    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+    } = check_stacking_state_invariants(
+        &mut peer,
+        &tip_index_block,
+        &bob_principal,
+        false,
+        POX_2_NAME,
+    );
 
     assert_eq!(
         alice_first_cycle as u64, first_v2_cycle,
@@ -4378,6 +4546,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -4404,6 +4573,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
@@ -4477,6 +4647,7 @@ fn stack_aggregation_increase() {
         &bob_pox_addr,
         cur_reward_cycle + 1,
         &bob_principal,
+        POX_2_NAME,
     );
     assert_eq!(partial_stacked, 1);
 
@@ -4488,6 +4659,7 @@ fn stack_aggregation_increase() {
             &bob_pox_addr,
             cycle_number,
             &bob_principal,
+            POX_2_NAME,
         );
         assert_eq!(partial_stacked, alice_delegation_amount);
     }
