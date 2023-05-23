@@ -21,8 +21,10 @@ use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::execute as vm_execute;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use crate::vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, with_memory_environment,
+    test_clarity_versions, test_epochs, tl_env_factory as env_factory,
+    TopLevelMemoryEnvironmentGenerator,
 };
 use crate::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
@@ -137,7 +139,9 @@ fn execute_transaction(
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
-fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract = r#"(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
                     (define-read-only (balance-stx (p principal)) (stx-get-balance p))
@@ -204,7 +208,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // test 1: send 0
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -216,7 +220,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
         "burn-stx",
@@ -230,7 +234,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // test 2: from = to
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -244,7 +248,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // test 3: sender is not tx-sender
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -256,7 +260,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
@@ -270,7 +274,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // test 4: amount > balance
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -282,7 +286,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
@@ -298,7 +302,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     //    will overflow before such an overflowing transfer is allowed.
     // assert_eq!(
     //     execute_transaction(
-    //         owned_env,
+    //         &mut owned_env,
     //         p2.clone(),
     //         &token_contract_id,
     //         "xfer-stx",
@@ -311,7 +315,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // test 6: check balance
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
@@ -329,7 +333,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let nonexistent_principal = Value::Principal(PrincipalData::Standard(sp_data));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
@@ -342,7 +346,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // now, let's actually do a couple transfers/burns and check the asset maps.
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
@@ -358,7 +362,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -374,7 +378,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p3_principal.clone(),
         &token_contract_id,
         "xfer-stx",
@@ -392,7 +396,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // let's try a user -> contract transfer
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "to-contract",
@@ -416,7 +420,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract_principal = Value::Principal(cp_data);
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
@@ -429,7 +433,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // now let's do a contract -> user transfer
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p3_principal.clone(),
         &token_contract_id,
         "from-contract",
@@ -456,7 +460,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     // now, to transfer
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
@@ -477,7 +481,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     // now, let's send some back
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p3_principal.clone(),
         &token_contract_id,
         "from-contract",
@@ -496,7 +500,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     // and, one more time for good measure
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
@@ -515,7 +519,12 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     );
 }
 
-fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_simple_token_system(
+    epoch: StacksEpochId,
+    mut env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
@@ -556,7 +565,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id.clone(),
         "my-token-transfer",
@@ -568,7 +577,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-token-transfer",
@@ -584,7 +593,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-token-transfer",
@@ -596,7 +605,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-token-transfer",
@@ -608,7 +617,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let err = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-token-transfer",
@@ -622,7 +631,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     });
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-ft-get-balance",
@@ -634,7 +643,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-ft-get-balance",
@@ -646,7 +655,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
@@ -663,7 +672,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
@@ -679,7 +688,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
@@ -695,7 +704,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-ft-get-balance",
@@ -707,7 +716,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Get the total supply - Total minted so far = 10204
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "get-total-supply",
@@ -718,7 +727,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Burn 100 tokens from p2's balance (out of 9200)
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id.clone(),
         "burn",
@@ -735,7 +744,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Get p2's balance we should get 9200 - 100 = 9100
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "my-ft-get-balance",
@@ -747,7 +756,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Get the new total supply
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "get-total-supply",
@@ -758,7 +767,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Burn 9101 tokens from p2's balance (out of 9100) - Should fail with error code 1
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id.clone(),
         "burn",
@@ -771,7 +780,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
     // Try to burn 0 tokens from p2's balance - Should fail with error code 1
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &token_contract_id.clone(),
         "burn",
@@ -785,7 +794,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     // Try to burn 1 tokens from p2's balance (out of 9100) - Should pass even though
     // sender != tx sender
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "burn",
@@ -801,7 +810,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     );
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "mint-after",
@@ -813,7 +822,9 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 }
 
-fn test_total_supply(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    let mut owned_env = env_factory.get_env(epoch);
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
     let bad_1 = "(define-fungible-token stackaroos true)";
 
@@ -878,7 +889,7 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "gated-faucet",
@@ -888,7 +899,7 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "gated-faucet",
@@ -898,7 +909,7 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     assert!(!is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "gated-faucet",
@@ -908,7 +919,7 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let err = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &token_contract_id.clone(),
         "gated-faucet",
@@ -922,7 +933,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     });
 }
 
-fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_overlapping_nfts(
+    epoch: StacksEpochId,
+    mut env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
     let names_contract = ASSET_NAMES;
 
@@ -966,7 +982,13 @@ fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
         .unwrap();
 }
 
-fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
+#[apply(test_clarity_versions)]
+fn test_simple_naming_system(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
     let names_contract = ASSET_NAMES;
@@ -989,10 +1011,8 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!(),
     };
 
-    let mut placeholder_context = ContractContext::new(
-        QualifiedContractIdentifier::transient(),
-        ClarityVersion::Clarity2,
-    );
+    let mut placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let tokens_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
@@ -1034,7 +1054,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
@@ -1045,7 +1065,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_err_code(&result, 1));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
@@ -1056,7 +1076,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
@@ -1069,7 +1089,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // shouldn't be able to register a name you didn't preorder!
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "register",
@@ -1082,7 +1102,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // should work!
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "register",
@@ -1104,7 +1124,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // let's try some token-transfers
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers",
@@ -1115,7 +1135,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers-but-ok",
@@ -1134,7 +1154,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // let's mint some names
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
@@ -1146,7 +1166,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
@@ -1160,7 +1180,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // let's transfer name
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
@@ -1172,7 +1192,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
@@ -1184,7 +1204,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "transfer",
@@ -1196,7 +1216,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
@@ -1219,7 +1239,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // try to underpay!
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
@@ -1230,7 +1250,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "register",
@@ -1243,7 +1263,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // register a cheap name!
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
@@ -1254,7 +1274,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "register",
@@ -1265,7 +1285,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "register",
@@ -1278,7 +1298,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p1 burning 5 should fail (not owner anymore).
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-burn",
@@ -1291,7 +1311,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p1 minting 8 should succeed
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
@@ -1304,7 +1324,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p2 burning 8 (which belongs to p1) should succeed even though sender != tx_sender.
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
@@ -1322,7 +1342,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p2 burning 5 should succeed.
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
@@ -1340,7 +1360,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p2 re-burning 5 should succeed.
     let (result, _asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
@@ -1352,7 +1372,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
     // p1 re-minting 5 should succeed
     let (result, asset_map, _events) = execute_transaction(
-        owned_env,
+        &mut owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
@@ -1370,19 +1390,5 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
                 .unwrap(),
             Value::some(p1.clone()).unwrap()
         );
-    }
-}
-
-#[test]
-fn test_all() {
-    let to_test = [
-        test_overlapping_nfts,
-        test_simple_token_system,
-        test_simple_naming_system,
-        test_total_supply,
-        test_native_stx_ops,
-    ];
-    for test in to_test.iter() {
-        with_memory_environment(test, StacksEpochId::latest(), true);
     }
 }

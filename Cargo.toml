@@ -91,14 +91,14 @@ version = "0.2.23"
 features = ["std"]
 
 [dev-dependencies]
-rstest = "0.11.0"
-rstest_reuse = "0.1.3"
 assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
 
 [features]
 default = ["developer-mode"]
