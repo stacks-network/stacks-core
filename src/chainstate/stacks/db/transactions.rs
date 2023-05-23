@@ -329,6 +329,9 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 err_type: "short return/panic",
             }
         }
+        clarity_error::Interpreter(InterpreterError::Unchecked(CheckErrors::SupertypeTooLarge)) => {
+            ClarityRuntimeTxError::Rejectable(error)
+        }
         clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
             ClarityRuntimeTxError::AnalysisError(check_error)
         }
@@ -1113,6 +1116,12 @@ impl StacksChainState {
                                             }
                                             _ => {}
                                         }
+                                    }
+                                }
+                                if let clarity_error::Analysis(err) = &other_error {
+                                    if let CheckErrors::SupertypeTooLarge = err.err {
+                                        info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
+                                        return Err(Error::ClarityError(other_error));
                                     }
                                 }
                                 // this analysis isn't free -- convert to runtime error
@@ -8292,7 +8301,10 @@ pub mod test {
                 2
             }
             fn get_v2_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
+            }
+            fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
@@ -8356,6 +8368,8 @@ pub mod test {
                     StacksEpochId::Epoch2_05 => self.get_stacks_epoch(1),
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
                     StacksEpochId::Epoch22 => self.get_stacks_epoch(3),
+                    StacksEpochId::Epoch23 => self.get_stacks_epoch(4),
+                    StacksEpochId::Epoch24 => self.get_stacks_epoch(5),
                 }
             }
             fn get_pox_payout_addrs(
@@ -8501,7 +8515,10 @@ pub mod test {
                 2
             }
             fn get_v2_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
+            }
+            fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
