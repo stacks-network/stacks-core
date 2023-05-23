@@ -205,7 +205,7 @@ fn make_json_logger() -> Logger {
                       }),
     );
 
-    let drain = Mutex::new(slog_json::Json::default(std::io::stdlog())).map(slog::Fuse);
+    let drain = Mutex::new(slog_json::Json::default(std::io::stdout())).map(slog::Fuse);
     let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).fuse();
     slog::Logger::root(filtered_drain, def_keys)
 }
