@@ -37,7 +37,7 @@ We use tags on PRs and issues to categorize them. You should try to select a tag
 
 **Timeline- and consensus- based tags:**
 - Next non-breaking change => `ship now`
-- Next breaking change => `ship next`
+- Next breaking change => `next consensus`
 - Future change, in the work pipeline => `ship future`
 - Issues that are not being worked on (and there are no plans to) => `icebox`
 - PRs that are temporarily frozen => `frozen`
