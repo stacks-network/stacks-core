@@ -205,7 +205,7 @@ fn make_json_logger() -> Logger {
                       }),
     );
 
-    let drain = Mutex::new(slog_json::Json::default(std::io::stderr())).map(slog::Fuse);
+    let drain = Mutex::new(slog_json::Json::default(std::io::stdlog())).map(slog::Fuse);
     let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).fuse();
     slog::Logger::root(filtered_drain, def_keys)
 }
@@ -222,8 +222,8 @@ fn make_logger() -> Logger {
     } else {
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
-        let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
-        let atty = isatty(Stream::Stderr);
+        let decorator = slog_term::PlainSyncDecorator::new(std::io::stdout());
+        let atty = isatty(Stream::Stdout);
         let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         let logger = Logger::root(drain.fuse(), o!());
         logger
