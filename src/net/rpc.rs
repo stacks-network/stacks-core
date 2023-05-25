@@ -59,7 +59,7 @@ use crate::net::http::*;
 use crate::net::p2p::PeerMap;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
-use crate::net::BlocksDatum;
+use crate::net::{BlocksDatum, GetHealthResponse, infer_initial_burnchain_block_download, NeighborKey};
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -130,6 +130,7 @@ use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
+use crate::net::inv::{NeighborBlockStats, NodeStatus};
 
 use crate::util_lib::boot::boot_code_id;
 
@@ -2384,6 +2385,114 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
+
+    fn is_peer_healthy(stats: &NeighborBlockStats, ibd: bool) -> bool{
+        (ibd && (stats.status == NodeStatus::Online ||  stats.status == NodeStatus::Diverged)) ||
+            (!ibd && stats.status == NodeStatus::Online)
+
+    }
+
+    // TODO(hc): check that all parameters are being used
+    /// Handle a GET health.
+    /// If the node's height is not up to the max height of all of its bootstrap nodes, we return
+    /// false for the health check.
+    /// Additionally return what percent of the max height the node height is at.
+    fn handle_get_health<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        network: &PeerNetwork,
+        network_id: u32,
+        peerdb: &PeerDB,
+        block_stats: Option<&HashMap<NeighborKey, NeighborBlockStats>>,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let epoch = network.get_current_epoch();
+        let network_epoch = epoch.network_epoch;
+        let peer_version = network.peer_version;
+
+        let stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
+        let last_processed_burn_height = network.burnchain_tip.block_height;
+        let burnchain_height = network.chain_view.burn_block_height;
+
+        let initial_neighbors =
+            PeerDB::get_valid_initial_neighbors(peerdb.conn(), network_id, peer_version, burnchain_height).unwrap();
+
+        // no bootstrap nodes found, unable to determine health.
+        if initial_neighbors.len() == 0 {
+            // TODO(hc): revisit the name of this error
+            let response = HttpResponseType::GetHealthQueryError(
+                response_metadata.clone(),
+                "No viable bootstrap peers found, unable to determine health".to_string(),
+            );
+            return response.send(http, fd).map(|_| ());
+        }
+
+        let ibd = infer_initial_burnchain_block_download(
+            &network.burnchain,
+            last_processed_burn_height,
+            burnchain_height,
+        );
+
+        // get max block height amongst bootstrap nodes
+        let response = if let Some(block_stats) = block_stats {
+            let mut max_height: u64 = 1;
+            let mut stats_obtained = false;
+            for neighbor in initial_neighbors.iter() {
+                let nk = &neighbor.addr;
+                match block_stats.get(nk) {
+                    Some(stats) => {
+                        // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
+                        // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
+                        // reward cycle N).
+                        if (ibd && (stats.status == NodeStatus::Online ||  stats.status == NodeStatus::Diverged)) ||
+                            (!ibd && stats.status == NodeStatus::Online)
+                        {
+                            let height = stats.inv.get_block_height();
+                            max_height = max_height.max(height);
+                            stats_obtained = true;
+                        }
+                    }
+                    None => {}
+                }
+            }
+
+            if !stats_obtained {
+                // no valid bootstrap nodes found, unable to determine health.
+                let response = HttpResponseType::GetHealthQueryError(
+                    response_metadata.clone(),
+                    "Couldn't obtain stats on any bootstrap peers, unable to determine health"
+                        .to_string(),
+                );
+                return response.send(http, fd).map(|_| ());
+            }
+
+            if stacks_tip_height >= max_height - 1 {
+                let data = GetHealthResponse {
+                    matches_peers: true,
+                    percent_of_blocks_synced: 100,
+                };
+                HttpResponseType::GetHealth(response_metadata, data)
+            } else {
+                let data = GetHealthResponse {
+                    matches_peers: false,
+                    percent_of_blocks_synced: (stacks_tip_height * 100 / max_height) as u8,
+                };
+                HttpResponseType::GetHealthError(response_metadata.clone(), json!(data))
+            }
+        } else {
+            HttpResponseType::GetHealthQueryError(
+                response_metadata.clone(),
+                "Peer block stats not found.".to_string(),
+            )
+        };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -2923,6 +3032,19 @@ impl ConversationHttp {
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
+                None
+            }
+            HttpRequestType::GetHealth(ref _md) => {
+                ConversationHttp::handle_get_health(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    network,
+                    network.local_peer.network_id,
+                    &network.peerdb,
+                    network.inv_state.as_ref().map(|state| &state.block_stats),
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?;
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {
@@ -3591,6 +3713,12 @@ impl ConversationHttp {
             page_id_opt,
         )
     }
+
+    pub fn new_get_health(&self) -> HttpRequestType {
+        HttpRequestType::GetHealth(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3724,6 +3852,10 @@ mod test {
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        // TODO(hc): understand what this means + add a comment
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
         let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
@@ -6431,5 +6563,209 @@ mod test {
         ] {
             let _v: RPCPeerInfoData = serde_json::from_str(json_obj).unwrap();
         }
+    }
+
+    /// Expecting the peer server's block height to be 1 while its peer's block height is 3.
+    /// This leads to a response where the peer server returns false for `matches_peers` as well as
+    /// the percent of blocks it has.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_false() {
+        test_rpc(
+            "test_rpc_get_health_false",
+            40010,
+            40011,
+            50010,
+            50011,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // set up block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                let peer_client_nk = peer_client.to_neighbor().addr;
+
+                if let Some(ref mut inv_state) = peer_server.network.inv_state {
+                    if inv_state.get_stats(&peer_client_nk).is_none() {
+                        inv_state.add_peer(peer_client_nk.clone(), true);
+                    }
+                    inv_state
+                        .get_stats_mut(&peer_client_nk)
+                        .unwrap()
+                        .inv
+                        .num_sortitions = 3;
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server | {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealthError(response_md, data) => {
+                        let get_health_error_resp: GetHealthResponse =
+                            serde_json::from_value(data.clone()).unwrap();
+                        assert_eq!(get_health_error_resp.matches_peers, false);
+                        assert_eq!(get_health_error_resp.percent_of_blocks_synced, 33);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    /// The block height of the peer server and its peer should match, so `matches_peers` is true.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_true() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // set up block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                let peer_client_nk = peer_client.to_neighbor().addr;
+
+                if let Some(ref mut inv_state) = peer_server.network.inv_state {
+                    if inv_state.get_stats(&peer_client_nk).is_none() {
+                        inv_state.add_peer(peer_client_nk.clone(), true);
+                    }
+                    inv_state
+                        .get_stats_mut(&peer_client_nk)
+                        .unwrap()
+                        .inv
+                        .num_sortitions = 1;
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server | {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealth(response_md, data) => {
+                        assert_eq!(data.matches_peers, true);
+                        assert_eq!(data.percent_of_blocks_synced, 100);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    /// The block stats field for the peer server is `None` in this test case.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_no_stats() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| { convo_client.new_get_health() },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server | {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
+                        assert_eq!(msg, "Peer block stats not found.");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    /// In this test case, none of the peer server's initial peers are tracked in the block stats
+    /// map.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_no_stats_for_initial_peers() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // create block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server | {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
+                        assert_eq!(
+                            msg,
+                            "Couldn't obtain stats on any bootstrap peers, unable to determine health"
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
     }
 }

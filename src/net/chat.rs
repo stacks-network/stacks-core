@@ -306,7 +306,8 @@ pub struct ConversationP2P {
     pub handshake_addrbytes: PeerAddress, // from handshake
     pub handshake_port: u16,              // from handshake
     pub peer_heartbeat: u32,              // how often do we need to ping the remote peer?
-    pub peer_expire_block_height: u64,    // when does the peer's key expire?
+    // the burn block height at which the peer's key expires
+    pub peer_expire_block_height: u64,
 
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
 

@@ -44,7 +44,7 @@ use serde_json;
 use url;
 
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::Error as coordinator_error;
@@ -846,9 +846,11 @@ pub struct NeighborsData {
 pub struct HandshakeData {
     pub addrbytes: PeerAddress,
     pub port: u16,
-    pub services: u16, // bit field representing services this node offers
+    // bit field representing services this node offers
+    pub services: u16,
     pub node_public_key: StacksPublicKeyBuffer,
-    pub expire_block_height: u64, // burn block height after which this node's key will be revoked,
+    // burn block height after which this node's key will be revoked,
+    pub expire_block_height: u64,
     pub data_url: UrlString,
 }
 
@@ -1356,6 +1358,12 @@ pub struct AttachmentPage {
     pub inventory: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetHealthResponse {
+    pub matches_peers: bool,
+    pub percent_of_blocks_synced: u8,
+}
+
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
 /// to be this value.  This is needed to support fetching immutables like block and microblock data
@@ -1527,6 +1535,7 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+    GetHealth(HttpRequestMetadata),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1644,6 +1653,7 @@ pub enum HttpResponseType {
     MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
+    GetHealth(HttpResponseMetadata, GetHealthResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -1654,7 +1664,10 @@ pub enum HttpResponseType {
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String),
+    GetHealthError(HttpResponseMetadata, serde_json::Value),
+    GetHealthQueryError(HttpResponseMetadata, String),
 }
+// TODO(hc): verify that these error responses are right
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum UrlScheme {
@@ -1885,6 +1898,7 @@ pub struct Neighbor {
 
     // fields below this can change at runtime
     pub public_key: Secp256k1PublicKey,
+    // the burn block height at which the neighbor's key expires
     pub expire_block: u64,
     pub last_contact_time: u64, // time when we last authenticated with this peer via a Handshake
 
@@ -2089,6 +2103,28 @@ pub trait Requestable: std::fmt::Display {
     fn get_url(&self) -> &UrlString;
 
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
+}
+
+// TODO: DRY up from PoxSyncWatchdog
+pub fn infer_initial_burnchain_block_download(
+    burnchain: &Burnchain,
+    last_processed_height: u64,
+    burnchain_height: u64,
+) -> bool {
+    let ibd =
+        last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+    if ibd {
+        debug!(
+                    "PoX watchdog: {} + {} < {}, so initial block download",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+    } else {
+        debug!(
+                    "PoX watchdog: {} + {} >= {}, so steady-state",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+    }
+    ibd
 }
 
 #[cfg(test)]
@@ -2912,28 +2948,6 @@ pub mod test {
             &self.network.local_peer
         }
 
-        // TODO: DRY up from PoxSyncWatchdog
-        pub fn infer_initial_burnchain_block_download(
-            burnchain: &Burnchain,
-            last_processed_height: u64,
-            burnchain_height: u64,
-        ) -> bool {
-            let ibd =
-                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
-            if ibd {
-                debug!(
-                    "PoX watchdog: {} + {} < {}, so initial block download",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            } else {
-                debug!(
-                    "PoX watchdog: {} + {} >= {}, so steady-state",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            }
-            ibd
-        }
-
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let sortdb = self.sortdb.take().unwrap();
             let stacks_node = self.stacks_node.take().unwrap();
@@ -2946,7 +2960,7 @@ pub mod test {
                 .unwrap()
                 .map(|blkdat| blkdat.height)
                 .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -2998,7 +3012,7 @@ pub mod test {
                 .unwrap()
                 .map(|blkdat| blkdat.height)
                 .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,

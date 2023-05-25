@@ -159,6 +159,7 @@ lazy_static! {
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
+    static ref PATH_GET_HEALTH: Regex = Regex::new(r#"^/v2/health$"#).unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1602,6 +1603,7 @@ impl HttpRequestType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpRequestType::parse_post_mempool_query,
             ),
+            ("GET", &PATH_GET_HEALTH, &HttpRequestType::parse_get_health),
         ];
 
         // use url::Url to parse path and query string
@@ -2677,6 +2679,23 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_get_health<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetInfo".to_string(),
+            ));
+        }
+        Ok(HttpRequestType::GetHealth(
+            HttpRequestMetadata::from_preamble(preamble),
+        ))
+    }
+
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
@@ -2705,6 +2724,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
+            HttpRequestType::GetHealth(ref md) => md,
         }
     }
 
@@ -2736,6 +2756,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
+            HttpRequestType::GetHealth(ref mut md) => md,
         }
     }
 
@@ -2909,6 +2930,7 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+            HttpRequestType::GetHealth(_md) => "/v2/health".to_string(),
         }
     }
 
@@ -2945,6 +2967,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+            HttpRequestType::GetHealth(..) => "/v2/health",
         }
     }
 
@@ -3173,7 +3196,7 @@ impl HttpResponseType {
     ) -> Result<HttpResponseType, net_error> {
         if preamble.status_code < 400 || preamble.status_code > 599 {
             return Err(net_error::DeserializeError(
-                "Inavlid response: not an error".to_string(),
+                "Invalid response: not an error".to_string(),
             ));
         }
 
@@ -3187,8 +3210,21 @@ impl HttpResponseType {
         }
 
         let mut error_text = String::new();
+        // TODO(hc): parse json here for the GetHealthError
+        let mut json_val: serde_json::Value = Default::default();
         fd.read_to_string(&mut error_text)
             .map_err(net_error::ReadError)?;
+        if preamble.content_type == HttpContentType::JSON {
+            let json_result = serde_json::from_str(&error_text.clone());
+            json_val = match json_result {
+                Ok(val) => val,
+                Err(serde_json::Error { .. }) => {
+                    return Err(net_error::DeserializeError(
+                        "Invalid response: unable to deserialize json response".to_string(),
+                    ))
+                }
+            }
+        }
 
         let md = HttpResponseMetadata::from_preamble(request_version, preamble);
         let resp = match preamble.status_code {
@@ -3199,6 +3235,8 @@ impl HttpResponseType {
             404 => HttpResponseType::NotFound(md, error_text),
             500 => HttpResponseType::ServerError(md, error_text),
             503 => HttpResponseType::ServiceUnavailable(md, error_text),
+            512 => HttpResponseType::GetHealthError(md, json_val),
+            513 => HttpResponseType::GetHealthQueryError(md, error_text),
             _ => HttpResponseType::Error(md, preamble.status_code, error_text),
         };
         Ok(resp)
@@ -3423,6 +3461,7 @@ impl HttpResponseType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpResponseType::parse_post_mempool_query,
             ),
+            (&PATH_GET_HEALTH, &HttpResponseType::parse_get_health),
         ];
 
         // use url::Url to parse path and query string
@@ -3958,6 +3997,20 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_get_health<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let health_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetHealth(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            health_info,
+        ))
+    }
+
     fn error_reason(code: u16) -> &'static str {
         match code {
             400 => "Bad Request",
@@ -4021,6 +4074,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::GetHealth(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -4031,6 +4085,8 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
+            HttpResponseType::GetHealthError(ref md, _) => md,
+            HttpResponseType::GetHealthQueryError(ref md, _) => md,
         }
     }
 
@@ -4330,6 +4386,10 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
             }
+            HttpResponseType::GetHealth(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4353,6 +4413,21 @@ impl HttpResponseType {
             }
             HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
+            }
+            HttpResponseType::GetHealthError(ref md, ref data) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    512,
+                    HttpResponseType::error_reason(512),
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
+            HttpResponseType::GetHealthQueryError(_, ref msg) => {
+                self.error_response(fd, 513, msg)?
             }
         };
         Ok(())
@@ -4436,6 +4511,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::MemPoolQuery(..) => "HTTP(MemPoolQuery)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
+                HttpRequestType::GetHealth(_) => "HTTP(GetHealth)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
             },
@@ -4466,6 +4542,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::MemPoolTxStream(..) => "HTTP(MemPoolTxStream)",
                 HttpResponseType::MemPoolTxs(..) => "HTTP(MemPoolTxs)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
+                HttpResponseType::GetHealth(..) => "HTTP(GetHealth)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
                 }
@@ -4479,6 +4556,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TransactionFeeEstimation(_, _) => {
                     "HTTP(TransactionFeeEstimation)"
                 }
+                HttpResponseType::GetHealthError(..) => "HTTP(512)",
+                HttpResponseType::GetHealthQueryError(..) => "HTTP(513)",
             },
         }
     }
