@@ -4004,7 +4004,8 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let health_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        let health_info =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::GetHealth(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             health_info,

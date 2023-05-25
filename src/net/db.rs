@@ -1697,17 +1697,21 @@ mod test {
         )
         .unwrap();
 
-        let n5 = PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 5, 23455).unwrap();
+        let n5 =
+            PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 5, 23455).unwrap();
         assert!(are_present(&n5, &initial_neighbors));
 
-        let n10 = PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 10, 23455).unwrap();
+        let n10 =
+            PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 10, 23455).unwrap();
         assert!(are_present(&n10, &initial_neighbors));
 
-        let n20 = PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 20, 23455).unwrap();
+        let n20 =
+            PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 20, 23455).unwrap();
         assert!(are_present(&initial_neighbors, &n20));
 
         let n15_fresh =
-            PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 15, 23456 + 14).unwrap();
+            PeerDB::get_random_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 15, 23456 + 14)
+                .unwrap();
         assert!(are_present(
             &n15_fresh[10..15].to_vec(),
             &initial_neighbors[10..20].to_vec()

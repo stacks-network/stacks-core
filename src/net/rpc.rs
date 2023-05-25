@@ -59,7 +59,6 @@ use crate::net::http::*;
 use crate::net::p2p::PeerMap;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
-use crate::net::{BlocksDatum, GetHealthResponse, infer_initial_burnchain_block_download, NeighborKey};
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -83,6 +82,9 @@ use crate::net::UrlString;
 use crate::net::HTTP_REQUEST_ID_RESERVED;
 use crate::net::MAX_HEADERS;
 use crate::net::MAX_NEIGHBORS_DATA_LEN;
+use crate::net::{
+    infer_initial_burnchain_block_download, BlocksDatum, GetHealthResponse, NeighborKey,
+};
 use crate::net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
@@ -126,11 +128,11 @@ use stacks_common::types::StacksPublicKeyBuffer;
 
 use crate::clarity_vm::clarity::Error as clarity_error;
 
+use crate::net::inv::{NeighborBlockStats, NodeStatus};
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
-use crate::net::inv::{NeighborBlockStats, NodeStatus};
 
 use crate::util_lib::boot::boot_code_id;
 
@@ -2385,11 +2387,9 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
-
-    fn is_peer_healthy(stats: &NeighborBlockStats, ibd: bool) -> bool{
-        (ibd && (stats.status == NodeStatus::Online ||  stats.status == NodeStatus::Diverged)) ||
-            (!ibd && stats.status == NodeStatus::Online)
-
+    fn is_peer_healthy(stats: &NeighborBlockStats, ibd: bool) -> bool {
+        (ibd && (stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged))
+            || (!ibd && stats.status == NodeStatus::Online)
     }
 
     // TODO(hc): check that all parameters are being used
@@ -2418,8 +2418,13 @@ impl ConversationHttp {
         let last_processed_burn_height = network.burnchain_tip.block_height;
         let burnchain_height = network.chain_view.burn_block_height;
 
-        let initial_neighbors =
-            PeerDB::get_valid_initial_neighbors(peerdb.conn(), network_id, peer_version, burnchain_height).unwrap();
+        let initial_neighbors = PeerDB::get_valid_initial_neighbors(
+            peerdb.conn(),
+            network_id,
+            peer_version,
+            burnchain_height,
+        )
+        .unwrap();
 
         // no bootstrap nodes found, unable to determine health.
         if initial_neighbors.len() == 0 {
@@ -2448,8 +2453,10 @@ impl ConversationHttp {
                         // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
                         // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
                         // reward cycle N).
-                        if (ibd && (stats.status == NodeStatus::Online ||  stats.status == NodeStatus::Diverged)) ||
-                            (!ibd && stats.status == NodeStatus::Online)
+                        if (ibd
+                            && (stats.status == NodeStatus::Online
+                                || stats.status == NodeStatus::Diverged))
+                            || (!ibd && stats.status == NodeStatus::Online)
                         {
                             let height = stats.inv.get_block_height();
                             max_height = max_height.max(height);
@@ -3715,9 +3722,7 @@ impl ConversationHttp {
     }
 
     pub fn new_get_health(&self) -> HttpRequestType {
-        HttpRequestType::GetHealth(
-            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
-        )
+        HttpRequestType::GetHealth(HttpRequestMetadata::from_host(self.peer_host.clone(), None))
     }
 }
 
@@ -6608,7 +6613,7 @@ mod test {
              ref mut peer_client,
              ref mut peer_server,
              ref convo_client,
-             ref convo_server | {
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealthError(response_md, data) => {
@@ -6668,7 +6673,7 @@ mod test {
              ref mut peer_client,
              ref mut peer_server,
              ref convo_client,
-             ref convo_server | {
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealth(response_md, data) => {
@@ -6705,7 +6710,7 @@ mod test {
              ref mut peer_client,
              ref mut peer_server,
              ref convo_client,
-             ref convo_server | {
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealthNoDataError(response_md, msg) => {
@@ -6750,7 +6755,7 @@ mod test {
              ref mut peer_client,
              ref mut peer_server,
              ref convo_client,
-             ref convo_server | {
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealthNoDataError(response_md, msg) => {

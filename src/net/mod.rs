@@ -44,8 +44,8 @@ use serde_json;
 use url;
 
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::burnchains::Txid;
+use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
@@ -2110,18 +2110,17 @@ pub fn infer_initial_burnchain_block_download(
     last_processed_height: u64,
     burnchain_height: u64,
 ) -> bool {
-    let ibd =
-        last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+    let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
     if ibd {
         debug!(
-                    "PoX watchdog: {} + {} < {}, so initial block download",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
+            "PoX watchdog: {} + {} < {}, so initial block download",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
     } else {
         debug!(
-                    "PoX watchdog: {} + {} >= {}, so steady-state",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
+            "PoX watchdog: {} + {} >= {}, so steady-state",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
     }
     ibd
 }
