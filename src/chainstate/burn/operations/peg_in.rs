@@ -76,7 +76,7 @@ impl PegInOp {
         /*
             Wire format:
 
-            0      2  3                  24                            64       80
+            0      2  3                  24                            65       80
             |------|--|------------------|-----------------------------|--------|
              magic  op   Stacks address    Size prefixed contract name    memo
                                                (optional, see note)
@@ -108,17 +108,16 @@ impl PegInOp {
 
         let standard_principal_data = StandardPrincipalData(version, address_data);
 
-        let (recipient, bytes_read) =
-            if let Some((contract_name, bytes_read)) = Self::read_contract_name(&data[21..])? {
-                let contract_id =
-                    QualifiedContractIdentifier::new(standard_principal_data, contract_name);
+        let recipient = if let Some(contract_name) = Self::read_contract_name(&data[21..])? {
+            let contract_id =
+                QualifiedContractIdentifier::new(standard_principal_data, contract_name);
 
-                (contract_id.into(), 21 + bytes_read)
-            } else {
-                (standard_principal_data.into(), 22)
-            };
+            contract_id.into()
+        } else {
+            standard_principal_data.into()
+        };
 
-        let memo = data.get(bytes_read..).unwrap_or(&[]).to_vec();
+        let memo = data.get(62..).unwrap_or(&[]).to_vec();
 
         Ok(ParsedData { recipient, memo })
     }
@@ -137,19 +136,19 @@ impl PegInOp {
     /// # Errors
     /// - `Utf8Error` if the contract name is not valid UTF-8
     /// - `ParseError` if the contract name is not a valid `ContractName`
-    fn read_contract_name(data: &[u8]) -> Result<Option<(ContractName, usize)>, ParseError> {
+    fn read_contract_name(data: &[u8]) -> Result<Option<ContractName>, ParseError> {
         let size = data[0] as usize;
 
         if size == 0 {
             return Ok(None);
         }
 
-        let contract_name_bytes = &data[1..1 + size];
+        let contract_name_bytes = &data[1..41];
         let contract_name: ContractName = str::from_utf8(contract_name_bytes)?
             .to_string()
             .try_into()?;
 
-        Ok(Some((contract_name, 1 + size)))
+        Ok(Some(contract_name))
     }
 }
 
@@ -190,6 +189,8 @@ impl From<ClarityRuntimeError> for ParseError {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::repeat;
+
     use rand::{distributions::Alphanumeric, Rng};
 
     use super::*;
@@ -235,6 +236,7 @@ mod tests {
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.push(0); // Contract name not provided, so size is 0
+        data.extend(repeat(0).take(40)); // Contract name not provided, so zeroed out
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
@@ -257,14 +259,14 @@ mod tests {
         let peg_wallet_address = test::random_bytes(&mut rng);
         let amount = 10;
         let output2 = test::Output::new(amount, peg_wallet_address);
-        let memo: [u8; 6] = test::random_bytes(&mut rng);
+        let memo: [u8; 5] = test::random_bytes(&mut rng);
 
         let mut data = vec![1];
         let addr_bytes = test::random_bytes(&mut rng);
         let stx_address = StacksAddress::new(1, addr_bytes.into());
         data.extend_from_slice(&addr_bytes);
         data.push(contract_name.len() as u8);
-        data.extend_from_slice(contract_name.as_bytes());
+        data.extend(contract_name.as_bytes().iter().chain(repeat(&0)).take(40));
         data.extend_from_slice(&memo);
 
         let tx = test::burnchain_transaction(data, Some(output2), opcode);
