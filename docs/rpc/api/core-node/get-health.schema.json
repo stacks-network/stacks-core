@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to query node health",
+  "title": "GetHealthResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["matches_peers", "percent_of_blocks_synced"],
+  "properties": {
+    "matches_peers": {
+      "type": "boolean"
+    },
+    "percent_of_blocks_synced": {
+      "type": "integer"
+    }
+  }
+}

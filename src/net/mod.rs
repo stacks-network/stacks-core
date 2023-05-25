@@ -1665,9 +1665,8 @@ pub enum HttpResponseType {
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String),
     GetHealthError(HttpResponseMetadata, serde_json::Value),
-    GetHealthQueryError(HttpResponseMetadata, String),
+    GetHealthNoDataError(HttpResponseMetadata, String),
 }
-// TODO(hc): verify that these error responses are right
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum UrlScheme {

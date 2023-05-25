@@ -3236,7 +3236,7 @@ impl HttpResponseType {
             500 => HttpResponseType::ServerError(md, error_text),
             503 => HttpResponseType::ServiceUnavailable(md, error_text),
             512 => HttpResponseType::GetHealthError(md, json_val),
-            513 => HttpResponseType::GetHealthQueryError(md, error_text),
+            513 => HttpResponseType::GetHealthNoDataError(md, error_text),
             _ => HttpResponseType::Error(md, preamble.status_code, error_text),
         };
         Ok(resp)
@@ -4086,7 +4086,7 @@ impl HttpResponseType {
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
             HttpResponseType::GetHealthError(ref md, _) => md,
-            HttpResponseType::GetHealthQueryError(ref md, _) => md,
+            HttpResponseType::GetHealthNoDataError(ref md, _) => md,
         }
     }
 
@@ -4426,7 +4426,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetHealthQueryError(_, ref msg) => {
+            HttpResponseType::GetHealthNoDataError(_, ref msg) => {
                 self.error_response(fd, 513, msg)?
             }
         };
@@ -4557,7 +4557,7 @@ impl MessageSequence for StacksHttpMessage {
                     "HTTP(TransactionFeeEstimation)"
                 }
                 HttpResponseType::GetHealthError(..) => "HTTP(512)",
-                HttpResponseType::GetHealthQueryError(..) => "HTTP(513)",
+                HttpResponseType::GetHealthNoDataError(..) => "HTTP(513)",
             },
         }
     }

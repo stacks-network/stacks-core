@@ -456,3 +456,15 @@ object of the following form:
 Determine whether a given trait is implemented within the specified contract (either explicitly or implicitly).
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.
+
+### GET /v2/health
+
+Determine whether a node is healthy. The notion of health used for this
+endpoint is whether the block height of a node is greater than or
+equal to the max block height of its initial peers. If there are no valid 
+initial peers or data for the node to determine this information, this endpoint 
+returns an error. The endpoint also returns an error if the node's height is 
+less than the max block height amongst its initial peers, and this error includes
+the percent of blocks the node has relative to its most advanced peer. 
+
+See OpenAPI [spec](./rpc/openapi.yaml) for details.

@@ -483,3 +483,33 @@ paths:
           The Stacks chain tip to query from.
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
           If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state). 
+
+  /v2/health:
+    get:
+      summary: Query the health of the node.
+      description: Get a boolean determining whether a node is synced up with its boostrap nodes, and the percent of 
+        blocks the node has relative to its most advanced peer.
+      tags:
+        - Info
+      operationId: get_health
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-health.example.json
+        512:
+          description: The node is unhealthy, meaning it is lagging behind its most advanced peer. The 
+            `percent_of_blocks_synced` field indicates what percent of the height this node is at, relative to its 
+            most advanced peer.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-health.example.json
+        513:
+          description: Failed to query for health (no data or no valid peers to query from). 

@@ -2424,7 +2424,7 @@ impl ConversationHttp {
         // no bootstrap nodes found, unable to determine health.
         if initial_neighbors.len() == 0 {
             // TODO(hc): revisit the name of this error
-            let response = HttpResponseType::GetHealthQueryError(
+            let response = HttpResponseType::GetHealthNoDataError(
                 response_metadata.clone(),
                 "No viable bootstrap peers found, unable to determine health".to_string(),
             );
@@ -2462,7 +2462,7 @@ impl ConversationHttp {
 
             if !stats_obtained {
                 // no valid bootstrap nodes found, unable to determine health.
-                let response = HttpResponseType::GetHealthQueryError(
+                let response = HttpResponseType::GetHealthNoDataError(
                     response_metadata.clone(),
                     "Couldn't obtain stats on any bootstrap peers, unable to determine health"
                         .to_string(),
@@ -2484,7 +2484,7 @@ impl ConversationHttp {
                 HttpResponseType::GetHealthError(response_metadata.clone(), json!(data))
             }
         } else {
-            HttpResponseType::GetHealthQueryError(
+            HttpResponseType::GetHealthNoDataError(
                 response_metadata.clone(),
                 "Peer block stats not found.".to_string(),
             )
@@ -6708,7 +6708,7 @@ mod test {
              ref convo_server | {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
+                    HttpResponseType::GetHealthNoDataError(response_md, msg) => {
                         assert_eq!(msg, "Peer block stats not found.");
                         true
                     }
@@ -6753,7 +6753,7 @@ mod test {
              ref convo_server | {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
+                    HttpResponseType::GetHealthNoDataError(response_md, msg) => {
                         assert_eq!(
                             msg,
                             "Couldn't obtain stats on any bootstrap peers, unable to determine health"
