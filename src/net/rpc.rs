@@ -2387,16 +2387,9 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
-    fn is_peer_healthy(stats: &NeighborBlockStats, ibd: bool) -> bool {
-        (ibd && (stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged))
-            || (!ibd && stats.status == NodeStatus::Online)
-    }
-
-    // TODO(hc): check that all parameters are being used
     /// Handle a GET health.
-    /// If the node's height is not up to the max height of all of its bootstrap nodes, we return
-    /// false for the health check.
-    /// Additionally return what percent of the max height the node height is at.
+    /// A node is considered healthy if it is up to the max height of its bootstrap nodes.
+    /// This endpoint also returns what percent of the max height the node height is at.
     fn handle_get_health<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
@@ -2410,10 +2403,7 @@ impl ConversationHttp {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
-        let epoch = network.get_current_epoch();
-        let network_epoch = epoch.network_epoch;
         let peer_version = network.peer_version;
-
         let stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
         let last_processed_burn_height = network.burnchain_tip.block_height;
         let burnchain_height = network.chain_view.burn_block_height;
@@ -2428,7 +2418,6 @@ impl ConversationHttp {
 
         // no bootstrap nodes found, unable to determine health.
         if initial_neighbors.len() == 0 {
-            // TODO(hc): revisit the name of this error
             let response = HttpResponseType::GetHealthNoDataError(
                 response_metadata.clone(),
                 "No viable bootstrap peers found, unable to determine health".to_string(),
@@ -3858,7 +3847,7 @@ mod test {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
 
-        // TODO(hc): understand what this means + add a comment
+        // when allowed < 0, the peer is always allowed.
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
 
@@ -6570,9 +6559,9 @@ mod test {
         }
     }
 
-    /// Expecting the peer server's block height to be 1 while its peer's block height is 3.
-    /// This leads to a response where the peer server returns false for `matches_peers` as well as
-    /// the percent of blocks it has.
+    /// Expecting the peer server's block height to be 1 while its client peer's block height is 3.
+    /// In the response, the peer server returns false for `matches_peers` and returns
+    /// the percent of blocks it has relative to its initial peers (just the client peer).
     #[test]
     #[ignore]
     fn test_rpc_get_health_false() {
@@ -6614,7 +6603,6 @@ mod test {
              ref mut peer_server,
              ref convo_client,
              ref convo_server| {
-                let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealthError(response_md, data) => {
                         let get_health_error_resp: GetHealthResponse =
@@ -6674,7 +6662,6 @@ mod test {
              ref mut peer_server,
              ref convo_client,
              ref convo_server| {
-                let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealth(response_md, data) => {
                         assert_eq!(data.matches_peers, true);

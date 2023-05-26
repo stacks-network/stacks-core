@@ -1259,7 +1259,6 @@ impl PeerDB {
         Ok(())
     }
 
-    // TODO(hc): peer version check here appears to be wrong
     /// Get random neighbors, optionally always including allowed neighbors
     pub fn get_random_neighbors(
         conn: &DBConn,
@@ -1336,7 +1335,6 @@ impl PeerDB {
         PeerDB::get_random_neighbors(conn, network_id, network_epoch, count, block_height, true)
     }
 
-    // TODO(hc): need to understand expire_block_height
     pub fn get_valid_initial_neighbors(
         conn: &DBConn,
         network_id: u32,

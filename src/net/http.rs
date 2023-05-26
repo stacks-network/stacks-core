@@ -3210,7 +3210,6 @@ impl HttpResponseType {
         }
 
         let mut error_text = String::new();
-        // TODO(hc): parse json here for the GetHealthError
         let mut json_val: serde_json::Value = Default::default();
         fd.read_to_string(&mut error_text)
             .map_err(net_error::ReadError)?;

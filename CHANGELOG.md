@@ -13,8 +13,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   from the source code are now attached to the `SymbolicExpression` nodes. This
   will be useful for tools that use the Clarity library to analyze and
   manipulate Clarity source code, e.g. a formatter.
-- New RPC endpoint to query the node's health. The notion of health used for this 
-  endpoint is whether the node is caught up with its bootstrap peers. The endpoint returns 
+- Added a new RPC endpoint to query the node's health. A node is considered healthy if it
+  is caught up with its bootstrap peers. The endpoint returns 
   200 if it is synced to its peers' chaintips, 513 if the query was unsuccessful (no viable 
   data potentially), or 512 if the node is not caught up to its peers. This endpoint can be 
   accessed at `v2/health`.

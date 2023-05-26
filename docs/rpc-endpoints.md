@@ -459,9 +459,8 @@ See OpenAPI [spec](./rpc/openapi.yaml) for details.
 
 ### GET /v2/health
 
-Determine whether a node is healthy. The notion of health used for this
-endpoint is whether the block height of a node is greater than or
-equal to the max block height of its initial peers. If there are no valid 
+Determine whether a node is healthy. A node is considered healthy if its block height
+is greater than or equal to the max block height of its initial peers. If there are no valid 
 initial peers or data for the node to determine this information, this endpoint 
 returns an error. The endpoint also returns an error if the node's height is 
 less than the max block height amongst its initial peers, and this error includes
