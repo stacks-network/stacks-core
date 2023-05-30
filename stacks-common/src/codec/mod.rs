@@ -207,7 +207,6 @@ impl StacksMessageCodec for bool {
             0 => Ok(false),
             1 => Ok(true),
             _ => {
-                warn!("Invalid bool value");
                 return Err(Error::DeserializeError(format!(
                     "Failed to parse bool value: {}",
                     b
@@ -237,7 +236,6 @@ impl<T: StacksMessageCodec> StacksMessageCodec for Option<T> {
             0 => Ok(None),
             1 => Ok(Some(read_next(fd)?)),
             _ => {
-                warn!("Invalid option value");
                 return Err(Error::DeserializeError(format!(
                     "Failed to parse option value: invalid header for option value {}",
                     is_some
