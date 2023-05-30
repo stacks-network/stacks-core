@@ -45,7 +45,6 @@ fn codec_for_option() {
 #[test]
 fn codec_for_u128() {
     let n: u128 = 0x1234567890abcdef1234567890abcdef;
-    let n_binary = n.serialize_to_vec();
     assert_eq!(
         &n.serialize_to_vec(),
         &vec![
