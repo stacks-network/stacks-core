@@ -4541,19 +4541,18 @@ fn atlas_stop_start() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(
-        PoxConstants::new(
-            6,
-            3,
-            3,
-            25,
-            5,
-            10,
-            sunset_ht,
-            10,
-            u32::MAX,
-            u32::MAX,
-        ));
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        10,
+        u32::MAX,
+        u32::MAX,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     // publish a simple contract used to generate atlas attachment instances
@@ -4834,7 +4833,7 @@ fn get_total_stacked_info(
                     Ok(result)
                 },
             )
-                .unwrap()
+            .unwrap()
         })
         .unwrap()
 }
