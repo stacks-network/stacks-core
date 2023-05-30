@@ -30,6 +30,7 @@ use stacks::cost_estimates::metrics::ProportionalDotProduct;
 use stacks::cost_estimates::CostEstimator;
 use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
+use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::get_epoch_time_ms;
@@ -55,6 +56,7 @@ pub struct ConfigFile {
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
+    pub atlas: Option<AtlasConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -360,6 +362,7 @@ pub struct Config {
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
+    pub atlas: AtlasConfig,
 }
 
 lazy_static! {
@@ -1147,6 +1150,16 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
+        let mainnet = burnchain.mode == "mainnet";
+        let atlas = match config_file.atlas {
+            Some(f) => f.into_config(mainnet),
+            None => AtlasConfig::new(mainnet),
+        };
+
+        atlas
+            .validate()
+            .map_err(|e| format!("Atlas config error: {e}"))?;
+
         Ok(Config {
             node,
             burnchain,
@@ -1155,6 +1168,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
+            atlas,
         })
     }
 
@@ -1306,6 +1320,7 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
+        let mainnet = burnchain.mode == "mainnet";
 
         Config {
             burnchain,
@@ -1315,6 +1330,7 @@ impl std::default::Default for Config {
             connection_options,
             estimation,
             miner: MinerConfig::default(),
+            atlas: AtlasConfig::new(mainnet),
         }
     }
 }
@@ -1985,7 +2001,7 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -1994,20 +2010,6 @@ pub struct FeeEstimationConfigFile {
     pub log_error: Option<bool>,
     pub fee_rate_fuzzer_fraction: Option<f64>,
     pub fee_rate_window_size: Option<u64>,
-}
-
-impl Default for FeeEstimationConfigFile {
-    fn default() -> Self {
-        Self {
-            cost_estimator: None,
-            fee_estimator: None,
-            cost_metric: None,
-            disabled: None,
-            log_error: None,
-            fee_rate_fuzzer_fraction: None,
-            fee_rate_window_size: None,
-        }
-    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -2022,6 +2024,34 @@ pub struct MinerConfigFile {
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
+}
+
+#[derive(Clone, Deserialize, Default, Debug)]
+pub struct AtlasConfigFile {
+    pub attachments_max_size: Option<u32>,
+    pub max_uninstantiated_attachments: Option<u32>,
+    pub uninstantiated_attachments_expire_after: Option<u32>,
+    pub unresolved_attachment_instances_expire_after: Option<u32>,
+}
+
+impl AtlasConfigFile {
+    // Can't inplement `Into` trait because this takes a parameter
+    fn into_config(&self, mainnet: bool) -> AtlasConfig {
+        let mut conf = AtlasConfig::new(mainnet);
+        if let Some(val) = self.attachments_max_size {
+            conf.attachments_max_size = val
+        }
+        if let Some(val) = self.max_uninstantiated_attachments {
+            conf.max_uninstantiated_attachments = val
+        }
+        if let Some(val) = self.uninstantiated_attachments_expire_after {
+            conf.uninstantiated_attachments_expire_after = val
+        }
+        if let Some(val) = self.unresolved_attachment_instances_expire_after {
+            conf.unresolved_attachment_instances_expire_after = val
+        }
+        conf
+    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

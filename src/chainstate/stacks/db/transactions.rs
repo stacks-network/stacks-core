@@ -183,7 +183,31 @@ impl StacksTransactionReceipt {
     pub fn from_analysis_failure(
         tx: StacksTransaction,
         analysis_cost: ExecutionCost,
+        error: clarity::vm::clarity::Error,
     ) -> StacksTransactionReceipt {
+        let error_string = match error {
+            clarity_error::Analysis(ref check_error) => {
+                if let Some(span) = check_error.diagnostic.spans.first() {
+                    format!(
+                        ":{}:{}: {}",
+                        span.start_line, span.start_column, check_error.diagnostic.message
+                    )
+                } else {
+                    format!("{}", check_error.diagnostic.message)
+                }
+            }
+            clarity_error::Parse(ref parse_error) => {
+                if let Some(span) = parse_error.diagnostic.spans.first() {
+                    format!(
+                        ":{}:{}: {}",
+                        span.start_line, span.start_column, parse_error.diagnostic.message
+                    )
+                } else {
+                    format!("{}", parse_error.diagnostic.message)
+                }
+            }
+            _ => error.to_string(),
+        };
         StacksTransactionReceipt {
             transaction: tx.into(),
             events: vec![],
@@ -194,7 +218,7 @@ impl StacksTransactionReceipt {
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: None,
+            vm_error: Some(error_string),
         }
     }
 
@@ -1138,6 +1162,7 @@ impl StacksChainState {
                                 let receipt = StacksTransactionReceipt::from_analysis_failure(
                                     tx.clone(),
                                     analysis_cost,
+                                    other_error,
                                 );
 
                                 // abort now -- no burns
@@ -1190,7 +1215,23 @@ impl StacksChainState {
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => ?error);
-                            (AssetMap::new(), vec![])
+                            // When top-level code in a contract publish causes a runtime error,
+                            // the transaction is accepted, but the contract is not created.
+                            //   Return a tx receipt with an `err_none()` result to indicate
+                            //   that the transaction failed during execution.
+                            let receipt = StacksTransactionReceipt {
+                                transaction: tx.clone().into(),
+                                events: vec![],
+                                post_condition_aborted: false,
+                                result: Value::err_none(),
+                                stx_burned: 0,
+                                contract_analysis: Some(contract_analysis),
+                                execution_cost: total_cost,
+                                microblock_header: None,
+                                tx_index: 0,
+                                vm_error: Some(error.to_string()),
+                            };
+                            return Ok(receipt);
                         }
                         ClarityRuntimeTxError::AbortedByCallback(_, assets, events) => {
                             let receipt =
@@ -1412,6 +1453,7 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    use clarity::vm::tests::TEST_HEADER_DB;
     use rand::Rng;
 
     use crate::burnchains::Address;
@@ -1457,6 +1499,81 @@ pub mod test {
         &TestBurnStateDB_20 as &dyn BurnStateDB,
         &TestBurnStateDB_2_05 as &dyn BurnStateDB,
     ];
+
+    #[test]
+    fn contract_publish_runtime_error() {
+        let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
+        let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
+        let sender = PrincipalData::parse(address).unwrap();
+
+        let marf_kv = MarfedKV::temporary();
+        let chain_id = 0x80000000;
+        let mut clarity_instance = ClarityInstance::new(false, chain_id, marf_kv);
+        let mut genesis = clarity_instance.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+        genesis.initialize_epoch_2_05().unwrap();
+        genesis.initialize_epoch_2_1().unwrap();
+        genesis.as_transaction(|tx_conn| {
+            // bump the epoch in the Clarity DB
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                    Ok(())
+                })
+                .unwrap();
+        });
+        genesis.commit_block();
+
+        let mut next_block = clarity_instance.begin_block(
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &StacksBlockId([3; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        let mut tx_conn = next_block.start_transaction_processing();
+        let sk = secp256k1::Secp256k1PrivateKey::new();
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth: TransactionAuth::from_p2pkh(&sk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
+                None,
+            ),
+        };
+        let receipt = StacksChainState::process_transaction_payload(
+            &mut tx_conn,
+            &tx,
+            &StacksAccount {
+                principal: sender.clone(),
+                nonce: 0,
+                stx_balance: STXBalance::Unlocked { amount: 100 },
+            },
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
+
+        assert_eq!(receipt.result, Value::err_none());
+        assert!(receipt.vm_error.unwrap().starts_with("DivisionByZero"));
+    }
 
     #[test]
     fn process_token_transfer_stx_transaction() {
@@ -2066,6 +2183,90 @@ pub mod test {
                     continue;
                 }
             }
+            conn.commit_block();
+        }
+    }
+
+    #[test]
+    fn process_smart_contract_transaction_syntax_error() {
+        let contracts = [
+            "(define-data-var bar int 0)) ;; oops",
+            ";; `Int` instead of `int`
+             (define-data-var bar Int 0)",
+        ];
+        let contract_names = ["hello-world-0", "hello-world-1"];
+        let expected_errors = [
+            "Tried to close list which isn't open.",
+            ":2:14: invalid variable definition",
+        ];
+        let expected_errors_2_1 = ["unexpected ')'", ":2:14: invalid variable definition"];
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+            let mut conn = chainstate.block_begin(
+                burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+
+            let mut next_nonce = 0;
+            for i in 0..contracts.len() {
+                let contract_name = contract_names[i];
+                let contract = contracts[i].to_string();
+
+                test_debug!("\ninstantiate contract\n{}\n", &contract);
+
+                let mut tx_contract = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    auth.clone(),
+                    TransactionPayload::new_smart_contract(&contract_name, &contract, None)
+                        .unwrap(),
+                );
+
+                tx_contract.chain_id = 0x80000000;
+                tx_contract.set_tx_fee(0);
+                tx_contract.set_origin_nonce(next_nonce);
+
+                let mut signer = StacksTransactionSigner::new(&tx_contract);
+                signer.sign_origin(&privk).unwrap();
+
+                let signed_tx = signer.get_tx().unwrap();
+
+                let _contract_id = QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr.clone()),
+                    ContractName::from(contract_name),
+                );
+
+                let (fee, receipt) = StacksChainState::process_transaction(
+                    &mut conn,
+                    &signed_tx,
+                    false,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+                // Verify that the syntax error is recorded in the receipt
+                let expected_error =
+                    if burn_db.get_stacks_epoch(0).unwrap().epoch_id == StacksEpochId::Epoch21 {
+                        expected_errors_2_1[i].to_string()
+                    } else {
+                        expected_errors[i].to_string()
+                    };
+                assert_eq!(receipt.vm_error.unwrap(), expected_error);
+
+                next_nonce += 1;
+            }
+
             conn.commit_block();
         }
     }

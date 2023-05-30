@@ -59,7 +59,7 @@ use crate::core::{StacksEpoch, StacksEpochId};
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };
-use crate::net::atlas::{AtlasConfig, AttachmentInstance};
+use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as DBError;
@@ -202,7 +202,7 @@ pub struct ChainsCoordinator<
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
     burnchain: Burnchain,
-    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+    atlas_db: Option<AtlasDB>,
     dispatcher: Option<&'a T>,
     cost_estimator: Option<&'a mut CE>,
     fee_estimator: Option<&'a mut FE>,
@@ -348,7 +348,6 @@ impl<
         config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
@@ -356,6 +355,7 @@ impl<
         fee_estimator: Option<&mut FE>,
         miner_status: Arc<Mutex<MinerStatus>>,
         burnchain_indexer: B,
+        atlas_db: AtlasDB,
     ) where
         T: BlockEventDispatcher,
     {
@@ -385,13 +385,13 @@ impl<
             chain_state_db,
             sortition_db,
             burnchain,
-            attachments_tx,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
             cost_estimator,
             fee_estimator,
             atlas_config,
+            atlas_db: Some(atlas_db),
             config,
             burnchain_indexer,
         };
@@ -448,35 +448,36 @@ impl<
 impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
     ChainsCoordinator<'a, T, (), U, (), (), B>
 {
+    /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         indexer: B,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
-        ChainsCoordinator::test_new_with_observer(
+        ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
             path,
             reward_set_provider,
-            attachments_tx,
             None,
             indexer,
+            None,
         )
     }
 
+    /// Create a coordinator for testing allowing for all configurable params
     #[cfg(test)]
-    pub fn test_new_with_observer(
+    pub fn test_new_full(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
+        atlas_config: Option<AtlasConfig>,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
@@ -501,6 +502,10 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
+        let atlas_config = atlas_config.unwrap_or(AtlasConfig::new(false));
+        let atlas_db =
+            AtlasDB::connect(atlas_config.clone(), &format!("{}/atlas", path), true).unwrap();
+
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
             burnchain_blocks_db,
@@ -512,8 +517,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             fee_estimator: None,
             reward_set_provider,
             notifier: (),
-            attachments_tx,
-            atlas_config: AtlasConfig::default(false),
+            atlas_config,
+            atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
         }
@@ -2586,7 +2591,8 @@ impl<
 
     /// Process any Atlas attachment events and forward them to the Atlas subsystem
     fn process_atlas_attachment_events(
-        &self,
+        atlas_db: Option<&mut AtlasDB>,
+        atlas_config: &AtlasConfig,
         block_receipt: &StacksEpochReceipt,
         canonical_stacks_tip_height: u64,
     ) {
@@ -2596,7 +2602,7 @@ impl<
                 if let TransactionPayload::ContractCall(ref contract_call) = transaction.payload {
                     let contract_id = contract_call.to_clarity_contract_id();
                     increment_contract_calls_processed();
-                    if self.atlas_config.contracts.contains(&contract_id) {
+                    if atlas_config.contracts.contains(&contract_id) {
                         for event in receipt.events.iter() {
                             if let StacksTransactionEvent::SmartContractEvent(ref event_data) =
                                 event
@@ -2620,15 +2626,26 @@ impl<
         }
         if !attachments_instances.is_empty() {
             info!(
-                "Atlas: {} attachment instances emitted from events",
-                attachments_instances.len()
+                "Atlas: New attachment instances emitted by block";
+                "attachments_count" => attachments_instances.len(),
+                "index_block_hash" => %block_receipt.header.index_block_hash(),
+                "stacks_height" => block_receipt.header.stacks_block_height,
             );
-            match self.attachments_tx.send(attachments_instances) {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Atlas: error dispatching attachments {}", e);
+            if let Some(atlas_db) = atlas_db {
+                for new_attachment in attachments_instances.into_iter() {
+                    if let Err(e) = atlas_db.queue_attachment_instance(&new_attachment) {
+                        warn!(
+                            "Atlas: Error writing attachment instance to DB";
+                            "err" => ?e,
+                            "index_block_hash" => %new_attachment.index_block_hash,
+                            "contract_id" => %new_attachment.contract_id,
+                            "attachment_index" => %new_attachment.attachment_index,
+                        );
+                    }
                 }
-            };
+            } else {
+                warn!("Atlas: attempted to write attachments, but stacks-node not configured with Atlas DB");
+            }
         }
     }
 
@@ -2926,7 +2943,9 @@ impl<
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
 
-                    self.process_atlas_attachment_events(
+                    Self::process_atlas_attachment_events(
+                        self.atlas_db.as_mut(),
+                        &self.atlas_config,
                         &block_receipt,
                         new_canonical_block_snapshot.canonical_stacks_tip_height,
                     );
