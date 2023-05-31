@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.4.0.0.0]
+This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
+
+- [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md)
+- [SIP-024](https://github.com/stacksgov/sips/blob/main/sips/sip-024/sip-024-least-supertype-fix.md)
+
+### Fixed
+- PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
+- Peer network id is updated to `0x18000009`
+- Adds the type sanitization described in SIP-024
+
+This release is compatible with chainstate directories from 2.1.0.0.x and 2.3.0.0.x
+
+## [2.3.0.0.2]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability.
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.1]
+
+This is a hotfix release to update:
+- peer version identifier used by the stacks-node p2p network.
+- yield interpreter errors in deser_hex
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.0]
+
+This is a **consensus-breaking** release to address a Clarity VM bug discovered in 2.2.0.0.1.
+Tx and read-only calls to functions with traits as parameters are rejected with unchecked TypeValueError.
+Additional context and rationale can be found in [SIP-023](https://github.com/stacksgov/sips/blob/main/sips/sip-023/sip-023-emergency-fix-traits.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
 ## [2.2.0.0.1]
 
 This is a **consensus-breaking** release to address a bug and DoS vector in pox-2's `stack-increase` function.

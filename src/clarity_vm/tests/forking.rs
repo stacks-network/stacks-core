@@ -42,6 +42,12 @@ const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn test_clarity_versions_type_checker(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,

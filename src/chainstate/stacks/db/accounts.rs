@@ -392,6 +392,127 @@ impl StacksChainState {
             .expect("FATAL: failed to set account nonce")
     }
 
+    /////////////////////// PoX-3 /////////////////////////////////
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if snapshot.has_locked_tokens() {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v3(lock_amount, unlock_burn_height);
+
+        debug!(
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(())
+    }
+
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v3(unlock_burn_height);
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(amount_locked)
+    }
+
+    /// Increase a STX lock up for PoX-3.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        let bal = snapshot.canonical_balance_repr();
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
+        }
+
+        snapshot.increase_lock_v3(new_total_locked);
+
+        let out_balance = snapshot.canonical_balance_repr();
+
+        debug!(
+            "PoX v3 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(out_balance)
+    }
+
+    /////////////////////// PoX-2 /////////////////////////////////
+
     /// Increase a STX lock up for PoX.  Does NOT touch the account nonce.
     /// Returns Ok( account snapshot ) when successful
     ///
@@ -512,6 +633,8 @@ impl StacksChainState {
         snapshot.save();
         Ok(())
     }
+
+    /////////////////////// PoX (first version) /////////////////////////////////
 
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
     pub fn pox_lock_v1(
