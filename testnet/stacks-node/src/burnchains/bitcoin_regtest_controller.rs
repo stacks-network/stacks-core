@@ -1154,6 +1154,9 @@ impl BitcoinRegtestController {
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1161,7 +1164,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            payload.parent_block_ptr as u64,
+            burn_chain_tip.block_height,
         )?;
 
         // Serialize the payload
