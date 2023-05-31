@@ -32,6 +32,7 @@ use rand::RngCore;
 use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
+use serde::Serialize;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::BurnchainDB;
