@@ -22,7 +22,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   the receipt. Fixes issues #3154, #3328.
 
 - Added config setting `burnchain.wallet_name` which addresses blank wallets no 
-  longer being created by default in recent bitcoin versions. Fixes issue ##3596
+  longer being created by default in recent bitcoin versions. Fixes issue #3596
 
 ## [2.4.0.0.0]
 This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
