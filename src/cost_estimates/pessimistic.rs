@@ -148,7 +148,7 @@ impl Samples {
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
-        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::max_value());
+        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
         tx.execute(
             sql,
             rusqlite::params![identifier, current_value, self.to_json()],

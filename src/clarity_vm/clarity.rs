@@ -2249,7 +2249,7 @@ mod tests {
                 self.get_stacks_epoch(0)
             }
             fn get_v1_unlock_height(&self) -> u32 {
-                u32::max_value()
+                u32::MAX
             }
 
             fn get_pox_prepare_length(&self) -> u32 {

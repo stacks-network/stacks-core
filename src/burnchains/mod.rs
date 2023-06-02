@@ -345,7 +345,7 @@ impl PoxConstants {
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::MAX)
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height

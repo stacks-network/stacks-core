@@ -537,9 +537,9 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
             3,
             25,
             5,
-            u64::max_value(),
-            u64::max_value(),
-            u32::max_value(),
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
         )
     });
     b
@@ -984,7 +984,7 @@ fn missed_block_commits_2_05() {
         5,
         7010,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -1302,7 +1302,7 @@ fn missed_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -1644,7 +1644,7 @@ fn late_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -2700,7 +2700,7 @@ fn test_pox_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_v1_unlock_ht = u32::max_value();
+    let pox_v1_unlock_ht = u32::MAX;
     let pox_consts = Some(PoxConstants::new(
         5,
         3,
@@ -2976,7 +2976,7 @@ fn test_stx_transfer_btc_ops() {
     let path = &test_path("stx_transfer-btc-ops");
     let _r = std::fs::remove_dir_all(path);
 
-    let pox_v1_unlock_ht = u32::max_value();
+    let pox_v1_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         5,
@@ -3680,7 +3680,7 @@ fn test_initial_coinbase_reward_distributions() {
         5,
         7010,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3917,7 +3917,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         5,
         10,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4908,7 +4908,7 @@ fn test_sortition_with_sunset() {
         5,
         10,
         sunset_ht,
-        u32::max_value(),
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -5562,7 +5562,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         5,
         u64::MAX - 1,
         u64::MAX,
-        u32::max_value(),
+        u32::MAX,
     ));
     let b = get_burnchain(path, pox_consts.clone());
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
