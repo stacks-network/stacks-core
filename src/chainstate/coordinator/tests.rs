@@ -530,18 +530,8 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
-    b.pox_constants = pox_consts.unwrap_or_else(|| {
-        PoxConstants::new(
-            5,
-            3,
-            3,
-            25,
-            5,
-            u64::MAX,
-            u64::MAX,
-            u32::MAX,
-        )
-    });
+    b.pox_constants = pox_consts
+        .unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX));
     b
 }
 
@@ -976,16 +966,7 @@ fn missed_block_commits_2_05() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        7010,
-        sunset_ht,
-        u32::MAX,
-    ));
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht, u32::MAX));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -1294,16 +1275,7 @@ fn missed_block_commits_2_1() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        7010,
-        sunset_ht,
-        u32::MAX,
-    ));
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht, u32::MAX));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -3672,16 +3644,7 @@ fn test_initial_coinbase_reward_distributions() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        7010,
-        sunset_ht,
-        u32::MAX,
-    ));
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht, u32::MAX));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -3909,16 +3872,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(
-        6,
-        3,
-        3,
-        25,
-        5,
-        10,
-        sunset_ht,
-        u32::MAX,
-    ));
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, u32::MAX));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
@@ -4900,16 +4854,7 @@ fn test_sortition_with_sunset() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 80;
-    let pox_consts = Some(PoxConstants::new(
-        6,
-        3,
-        3,
-        25,
-        5,
-        10,
-        sunset_ht,
-        u32::MAX,
-    ));
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, u32::MAX));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
