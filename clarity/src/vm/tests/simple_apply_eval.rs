@@ -54,6 +54,12 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn test_clarity_versions_simple_apply_eval(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,

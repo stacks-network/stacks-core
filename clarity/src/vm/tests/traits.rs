@@ -37,7 +37,21 @@ use crate::vm::ContractContext;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
 fn test_epoch_clarity_versions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
+
+#[template]
+#[rstest]
+#[case(StacksEpochId::Epoch21)]
+#[case(StacksEpochId::Epoch22)]
+#[case(StacksEpochId::Epoch23)]
+#[case(StacksEpochId::Epoch24)]
+fn test_epoch_only_clarity_2(#[case] epoch: StacksEpochId) {}
 
 #[apply(test_epoch_clarity_versions)]
 fn test_trait_basics(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
@@ -70,8 +84,8 @@ fn test_trait_basics(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
     }
 }
 
-#[test]
-fn test_clarity2() {
+#[apply(test_epoch_only_clarity_2)]
+fn test_clarity2(#[case] epoch: StacksEpochId) {
     let to_test = [
         test_pass_principal_literal_to_trait,
         test_pass_trait_to_subtrait,
@@ -86,7 +100,7 @@ fn test_clarity2() {
         test_let3_trait,
     ];
     for test in to_test.iter() {
-        with_memory_environment(test, StacksEpochId::latest(), false);
+        with_memory_environment(test, epoch, false);
     }
 }
 
