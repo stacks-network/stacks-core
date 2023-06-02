@@ -1721,6 +1721,7 @@ impl PeerNetwork {
             &self.peerdb.conn(),
             self.local_peer.network_id,
             cur_epoch.network_epoch,
+            self.peer_version,
             num_neighbors as u32,
             block_height,
         )

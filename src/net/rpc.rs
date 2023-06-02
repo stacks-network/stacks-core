@@ -533,6 +533,7 @@ impl RPCNeighborsInfo {
     pub fn from_p2p(
         network_id: u32,
         network_epoch: u8,
+        peer_version: u32,
         peers: &PeerMap,
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
@@ -554,6 +555,7 @@ impl RPCNeighborsInfo {
             peerdb.conn(),
             network_id,
             network_epoch,
+            peer_version,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -899,6 +901,7 @@ impl ConversationHttp {
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
             epoch.network_epoch,
+            network.peer_version,
             &network.peers,
             &network.chain_view,
             &network.peerdb,
@@ -2407,10 +2410,12 @@ impl ConversationHttp {
         let stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
         let last_processed_burn_height = network.burnchain_tip.block_height;
         let burnchain_height = network.chain_view.burn_block_height;
+        let epoch = network.get_current_epoch();
 
         let initial_neighbors = PeerDB::get_valid_initial_neighbors(
             peerdb.conn(),
             network_id,
+            epoch.network_epoch,
             peer_version,
             burnchain_height,
         )

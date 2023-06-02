@@ -6383,6 +6383,16 @@ mod test {
                 "/v2/neighbors".to_string(),
             ),
             (
+                HttpResponseType::GetHealthError(
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
+                    json!({
+                        "matches_peers": false,
+                        "percent_of_blocks_synced": 93,
+                    }),
+                ),
+                "/v2/health".to_string(),
+            ),
+            (
                 HttpResponseType::Error(
                     HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     502,
@@ -6447,6 +6457,13 @@ mod test {
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
+            ),
+            (
+                HttpResponseType::GetHealthNoDataError(
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(7), true, None),
+                    "no data".to_string(),
+                ),
+                "/v2/health".to_string(),
             ),
         ];
 
@@ -6525,6 +6542,14 @@ mod test {
             HttpResponsePreamble::new_error(404, 123, None),
             HttpResponsePreamble::new_error(500, 123, None),
             HttpResponsePreamble::new_error(503, 123, None),
+            HttpResponsePreamble::new(
+                512,
+                "Error".to_string(),
+                Some(0),
+                HttpContentType::JSON,
+                true,
+                123,
+            ),
             // generic error
             HttpResponsePreamble::new_error(502, 123, None),
             // errors with messages
@@ -6536,6 +6561,7 @@ mod test {
             HttpResponsePreamble::new_error(500, 123, Some("foo".to_string())),
             HttpResponsePreamble::new_error(503, 123, Some("foo".to_string())),
             HttpResponsePreamble::new_error(502, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(513, 123, Some("no data".to_string())),
         ];
 
         let expected_http_bodies = vec![
@@ -6564,6 +6590,7 @@ mod test {
             vec![],
             vec![],
             vec![],
+            vec![],
             // errors with messages
             "foo".as_bytes().to_vec(),
             "foo".as_bytes().to_vec(),
@@ -6573,6 +6600,7 @@ mod test {
             "foo".as_bytes().to_vec(),
             "foo".as_bytes().to_vec(),
             "foo".as_bytes().to_vec(),
+            "no data".as_bytes().to_vec(),
         ];
 
         for ((test, request_path), (expected_http_preamble, _expected_http_body)) in

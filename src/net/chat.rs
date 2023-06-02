@@ -1277,6 +1277,7 @@ impl ConversationP2P {
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
+            self.peer_version,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,

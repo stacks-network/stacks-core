@@ -510,6 +510,6 @@ paths:
               schema:
                 $ref: ./api/core-node/get-health.schema.json
               example:
-                $ref: ./api/core-node/get-health.example.json
+                $ref: ./api/core-node/get-health-false.example.json
         513:
           description: Failed to query for health (no data or no valid peers to query from). 
