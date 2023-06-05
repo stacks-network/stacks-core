@@ -4068,21 +4068,20 @@ impl PeerNetwork {
     //     sequence number.
     // (3) Puts the data into a queue object.
     fn sort_tip_data(
-        mut tip_data: Vec<(UrlString, SocketAddr, u16)>,
+        tip_data: Vec<(UrlString, SocketAddr, u16)>,
         local_seq_num_opt: Option<u16>,
     ) -> VecDeque<(UrlString, SocketAddr, u16)> {
-        tip_data.sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| Ord::cmp(seq_num_a, seq_num_b));
+        let mut filtered_tip_data: Vec<(UrlString, SocketAddr, u16)> = tip_data.into_iter().filter(|(_, _, seq_num)| {
+            if let Some(local_seq_num) = local_seq_num_opt {
+                seq_num > &local_seq_num
+            } else {
+                true
+            }
+        }).collect();
 
-        tip_data
-            .into_iter()
-            .filter(|(_, _, seq_num)| {
-                if let Some(local_seq_num) = local_seq_num_opt {
-                    seq_num > &local_seq_num
-                } else {
-                    true
-                }
-            })
-            .collect()
+        filtered_tip_data.sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| Ord::cmp(seq_num_a, seq_num_b));
+
+        filtered_tip_data.into_iter().collect()
     }
 
     // This function takes in sorted_tip_data, which contains peer data sorted from low to high,
