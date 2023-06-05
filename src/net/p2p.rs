@@ -4202,7 +4202,7 @@ impl PeerNetwork {
             );
             match curr_state {
                 MicroblockTipSyncState::CollectPeerURL => {
-                    if self.peers.len() == 0 {
+                    if self.peers.is_empty() {
                         debug!(
                             "{:?}: No peers connected; cannot do microblock tip sync",
                             &self.local_peer
