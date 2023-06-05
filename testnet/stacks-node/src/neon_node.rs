@@ -177,7 +177,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_1_MARKER;
+use stacks::core::STACKS_EPOCH_2_4_MARKER;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -217,7 +217,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;
@@ -1325,7 +1325,7 @@ impl BlockMinerThread {
             apparent_sender: sender,
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            memo: vec![STACKS_EPOCH_2_4_MARKER],
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
@@ -1759,6 +1759,7 @@ impl BlockMinerThread {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        unprocessed_block_deadline: u64,
     ) -> bool {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
@@ -1767,13 +1768,21 @@ impl BlockMinerThread {
             .get_stacks_chain_tip(sortdb)
             .expect("FATAL: could not query canonical Stacks chain tip")
         {
-            let has_unprocessed =
-                StacksChainState::has_higher_unprocessed_blocks(chainstate.db(), stacks_tip.height)
-                    .expect("FATAL: failed to query staging blocks");
+            // if a block hasn't been processed within some deadline seconds of receipt, don't block
+            //  mining
+            let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
+            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
+                chainstate.db(),
+                stacks_tip.height,
+                process_deadline,
+            )
+            .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                let highest_unprocessed_opt =
-                    StacksChainState::get_highest_unprocessed_block(chainstate.db())
-                        .expect("FATAL: failed to query staging blocks");
+                let highest_unprocessed_opt = StacksChainState::get_highest_unprocessed_block(
+                    chainstate.db(),
+                    process_deadline,
+                )
+                .expect("FATAL: failed to query staging blocks");
 
                 if let Some(highest_unprocessed) = highest_unprocessed_opt {
                     let highest_unprocessed_block_sn_opt =
@@ -2010,8 +2019,12 @@ impl BlockMinerThread {
                 .expect("FATAL: mutex poisoned")
                 .is_blocked();
 
-            let has_unprocessed =
-                Self::unprocessed_blocks_prevent_mining(&self.burnchain, &burn_db, &chain_state);
+            let has_unprocessed = Self::unprocessed_blocks_prevent_mining(
+                &self.burnchain,
+                &burn_db,
+                &chain_state,
+                self.config.miner.unprocessed_block_deadline_secs,
+            );
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
@@ -2976,6 +2989,7 @@ impl RelayerThread {
             &self.burnchain,
             self.sortdb_ref(),
             self.chainstate_ref(),
+            self.config.miner.unprocessed_block_deadline_secs,
         );
         if has_unprocessed {
             debug!(
@@ -3807,6 +3821,25 @@ impl PeerThread {
 }
 
 impl StacksNode {
+    /// Create a StacksPrivateKey from a given seed buffer
+    pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
+        let node_privkey = {
+            let mut re_hashed_seed = seed.to_vec();
+            let my_private_key = loop {
+                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
+                    Ok(sk) => break sk,
+                    Err(_) => {
+                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
+                            .as_bytes()
+                            .to_vec()
+                    }
+                }
+            };
+            my_private_key
+        };
+        node_privkey
+    }
+
     /// Set up the AST size-precheck height, if configured
     fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
         if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
