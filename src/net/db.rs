@@ -1305,10 +1305,10 @@ impl PeerDB {
         // fill in with non-allowed, randomly-chosen, fresh peers
         let random_peers_qry = if always_include_allowed {
             "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
-                 (allowed >= 0 AND allowed <= ?4) AND (peer_version & 0x000000ff) >= ?5 ORDER BY RANDOM() LIMIT ?6".to_string()
+                 (allowed >= 0 AND allowed <= ?4) AND (?5 <= (peer_version & 0x000000ff) OR ?6 <= (peer_version & 0x000000ff)) ORDER BY RANDOM() LIMIT ?7".to_string()
         } else {
             "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
-                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?4)) AND (peer_version & 0x000000ff) >= ?5 ORDER BY RANDOM() LIMIT ?6".to_string()
+                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?4)) AND (?5 <= (peer_version & 0x000000ff) OR ?6 <= (peer_version & 0x000000ff)) ORDER BY RANDOM() LIMIT ?7".to_string()
         };
 
         let random_peers_args: &[&dyn ToSql] = &[
@@ -1316,6 +1316,7 @@ impl PeerDB {
             &u64_to_sql(block_height)?,
             &u64_to_sql(now_secs)?,
             &u64_to_sql(now_secs)?,
+            &peer_version,
             &curr_network_epoch,
             &(count - (ret.len() as u32)),
         ];
@@ -1871,8 +1872,32 @@ mod test {
             assert_eq!(n.addr.peer_version, 0x18000005);
         }
 
-        // post epoch 2.05 -- no such neighbors
+        // peer version is past 2.05 but the current epoch is still 2.05 / always_include_allowed=false
+        let n20 = PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x05, 0x06, 20, 23455, false)
+            .unwrap();
+        assert_eq!(n20.len(), 10);
+        assert!(are_present(&n20, &initial_neighbors));
+
+        // peer version is past 2.05 but the current epoch is still 2.05 / always_include_allowed=true
+        let n20 = PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x05, 0x06, 20, 23455, true)
+            .unwrap();
+        assert_eq!(n20.len(), 10);
+        assert!(are_present(&n20, &initial_neighbors));
+
+        // current epoch is past 2.05, but peer version is 2.05 / always_include_allowed=false
         let n20 = PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x06, 0x05, 20, 23455, false)
+            .unwrap();
+        assert_eq!(n20.len(), 10);
+        assert!(are_present(&n20, &initial_neighbors));
+
+        // current epoch is past 2.05, but peer version is 2.05 / always_include_allowed=true
+        let n20 = PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x06, 0x05, 20, 23455, true)
+            .unwrap();
+        assert_eq!(n20.len(), 10);
+        assert!(are_present(&n20, &initial_neighbors));
+
+        // post epoch 2.05 -- no such neighbors
+        let n20 = PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x06, 0x06, 20, 23455, false)
             .unwrap();
         assert_eq!(n20.len(), 0);
     }
