@@ -4265,7 +4265,7 @@ impl PeerNetwork {
                             MicroblockTipSyncState::ResolvePeerURL((resolved, still_resolving));
                         return (false, faulty_peers, None);
                     } else {
-                        if resolved.len() > 0 {
+                        if !resolved.is_empty() {
                             self.microblock_tip_sync_state =
                                 MicroblockTipSyncState::SendInfoQuery(resolved);
                         } else {
