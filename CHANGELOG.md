@@ -21,6 +21,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
 
+### Changed
+
+- All occurrences of the deprecated method `u32::max_value()` (as well as `u64`
+  and `i32`) have been replaced by the corresponding `MAX` constants. Fixes issue
+  #3682.
+
 ## [2.1.0.0.2]
 
 This software update is a hotfix to resolve improper unlock handling
