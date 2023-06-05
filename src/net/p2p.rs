@@ -4000,7 +4000,7 @@ impl PeerNetwork {
     // Return Ok(true..) if we're done.
     //    success: Ok(true, Some(microblocks))
     //    stop requesting current peer and request next peer: Ok(true, None)
-    // Return Ok(false..) if there we need to wait longer.
+    // Return Ok(false..) if we need to wait longer.
     //     wait: Ok(false, None)
     //
     fn microblock_tip_sync_recv_microblock_response(
