@@ -1450,7 +1450,7 @@ impl Relayer {
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
-    /// * an tuple of the microblocks synced through the microblock tip sync protocol & the block ID of the tip they were built off of (as an option)
+    /// * a tuple of the microblocks synced through the microblock tip sync protocol & the block ID of the tip they were built off of (as an option)
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
