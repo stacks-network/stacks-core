@@ -81,6 +81,8 @@ use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;
 use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::util::secp256k1::Secp256k1PrivateKey;
+use blockstack_lib::util::secp256k1::Secp256k1PublicKey;
 use blockstack_lib::util::sleep_ms;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
@@ -113,6 +115,19 @@ fn main() {
                 option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
             )
         );
+        process::exit(0);
+    }
+
+    if argv[1] == "peer-pub-key" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} peer-pub-key <local-peer-seed>", argv[0]);
+            process::exit(1);
+        }
+
+        let local_seed = hex_bytes(&argv[2]).expect("Failed to parse hex input local-peer-seed");
+        let node_privkey = Secp256k1PrivateKey::from_seed(&local_seed);
+        let pubkey = Secp256k1PublicKey::from_private(&node_privkey).to_hex();
+        println!("{}", pubkey);
         process::exit(0);
     }
 

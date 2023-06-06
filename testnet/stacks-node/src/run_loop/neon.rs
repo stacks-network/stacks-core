@@ -5,13 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::atomic::AtomicU64;
 
 use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
-
-use std::collections::HashSet;
 
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
@@ -28,7 +26,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
-use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
@@ -502,11 +500,11 @@ impl RunLoop {
         burnchain_config: &Burnchain,
         coordinator_receivers: CoordinatorReceivers,
         miner_status: Arc<Mutex<MinerStatus>>,
-    ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
+    ) -> JoinHandle<()> {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis Atlas attachments
-        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
             .into_iter()
@@ -517,11 +515,16 @@ impl RunLoop {
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
         // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
-        let moved_atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
+        let atlas_db = AtlasDB::connect(
+            moved_atlas_config.clone(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .expect("Failed to connect Atlas DB during startup");
         let coordinator_indexer = make_bitcoin_indexer(&self.config);
 
         let coordinator_thread_handle = thread::Builder::new()
@@ -549,7 +552,6 @@ impl RunLoop {
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    attachments_tx,
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
@@ -557,11 +559,12 @@ impl RunLoop {
                     fee_estimator.as_deref_mut(),
                     miner_status,
                     coordinator_indexer,
+                    atlas_db,
                 );
             })
             .expect("FATAL: failed to start chains coordinator thread");
 
-        (coordinator_thread_handle, attachments_rx)
+        coordinator_thread_handle
     }
 
     /// Instantiate the PoX watchdog
@@ -981,7 +984,7 @@ impl RunLoop {
         self.set_globals(globals.clone());
 
         // have headers; boot up the chains coordinator and instantiate the chain state
-        let (coordinator_thread_handle, attachments_rx) = self.spawn_chains_coordinator(
+        let coordinator_thread_handle = self.spawn_chains_coordinator(
             &burnchain_config,
             coordinator_receivers,
             globals.get_miner_status(),
@@ -1013,7 +1016,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, attachments_rx);
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv);
         let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process

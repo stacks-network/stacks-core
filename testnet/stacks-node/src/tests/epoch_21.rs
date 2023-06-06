@@ -7,6 +7,7 @@ use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::types::chainstate::StacksAddress;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
 
 use crate::config::Config;
 use crate::config::EventKeyType;
@@ -62,7 +63,6 @@ use clarity::vm::ClarityVersion;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
-use crate::neon_node::StacksNode;
 use crate::operations::BurnchainOpSigner;
 use crate::Keychain;
 
@@ -2150,8 +2150,7 @@ fn test_pox_reorgs_three_flaps() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -2687,8 +2686,7 @@ fn test_pox_reorg_one_flap() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3112,8 +3110,7 @@ fn test_pox_reorg_flap_duel() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3547,8 +3544,7 @@ fn test_pox_reorg_flap_reward_cycles() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3976,8 +3972,7 @@ fn test_pox_missing_five_anchor_blocks() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -4377,8 +4372,7 @@ fn test_sortition_divergence_pre_21() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
