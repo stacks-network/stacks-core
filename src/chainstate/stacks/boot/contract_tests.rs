@@ -149,7 +149,7 @@ impl ClarityTestSim {
             marf,
             height: 0,
             fork: 0,
-            epoch_bounds: vec![0, u64::max_value()],
+            epoch_bounds: vec![0, u64::MAX],
         }
     }
 
@@ -390,7 +390,7 @@ impl BurnStateDB for TestSimBurnStateDB {
                 .epoch_bounds
                 .get(epoch_begin_index + 1)
                 .cloned()
-                .unwrap_or(u64::max_value()),
+                .unwrap_or(u64::MAX),
             epoch_id,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_1_0,
