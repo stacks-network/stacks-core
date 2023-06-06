@@ -35,6 +35,15 @@ struct TermFormat<D: Decorator> {
     isatty: bool,
 }
 
+fn human_readable_time(seconds: u64) -> String {
+    let days = seconds / 86400;
+    let hours = (seconds % 86400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let seconds = seconds % 60;
+    let result = format!("{} {}:{}:{}", days, hours, minutes, seconds);
+    result
+}
+
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
@@ -51,7 +60,8 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             write!(
                 rd,
                 "[{:5}.{:06}]",
-                elapsed.as_secs(),
+                // elapsed.as_secs(),
+                human_readable_time(elapsed.as_secs()),
                 elapsed.subsec_nanos() / 1000
             )?;
         }
