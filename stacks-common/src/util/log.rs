@@ -36,7 +36,7 @@ struct TermFormat<D: Decorator> {
     isatty: bool,
 }
 
-use humantime::format_rfc3339;
+use humantime::{format_rfc3339, format_rfc3339_millis};
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
@@ -47,9 +47,9 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     let system_time = SystemTime::now();
     match &*STACKS_LOG_FORMAT_TIME {
         None => {
-            let elapsed = system_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::from_secs(0));
+            // let elapsed = system_time
+            //     .duration_since(SystemTime::UNIX_EPOCH)
+            //     .unwrap_or(Duration::from_secs(0));
             let formatted_time = format_rfc3339(system_time).to_string();
             let human_date = formatted_time.split_at(19).0.replace('T', " ");
 
