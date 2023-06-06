@@ -38,9 +38,9 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt
-      - name: rustfmt
+      - name: Rustfmt 
         id: rustfmt
-        run: cargo fmt --all -- --check
+        uses: actions-rust-lang/rustfmt@v1
 
   ## Release tests: Execute on every run
   release-tests:

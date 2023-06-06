@@ -1,5 +1,4 @@
-# Disabled for now, this needs more work so it's not incredibly chatty
-#   - need to skip some of the more obtuse checks: https://github.com/stacks-network/stacks-blockchain/pull/3199/files/806d99556432b9755d332d2526cf2e0d88b87847#r930628980
+# Disabled - this workflow needs more work so it's not incredibly chatty
 ##
 ## Perform Clippy checks - currently set to defaults
 ##   https://github.com/rust-lang/rust-clippy#usage
