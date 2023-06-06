@@ -19,6 +19,7 @@ path = "./src/libcommon.rs"
 
 [dependencies]
 time-humanize = "0.1.3" 
+humantime = "2.1.0"
 rand = "0.7.3"
 serde = "1"
 serde_derive = "1"

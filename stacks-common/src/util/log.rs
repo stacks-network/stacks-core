@@ -41,15 +41,34 @@ fn human_readable_time(seconds: u64) -> String {
     let hours = (seconds  % 1000% 86400) / 3600;
     let minutes = (seconds  % 1000% 3600) / 60;
     let seconds = seconds % 1000 % 60;
-    let miliseconds = seconds % 1000;
+    // let miliseconds = seconds % 1000;
     let result = format!("{} {}:{}:{}", days, hours, minutes, seconds);
     // let date = Local::now();
     // let result = date.format("%B %d %H:%M:%S").to_string();
     result
 }
+
+struct HumanDuration {
+    duration: Duration,
+    system_time: SystemTime,
+}
+
+impl HumanDuration {
+    fn new(duration: Duration, system_time: SystemTime) -> Self {
+        Self { duration, system_time }
+    }
+}
+use std::fmt::{self, Display};
+impl Display for HumanDuration {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "{:?}", self.duration)
+    }
+}
+
 use time_humanize::HumanTime;
 use time_humanize::Tense;
 use time_humanize::Accuracy;
+use humantime::format_rfc3339;
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
@@ -66,13 +85,14 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             // let human_time = HumanTime::from(elapsed).fmt("%H:%M:%S:%f");
             let human_time = HumanTime::from(elapsed).to_text_en(Accuracy::Precise, Tense::Present);
             // let formatted_time = format!("{:?}", human_time);
+            let formatted_time = format_rfc3339(system_time);
 
             write!(
                 rd,
                 "[{:5}.{:06}]",
                 // elapsed.as_secs(),
                 // human_readable_time(elapsed.as_secs()),
-                human_time,
+                formatted_time,
                 elapsed.subsec_nanos() / 1000
             )?;
         }
