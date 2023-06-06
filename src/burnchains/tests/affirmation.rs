@@ -2753,7 +2753,7 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     // there's four anchor blocks
     assert!(
         BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
-            .unwrap()https://github.com/stacks-network/stacks-blockchain/issues/3312
+            .unwrap()
             .is_none()
     );
     assert!(
