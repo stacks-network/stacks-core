@@ -97,7 +97,7 @@ lazy_static! {
 
 pub struct ClarityTestSim {
     marf: MarfedKV,
-    height: u64,
+    pub height: u64,
     fork: u64,
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
@@ -379,6 +379,8 @@ impl BurnStateDB for TestSimBurnStateDB {
             0 => StacksEpochId::Epoch20,
             1 => StacksEpochId::Epoch2_05,
             2 => StacksEpochId::Epoch21,
+            3 => StacksEpochId::Epoch22,
+            4 => StacksEpochId::Epoch23,
             _ => panic!("Epoch unknown"),
         };
 
@@ -400,6 +402,14 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 
     fn get_v1_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_v2_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_3_activation_height(&self) -> u32 {
         u32::MAX
     }
 

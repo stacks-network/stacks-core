@@ -222,7 +222,7 @@ impl NFTTransferEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.consensus_serialize(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes).unwrap();
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
@@ -247,7 +247,7 @@ impl NFTMintEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.consensus_serialize(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes).unwrap();
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
@@ -271,7 +271,7 @@ impl NFTBurnEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.consensus_serialize(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes).unwrap();
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
@@ -347,7 +347,7 @@ impl SmartContractEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.consensus_serialize(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes).unwrap();
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };

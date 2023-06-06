@@ -26,7 +26,6 @@ use stacks::vm::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
         mem_type_check,
     },
-    database::ClaritySerializable,
     types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
@@ -492,7 +491,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -507,7 +506,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -524,7 +523,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -545,7 +544,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -673,7 +672,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)
@@ -741,7 +740,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)
@@ -764,7 +763,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(100).serialize()]
+                    arguments: vec![Value::UInt(100).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)

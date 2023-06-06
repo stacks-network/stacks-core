@@ -509,7 +509,18 @@ fn test_get_commit_at() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::MAX);
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -623,7 +634,18 @@ fn test_get_set_check_anchor_block() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::MAX);
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -707,7 +729,18 @@ fn test_update_block_descendancy() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::MAX);
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -825,7 +858,18 @@ fn test_update_block_descendancy_with_fork() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::MAX);
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;

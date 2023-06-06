@@ -2475,8 +2475,18 @@ pub mod test {
                 &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
             );
 
-            burnchain.pox_constants =
-                PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX);
+            burnchain.pox_constants = PoxConstants::new(
+                5,
+                3,
+                3,
+                25,
+                5,
+                u64::MAX,
+                u64::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+            );
 
             let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,

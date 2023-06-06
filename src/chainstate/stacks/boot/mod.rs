@@ -35,6 +35,7 @@ use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
+use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
@@ -43,6 +44,7 @@ use clarity::vm::costs::{
 };
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::Error as VmError;
 use clarity::vm::errors::InterpreterError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
@@ -81,10 +83,10 @@ pub const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
+pub const POX_3_NAME: &'static str = "pox-3";
 
-const POX_2_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
-const POX_2_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
+const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -101,6 +103,10 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
     pub static ref POX_2_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
+    pub static ref POX_3_MAINNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
+    pub static ref POX_3_TESTNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -141,7 +147,7 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
@@ -220,11 +226,12 @@ impl StacksChainState {
     fn get_user_stacking_state(
         clarity: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
+        pox_contract_name: &str,
     ) -> TupleData {
         // query the stacking state for this user before deleting it
         let is_mainnet = clarity.is_mainnet();
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
         let user_stacking_state = clarity
             .with_readonly_clarity_env(
                 is_mainnet,
@@ -322,14 +329,45 @@ impl StacksChainState {
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
-    pub fn handle_pox_cycle_start(
+    ///
+    /// This should only be called for PoX v2 cycles.
+    pub fn handle_pox_cycle_start_pox_2(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_2_NAME)
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    ///
+    /// This should only be called for PoX v3 cycles.
+    pub fn handle_pox_cycle_start_pox_3(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    ///
+    fn handle_pox_cycle_start(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+        pox_contract_name: &str,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
 
-        debug!("Handling PoX reward cycle start"; "reward_cycle" => cycle_number, "cycle_active" => cycle_info.is_some());
+        debug!(
+            "Handling PoX reward cycle start";
+            "reward_cycle" => cycle_number,
+            "cycle_active" => cycle_info.is_some(),
+            "pox_contract" => pox_contract_name
+        );
 
         let cycle_info = match cycle_info {
             Some(x) => x,
@@ -337,7 +375,7 @@ impl StacksChainState {
         };
 
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
 
         let mut total_events = vec![];
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
@@ -362,7 +400,7 @@ impl StacksChainState {
             }).expect("FATAL: failed to accelerate PoX unlock");
 
             // query the stacking state for this user before deleting it
-            let user_data = Self::get_user_stacking_state(clarity, principal);
+            let user_data = Self::get_user_stacking_state(clarity, principal, pox_contract_name);
 
             // perform the unlock
             let (result, _, mut events, _) = clarity
@@ -843,6 +881,95 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    fn get_reward_addresses_pox_3(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(vec![]);
+        }
+
+        // how many in this cycle?
+        let num_addrs = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_3_NAME,
+                &format!("(get-reward-set-size u{})", reward_cycle),
+            )?
+            .expect_u128();
+
+        debug!(
+            "At block {:?} (reward cycle {}): {} PoX reward addresses",
+            block_id, reward_cycle, num_addrs
+        );
+
+        let mut ret = vec![];
+        for i in 0..num_addrs {
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            let tuple = self
+                .eval_boot_code_read_only(
+                    sortdb,
+                    block_id,
+                    POX_3_NAME,
+                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    i, num_addrs, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = tuple
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = tuple
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = tuple
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            debug!(
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
+            );
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+            })
+        }
+
+        Ok(ret)
+    }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -863,13 +990,26 @@ impl StacksChainState {
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
-        match pox_contract_name {
+        let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
+            x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
             unknown_contract => {
                 panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
                        unknown_contract);
             }
+        };
+
+        // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
+        // there hasn't yet been a Stacks block.
+        match result {
+            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(
+                CheckErrors::NoSuchContract(_),
+            )))) => {
+                warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
+                return Ok(vec![]);
+            }
+            x => x,
         }
     }
 }
@@ -878,6 +1018,8 @@ impl StacksChainState {
 pub mod contract_tests;
 #[cfg(test)]
 pub mod pox_2_tests;
+#[cfg(test)]
+pub mod pox_3_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -970,7 +1112,8 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::MAX);
+        let test_pox_constants =
+            PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX);
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
@@ -1337,6 +1480,29 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
+        make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_2_NAME)
+    }
+
+    pub fn make_pox_3_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: PoxAddress,
+        lock_period: u128,
+        burn_ht: u64,
+    ) -> StacksTransaction {
+        make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
+    }
+
+    pub fn make_pox_2_or_3_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: PoxAddress,
+        lock_period: u128,
+        burn_ht: u64,
+        contract_name: &str,
+    ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         //                           (burn-height uint)
@@ -1344,7 +1510,7 @@ pub mod test {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
-            POX_2_NAME,
+            contract_name,
             "stack-stx",
             vec![
                 Value::UInt(amount),
@@ -1384,6 +1550,24 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox-2",
+            "stack-extend",
+            vec![Value::UInt(lock_period), addr_tuple],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_3_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr: PoxAddress,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_3_NAME,
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
@@ -1437,6 +1621,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_2_NAME,
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_3_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_3_NAME,
             function_name,
             args,
         )
