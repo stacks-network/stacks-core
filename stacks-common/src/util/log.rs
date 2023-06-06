@@ -18,6 +18,7 @@ use chrono::prelude::*;
 use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 use std::env;
+use std::fmt::Debug;
 use std::io;
 use std::io::Write;
 use std::sync::Mutex;
@@ -36,14 +37,17 @@ struct TermFormat<D: Decorator> {
 }
 
 fn human_readable_time(seconds: u64) -> String {
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-    let seconds = seconds % 60;
+    let days = seconds  % 1000 / 86400;
+    let hours = (seconds  % 1000% 86400) / 3600;
+    let minutes = (seconds  % 1000% 3600) / 60;
+    let seconds = seconds % 1000 % 60;
+    let miliseconds = seconds % 1000;
     let result = format!("{} {}:{}:{}", days, hours, minutes, seconds);
+    // let date = Local::now();
+    // let result = date.format("%B %d %H:%M:%S").to_string();
     result
 }
-
+use time_humanize::HumanTime;
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
@@ -57,11 +61,14 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             let elapsed = system_time
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0));
+            let human_time = HumanTime::from(elapsed);
+
             write!(
                 rd,
                 "[{:5}.{:06}]",
                 // elapsed.as_secs(),
-                human_readable_time(elapsed.as_secs()),
+                // human_readable_time(elapsed.as_secs()),
+                human_time,
                 elapsed.subsec_nanos() / 1000
             )?;
         }
