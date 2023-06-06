@@ -50,7 +50,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             // let elapsed = system_time
             //     .duration_since(SystemTime::UNIX_EPOCH)
             //     .unwrap_or(Duration::from_secs(0));
-            let formatted_time = format_rfc3339(system_time).to_string();
+            let formatted_time = format_rfc3339_millis(system_time).to_string();
             let human_date = formatted_time.split_at(19).0.replace('T', " ");
 
             write!(
