@@ -65,9 +65,9 @@ impl Display for HumanDuration {
     }
 }
 
-use time_humanize::HumanTime;
-use time_humanize::Tense;
-use time_humanize::Accuracy;
+// use time_humanize::HumanTime;
+// use time_humanize::Tense;
+// use time_humanize::Accuracy;
 use humantime::format_rfc3339;
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
@@ -82,16 +82,12 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             let elapsed = system_time
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0));
-            // let human_time = HumanTime::from(elapsed).fmt("%H:%M:%S:%f");
-            let human_time = HumanTime::from(elapsed).to_text_en(Accuracy::Precise, Tense::Present);
-            // let formatted_time = format!("{:?}", human_time);
             let formatted_time = format_rfc3339(system_time);
 
             write!(
                 rd,
                 "[{:5}.{:06}]",
                 // elapsed.as_secs(),
-                // human_readable_time(elapsed.as_secs()),
                 formatted_time,
                 elapsed.subsec_nanos() / 1000
             )?;
