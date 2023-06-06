@@ -55,10 +55,8 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
 
             write!(
                 rd,
-                "[{:5}.{:06}]",
-                // elapsed.as_secs(),
+                "[{:5}]",
                 human_date,
-                elapsed.subsec_nanos() / 1000
             )?;
         }
         Some(ref format) => {
