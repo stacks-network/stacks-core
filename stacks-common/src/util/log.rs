@@ -48,6 +48,8 @@ fn human_readable_time(seconds: u64) -> String {
     result
 }
 use time_humanize::HumanTime;
+use time_humanize::Tense;
+use time_humanize::Accuracy;
 fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
@@ -61,7 +63,9 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
             let elapsed = system_time
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0));
-            let human_time = HumanTime::from(elapsed);
+            // let human_time = HumanTime::from(elapsed).fmt("%H:%M:%S:%f");
+            let human_time = HumanTime::from(elapsed).to_text_en(Accuracy::Precise, Tense::Present);
+            // let formatted_time = format!("{:?}", human_time);
 
             write!(
                 rd,
