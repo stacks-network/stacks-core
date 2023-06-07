@@ -314,7 +314,7 @@ impl MemPoolWalkSettings {
     pub fn default() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
-            max_walk_time_ms: u64::max_value(),
+            max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
@@ -323,7 +323,7 @@ impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
-            max_walk_time_ms: u64::max_value(),
+            max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,

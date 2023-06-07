@@ -2764,7 +2764,7 @@ mod test {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
-                end_height: u64::max_value(),
+                end_height: u64::MAX,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             })
