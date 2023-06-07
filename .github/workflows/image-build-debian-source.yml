@@ -65,7 +65,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ github.repository }}
+            blockstack/${{ github.event.repository.name }}
           tags: |
             type=raw,value=${{ env.BRANCH_NAME }}
             type=ref,event=pr
