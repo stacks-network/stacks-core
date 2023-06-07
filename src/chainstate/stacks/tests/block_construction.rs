@@ -4369,9 +4369,10 @@ fn mempool_incorporate_pox_unlocks() {
                      clarity_tx.with_clarity_db_readonly(|db| {
                          let burn_block_height = db.get_current_burnchain_block_height() as u64;
                          let v1_unlock_height = db.get_v1_unlock_height();
+                         let v2_unlock_height = db.get_v2_unlock_height();
                          let balance = db.get_account_stx_balance(&principal);
                          info!("Checking balance"; "v1_unlock_height" => v1_unlock_height, "burn_block_height" => burn_block_height);
-                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height)
+                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height)
                      })
                  }).unwrap();
 

@@ -1190,11 +1190,13 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                  confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
+        let epoch = db.get_clarity_epoch_version();
         db.set_entry_unknown_descriptor(
             voting_contract_to_use,
             "confirmed-proposals",
             execute_on_network("{ confirmed-id: u0 }", use_mainnet),
             execute_on_network(&value, use_mainnet),
+            &epoch,
         )
         .unwrap();
         db.commit();
@@ -1480,6 +1482,12 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
     let bad_proposals = bad_cases.len();
 
+    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
+        &COST_VOTING_MAINNET_CONTRACT
+    } else {
+        &COST_VOTING_TESTNET_CONTRACT
+    };
+
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
@@ -1487,7 +1495,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         db.begin();
 
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128),
         )
@@ -1504,11 +1512,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                      confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
-                &COST_VOTING_TESTNET_CONTRACT,
+                voting_contract_to_use,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }
@@ -1542,7 +1552,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             assert_eq!(
                 &referenced_function.contract_id,
-                &boot_code_id("costs", false),
+                &boot_code_id("costs", use_mainnet),
                 "All cost functions should still point to the boot costs"
             );
             assert_eq!(
@@ -1564,7 +1574,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             "cost-definition",
         ),
         (
-            boot_code_id("costs", false),
+            boot_code_id("costs", use_mainnet),
             "cost_le",
             cost_definer.clone(),
             "cost-definition-le",
@@ -1585,7 +1595,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
         let good_proposals = good_cases.len() as u128;
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128 + good_proposals),
         )
@@ -1602,11 +1612,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
-                &COST_VOTING_TESTNET_CONTRACT,
+                voting_contract_to_use,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }
@@ -1659,7 +1671,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             } else {
                 assert_eq!(
                     &referenced_function.contract_id,
-                    &boot_code_id("costs", false),
+                    &boot_code_id("costs", use_mainnet),
                     "Cost function should still point to the boot costs"
                 );
                 assert_eq!(
@@ -1673,11 +1685,11 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     };
 }
 
-// TODO: Reinstate this test. We couldn't get it working in time for pr/2940.
-//#[test]
-//fn test_cost_voting_integration_mainnet() {
-//    test_cost_voting_integration(true)
-//}
+#[test]
+fn test_cost_voting_integration_mainnet() {
+    test_cost_voting_integration(true, ClarityVersion::Clarity1);
+    test_cost_voting_integration(true, ClarityVersion::Clarity2);
+}
 
 #[test]
 fn test_cost_voting_integration_testnet() {
