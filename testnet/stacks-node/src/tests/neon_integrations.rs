@@ -2046,8 +2046,6 @@ fn bitcoind_resubmission_test() {
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
 
-        //        let tip_hash = StacksBlockId::new(&consensus_hash, &stacks_block.header.block_hash());
-
         let ublock_privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
@@ -10042,6 +10040,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed

@@ -809,6 +809,7 @@ fn pox_2_unlock_all() {
     // *now* advance to 2.1
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -845,6 +846,7 @@ fn pox_2_unlock_all() {
     );
 
     info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
     let tx = make_contract_call(
