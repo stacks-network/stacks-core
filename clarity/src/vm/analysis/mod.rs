@@ -24,6 +24,7 @@ pub mod type_checker;
 pub mod types;
 
 use crate::types::StacksEpochId;
+#[cfg(feature = "sqlite")]
 use crate::vm::database::MemoryBackingStore;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
@@ -47,6 +48,7 @@ use crate::vm::ast::build_ast_with_rules;
 use crate::vm::ast::ASTRules;
 
 /// Used by CLI tools like the docs generator. Not used in production
+#[cfg(feature = "sqlite")]
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
