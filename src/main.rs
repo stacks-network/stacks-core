@@ -734,8 +734,8 @@ simulating a miner.
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let mut min_fee = u64::max_value();
-        let mut max_time = u64::max_value();
+        let mut min_fee = u64::MAX;
+        let mut max_time = u64::MAX;
 
         if argv.len() >= 4 {
             min_fee = argv[3].parse().expect("Could not parse min_fee");
@@ -1122,11 +1122,7 @@ simulating a miner.
         let burnchain = Burnchain::regtest(&burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
-        let epochs = StacksEpoch::all(
-            first_burnchain_block_height,
-            u64::max_value(),
-            u64::max_value(),
-        );
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
                 true,
@@ -1211,11 +1207,7 @@ simulating a miner.
         let mut known_stacks_blocks = HashSet::new();
         let mut next_arrival = 0;
 
-        let epochs = StacksEpoch::all(
-            first_burnchain_block_height,
-            u64::max_value(),
-            u64::max_value(),
-        );
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
