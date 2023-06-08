@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "clarity"
-version = "2.0.0"
+version = "2.1.1"
 dependencies = [
  "assert-json-diff",
  "integer-sqrt",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "assert-json-diff",
  "chrono",
