@@ -9634,8 +9634,13 @@ fn test_problematic_microblocks_are_not_mined() {
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
         cur_files = cur_files_new;
+
+        // give the microblock miner a chance
+        sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
