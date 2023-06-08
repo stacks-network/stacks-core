@@ -217,7 +217,7 @@ impl BitcoinIndexer {
             }
 
             // don't sleep more than 60 seconds
-            if backoff > 20.0 {
+            if backoff > 60.0 {
                 backoff = 60.0;
             }
 
