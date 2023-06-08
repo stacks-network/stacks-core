@@ -307,6 +307,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: should_keep_running.clone(),
         };
 
         Self {
@@ -352,6 +353,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: None,
         };
 
         Self {
