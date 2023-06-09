@@ -9667,7 +9667,7 @@ fn test_problematic_microblocks_are_not_mined() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
-                assert!(parsed.txid() != tx_high_txid);
+                assert_ne!(parsed.txid(), tx_high_txid);
             }
         }
     }

@@ -19,8 +19,8 @@ use std::thread;
 
 use stacks::burnchains::Burnchain;
 use stacks::core::STACKS_EPOCH_MAX;
-use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::util::sleep_ms;
+use stacks::vm::types::QualifiedContractIdentifier;
 
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;
