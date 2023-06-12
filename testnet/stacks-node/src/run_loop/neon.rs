@@ -1082,7 +1082,7 @@ impl RunLoop {
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                Some(remote_chain_height),
+                remote_chain_height,
                 num_sortitions_in_last_cycle,
             ) {
                 Ok(ibd) => ibd,
@@ -1091,6 +1091,16 @@ impl RunLoop {
                     continue;
                 }
             };
+
+            // print burnchain sync percentage
+            if ibd {
+                let percent: f64 =
+                    burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64;
+                debug!("Burnchain sync percentage";
+                       "percent" => %percent,
+                       "local_tip_height" => %burnchain_tip.block_snapshot.block_height,
+                       "remote_tip_height" => %remote_chain_height);
+            }
 
             // will recalculate this in the following loop
             num_sortitions_in_last_cycle = 0;
