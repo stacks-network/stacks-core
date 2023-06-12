@@ -16,17 +16,10 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::CheckError;
 use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute as vm_execute;
+use crate::vm::errors::{CheckErrors, Error};
 use crate::vm::tests::{execute, symbols_from_values};
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, ResponseData, TypeSignature, Value,
-};
-use std::convert::TryInto;
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
 use crate::vm::tests::env_factory;
 use crate::vm::tests::test_clarity_versions;
@@ -1468,12 +1461,8 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
     }
 }
 
-#[apply(test_clarity_versions)]
-fn test_embedded_trait(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     if epoch < StacksEpochId::Epoch21 {
         return;
     }

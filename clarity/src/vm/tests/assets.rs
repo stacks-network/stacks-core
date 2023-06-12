@@ -15,24 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
-use crate::vm::contracts::Contract;
+use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::execute as vm_execute;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use crate::vm::tests::{
     test_clarity_versions, test_epochs, tl_env_factory as env_factory,
     TopLevelMemoryEnvironmentGenerator,
 };
-use crate::vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
-};
+use crate::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::hex_bytes;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))

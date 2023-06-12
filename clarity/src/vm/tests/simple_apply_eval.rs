@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
 use rstest::rstest;
 use rstest_reuse::{self, *};
 
@@ -32,13 +30,12 @@ use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::*;
 use crate::vm::types::StacksAddressExtensions;
 use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
+use crate::vm::types::{PrincipalData, SequenceData};
 use crate::vm::ClarityVersion;
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
 };
 use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
-use stacks_common::address::c32;
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;

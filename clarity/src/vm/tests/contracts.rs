@@ -14,27 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-
-#[cfg(any(test, feature = "testing"))]
-use rstest::rstest;
-use stacks_common::types::StacksEpochId;
-
-use crate::vm::ast;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vm::contracts::Contract;
-use crate::vm::costs::ExecutionCost;
-use crate::vm::database::ClarityDatabase;
+use crate::vm::contexts::Environment;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::execute as vm_execute;
-use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{
     env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    tl_env_factory, BurnStateDB, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
-    TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
 };
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{
@@ -42,15 +29,12 @@ use crate::vm::types::{
     TypeSignature, Value,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::types::chainstate::{ConsensusHash, SortitionId};
-use stacks_common::util::hash::hex_bytes;
+#[cfg(any(test, feature = "testing"))]
+use rstest::rstest;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::StacksEpochId;
 
-use crate::vm::types::serialization::TypePrefix::Buffer;
-use crate::vm::types::BuffData;
 use crate::vm::ContractContext;
-use crate::vm::Value::Sequence;
-
-use crate::vm::database::MemoryBackingStore;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -110,8 +94,11 @@ fn get_principal_as_principal_data() -> PrincipalData {
     StandardPrincipalData::transient().into()
 }
 
-#[test]
-fn test_get_block_info_eval() {
+#[apply(test_epochs)]
+fn test_get_block_info_eval(
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
     let contracts = [
         "(define-private (test-func) (get-block-info? time u1))",
         "(define-private (test-func) (get-block-info? time block-height))",
@@ -139,10 +126,10 @@ fn test_get_block_info_eval() {
         ClarityVersion::Clarity2,
     );
 
+    let mut owned_env = tl_env_factory.get_env(epoch);
     for i in 0..contracts.len() {
-        let mut marf = MemoryBackingStore::new();
-        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
-        let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+        let contract_identifier =
+            QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
         owned_env
             .initialize_contract(
                 contract_identifier.clone(),
@@ -175,12 +162,8 @@ fn test_get_block_info_eval() {
     }
 }
 
-#[apply(test_clarity_versions)]
-fn test_contract_caller(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
     let contract_a = "(define-read-only (get-caller)
            (list contract-caller tx-sender))";
@@ -314,12 +297,8 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
     );
 }
 
-#[apply(test_clarity_versions)]
-fn test_tx_sponsor(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_a = "(define-read-only (get-sponsor)
@@ -389,9 +368,8 @@ fn test_tx_sponsor(
     }
 }
 
-#[apply(test_clarity_versions)]
+#[apply(test_epochs)]
 fn test_fully_qualified_contract_call(
-    version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
@@ -482,12 +460,8 @@ fn test_fully_qualified_contract_call(
     }
 }
 
-#[apply(test_clarity_versions)]
-fn test_simple_naming_system(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
     let tokens_contract = SIMPLE_TOKENS;
@@ -713,12 +687,8 @@ fn test_simple_naming_system(
     }
 }
 
-#[apply(test_clarity_versions)]
-fn test_simple_contract_call(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_1 = FACTORIAL_CONTRACT;
@@ -774,12 +744,8 @@ fn test_simple_contract_call(
     }
 }
 
-#[apply(test_clarity_versions)]
-fn test_aborts(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_1 = "
@@ -926,12 +892,8 @@ fn test_aborts(
     );
 }
 
-#[apply(test_clarity_versions)]
-fn test_factorial_contract(
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
+#[apply(test_epochs)]
+fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
     let mut placeholder_context = ContractContext::new(
