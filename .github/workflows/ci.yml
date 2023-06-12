@@ -1,10 +1,14 @@
 name: CI
 
-# Only run when:
-#   - PRs are opened against the master branch
-#   - the workflow is started from the UI (an optional tag can be passed in via parameter)
-#     - If the optional tag parameter is passed in, a new tag will be generated based off the selected branch
+## Only run when:
+##   - manually triggered
+##   - PR's are (re)opened
+##   - push to master (i.e. merge develop -> master)
+
 on:
+  push:
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
     inputs:
@@ -13,320 +17,164 @@ on:
         required: false
 
 concurrency:
-  group: stacks-blockchain-${{ github.ref }}
-  # Only cancel in progress if this is for a PR
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  # Run full genesis test
-  full-genesis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Single full genesis integration test
-        env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
-        run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
-      - uses: codecov/codecov-action@v2
-        with:
-          files: ./coverage-output/lcov.info
-          name: large_genesis
-          fail_ci_if_error: false
-
-  # Run unit tests with code coverage
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run units tests (with coverage)
-        env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
-        run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-      - uses: codecov/codecov-action@v2
-        with:
-          files: ./coverage-output/lcov.info
-          name: unit_tests
-          fail_ci_if_error: false
-
-  open-api-validation:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run units tests (with coverage)
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -o dist/ -f .github/actions/open-api/Dockerfile.open-api-validate .
-      - name: Upload bundled html
-        uses: actions/upload-artifact@v2
-        with:
-          name: open-api-bundle
-          path: |
-            dist
-  # Run net-tests
-  nettest:
-    # disable this job/test for now, since we haven't seen this pass
-    #  on github actions in a while, and the failures can take > 4 hours
-    if: ${{ false }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run network relay tests
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
-
-  core-contracts-clarinet-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: "Execute core contract unit tests in Clarinet"
-        uses: docker://hirosystems/clarinet:1.1.0
-        with:
-          args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
-      - name: "Export code coverage"
-        uses: codecov/codecov-action@v1
-        with:
-          files: ./coverage.lcov
-          verbose: true
-          fail_ci_if_error: false
-
-  # rustfmt checking
+  ## rust format: Execute on every run
   rustfmt:
+    name: Rust Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Run rustfmt check
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
-
-  # Create distributions
-  dist:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform:
-          [
-            # disable mac builds until osxcross can be updated for bullseye
-            windows-x64,
-            # macos-x64,
-            # macos-arm64,
-            linux-x64,
-            linux-musl-x64,
-            linux-armv7,
-            linux-arm64,
-          ]
-
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set Vars
-        run: |
-          echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
-          echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Build distributable
-        uses: docker/build-push-action@v2
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: Define Rust Toolchain
+        id: define_rust_toolchain
+        run: echo "RUST_TOOLCHAIN=$(cat ./rust-toolchain)" >> $GITHUB_ENV
+      - name: Setup Rust Toolchain
+        id: setup_rust_toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          file: build-scripts/Dockerfile.${{ matrix.platform }}
-          outputs: dist/${{ matrix.platform }}
-          build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
-            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - name: Rustfmt 
+        id: rustfmt
+        uses: actions-rust-lang/rustfmt@v1
 
-      - name: Compress artifact
-        run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
+  ## Release tests: Execute on every run
+  release-tests:
+    name: Release Tests
+    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: ${{ matrix.platform }}
-          path: ${{ matrix.platform }}.zip
-
-#  call-docker-platforms-workflow:
-#    if: ${{ github.event.inputs.tag != '' }}
-#    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
-#    with:
-#      tag: ${{ github.event.inputs.tag }}
-#    secrets:
-#      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-#      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
-  # Will publish if:
-  #   - a tag was passed into this workflow
-  #   - a tag was pushed up
-  #   - this workflow was invoked against a non-master branch (a Docker image tag with the name of the branch will be published)
-  build-publish:
+  ## Checked for leaked credentials: Execute on every run
+  leaked-cred-test:
+    name: Leaked Credential Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Set Vars
-        run: |
-          echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
-          echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v3
+      - name: Extract branch name
+        id: extract_branch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      - name: Extract branch name
+        id: extract_branch_pr
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
+      - name: Branch name
+        run: echo running on branch ${{ env.BRANCH_NAME }}
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
         with:
-          images: |
-            blockstack/${{ github.event.repository.name }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            ${{ github.event.inputs.tag }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
+          fetch-depth: 0
+      - name: TruffleHog Scan
+        id: trufflehog_check
+        uses: trufflesecurity/trufflehog@main
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          path: ./
+          base: ${{ env.BRANCH_NAME }}
+          head: HEAD
 
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v2
-        with:
-          platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
-            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
-          push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
-
-  # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
-  # Will publish if:
-  #   - a tag was passed into this workflow
-  #   - a tag was pushed up
-  #   - this workflow was invoked against a non-master branch (a Docker image tag with the name of the branch will be published)
-  build-publish-stretch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      # Stretch tag will be "<TAG>-stretch" if a tag was passed in, otherwise "<BRANCH>-stretch". If the BRANCH is master, will result in "latest-stretch"
-      # Also determines platforms to be build in docker step
-      - name: Determine Stretch Tag
-        run: |
-          if [[ -z ${TAG} ]]; then
-              REF=$(echo ${GITHUB_REF#refs/*/} | tr / -)
-              if [[ "${REF}" == "master" ]]; then
-                  echo "STRETCH_TAG=latest-stretch" >> $GITHUB_ENV
-              else
-                  echo "STRETCH_TAG=${REF}-stretch" >> $GITHUB_ENV
-              fi
-          else
-              echo "STRETCH_TAG=${TAG}-stretch" >> $GITHUB_ENV
-          fi
-        env:
-          TAG: ${{ github.event.inputs.tag }}
-
-      - name: Set Vars
-        run: |
-          echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
-          echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v3
-        with:
-          images: |
-            blockstack/${{ github.event.repository.name }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            ${{ env.STRETCH_TAG }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v2
-        with:
-          platforms: linux/amd64
-          file: Dockerfile.debian
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
-            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
-          push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
-
-  # Create a new release if we're building a tag
-  create-release:
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.tag != '' }}
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+  ###############################################
+  ## Build Tagged Release
+  ###############################################
+  ## Build source binaries
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
+  build-source:
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Build Binaries
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
     needs:
-      - dist
-      - build-publish
-      - build-publish-stretch
+      - rustfmt
+      - release-tests
+      - leaked-cred-test
+    with:
+      tag: ${{ inputs.tag }}
+      parallel_jobs: 4
+      arch: >-
+        ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
 
-    steps:
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          # Use custom secrets.GH_TOKEN instead of default secrets.GITHUB_TOKEN because the custom token will trigger the
-          # clarity-js-sdk-pr workflow. As events caused by default tokens do not trigger subsequent workflow runs to avoid loops.
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref }}
-          release_name: Release ${{ github.event.inputs.tag || github.ref }}
-          draft: false
-          prerelease: true
+  ## Create github release with binary archives
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
+  github-release:
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Github Release
+    uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
+    needs: build-source
+    with:
+      tag: ${{ inputs.tag }}
+      arch: >-
+        ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Upload distributables to a new release if we're building a tag or a tag was passed in
-  upload-dist:
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.tag != '' }}
+  ## Create docker alpine images
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##      - Not the default branch
+  ##      - AND
+  ##      - Not a PR
+  docker-alpine:
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Docker Alpine (Binary)
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
+    needs: github-release
+    with:
+      tag: ${{ inputs.tag }}
+      docker_platforms: linux/arm64, linux/amd64, linux/amd64/v2, linux/amd64/v3
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  ## Create docker debian images
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
+  docker-debian:
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Docker Debian (Binary)
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
+    needs: github-release
+    with:
+      tag: ${{ inputs.tag }}
+      docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
+      linux_version: debian
+      build_type: binary
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  ###############################################
+  ## Build Branch/PR
+  ###############################################
+  ## Create docker debian images
+  ## Only run if:
+  ##   - Tag is *not* provided
+  build-branch:
+    if: ${{ inputs.tag == '' }}
+    name: Docker Debian (Source)
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
     needs:
-      - create-release
-    strategy:
-      matrix:
-        platform:
-          [
-            # disable mac builds until osxcross can be updated for bullseye
-            windows-x64,
-#            macos-x64,
-#            macos-arm64,
-            linux-x64,
-            linux-musl-x64,
-            linux-armv7,
-            linux-arm64,
-          ]
-
-    steps:
-      - uses: actions/checkout@v2
-      - name: Download distro
-        uses: actions/download-artifact@v2
-        with:
-          name: ${{ matrix.platform }}
-          path: dist/
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.platform }}.zip
-          asset_name: ${{ matrix.platform }}.zip
-          asset_content_type: application/zip
+      - rustfmt
+      - leaked-cred-test
+    with:
+      docker_platforms: linux/amd64
+      linux_version: debian
+      build_type: source
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
