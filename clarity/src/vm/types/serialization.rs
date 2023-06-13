@@ -1353,7 +1353,7 @@ impl std::hash::Hash for Value {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use rstest::rstest;
     use rstest_reuse::{self, *};
 
@@ -1361,29 +1361,13 @@ mod tests {
 
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::errors::Error;
+    use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::TypeSignature::{BoolType, IntType};
 
     use super::super::*;
     use super::SerializationError;
     use crate::vm::ClarityVersion;
     use stacks_common::types::StacksEpochId;
-
-    #[template]
-    #[rstest]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
-    fn test_clarity_versions_serialization(
-        #[case] version: ClarityVersion,
-        #[case] epoch: StacksEpochId,
-    ) {
-    }
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
@@ -1431,7 +1415,7 @@ mod tests {
         test_deser_u32_helper(134217728);
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let list_list_int = Value::list_from(vec![Value::list_from(vec![
             Value::Int(1),
@@ -1558,7 +1542,7 @@ mod tests {
         test_bad_expectation(Value::UInt(1), TypeSignature::IntType);
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_opts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::none());
         test_deser_ser(Value::some(Value::Int(15)).unwrap());
@@ -1572,7 +1556,7 @@ mod tests {
         );
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_resp(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::okay(Value::Int(15)).unwrap());
         test_deser_ser(Value::error(Value::Int(15)).unwrap());
@@ -1589,7 +1573,7 @@ mod tests {
         );
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_buffs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::buff_from(vec![0, 0, 0, 0]).unwrap());
         test_deser_ser(Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef]).unwrap());
@@ -1607,7 +1591,7 @@ mod tests {
         );
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_string_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap());
 
@@ -1618,7 +1602,7 @@ mod tests {
         );
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_string_utf8(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
         test_deser_ser(
@@ -1729,7 +1713,7 @@ mod tests {
         });
     }
 
-    #[apply(test_clarity_versions_serialization)]
+    #[apply(test_clarity_versions)]
     fn test_sanitization(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let v_1 = Value::list_from(vec![
             TupleData::from_data(vec![("b".into(), Value::Int(2))])
