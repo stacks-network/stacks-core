@@ -38,13 +38,11 @@ use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::{neon, BitcoinRegtestController, BurnchainController};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
-use stacks::core::{
-    StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-};
+
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::types::{Address};
 use stacks_common::util::sleep_ms;
 
 #[cfg(test)]
@@ -1085,7 +1083,7 @@ fn verify_auto_unlock_behavior() {
 
     // Check that the "raw" reward sets for all cycles just contains entries for both addrs
     //  for the next few cycles.
-    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+    for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let (mut chainstate, _) = StacksChainState::open(
             false,
             conf.burnchain.chain_id,
@@ -1171,7 +1169,7 @@ fn verify_auto_unlock_behavior() {
 
     // Check that the "raw" reward sets for all cycles just contains entries for the first
     //  address at the cycle start, since addr 2 was auto-unlocked.
-    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+    for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let tip_info = get_chain_info(&conf);
         let tip_block_id =
             StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
