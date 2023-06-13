@@ -63,6 +63,7 @@ pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
+pub const PATH_BLOCK_REWARD: &str = "new_block_reward";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -271,6 +272,17 @@ impl EventObserver {
         })
     }
 
+    /// Returns json payload to send for new block or microblock event
+    fn make_new_block_reward_payload(
+        amount: u32,
+    ) -> serde_json::Value {
+
+        // TODO: include block hash, height, miner address
+        json!({
+            "amount": amount,
+        })
+    }
+
     fn make_new_attachment_payload(
         attachment: &(AttachmentInstance, Attachment),
     ) -> serde_json::Value {
@@ -338,6 +350,10 @@ impl EventObserver {
 
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
+    }
+
+    fn send_new_block_reward(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_BLOCK_REWARD);
     }
 
     fn make_new_block_processed_payload(
@@ -924,6 +940,19 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_attachments(&json!(serialized_attachments));
+        }
+    }
+
+    pub fn process_new_block_reward(&self, amount: u32) {
+        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = EventObserver::make_new_block_reward_payload(amount);
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_new_block_reward(&json!(payload));
         }
     }
 

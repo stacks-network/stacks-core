@@ -1051,6 +1051,8 @@ impl<'a> ClarityDatabase<'a> {
         reporter: &StandardPrincipalData,
         seq: u16,
     ) -> Result<()> {
+        // TODO(eo): snake in the Txid and emit an event here with txid, height, reporter, and seq
+
         let key = ClarityDatabase::make_microblock_poison_key(height);
         let value = Value::Tuple(
             TupleData::from_data(vec![

@@ -6254,6 +6254,7 @@ impl StacksChainState {
 
             // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
             // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
+            // TODO(eo): emit reward info here, in follower block processing path
             let (matured_rewards, miner_payouts_opt) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
