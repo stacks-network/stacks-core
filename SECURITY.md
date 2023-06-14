@@ -2,13 +2,13 @@
 
 
 ## Supported Versions
-Please see [Releases](https://github.com/stacks-network/stacks-blockchain/releases). We recommend using the [most recently released version](https://github.com/stacks-network/stacks-blockchain/releases/latest).
+Please see [Releases](https://github.com/stacks-network/stacks-blockchain/releases). It is recommended to use the [most recently released version](https://github.com/stacks-network/stacks-blockchain/releases/latest).
 
 
 ## Reporting a vulnerability
 **Please do not file a public issue or PR mentioning the vulnerability.**
 
-We’ve partnered with [ImmuneFi](https://immunefi.com/) to reward honest researchers who find and responsibly disclose security vulnerabilities in our critical code. We offer bounties payable in the Stacks token ([STX](https://www.coingecko.com/en/coins/stacks)) for accepted, high-quality submissions.
+The Stacks Foundation has partnered with [ImmuneFi](https://immunefi.com/) to reward honest researchers who find and responsibly disclose security vulnerabilities in our critical code. Bounties are payable in the Stacks token ([STX](https://www.coingecko.com/en/coins/stacks)) for accepted, high-quality submissions.
 
 Learn more here: [https://bounty.stacks.org](https://bounty.stacks.org)
 
@@ -16,7 +16,7 @@ Learn more here: [https://bounty.stacks.org](https://bounty.stacks.org)
 
 Please visit [https://stacks.org/security](https://stacks.org/security) for the most up-to-date information on our security policy.
 
-You may contact security[at]stacks[dot]org with any questions or to report a vulnerabilty using the following key(s):
+You may also contact us with any questions or to report a vulnerabilty using the following key(s):
 
 
 | Name | Fingerprint          |
