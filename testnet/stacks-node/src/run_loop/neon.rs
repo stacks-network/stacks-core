@@ -525,7 +525,7 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer = make_bitcoin_indexer(&self.config);
+        let coordinator_indexer = make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -652,7 +652,7 @@ impl RunLoop {
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
@@ -799,7 +799,7 @@ impl RunLoop {
                 }
             };
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,

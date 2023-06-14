@@ -4060,7 +4060,7 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher, should_keep_running: Arc<AtomicBool>) {
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
@@ -4087,7 +4087,7 @@ impl StacksNode {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        let indexer = make_bitcoin_indexer(&p2p_thread.config);
+        let indexer = make_bitcoin_indexer(&p2p_thread.config, Some(should_keep_running));
 
         // receive until we can't reach the receiver thread
         loop {
@@ -4187,6 +4187,7 @@ impl StacksNode {
             })
             .expect("FATAL: failed to start relayer thread");
 
+        let should_keep_running_clone = globals.should_keep_running.clone();
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
         let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
@@ -4197,7 +4198,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher, should_keep_running_clone);
             })
             .expect("FATAL: failed to start p2p thread");
 
