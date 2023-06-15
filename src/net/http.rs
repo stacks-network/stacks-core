@@ -127,6 +127,11 @@ lazy_static! {
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
+    static ref PATH_GET_CONSTANT_VAL: Regex = Regex::new(&format!(
+        "^/v2/constant_val/(?P<address>{})/(?P<contract>{})/(?P<constname>{})$",
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+    ))
+    .unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
         "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
