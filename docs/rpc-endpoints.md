@@ -216,6 +216,19 @@ Where data is the hex serialization of the variable value.
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
+### GET /v2/constant_val/[Stacks Address]/[Contract Name]/[Const Name]
+Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and 
+ [Contract Name] in the URL path. The constant is identified with [Const Name].
+
+Returns JSON data in the form:
+```
+{
+  "data": "0x01ce...",
+}
+```
+
+Where data is the hex serialization of the constant value.
+
 ### POST /v2/map_entry/[Stacks Address]/[Contract Name]/[Map Name]
 
 Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and
