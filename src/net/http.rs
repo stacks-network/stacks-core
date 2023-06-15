@@ -2734,6 +2734,7 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
             HttpRequestType::GetDataVar(ref md, ..) => md,
+            HttpRequestType::GetConstantVal(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
             HttpRequestType::GetTransferCost(ref md) => md,
             HttpRequestType::GetContractABI(ref md, ..) => md,
@@ -2765,6 +2766,7 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
             HttpRequestType::GetDataVar(ref mut md, ..) => md,
+            HttpRequestType::GetConstantVal(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
             HttpRequestType::GetTransferCost(ref mut md) => md,
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
@@ -2854,6 +2856,19 @@ impl HttpRequestType {
                 contract_name.as_str(),
                 var_name.as_str(),
                 HttpRequestType::make_tip_query_string(tip_req, *with_proof)
+            ),
+            HttpRequestType::GetConstantVal(
+                _md,
+                contract_addr,
+                contract_name,
+                const_name,
+                tip_req,
+            ) => format!(
+                "/v2/constant_val/{}/{}/{}{}",
+                &contract_addr.to_string(),
+                contract_name.as_str(),
+                const_name.as_str(),
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2971,6 +2986,9 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(..) => "/v2/microblocks",
             HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
             HttpRequestType::GetDataVar(..) => "/v2/data_var/:principal/:contract_name/:var_name",
+            HttpRequestType::GetConstantVal(..) => {
+                "/v2/constant_val/:principal/:contract_name/:const_name"
+            }
             HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
             HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
             HttpRequestType::GetContractABI(..) => {
@@ -4467,6 +4485,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
                 HttpRequestType::GetDataVar(..) => "HTTP(GetDataVar)",
+                HttpRequestType::GetConstantVal(..) => "HTTP(GetConstantVal)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
@@ -4483,6 +4502,7 @@ impl MessageSequence for StacksHttpMessage {
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
                 HttpResponseType::GetDataVar(_, _) => "HTTP(GetDataVar)",
+                HttpResponseType::GetConstantVal(..) => "HTTP(GetConstantVal)",
                 HttpResponseType::GetMapEntry(_, _) => "HTTP(GetMapEntry)",
                 HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
