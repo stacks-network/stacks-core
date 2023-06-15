@@ -5950,6 +5950,55 @@ mod test {
     }
 
     #[test]
+    fn test_rpc_get_constant_val_unconfirmed() {
+        test_rpc(
+            function_name!(),
+            40124,
+            40125,
+            50124,
+            50125,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let unconfirmed_tip = peer_client
+                    .chainstate()
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::SpecificTip(unconfirmed_tip),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, response_val) => {
+                        assert_eq!(response_val.data, Value::Int(123));
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
     fn test_rpc_get_constant_val_nonexistant() {
         test_rpc(
             function_name!(),
