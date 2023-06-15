@@ -1558,6 +1558,11 @@ impl HttpRequestType {
                 &HttpRequestType::parse_get_data_var,
             ),
             (
+                "GET",
+                &PATH_GET_CONSTANT_VAL,
+                &HttpRequestType::parse_get_constant_val,
+            ),
+            (
                 "POST",
                 &PATH_GET_MAP_ENTRY,
                 &HttpRequestType::parse_get_map_entry,

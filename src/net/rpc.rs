@@ -5766,7 +5766,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_rpc_get_data_var() {
         test_rpc(
             function_name!(),
