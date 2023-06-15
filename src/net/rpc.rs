@@ -3741,6 +3741,7 @@ mod test {
     use super::*;
 
     const TEST_CONTRACT: &'static str = "
+        (define-constant cst 123)
         (define-data-var bar int 0)
         (define-map unit-map { account: principal } { units: int })
         (define-public (get-bar) (ok (var-get bar)))
@@ -5898,6 +5899,51 @@ mod test {
                 match http_response {
                     HttpResponseType::NotFound(_, msg) => {
                         assert_eq!(msg, "Data var not found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn test_rpc_get_const_val() {
+        test_rpc(
+            function_name!(),
+            40122,
+            40123,
+            50122,
+            50123,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
                         true
                     }
                     _ => {
