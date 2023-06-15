@@ -1408,15 +1408,13 @@ impl ConversationHttp {
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    let key = ClarityDatabase::make_key_for_trip(
-                        &contract_identifier,
-                        StoreType::Variable,
-                        constant_name,
-                    );
+                    let contract = clarity_db.get_contract(&contract_identifier).ok()?;
 
-                    let value_hex: String = clarity_db.get(&key)?;
+                    let data = contract
+                        .contract_context
+                        .lookup_variable(constant_name)?
+                        .clone();
 
-                    let data = format!("0x{}", value_hex);
                     Some(ConstantValResponse { data })
                 })
             }) {
@@ -5910,7 +5908,7 @@ mod test {
     }
 
     #[test]
-    fn test_rpc_get_const_val() {
+    fn test_rpc_get_constant_val() {
         test_rpc(
             function_name!(),
             40122,
@@ -5938,11 +5936,8 @@ mod test {
              ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetConstantVal(response_md, data) => {
-                        assert_eq!(
-                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
-                            Value::Int(123)
-                        );
+                    HttpResponseType::GetConstantVal(response_md, response_val) => {
+                        assert_eq!(response_val.data, Value::Int(123));
                         true
                     }
                     _ => {

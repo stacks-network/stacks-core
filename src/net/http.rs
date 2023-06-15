@@ -3432,6 +3432,10 @@ impl HttpResponseType {
             (&PATH_GETHEADERS, &HttpResponseType::parse_headers),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GET_DATA_VAR, &HttpResponseType::parse_get_data_var),
+            (
+                &PATH_GET_CONSTANT_VAL,
+                &HttpResponseType::parse_get_constant_val,
+            ),
             (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
                 &PATH_GETMICROBLOCKS_INDEXED,
