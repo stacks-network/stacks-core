@@ -3650,6 +3650,21 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_get_constant_val<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let constant_val =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetConstantVal(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            constant_val,
+        ))
+    }
+
     fn parse_get_map_entry<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -4067,6 +4082,7 @@ impl HttpResponseType {
             HttpResponseType::MicroblockHash(ref md, _) => md,
             HttpResponseType::TokenTransferCost(ref md, _) => md,
             HttpResponseType::GetDataVar(ref md, _) => md,
+            HttpResponseType::GetConstantVal(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
             HttpResponseType::GetAccount(ref md, _) => md,
             HttpResponseType::GetContractABI(ref md, _) => md,
@@ -4186,6 +4202,10 @@ impl HttpResponseType {
             HttpResponseType::GetDataVar(ref md, ref var_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, var_data)?;
+            }
+            HttpResponseType::GetConstantVal(ref md, ref constant_val) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, constant_val)?;
             }
             HttpResponseType::GetMapEntry(ref md, ref map_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
