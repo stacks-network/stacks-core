@@ -1254,7 +1254,7 @@ pub struct DataVarResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConstantValResponse {
-    pub data: Value,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

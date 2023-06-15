@@ -1410,11 +1410,12 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let contract = clarity_db.get_contract(&contract_identifier).ok()?;
 
-                    let data = contract
+                    let cst = contract
                         .contract_context
                         .lookup_variable(constant_name)?
-                        .clone();
+                        .serialize_to_hex();
 
+                    let data = format!("0x{cst}");
                     Some(ConstantValResponse { data })
                 })
             }) {
@@ -5936,8 +5937,11 @@ mod test {
              ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetConstantVal(response_md, response_val) => {
-                        assert_eq!(response_val.data, Value::Int(123));
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
                         true
                     }
                     _ => {
@@ -5985,8 +5989,11 @@ mod test {
              ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetConstantVal(response_md, response_val) => {
-                        assert_eq!(response_val.data, Value::Int(123));
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
                         true
                     }
                     _ => {
