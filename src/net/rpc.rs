@@ -5950,6 +5950,48 @@ mod test {
     }
 
     #[test]
+    fn test_rpc_get_constant_val_nonexistant() {
+        test_rpc(
+            function_name!(),
+            40125,
+            40126,
+            50125,
+            50126,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst-nonexistant".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, msg) => {
+                        assert_eq!(msg, "Constant not found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
     #[ignore]
     fn test_rpc_get_map_entry() {
         // Test v2/map_entry (aka GetMapEntry) endpoint.
