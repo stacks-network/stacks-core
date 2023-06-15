@@ -1854,6 +1854,42 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_get_constant_val<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if content_len != 0 {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for GetConstantVal ({})",
+                content_len
+            )));
+        }
+
+        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+            net_error::DeserializeError("Failed to parse contract address".into())
+        })?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let const_name =
+            ClarityName::try_from(captures["constname"].to_string()).map_err(|_e| {
+                net_error::DeserializeError("Failed to parse constant value name".into())
+            })?;
+
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetConstantVal(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_addr,
+            contract_name,
+            const_name,
+            tip,
+        ))
+    }
+
     fn parse_get_map_entry<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
