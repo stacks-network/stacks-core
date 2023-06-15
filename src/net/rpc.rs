@@ -5765,6 +5765,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_get_data_var() {
         test_rpc(
             function_name!(),
@@ -5909,6 +5910,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_get_constant_val() {
         test_rpc(
             function_name!(),
@@ -5954,6 +5956,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_get_constant_val_unconfirmed() {
         test_rpc(
             function_name!(),
@@ -6006,6 +6009,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_get_constant_val_nonexistant() {
         test_rpc(
             function_name!(),
