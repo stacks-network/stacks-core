@@ -84,8 +84,9 @@ use crate::net::HTTP_REQUEST_ID_RESERVED;
 use crate::net::MAX_HEADERS;
 use crate::net::MAX_NEIGHBORS_DATA_LEN;
 use crate::net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ConstantValResponse,
+    ContractSrcResponse, DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    MapEntryResponse,
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
@@ -1387,6 +1388,50 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    fn handle_get_constant_val<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        constant_name: &ClarityName,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let contract_identifier =
+            QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let key = ClarityDatabase::make_key_for_trip(
+                        &contract_identifier,
+                        StoreType::Variable,
+                        constant_name,
+                    );
+
+                    let value_hex: String = clarity_db.get(&key)?;
+
+                    let data = format!("0x{}", value_hex);
+                    Some(ConstantValResponse { data })
+                })
+            }) {
+                Ok(Some(Some(data))) => HttpResponseType::GetConstantVal(response_metadata, data),
+                Ok(Some(None)) => {
+                    HttpResponseType::NotFound(response_metadata, "Constant not found".into())
+                }
+                Ok(None) | Err(_) => {
+                    HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
+                }
+            };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(
@@ -2602,6 +2647,37 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::GetConstantVal(
+                ref _md,
+                ref contruct_addr,
+                ref contract_name,
+                ref const_name,
+                ref tip_req,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_req,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_constant_val(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        &tip,
+                        contruct_addr,
+                        contract_name,
+                        const_name,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
+                None
+            }
             HttpRequestType::GetMapEntry(
                 ref _md,
                 ref contract_addr,
@@ -3506,6 +3582,22 @@ impl ConversationHttp {
             var_name,
             tip_req,
             with_proof,
+        )
+    }
+
+    pub fn new_getconstantval(
+        &self,
+        contract_add: StacksAddress,
+        contract_name: ContractName,
+        constant_name: ClarityName,
+        tip_req: TipRequest,
+    ) -> HttpRequestType {
+        HttpRequestType::GetConstantVal(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            contract_add,
+            contract_name,
+            constant_name,
+            tip_req,
         )
     }
 
