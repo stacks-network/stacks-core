@@ -19,6 +19,7 @@ use std::thread;
 
 use stacks::burnchains::Burnchain;
 use stacks::core::STACKS_EPOCH_MAX;
+use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 
 use crate::config::EventKeyType;
@@ -436,6 +437,8 @@ fn trait_invocation_behavior() {
     // stacks node to mine the stacks block which will be included in
     // epoch_2_3 - 1, so these are the last transactions processed pre-2.3.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // this sleep is placed here to reduce test flakiness
+    sleep_ms(10_000);
 
     let tx_3 = make_contract_call(
         &spender_sk,
