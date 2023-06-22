@@ -42,7 +42,7 @@ use stacks::core;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::{Address};
+use stacks_common::types::Address;
 use stacks_common::util::sleep_ms;
 
 #[cfg(test)]
