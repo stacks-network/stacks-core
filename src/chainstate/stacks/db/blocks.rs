@@ -225,6 +225,13 @@ impl BlockEventDispatcher for DummyEventDispatcher {
             "We should never try to announce to the dummy dispatcher"
         );
     }
+
+    fn announce_block_reward(&self, _block_id: StacksBlockId, _height: u64, _matured_rewards: &Vec<MinerReward>) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {
@@ -6876,6 +6883,10 @@ impl StacksChainState {
         }
 
         if let Some(dispatcher) = dispatcher_opt {
+            let block_id = StacksBlockId::new(
+                &next_staging_block.consensus_hash,
+                &next_staging_block.anchored_block_hash
+            );
             let parent_id = StacksBlockId::new(
                 &next_staging_block.parent_consensus_hash,
                 &next_staging_block.parent_anchored_block_hash,
@@ -6895,6 +6906,8 @@ impl StacksChainState {
                 &epoch_receipt.parent_microblocks_cost,
                 &pox_constants,
             );
+
+            dispatcher.announce_block_reward(block_id, next_staging_block.height, &epoch_receipt.matured_rewards);
         }
 
         StacksChainState::set_block_processed(

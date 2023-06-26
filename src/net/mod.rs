@@ -2434,6 +2434,10 @@ pub mod test {
         ) {
             // pass
         }
+
+        fn announce_block_reward(&self, _block_id: StacksBlockId, _height: u64, _matured_rewards: &Vec<MinerReward>) {
+            // pass
+        }
     }
 
     // describes a peer's initial configuration

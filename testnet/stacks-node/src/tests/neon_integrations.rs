@@ -100,6 +100,7 @@ use stacks::net::RPCFeeEstimateResponse;
 use stacks::vm::ClarityName;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
+use clarity::vm::types::StacksAddressExtensions;
 
 use crate::stacks_common::types::PrivateKey;
 
@@ -218,6 +219,7 @@ pub mod test_observer {
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
         pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref BLOCK_REWARDS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     }
 
     async fn handle_burn_block(
@@ -330,6 +332,12 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    async fn handle_new_block_reward(block_reward: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        let mut block_rewards = BLOCK_REWARDS.lock().unwrap();
+        block_rewards.push(block_reward);
+        Ok(warp::http::StatusCode::OK)
+    }
+
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
     }
@@ -356,6 +364,10 @@ pub mod test_observer {
 
     pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
         MINED_BLOCKS.lock().unwrap().clone()
+    }
+
+    pub fn get_block_rewards() -> Vec<serde_json::Value> {
+        BLOCK_REWARDS.lock().unwrap().clone()
     }
 
     pub fn get_mined_microblocks() -> Vec<MinedMicroblockEvent> {
@@ -396,6 +408,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mined_microblock);
+        let new_block_reward = warp::path!("new_block_reward")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_new_block_reward);
 
         info!("Spawning warp server");
         warp::serve(
@@ -406,7 +422,8 @@ pub mod test_observer {
                 .or(new_attachments)
                 .or(new_microblocks)
                 .or(mined_blocks)
-                .or(mined_microblocks),
+                .or(mined_microblocks)
+                .or(new_block_reward),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -427,6 +444,9 @@ pub mod test_observer {
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
+        NEW_MICROBLOCKS.lock().unwrap().clear();
+        MINED_MICROBLOCKS.lock().unwrap().clear();
+        BLOCK_REWARDS.lock().unwrap().clear();
     }
 }
 
@@ -4988,6 +5008,134 @@ fn mining_events_integration_test() {
         }
         _ => panic!("unexpected event type"),
     }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+
+#[test]
+#[ignore]
+fn block_reward_events_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    // let addr = to_addr(&spender_sk);
+    //
+    // let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+    // let addr_2 = to_addr(&spender_sk_2);
+
+    let (mut conf, miner_address) = neon_integration_test_conf();
+
+    // conf.initial_balances.push(InitialBalance {
+    //     address: addr.clone().into(),
+    //     amount: 10000000,
+    // });
+    // conf.initial_balances.push(InitialBalance {
+    //     address: addr_2.clone().into(),
+    //     amount: 10000000,
+    // });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 1000;
+    conf.node.microblock_frequency = 1000;
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![
+            EventKeyType::AnyEvent,
+            EventKeyType::MinedBlocks,
+            EventKeyType::MinedMicroblocks,
+        ],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // check mined block events
+    let mined_block_events = test_observer::get_mined_blocks();
+    assert!(mined_block_events.len() >= 3);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    let few_blocks = sort_height + 101;
+
+    while sort_height < few_blocks {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // check mined block events
+    let block_reward_events = test_observer::get_block_rewards();
+    // assert!(block_reward_events.len() >= 3);
+    println!("reward events #: {:?}, {:?}", block_reward_events.len(), block_reward_events);
+
+    let miner_address_principal_data: PrincipalData = miner_address.to_account_principal();
+    for i in 0..3 {
+        let mined_block = &mined_block_events[i];
+        let block_reward = &block_reward_events[i];
+
+        let index_block_hash = block_reward.get("index_block_hash").unwrap();
+        let block_height = block_reward.get("block_height").unwrap();
+
+        assert_eq!(mined_block.stacks_height, block_height.as_u64().unwrap());
+        assert_eq!(mined_block.block_hash, index_block_hash.to_string());
+
+        let rewards_info = block_reward.get("matured_rewards").unwrap();
+        let miner_address = rewards_info.get("coinbase").unwrap();
+        let expected_rewards_obj = json!({
+            "miner_address": miner_address,
+            "block_reward_address": miner_address_principal_data,
+            "coinbase": 1_020_400_000,
+            "tx_fees_anchored": 0,
+            "tx_fees_streamed_produced": 0,
+            "tx_fees_streamed_confirmed": 0,
+            "vtx_index": 0,
+        });
+    }
+
+    panic!("panic");
 
     test_observer::clear();
     channel.stop_chains_coordinator();

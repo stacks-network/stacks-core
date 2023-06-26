@@ -168,6 +168,14 @@ pub trait BlockEventDispatcher {
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
     );
+
+    // Called when a block reward has matured
+    fn announce_block_reward(
+        &self,
+        block_id: StacksBlockId,
+        height: u64,
+        matured_rewards: &Vec<MinerReward>,
+    );
 }
 
 pub struct ChainsCoordinatorConfig {

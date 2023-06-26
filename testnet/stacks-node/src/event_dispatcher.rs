@@ -6,6 +6,7 @@ use std::time::Duration;
 use async_h1::client;
 use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
+use serde::Serialize;
 use serde_json::json;
 
 use stacks::burnchains::{PoxConstants, Txid};
@@ -274,12 +275,28 @@ impl EventObserver {
 
     /// Returns json payload to send for new block or microblock event
     fn make_new_block_reward_payload(
-        amount: u32,
+        block_id: StacksBlockId, height: u64, matured_rewards: &Vec<MinerReward>
     ) -> serde_json::Value {
 
-        // TODO: include block hash, height, miner address
+        let matured_rewards_json = matured_rewards
+            .into_iter()
+            .map(|reward| {
+                json!({
+                    "miner_address": reward.address,
+                    "block_reward_address": reward.recipient,
+                    "coinbase": reward.coinbase,
+                    "tx_fees_anchored": reward.tx_fees_anchored,
+                    "tx_fees_streamed_produced": reward.tx_fees_streamed_produced,
+                    "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed,
+                    "vtx_index": reward.vtxindex,
+                })
+            })
+            .collect();
+
         json!({
-            "amount": amount,
+            "index_block_hash": block_id,
+            "block_height": height,
+            "matured_rewards": serde_json::Value::Array(matured_rewards_json),
         })
     }
 
@@ -520,6 +537,11 @@ impl BlockEventDispatcher for EventDispatcher {
             burns,
             recipient_info,
         )
+    }
+
+    fn announce_block_reward(&self, block_id: StacksBlockId, height: u64, matured_rewards: &Vec<MinerReward>) {
+        // TODO(eo): write test in neon_integrations
+        self.process_new_block_reward(block_id, height, matured_rewards);
     }
 }
 
@@ -943,13 +965,13 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_block_reward(&self, amount: u32) {
+    pub fn process_new_block_reward(&self, block_id: StacksBlockId, height: u64, matured_rewards: &Vec<MinerReward>) {
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
         if interested_observers.len() < 1 {
             return;
         }
 
-        let payload = EventObserver::make_new_block_reward_payload(amount);
+        let payload = EventObserver::make_new_block_reward_payload(block_id, height, matured_rewards);
 
         for (_, observer) in interested_observers.iter() {
             observer.send_new_block_reward(&json!(payload));

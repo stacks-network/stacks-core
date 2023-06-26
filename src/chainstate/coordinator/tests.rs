@@ -454,6 +454,13 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _slot_holders: Vec<PoxAddress>,
     ) {
     }
+
+    fn announce_block_reward(&self, _block_id: StacksBlockId, _height: u64, _matured_rewards: &Vec<MinerReward>) {
+        assert!(
+            false,
+            "We should never try to announce to the null dispatcher"
+        );
+    }
 }
 
 pub fn make_coordinator<'a>(
