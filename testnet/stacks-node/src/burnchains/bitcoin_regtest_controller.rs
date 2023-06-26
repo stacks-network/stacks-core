@@ -132,7 +132,10 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
 }
 
 /// Helper method to create a BitcoinIndexer
-pub fn make_bitcoin_indexer(config: &Config, should_keep_running: Option<Arc<AtomicBool>>) -> BitcoinIndexer {
+pub fn make_bitcoin_indexer(
+    config: &Config,
+    should_keep_running: Option<Arc<AtomicBool>>,
+) -> BitcoinIndexer {
     let (network, _) = config.burnchain.get_bitcoin_network();
     let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
         .expect("Bitcoin network unsupported");

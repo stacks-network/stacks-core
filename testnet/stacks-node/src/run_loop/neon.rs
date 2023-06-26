@@ -525,7 +525,8 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer = make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
+        let coordinator_indexer =
+            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(

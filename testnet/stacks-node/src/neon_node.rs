@@ -4060,7 +4060,11 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher, should_keep_running: Arc<AtomicBool>) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+        should_keep_running: Arc<AtomicBool>,
+    ) {
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
