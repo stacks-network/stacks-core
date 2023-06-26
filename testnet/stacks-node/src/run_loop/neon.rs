@@ -1092,15 +1092,12 @@ impl RunLoop {
                 }
             };
 
-            // print burnchain sync percentage
-            if ibd {
-                let percent: f64 =
-                    burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64;
-                debug!("Burnchain sync percentage";
-                       "percent" => %percent,
-                       "local_tip_height" => %burnchain_tip.block_snapshot.block_height,
-                       "remote_tip_height" => %remote_chain_height);
-            }
+            // calculate burnchain sync percentage
+            let percent: f64 = if remote_chain_height > 0 {
+                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+            } else {
+                0;
+            };
 
             // will recalculate this in the following loop
             num_sortitions_in_last_cycle = 0;
@@ -1115,7 +1112,10 @@ impl RunLoop {
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height,
+                target_burnchain_block_height;
+                "total_burn_sync_percent" => %percent,
+                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "remote_tip_height" => remote_chain_height
             );
 
             loop {
