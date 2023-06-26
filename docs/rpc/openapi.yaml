@@ -428,7 +428,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
+  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
     get:
       summary: Get trait implementation details
       description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
