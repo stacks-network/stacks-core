@@ -2046,8 +2046,6 @@ fn bitcoind_resubmission_test() {
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
 
-        //        let tip_hash = StacksBlockId::new(&consensus_hash, &stacks_block.header.block_hash());
-
         let ublock_privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
@@ -9636,8 +9634,13 @@ fn test_problematic_microblocks_are_not_mined() {
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
         cur_files = cur_files_new;
+
+        // give the microblock miner a chance
+        sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
@@ -9664,7 +9667,7 @@ fn test_problematic_microblocks_are_not_mined() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
-                assert!(parsed.txid() != tx_high_txid);
+                assert_ne!(parsed.txid(), tx_high_txid);
             }
         }
     }
@@ -10042,6 +10045,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed

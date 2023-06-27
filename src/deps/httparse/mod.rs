@@ -1269,7 +1269,7 @@ mod tests {
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(Error::ChunkSize));
         assert_eq!(
             parse_chunk_size(b"ffffffffffffffff\r\n"),
-            Ok(Status::Complete((18, u64::max_value())))
+            Ok(Status::Complete((18, u64::MAX)))
         );
         assert_eq!(
             parse_chunk_size(b"1ffffffffffffffff\r\n"),

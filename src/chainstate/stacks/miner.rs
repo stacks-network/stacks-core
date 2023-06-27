@@ -177,7 +177,7 @@ pub struct BlockBuilderSettings {
 impl BlockBuilderSettings {
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: u64::max_value(),
+            max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
@@ -185,7 +185,7 @@ impl BlockBuilderSettings {
 
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: u64::max_value(),
+            max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
