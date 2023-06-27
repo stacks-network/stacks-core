@@ -2648,7 +2648,7 @@ impl ConversationHttp {
             }
             HttpRequestType::GetConstantVal(
                 ref _md,
-                ref contruct_addr,
+                ref contract_addr,
                 ref contract_name,
                 ref const_name,
                 ref tip_req,
@@ -2669,7 +2669,7 @@ impl ConversationHttp {
                         sortdb,
                         chainstate,
                         &tip,
-                        contruct_addr,
+                        contract_addr,
                         contract_name,
                         const_name,
                         network.burnchain_tip.canonical_stacks_tip_height,
