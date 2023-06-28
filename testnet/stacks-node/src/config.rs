@@ -240,7 +240,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn mainnet() -> ConfigFile {
+    pub fn mainnet(default_config_file: ConfigFile) -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
@@ -249,20 +249,20 @@ impl ConfigFile {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             magic_bytes: Some("X2".to_string()),
-            ..BurnchainConfigFile::default()
+            ..default_config_file.burnchain.unwrap_or_default()
         };
 
         let node = NodeConfigFile {
             bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
             miner: Some(false),
-            ..NodeConfigFile::default()
+            ..default_config_file.node.unwrap_or_default()
         };
 
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: None,
-            ..ConfigFile::default()
+            ..default_config_file
         }
     }
 
@@ -731,7 +731,10 @@ impl Config {
 
                 if &burnchain_mode == "mainnet" {
                     // check magic bytes and set if not defined
-                    let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
+                    let mainnet_magic = ConfigFile::mainnet(Default::default())
+                        .burnchain
+                        .unwrap()
+                        .magic_bytes;
                     if burnchain.magic_bytes.is_none() {
                         burnchain.magic_bytes = mainnet_magic.clone();
                     }
@@ -938,7 +941,11 @@ impl Config {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
         } else {
             if burnchain.mode == "mainnet" {
-                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+                let bootstrap_node = ConfigFile::mainnet(Default::default())
+                    .node
+                    .unwrap()
+                    .bootstrap_node
+                    .unwrap();
                 node.set_bootstrap_nodes(
                     bootstrap_node,
                     burnchain.chain_id,

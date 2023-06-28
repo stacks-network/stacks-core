@@ -121,7 +121,7 @@ fn main() {
         }
         "mainnet" => {
             args.finish().unwrap();
-            ConfigFile::mainnet()
+            ConfigFile::mainnet(user_config_file.unwrap_or_default())
         }
         "check-config" => {
             args.finish().unwrap();
