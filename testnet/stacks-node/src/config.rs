@@ -301,16 +301,16 @@ impl ConfigFile {
         }
     }
 
-    pub fn mocknet() -> ConfigFile {
+    pub fn mocknet(default_config_file: ConfigFile) -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("mocknet".to_string()),
             commit_anchor_block_within: Some(10_000),
-            ..BurnchainConfigFile::default()
+            ..default_config_file.burnchain.unwrap_or_default()
         };
 
         let node = NodeConfigFile {
             miner: Some(false),
-            ..NodeConfigFile::default()
+            ..default_config_file.node.unwrap_or_default()
         };
 
         let balances = vec![
@@ -348,7 +348,7 @@ impl ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: Some(balances),
-            ..ConfigFile::default()
+            ..default_config_file
         }
     }
 }

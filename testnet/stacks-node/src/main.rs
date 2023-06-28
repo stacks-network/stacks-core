@@ -109,7 +109,7 @@ fn main() {
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
-            ConfigFile::mocknet()
+            ConfigFile::mocknet(user_config_file.unwrap_or_default())
         }
         "helium" => {
             args.finish().unwrap();
