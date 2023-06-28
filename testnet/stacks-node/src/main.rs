@@ -92,6 +92,20 @@ fn main() {
         );
     }
 
+    let user_config_file = match args.value_from_str("--config") {
+        Ok::<String, _>(config_path) => {
+            info!("Loading config at path {}", &config_path);
+            match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => Some(config_file),
+                Err(e) => {
+                    warn!("Invalid config file: {}", e);
+                    process::exit(1);
+                }
+            }
+        }
+        Err(_) => None,
+    };
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -110,18 +124,10 @@ fn main() {
             ConfigFile::mainnet()
         }
         "check-config" => {
-            let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
-            info!("Loading config at path {}", config_path);
-            let config_file = match ConfigFile::from_path(&config_path) {
-                Ok(config_file) => {
-                    debug!("Loaded config file: {:?}", config_file);
-                    config_file
-                }
-                Err(e) => {
-                    warn!("Invalid config file: {}", e);
-                    process::exit(1);
-                }
+            let Some(config_file) = user_config_file else {
+                error!("`check-config` must be passed a config file via the `--config` flag");
+                process::exit(1);
             };
             match Config::from_config_file(config_file) {
                 Ok(_) => {
@@ -135,16 +141,11 @@ fn main() {
             };
         }
         "start" => {
-            let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
-            info!("Loading config at path {}", config_path);
-            match ConfigFile::from_path(&config_path) {
-                Ok(config_file) => config_file,
-                Err(e) => {
-                    warn!("Invalid config file: {}", e);
-                    process::exit(1);
-                }
-            }
+            user_config_file.unwrap_or_else(|| {
+                error!("`start` must be passed a config file via the `--config` flag");
+                process::exit(1);
+            })
         }
         "version" => {
             println!("{}", &version());
@@ -152,13 +153,15 @@ fn main() {
         }
         "key-for-seed" => {
             let seed = {
-                let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
-                if let Some(config_path) = config_path {
-                    let conf =
-                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
-                            .unwrap();
+                if let Some(config_file) = user_config_file {
                     args.finish().unwrap();
-                    conf.node.seed
+                    match Config::from_config_file(config_file) {
+                        Ok(conf) => conf.node.seed,
+                        Err(e) => {
+                            warn!("Invalid config: {}", e);
+                            process::exit(1);
+                        }
+                    }
                 } else {
                     let free_args = args.free().unwrap();
                     let seed_hex = free_args
