@@ -117,7 +117,7 @@ fn main() {
         }
         "testnet" => {
             args.finish().unwrap();
-            ConfigFile::xenon()
+            ConfigFile::xenon(user_config_file.unwrap_or_default())
         }
         "mainnet" => {
             args.finish().unwrap();

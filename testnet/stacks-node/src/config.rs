@@ -197,20 +197,20 @@ impl ConfigFile {
         Ok(config)
     }
 
-    pub fn xenon() -> ConfigFile {
+    pub fn xenon(default_config_file: ConfigFile) -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
             peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
             magic_bytes: Some("T2".into()),
-            ..BurnchainConfigFile::default()
+            ..default_config_file.burnchain.unwrap_or_default()
         };
 
         let node = NodeConfigFile {
             bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
             miner: Some(false),
-            ..NodeConfigFile::default()
+            ..default_config_file.node.unwrap_or_default()
         };
 
         let balances = vec![
@@ -236,7 +236,7 @@ impl ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: Some(balances),
-            ..ConfigFile::default()
+            ..default_config_file
         }
     }
 
@@ -720,7 +720,10 @@ impl Config {
             Some(mut burnchain) => {
                 if burnchain.mode.as_deref() == Some("xenon") {
                     if burnchain.magic_bytes.is_none() {
-                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+                        burnchain.magic_bytes = ConfigFile::xenon(Default::default())
+                            .burnchain
+                            .unwrap()
+                            .magic_bytes;
                     }
                 }
 
