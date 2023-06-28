@@ -640,6 +640,10 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             };
             Ok(Some(RewardCycleInfo { anchor_status }))
         } else {
+            debug!(
+                "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
+                reward_cycle, burn_height
+            );
             Ok(Some(RewardCycleInfo {
                 anchor_status: PoxAnchorBlockStatus::NotSelected,
             }))
