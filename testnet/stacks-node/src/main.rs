@@ -113,7 +113,7 @@ fn main() {
         }
         "helium" => {
             args.finish().unwrap();
-            ConfigFile::helium()
+            ConfigFile::helium(user_config_file.unwrap_or_default())
         }
         "testnet" => {
             args.finish().unwrap();

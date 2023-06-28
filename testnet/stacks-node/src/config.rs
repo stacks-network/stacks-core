@@ -266,7 +266,7 @@ impl ConfigFile {
         }
     }
 
-    pub fn helium() -> ConfigFile {
+    pub fn helium(default_config_file: ConfigFile) -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
         // ##
@@ -286,18 +286,18 @@ impl ConfigFile {
             username: Some("helium".to_string()),
             password: Some("helium".to_string()),
             local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
-            ..BurnchainConfigFile::default()
+            ..default_config_file.burnchain.unwrap_or_default()
         };
 
         let node = NodeConfigFile {
             miner: Some(false),
-            ..NodeConfigFile::default()
+            ..default_config_file.node.unwrap_or_default()
         };
 
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            ..ConfigFile::default()
+            ..default_config_file
         }
     }
 
