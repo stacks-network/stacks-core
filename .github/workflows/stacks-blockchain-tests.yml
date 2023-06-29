@@ -6,9 +6,11 @@ name: Tests
 
 # Only run when:
 #   - manually triggered via the ci.yml workflow
+#   - PRs are opened, updated, or re-opened
 
 on:
   workflow_call:
+  pull_request:
 
 jobs:
   # Run full genesis test

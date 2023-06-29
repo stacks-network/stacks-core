@@ -2,7 +2,7 @@ name: CI
 
 ## Only run when:
 ##   - manually triggered
-##   - PR's are (re)opened
+##   - PR's are (re)opened or updated
 ##   - push to master (i.e. merge develop -> master)
 
 on:
