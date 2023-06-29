@@ -26,6 +26,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
 
+- The node now gracefully shuts down even if it is in the middle of a handshake with 
+  bitcoind. Fixes issue #3734.
+
 ## [2.4.0.0.0]
 This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
 
