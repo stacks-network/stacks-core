@@ -1096,7 +1096,7 @@ impl RunLoop {
             let percent: f64 = if remote_chain_height > 0 {
                 burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
             } else {
-                0;
+                0
             };
 
             // will recalculate this in the following loop
