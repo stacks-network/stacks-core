@@ -84,8 +84,9 @@ use crate::net::HTTP_REQUEST_ID_RESERVED;
 use crate::net::MAX_HEADERS;
 use crate::net::MAX_NEIGHBORS_DATA_LEN;
 use crate::net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ConstantValResponse,
+    ContractSrcResponse, DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    MapEntryResponse,
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
@@ -1387,6 +1388,49 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    fn handle_get_constant_val<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        constant_name: &ClarityName,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let contract_identifier =
+            QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let contract = clarity_db.get_contract(&contract_identifier).ok()?;
+
+                    let cst = contract
+                        .contract_context
+                        .lookup_variable(constant_name)?
+                        .serialize_to_hex();
+
+                    let data = format!("0x{cst}");
+                    Some(ConstantValResponse { data })
+                })
+            }) {
+                Ok(Some(Some(data))) => HttpResponseType::GetConstantVal(response_metadata, data),
+                Ok(Some(None)) => {
+                    HttpResponseType::NotFound(response_metadata, "Constant not found".into())
+                }
+                Ok(None) | Err(_) => {
+                    HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
+                }
+            };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(
@@ -2602,6 +2646,37 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::GetConstantVal(
+                ref _md,
+                ref contract_addr,
+                ref contract_name,
+                ref const_name,
+                ref tip_req,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_req,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_constant_val(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        &tip,
+                        contract_addr,
+                        contract_name,
+                        const_name,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
+                None
+            }
             HttpRequestType::GetMapEntry(
                 ref _md,
                 ref contract_addr,
@@ -3509,6 +3584,22 @@ impl ConversationHttp {
         )
     }
 
+    pub fn new_getconstantval(
+        &self,
+        contract_add: StacksAddress,
+        contract_name: ContractName,
+        constant_name: ClarityName,
+        tip_req: TipRequest,
+    ) -> HttpRequestType {
+        HttpRequestType::GetConstantVal(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            contract_add,
+            contract_name,
+            constant_name,
+            tip_req,
+        )
+    }
+
     /// Make a new request for a data map
     pub fn new_getmapentry(
         &self,
@@ -3649,6 +3740,7 @@ mod test {
     use super::*;
 
     const TEST_CONTRACT: &'static str = "
+        (define-constant cst 123)
         (define-data-var bar int 0)
         (define-map unit-map { account: principal } { units: int })
         (define-public (get-bar) (ok (var-get bar)))
@@ -5806,6 +5898,148 @@ mod test {
                 match http_response {
                     HttpResponseType::NotFound(_, msg) => {
                         assert_eq!(msg, "Data var not found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val() {
+        test_rpc(
+            function_name!(),
+            40122,
+            40123,
+            50122,
+            50123,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val_unconfirmed() {
+        test_rpc(
+            function_name!(),
+            40124,
+            40125,
+            50124,
+            50125,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let unconfirmed_tip = peer_client
+                    .chainstate()
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::SpecificTip(unconfirmed_tip),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val_nonexistant() {
+        test_rpc(
+            function_name!(),
+            40125,
+            40126,
+            50125,
+            50126,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst-nonexistant".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, msg) => {
+                        assert_eq!(msg, "Constant not found");
                         true
                     }
                     _ => {
