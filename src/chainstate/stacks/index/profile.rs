@@ -92,6 +92,7 @@ pub struct TrieBenchmark {
     time_errors: u64,
 }
 
+#[cfg(test)]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
         TrieBenchmark {
@@ -409,7 +410,7 @@ impl TrieBenchmark {
     }
 }
 
-/*
+#[cfg(not(test))]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
         TrieBenchmark {
@@ -508,4 +509,3 @@ impl TrieBenchmark {
 
     pub fn marf_find_backptr_node_finish(&mut self) {}
 }
-*/

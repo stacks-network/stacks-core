@@ -1026,7 +1026,6 @@ simulating a miner.
                 .expect(&format!("Missing path {}", &i));
         }
         let end_ns = now_nanos();
-        let bench = marf.get_benchmarks();
 
         eprintln!(
             "Total time (ms):       {}",
@@ -1036,7 +1035,6 @@ simulating a miner.
             "Avg time per key (ms): {}",
             ((end_ns.saturating_sub(start_ns) as f64) / (num_paths as f64)) / 1000000.0
         );
-        eprintln!("Raw benchmarks: {:#?}", &bench);
         return;
     }
 
