@@ -156,7 +156,7 @@ pub trait TrieNode {
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
 
-    /// Get a reference to the children of this node.
+    /// Get a reference to the path segment this node contains
     fn path(&self) -> &Vec<u8>;
 
     /// Construct a TrieNodeType from a TrieNode
@@ -1335,6 +1335,10 @@ impl TrieNodeType {
 
     pub fn ptrs(&self) -> &[TriePtr] {
         with_node!(self, ref data, data.ptrs())
+    }
+
+    pub fn path(&self) -> &Vec<u8> {
+        with_node!(self, ref data, data.path())
     }
 
     pub fn ptrs_mut(&mut self) -> &mut [TriePtr] {

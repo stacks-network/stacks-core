@@ -97,6 +97,15 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_nanos() -> u128 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    return since_the_epoch.as_nanos();
+}
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -229,6 +238,34 @@ fn main() {
             .unwrap();
 
         println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "poison-microblock-pubkhs" {
+        if argv.len() < 3 {
+            eprintln!(
+                "Usage: {} find-poison-microblock-pubkhs BLOCK_PATH",
+                argv[0]
+            );
+            process::exit(1);
+        }
+
+        let block_path = &argv[2];
+        let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
+
+        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+            .map_err(|_e| {
+                eprintln!("Failed to decode block");
+                process::exit(1);
+            })
+            .unwrap();
+
+        for tx in block.txs {
+            if let TransactionPayload::PoisonMicroblock(hdr, ..) = tx.payload {
+                println!("{}", hdr.check_recover_pubkey().unwrap());
+            }
+        }
+
         process::exit(0);
     }
 
@@ -951,6 +988,65 @@ simulating a miner.
             Some(x) => println!("{}", x),
             None => println!("None"),
         };
+        return;
+    }
+
+    if argv[1] == "marf-get-bench" {
+        let path = &argv[2];
+        let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
+
+        let mut keys_buf = String::new();
+        io::stdin()
+            .read_to_string(&mut keys_buf)
+            .expect("FATAL: failed to read paths from stdin");
+        let keys: Vec<_> = keys_buf.split("\n").filter(|key| key.len() == 64).collect();
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
+
+        let start_ns = now_nanos();
+        for key in keys.iter() {
+            let _ = marf.get(&itip, key).expect("MARF error.");
+        }
+        let end_ns = now_nanos();
+        let bench = marf.get_benchmarks();
+
+        eprintln!(
+            "Total time (ms):       {}",
+            (end_ns.saturating_sub(start_ns) as f64) / 1000000.0
+        );
+        eprintln!(
+            "Avg time per key (ms): {}",
+            ((end_ns.saturating_sub(start_ns) as f64) / (keys.len() as f64)) / 1000000.0
+        );
+        eprintln!("Raw benchmarks: {:#?}", &bench);
+        return;
+    }
+
+    if argv[1] == "marf-dump" {
+        let path = &argv[2];
+        let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
+        let count: usize = argv[4].parse().expect("FATAL: expected count");
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
+        let mut dumped = 0;
+
+        println!("path,value");
+        marf.open_block(&itip).expect("FATAL: no such stacks block");
+        marf.dump(|path, value| {
+            if dumped > 0 && dumped % 100 == 0 {
+                eprintln!("Dumped {} values...", dumped);
+            }
+
+            println!("{},{}", &path.to_hex(), &value.to_hex());
+            dumped += 1;
+            dumped <= count
+        })
+        .unwrap();
+
         return;
     }
 
