@@ -38,6 +38,7 @@ use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::log;
 
@@ -134,6 +135,11 @@ pub trait MarfConnection<T: MarfTrieId> {
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+    }
+
+    /// Resolve a path from the MARF to a MARFValue with respect to the given block height.
+    fn get_path(&mut self, block_hash: &T, path: TriePath) -> Result<Option<MARFValue>, Error> {
+        self.with_conn(|c| MARF::get_by_path(c, block_hash, path))
     }
 
     fn get_with_proof(
@@ -996,12 +1002,17 @@ impl<T: MarfTrieId> MARF<T> {
             child_path.extend_from_slice(&leaf_data.path()[..]);
             assert_eq!(child_path.len(), 32);
 
-            let path = TriePath::from_bytes(&child_path).expect("FATAL: not 32 bytes");
-            test_debug!(
+            let mut path_bytes = [0u8; 32];
+            path_bytes.copy_from_slice(&child_path[0..32]);
+
+            let path = TriePath::new(path_bytes);
+            debug!("Walk leaf {}", &to_hex(&leaf_data.path()[..]));
+            debug!(
                 "Dump leaf: {} = {}",
                 &path.to_hex(),
                 &leaf_data.data.to_hex()
             );
+
             return Ok(path_consumer(path, leaf_data.data));
         }
 
@@ -1033,11 +1044,17 @@ impl<T: MarfTrieId> MARF<T> {
                         e
                     })?;
 
-                let backptr = ptr.from_backptr();
-                let child_node = storage.read_nodetype_nohash(&backptr)?;
+                let child_node = storage.read_nodetype_nohash(ptr)?;
                 let mut child_path = path_so_far.clone();
-                child_path.push(ptr.chr());
                 child_path.extend_from_slice(&node.path()[..]);
+                child_path.push(ptr.chr());
+
+                debug!(
+                    "Walk back {} {} {}",
+                    to_hex(&path_so_far),
+                    to_hex(&[ptr.chr()]),
+                    to_hex(&node.path()[..])
+                );
 
                 let res = MARF::inner_dump(storage, child_node, child_path, path_consumer)?;
 
@@ -1051,8 +1068,15 @@ impl<T: MarfTrieId> MARF<T> {
                 // in same trie
                 let child_node = storage.read_nodetype_nohash(ptr)?;
                 let mut child_path = path_so_far.clone();
-                child_path.push(ptr.chr());
                 child_path.extend_from_slice(&node.path()[..]);
+                child_path.push(ptr.chr());
+
+                debug!(
+                    "Walk trie {} {} {}",
+                    to_hex(&path_so_far),
+                    to_hex(&[ptr.chr()]),
+                    to_hex(&node.path()[..])
+                );
 
                 let res = MARF::inner_dump(storage, child_node, child_path, path_consumer)?;
                 // propagate errors
@@ -1250,9 +1274,19 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
-        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-
         let path = TriePath::from_key(key);
+        MARF::get_by_path(storage, block_hash, path).map_err(|e| {
+            warn!("Result of failed key lookup '{}': {:?}", key, &e);
+            e
+        })
+    }
+
+    pub fn get_by_path(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        path: TriePath,
+    ) -> Result<Option<MARFValue>, Error> {
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
@@ -1267,7 +1301,7 @@ impl<T: MarfTrieId> MARF<T> {
                     "Failed to re-open {} {:?}: {:?}",
                     &cur_block_hash, cur_block_id, &e
                 );
-                warn!("Result of failed key lookup '{}': {:?}", key, &result);
+                warn!("Result of failed path lookup '{}': {:?}", &path, &result);
                 e
             })?;
 
