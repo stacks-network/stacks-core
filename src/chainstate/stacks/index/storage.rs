@@ -2623,6 +2623,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
                     {
+                        self.bench.read_nodetype_finish(true);
                         (node_inst, node_hash)
                     } else {
                         let (node_inst, node_hash) =
@@ -2633,21 +2634,23 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                             node_inst.clone(),
                             node_hash.clone(),
                         );
+                        self.bench.read_nodetype_finish(false);
                         (node_inst, node_hash)
                     }
                 } else {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
+                        self.bench.read_nodetype_finish(true);
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
+                        self.bench.read_nodetype_finish(false);
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     }
                 };
 
-                self.bench.read_nodetype_finish(false);
                 Ok((node_inst, node_hash))
             }
             None => {
