@@ -60,6 +60,7 @@ use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::index::node::TriePath;
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
 use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
@@ -999,15 +1000,30 @@ simulating a miner.
         io::stdin()
             .read_to_string(&mut keys_buf)
             .expect("FATAL: failed to read paths from stdin");
-        let keys: Vec<_> = keys_buf.split("\n").filter(|key| key.len() == 64).collect();
+        let paths: Vec<_> = keys_buf
+            .split("\n")
+            .filter(|key| key.len() == 64)
+            .map(|key| {
+                let bytes_vec = hex_bytes(&key).expect("malformed key -- must be a hex string");
+                assert!(bytes_vec.len() == 32);
+
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&bytes_vec[0..32]);
+
+                TriePath::new(bytes)
+            })
+            .collect();
 
         let mut marf_opts = MARFOpenOpts::default();
         marf_opts.external_blobs = true;
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
 
         let start_ns = now_nanos();
-        for key in keys.iter() {
-            let _ = marf.get(&itip, key).expect("MARF error.");
+        let num_paths = paths.len();
+        for (i, path) in paths.into_iter().enumerate() {
+            marf.get_path(&itip, path)
+                .expect("MARF error.")
+                .expect(&format!("Missing path {}", &i));
         }
         let end_ns = now_nanos();
         let bench = marf.get_benchmarks();
@@ -1018,7 +1034,7 @@ simulating a miner.
         );
         eprintln!(
             "Avg time per key (ms): {}",
-            ((end_ns.saturating_sub(start_ns) as f64) / (keys.len() as f64)) / 1000000.0
+            ((end_ns.saturating_sub(start_ns) as f64) / (num_paths as f64)) / 1000000.0
         );
         eprintln!("Raw benchmarks: {:#?}", &bench);
         return;
@@ -1034,6 +1050,8 @@ simulating a miner.
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let mut dumped = 0;
 
+        let mut all_paths = vec![];
+
         println!("path,value");
         marf.open_block(&itip).expect("FATAL: no such stacks block");
         marf.dump(|path, value| {
@@ -1041,12 +1059,24 @@ simulating a miner.
                 eprintln!("Dumped {} values...", dumped);
             }
 
+            all_paths.push(path.clone());
+
             println!("{},{}", &path.to_hex(), &value.to_hex());
             dumped += 1;
             dumped <= count
         })
         .unwrap();
 
+        for (i, path) in all_paths.into_iter().enumerate() {
+            // sanity check
+            if marf
+                .get_path(&itip, path.clone())
+                .expect("MARF error.")
+                .is_none()
+            {
+                eprintln!("Missing path #{}: {}", i, &path);
+            }
+        }
         return;
     }
 
