@@ -58,6 +58,7 @@ use crate::util_lib::db::query_rows;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::FromColumn;
 use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieLeaf;
@@ -243,6 +244,27 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
         error!("Failed to get block header hash of local ID {}", local_id);
         Error::NotFoundError
     })
+}
+
+/// Read all confirmed block hashes and IDs.  Used to populate the storage's cache.
+pub fn get_all_block_hashes_and_ids<T: MarfTrieId>(
+    conn: &Connection,
+) -> Result<Vec<(T, u32)>, Error> {
+    let mut stmt = conn.prepare(
+        "SELECT block_hash,block_id FROM marf_data WHERE unconfirmed = 0 ORDER BY block_id ASC",
+    )?;
+    let result_iter = stmt.query_and_then(NO_PARAMS, |row| {
+        let block_hash: T = row.get_unwrap("block_hash");
+        let block_id: u32 = row.get_unwrap("block_id");
+        let res: Result<_, rusqlite::Error> = Ok((block_hash, block_id));
+        res
+    })?;
+
+    let mut ret = vec![];
+    for result in result_iter {
+        ret.push(result.unwrap());
+    }
+    Ok(ret)
 }
 
 /// Write a serialized trie to sqlite
@@ -547,6 +569,24 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     let args: &[&dyn ToSql] = &[bhh];
     let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
+}
+
+/// Read all trie offsets.  Used to populate a .blobs cache
+/// Returns a vec of (block ID, offset)
+pub fn get_all_trie_offsets(conn: &Connection) -> Result<Vec<(u32, u64)>, Error> {
+    let mut stmt = conn.prepare("SELECT block_id,external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_id ASC")?;
+    let result_iter = stmt.query_and_then(NO_PARAMS, |row| {
+        let block_id: u32 = row.get_unwrap("block_id");
+        let offset: u64 = u64::from_column(row, "external_offset").unwrap();
+        let res: Result<_, rusqlite::Error> = Ok((block_id, offset));
+        res
+    })?;
+
+    let mut ret = vec![];
+    for result in result_iter {
+        ret.push(result.unwrap());
+    }
+    Ok(ret)
 }
 
 /// Determine the offset in the blobs file at which the last trie ends.  This is also the offset at
