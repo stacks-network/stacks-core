@@ -754,6 +754,13 @@ where
         let leaf_set: HashSet<_> = dumped_leaves.into_iter().collect();
         for leaf_path in leaf_paths.iter() {
             assert!(leaf_set.contains(leaf_path));
+            MARF::get_path(
+                &mut marf.borrow_storage_backend(),
+                &last_block_header,
+                &leaf_path,
+            )
+            .unwrap()
+            .expect("FATAL: missing leaf");
         }
     }
 }
