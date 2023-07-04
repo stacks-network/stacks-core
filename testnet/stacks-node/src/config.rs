@@ -1869,7 +1869,7 @@ impl NodeConfig {
                 .marf_cache_strategy
                 .as_ref()
                 .unwrap_or(&"noop".to_string()),
-            false,
+            true,
         )
     }
 }
