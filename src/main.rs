@@ -66,6 +66,7 @@ use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
+use blockstack_lib::clarity::vm::database::SqliteConnection;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::clarity_cli::vm_execute;
@@ -1038,6 +1039,56 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "marf-get-clarity-values-bench" {
+        let path = &argv[2];
+        let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
+
+        let mut keys_buf = String::new();
+        io::stdin()
+            .read_to_string(&mut keys_buf)
+            .expect("FATAL: failed to read paths from stdin");
+        let paths: Vec<_> = keys_buf
+            .split("\n")
+            .filter(|key| key.len() == 64)
+            .map(|key| {
+                let bytes_vec = hex_bytes(&key).expect("malformed key -- must be a hex string");
+                assert!(bytes_vec.len() == 32);
+
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&bytes_vec[0..32]);
+
+                TriePath::new(bytes)
+            })
+            .collect();
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
+        let sidestore = SqliteConnection::open(&path).unwrap();
+
+        let start_ns = now_nanos();
+        let num_paths = paths.len();
+        for (i, path) in paths.into_iter().enumerate() {
+            let marf_value = marf
+                .get_path(&itip, path)
+                .expect("MARF error.")
+                .expect(&format!("Missing path {}", &i));
+
+            let _clarity_value = SqliteConnection::get(&sidestore, &marf_value.to_hex()).unwrap();
+        }
+        let end_ns = now_nanos();
+
+        eprintln!(
+            "Total time (ms):       {}",
+            (end_ns.saturating_sub(start_ns) as f64) / 1000000.0
+        );
+        eprintln!(
+            "Avg time per key (ms): {}",
+            ((end_ns.saturating_sub(start_ns) as f64) / (num_paths as f64)) / 1000000.0
+        );
+        return;
+    }
+
     if argv[1] == "marf-dump" {
         let path = &argv[2];
         let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
@@ -1050,7 +1101,7 @@ simulating a miner.
 
         let mut all_paths = vec![];
 
-        println!("path,value");
+        println!("path,value_hash");
         marf.open_block(&itip).expect("FATAL: no such stacks block");
         marf.dump(|path, value| {
             if dumped > 0 && dumped % 100 == 0 {
@@ -1060,6 +1111,56 @@ simulating a miner.
             all_paths.push(path.clone());
 
             println!("{},{}", &path.to_hex(), &value.to_hex());
+            dumped += 1;
+            dumped <= count
+        })
+        .unwrap();
+
+        for (i, path) in all_paths.into_iter().enumerate() {
+            // sanity check
+            if marf
+                .get_path(&itip, path.clone())
+                .expect("MARF error.")
+                .is_none()
+            {
+                eprintln!("Missing path #{}: {}", i, &path);
+            }
+        }
+        return;
+    }
+
+    if argv[1] == "marf-dump-clarity-values" {
+        let path = &argv[2];
+        let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
+        let count: usize = argv[4].parse().expect("FATAL: expected count");
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
+        let sidestore = SqliteConnection::open(&path).unwrap();
+        let mut dumped = 0;
+
+        let mut all_paths = vec![];
+
+        println!("path,value_hash,value");
+        marf.open_block(&itip).expect("FATAL: no such stacks block");
+        marf.dump(|path, value_hash| {
+            if dumped > 0 && dumped % 100 == 0 {
+                eprintln!("Dumped {} values...", dumped);
+            }
+
+            let value_hash_str = value_hash.to_hex();
+            let clarity_value =
+                if let Some(value) = SqliteConnection::get(&sidestore, &value_hash_str) {
+                    value
+                } else {
+                    // skip this path
+                    return true;
+                };
+
+            all_paths.push(path.clone());
+
+            println!("{},{},{}", &path.to_hex(), &value_hash_str, &clarity_value);
             dumped += 1;
             dumped <= count
         })
