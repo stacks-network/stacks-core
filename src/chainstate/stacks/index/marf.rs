@@ -88,7 +88,7 @@ impl MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode: TrieHashCalculationMode::Deferred,
             cache_strategy: "noop".to_string(),
-            external_blobs: false,
+            external_blobs: true,
             force_db_migrate: false,
         }
     }
