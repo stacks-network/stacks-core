@@ -121,6 +121,10 @@ impl_byte_array_newtype!(TriePath, u8, 32);
 pub const TRIEPATH_MAX_LEN: usize = 32;
 
 impl TriePath {
+    pub fn new(bytes: [u8; 32]) -> TriePath {
+        TriePath(bytes)
+    }
+
     pub fn from_key(k: &str) -> TriePath {
         let h = TrieHash::from_data(k.as_bytes());
         let mut hb = [0u8; TRIEPATH_MAX_LEN];
@@ -156,7 +160,7 @@ pub trait TrieNode {
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
 
-    /// Get a reference to the children of this node.
+    /// Get a reference to the path segment this node contains
     fn path(&self) -> &Vec<u8>;
 
     /// Construct a TrieNodeType from a TrieNode
@@ -1335,6 +1339,10 @@ impl TrieNodeType {
 
     pub fn ptrs(&self) -> &[TriePtr] {
         with_node!(self, ref data, data.ptrs())
+    }
+
+    pub fn path(&self) -> &Vec<u8> {
+        with_node!(self, ref data, data.path())
     }
 
     pub fn ptrs_mut(&mut self) -> &mut [TriePtr] {

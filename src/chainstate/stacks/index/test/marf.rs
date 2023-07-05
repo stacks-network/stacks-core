@@ -17,6 +17,7 @@
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::Cursor;
 
@@ -673,10 +674,13 @@ where
             );
         }
 
+        let mut leaf_paths = vec![];
+
         // all leaves are reachable from the last block
         for i in 1..31 {
             // add a leaf at the end of the path
             let next_path = path_gen(i, path.clone());
+            leaf_paths.push(TriePath::from_bytes(&next_path).unwrap().clone());
 
             let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
             let value = MARFValue([i as u8; 40]);
@@ -718,6 +722,45 @@ where
                 .unwrap();
             assert_eq!(root_hashes, next_root_hashes);
             last_root_hashes = Some(next_root_hashes);
+        }
+
+        // all leaves are dumped
+        let mut dumped_leaves = vec![];
+        MARF::dump_from_storage(
+            &mut marf.borrow_storage_backend(),
+            &last_block_header,
+            |next_path, _next_value| {
+                dumped_leaves.push(next_path);
+                true
+            },
+        )
+        .unwrap();
+        dumped_leaves.sort();
+        leaf_paths.sort();
+
+        eprintln!("leaf paths:");
+        for leaf_path in leaf_paths.iter() {
+            eprintln!("   {}", &leaf_path.to_hex());
+        }
+
+        eprintln!("dumped paths:");
+        for dump_path in dumped_leaves.iter() {
+            eprintln!("   {}", &dump_path.to_hex());
+        }
+
+        // dumped leaves include metadata keys, like the block height and block hash of the parent
+        assert!(dumped_leaves.len() > leaf_paths.len());
+
+        let leaf_set: HashSet<_> = dumped_leaves.into_iter().collect();
+        for leaf_path in leaf_paths.iter() {
+            assert!(leaf_set.contains(leaf_path));
+            MARF::get_path(
+                &mut marf.borrow_storage_backend(),
+                &last_block_header,
+                &leaf_path,
+            )
+            .unwrap()
+            .expect("FATAL: missing leaf");
         }
     }
 }

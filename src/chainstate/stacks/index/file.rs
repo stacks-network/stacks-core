@@ -365,6 +365,20 @@ impl NodeHashReader for TrieFileNodeHashReader<'_> {
 }
 
 impl TrieFile {
+    /// Warm up the cache of trie offsets.
+    /// Returns the number of tries loaded
+    pub fn populate_trie_offset_cache(&mut self, db: &Connection) -> Result<u64, Error> {
+        let rows = trie_sql::get_all_trie_offsets(db)?;
+        let num_rows = rows.len() as u64;
+        for (block_id, offset) in rows.into_iter() {
+            match self {
+                TrieFile::RAM(ref mut ram) => ram.trie_offsets.insert(block_id, offset),
+                TrieFile::Disk(ref mut disk) => disk.trie_offsets.insert(block_id, offset),
+            };
+        }
+        Ok(num_rows)
+    }
+
     /// Determine the file offset in the TrieFile where a serialized trie starts.
     /// The offsets are stored in the given DB, and are cached indefinitely once loaded.
     pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<u64, Error> {

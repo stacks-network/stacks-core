@@ -109,6 +109,10 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
             if let Some(block_id) = self.cache.load_block_id(block_hash) {
                 Ok(block_id)
             } else {
+                if block_hash == &T::sentinel() {
+                    // never stored, so don't bother looking
+                    return Err(Error::NotFoundError);
+                }
                 let block_id = self.get_block_id(block_hash)?;
                 self.cache.store_block_hash(block_id, block_hash.clone());
                 Ok(block_id)
@@ -148,6 +152,10 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
             if let Some(block_id) = self.cache.load_block_id(block_hash) {
                 Ok(block_id)
             } else {
+                if block_hash == &T::sentinel() {
+                    // never stored, so don't bother looking
+                    return Err(Error::NotFoundError);
+                }
                 let block_id = self.get_block_id(block_hash)?;
                 self.cache.store_block_hash(block_id, block_hash.clone());
                 Ok(block_id)
@@ -211,6 +219,10 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
             if let Some(block_id) = self.cache.load_block_id(block_hash) {
                 Ok(block_id)
             } else {
+                if block_hash == &T::sentinel() {
+                    // never stored, so don't bother looking
+                    return Err(Error::NotFoundError);
+                }
                 let block_id = self.get_block_id(block_hash)?;
                 self.cache.store_block_hash(block_id, block_hash.clone());
                 Ok(block_id)
@@ -1453,9 +1465,17 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             blobs.is_some()
         );
 
+        if let Some(ref mut blobs) = blobs.as_mut() {
+            let num_lines = blobs.populate_trie_offset_cache(&db)?;
+            debug!(
+                "Populated TrieFileStorage blobs cache with offsets for {} tries",
+                num_lines
+            );
+        }
+
         let cache = TrieCache::new(&marf_opts.cache_strategy);
 
-        let ret = TrieFileStorage {
+        let mut ret = TrieFileStorage {
             db_path,
             db,
             cache,
@@ -1489,7 +1509,24 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: None,
         };
 
+        let num_lines = ret.populate_blockmap_cache()?;
+        debug!(
+            "Populated TrieFileStorage cache with {} block mappings",
+            num_lines
+        );
+
         Ok(ret)
+    }
+
+    /// Populate the block ID and hash cache.
+    /// Returns the number of blocks and IDs loaded
+    fn populate_blockmap_cache(&mut self) -> Result<u64, Error> {
+        let block_hashes_and_ids = trie_sql::get_all_block_hashes_and_ids(&self.db)?;
+        let num_rows = block_hashes_and_ids.len() as u64;
+        for (block_hash, block_id) in block_hashes_and_ids.into_iter() {
+            self.cache.store_block_hash(block_id, block_hash);
+        }
+        Ok(num_rows)
     }
 
     #[cfg(test)]
@@ -2623,6 +2660,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
                     {
+                        self.bench.read_nodetype_finish(true);
                         (node_inst, node_hash)
                     } else {
                         let (node_inst, node_hash) =
@@ -2633,21 +2671,23 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                             node_inst.clone(),
                             node_hash.clone(),
                         );
+                        self.bench.read_nodetype_finish(false);
                         (node_inst, node_hash)
                     }
                 } else {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
+                        self.bench.read_nodetype_finish(true);
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
+                        self.bench.read_nodetype_finish(false);
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     }
                 };
 
-                self.bench.read_nodetype_finish(false);
                 Ok((node_inst, node_hash))
             }
             None => {
