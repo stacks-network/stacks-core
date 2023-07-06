@@ -1939,15 +1939,6 @@ impl StacksChainState {
         self.clarity_state.with_marf(f)
     }
 
-    fn begin_read_only_clarity_tx<'a>(
-        &'a mut self,
-        burn_dbconn: &'a dyn BurnStateDB,
-        index_block: &StacksBlockId,
-    ) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state
-            .read_only_connection(&index_block, &self.state_index, burn_dbconn)
-    }
-
     /// Run to_do on the state of the Clarity VM at the given chain tip.
     /// Returns Some(x: R) if the given parent_tip exists.
     /// Returns None if not
@@ -1970,7 +1961,17 @@ impl StacksChainState {
                 return None;
             }
         }
-        let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
+        let mut conn = match self.clarity_state.read_only_connection_checked(
+            parent_tip,
+            &self.state_index,
+            burn_dbconn,
+        ) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                warn!("Failed to load read only connection"; "err" => %e);
+                None
+            }
+        }?;
         let result = to_do(&mut conn);
         Some(result)
     }

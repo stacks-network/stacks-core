@@ -25,6 +25,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added config setting `burnchain.wallet_name` which addresses blank wallets no 
   longer being created by default in recent bitcoin versions. Fixes issue #3596
 
+- Use the current burnchain tip to lookup UTXOs (Issue #3733)
+
 - The node now gracefully shuts down even if it is in the middle of a handshake with 
   bitcoind. Fixes issue #3734.
 
