@@ -1253,6 +1253,11 @@ pub struct DataVarResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstantValResponse {
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
     #[serde(rename = "proof")]
@@ -1487,6 +1492,13 @@ pub enum HttpRequestType {
         TipRequest,
         bool,
     ),
+    GetConstantVal(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        ClarityName,
+        TipRequest,
+    ),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
@@ -1631,6 +1643,7 @@ pub enum HttpResponseType {
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetDataVar(HttpResponseMetadata, DataVarResponse),
+    GetConstantVal(HttpResponseMetadata, ConstantValResponse),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
