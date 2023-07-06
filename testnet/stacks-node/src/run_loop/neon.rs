@@ -1083,7 +1083,7 @@ impl RunLoop {
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                Some(remote_chain_height),
+                remote_chain_height,
                 num_sortitions_in_last_cycle,
             ) {
                 Ok(ibd) => ibd,
@@ -1091,6 +1091,13 @@ impl RunLoop {
                     debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
                     continue;
                 }
+            };
+
+            // calculate burnchain sync percentage
+            let percent: f64 = if remote_chain_height > 0 {
+                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+            } else {
+                0.0
             };
 
             // will recalculate this in the following loop
@@ -1106,7 +1113,10 @@ impl RunLoop {
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height,
+                target_burnchain_block_height;
+                "total_burn_sync_percent" => %percent,
+                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "remote_tip_height" => remote_chain_height
             );
 
             loop {

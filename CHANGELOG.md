@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   from the source code are now attached to the `SymbolicExpression` nodes. This
   will be useful for tools that use the Clarity library to analyze and
   manipulate Clarity source code, e.g. a formatter.
+- New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
 
 ### Fixed
 
