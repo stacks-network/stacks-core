@@ -33,7 +33,7 @@ impl DelegateStxOp {
         )
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &mut Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -63,11 +63,11 @@ impl DelegateStxOp {
         if data.len() > 77 {
             // too long
             warn!(
-                "DelegateStxOp payload is malformed ({} bytes, expected <= {})",
+                "DelegateStxOp payload is too long ({} bytes, expected <= {}); truncating to correct length",
                 data.len(),
                 77
             );
-            return None;
+            data.truncate(77);
         }
 
         let delegated_ustx = parse_u128_from_be(&data[0..16]).unwrap();
@@ -169,7 +169,7 @@ impl DelegateStxOp {
             return Err(op_error::InvalidInput);
         };
 
-        let data = DelegateStxOp::parse_data(&tx.data()).ok_or_else(|| {
+        let data = DelegateStxOp::parse_data(&mut tx.data()).ok_or_else(|| {
             warn!("Invalid tx data");
             op_error::ParseError
         })?;
@@ -795,5 +795,67 @@ mod tests {
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
         assert_eq!(op.memo, vec![1; 27]);
+    }
+
+    // Parse a DelegateStx op in which data is longer than 77, so that it is truncated.
+    #[test]
+    fn test_parse_delegate_stx_memo_truncated_to_length() {
+        // Set the option flag for `reward_addr_index` to None.
+        let mut data = vec![1; 87];
+        data[16] = 0;
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::DelegateStx as u8,
+            data,
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }
+                    .into(),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([4; 20]),
+                    }
+                    .into(),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = DelegateStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+        )
+        .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(&op.reward_addr, &None);
+        assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
+        let memo: Vec<u8> = vec![1; 47];
+        assert_eq!(op.memo, memo);
     }
 }
