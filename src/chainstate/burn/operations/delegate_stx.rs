@@ -117,7 +117,7 @@ impl DelegateStxOp {
             delegated_ustx,
             until_burn_height,
             reward_addr_index,
-            memo
+            memo,
         })
     }
 
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
-        let memo: Vec<u8> = vec![];
+        let memo: Vec<u8> = vec![1; 47];
         assert_eq!(op.memo, memo);
     }
 

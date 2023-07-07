@@ -159,7 +159,7 @@ impl StackStxOp {
         reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
-        memo: Vec<u8>
+        memo: Vec<u8>,
     ) -> StackStxOp {
         StackStxOp {
             sender: sender.clone(),
@@ -220,7 +220,7 @@ impl StackStxOp {
         Some(ParsedData {
             stacked_ustx,
             num_cycles,
-            memo
+            memo,
         })
     }
 
@@ -661,7 +661,7 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
             }
-                .into()],
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
@@ -702,7 +702,7 @@ mod tests {
             &sender,
             16843023,
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(&op.sender, &sender);
         assert_eq!(

@@ -372,7 +372,7 @@ impl FromRow<StackStxOp> for StackStxOp {
             reward_addr,
             stacked_ustx,
             num_cycles,
-            memo
+            memo,
         })
     }
 }

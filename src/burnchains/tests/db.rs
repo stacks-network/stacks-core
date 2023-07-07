@@ -240,7 +240,7 @@ fn test_classify_stack_stx() {
         txid: pre_stack_stx_0_txid.clone(),
         vtxindex: 0,
         opcode: Opcodes::PreStx as u8,
-        data: vec![0; 80],
+        data: vec![0; 77],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
@@ -264,7 +264,7 @@ fn test_classify_stack_stx() {
         txid: Txid([4; 32]),
         vtxindex: 1,
         opcode: Opcodes::StackStx as u8,
-        data: vec![1; 80],
+        data: vec![1; 77],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
@@ -288,7 +288,7 @@ fn test_classify_stack_stx() {
         txid: Txid([4; 32]),
         vtxindex: 2,
         opcode: Opcodes::StackStx as u8,
-        data: vec![1; 80],
+        data: vec![1; 77],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
@@ -312,7 +312,7 @@ fn test_classify_stack_stx() {
         txid: Txid([3; 32]),
         vtxindex: 3,
         opcode: Opcodes::StackStx as u8,
-        data: vec![1; 80],
+        data: vec![1; 77],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
@@ -336,7 +336,7 @@ fn test_classify_stack_stx() {
         txid: Txid([8; 32]),
         vtxindex: 4,
         opcode: Opcodes::StackStx as u8,
-        data: vec![1; 80],
+        data: vec![1; 77],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
@@ -1070,7 +1070,7 @@ fn test_classify_delegate_stx() {
     };
 
     // Set up the data field for the delegate stx transactions
-    let mut data = vec![1; 80];
+    let mut data = vec![1; 77];
     // Make it so that reward_addr_index = Some(1)
     for i in 17..20 {
         data[i] = 0;
