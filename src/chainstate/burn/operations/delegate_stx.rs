@@ -16,6 +16,7 @@ struct ParsedData {
     delegated_ustx: u128,
     until_burn_height: Option<u64>,
     reward_addr_index: Option<u32>,
+    memo: Vec<u8>,
 }
 
 impl DelegateStxOp {
@@ -36,9 +37,9 @@ impl DelegateStxOp {
         /*
             Wire format:
 
-            0      2  3                  19       24             33
-            |------|--|------------------|--------|--------------|
-             magic  op delegated ustx       ^       until burn height
+            0      2  3                  19       24                   33        80
+            |------|--|------------------|--------|--------------------|---------|
+             magic  op delegated ustx       ^       until burn height     memo (up to 47 bytes)
                                     reward addr output index
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
@@ -56,6 +57,16 @@ impl DelegateStxOp {
         if data.len() < 22 {
             // too short to have required data
             warn!("DELEGATE_STX payload is malformed ({} bytes)", data.len());
+            return None;
+        }
+
+        if data.len() > 77 {
+            // too long
+            warn!(
+                "DelegateStxOp payload is malformed ({} bytes, expected <= {})",
+                data.len(),
+                77
+            );
             return None;
         }
 
@@ -96,10 +107,17 @@ impl DelegateStxOp {
             }
         };
 
+        let memo = if data.len() >= 31 {
+            Vec::from(&data[30..])
+        } else {
+            vec![]
+        };
+
         Some(ParsedData {
             delegated_ustx,
             until_burn_height,
             reward_addr_index,
+            memo
         })
     }
 
@@ -198,6 +216,7 @@ impl DelegateStxOp {
             delegate_to,
             delegated_ustx: data.delegated_ustx,
             until_burn_height: data.until_burn_height,
+            memo: data.memo,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -219,9 +238,9 @@ impl StacksMessageCodec for DelegateStxOp {
     /*
              Wire format:
 
-            0      2  3                  19       24             33
-            |------|--|------------------|--------|--------------|
-             magic  op delegated ustx       ^       until burn height
+            0      2  3                  19       24                   33        80
+            |------|--|------------------|--------|--------------------|---------|
+             magic  op delegated ustx       ^       until burn height     memo (up to 47 bytes)
                                     reward addr output index
 
     */
@@ -250,7 +269,12 @@ impl StacksMessageCodec for DelegateStxOp {
         } else {
             fd.write_all(&(0 as u8).to_be_bytes())
                 .map_err(|e| codec_error::WriteError(e))?;
+            fd.write_all(&(0 as u64).to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
         }
+        fd.write_all(&self.memo)
+            .map_err(|e| codec_error::WriteError(e))?;
+
         Ok(())
     }
 
@@ -363,13 +387,15 @@ mod tests {
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
         assert_eq!(op.until_burn_height, None);
+        let memo: Vec<u8> = vec![];
+        assert_eq!(op.memo, memo);
     }
 
     // Parse a DelegateStx op in which the reward pox address is None.
     #[test]
     fn test_parse_delegate_stx_pox_addr_is_none() {
         // Set the option flag for `reward_addr_index` to None.
-        let mut data = vec![1; 80];
+        let mut data = vec![1; 77];
         data[16] = 0;
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
@@ -423,6 +449,8 @@ mod tests {
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
+        let memo: Vec<u8> = vec![];
+        assert_eq!(op.memo, memo);
     }
 
     // Fail to parse a DelegateStx op that has a too-short data field.
@@ -469,13 +497,13 @@ mod tests {
             _ => false,
         });
 
-        // Data is length 17. The 16th byte is set to 1, which signals that until_burn_height
+        // Data is length 22. The 21st byte is set to 1, which signals that until_burn_height
         // is Some(u64), so the deserialize function expects another 8 bytes
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 17],
+            data: vec![1; 22],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -521,7 +549,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
-            data: vec![1; 80],
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -568,7 +596,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 80],
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -601,7 +629,7 @@ mod tests {
     // Parse a normal DelegateStx op in which the reward_addr is set to output index 2.
     #[test]
     fn test_parse_delegate_stx() {
-        let mut data = vec![1; 80];
+        let mut data = vec![1; 77];
         // Perform these modifications in order for the reward_addr_index to be 2.
         data[17] = 0;
         data[18] = 0;
@@ -680,5 +708,6 @@ mod tests {
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
+        assert_eq!(op.memo, vec![1; 47]);
     }
 }

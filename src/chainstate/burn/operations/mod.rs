@@ -215,6 +215,7 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
+    pub memo: Vec<u8>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -313,6 +314,7 @@ pub struct DelegateStxOp {
     pub reward_addr: Option<(u32, PoxAddress)>,
     pub delegated_ustx: u128,
     pub until_burn_height: Option<u64>,
+    pub memo: Vec<u8>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -586,6 +588,7 @@ impl BlockstackOperationType {
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
                 "num_cycles": op.num_cycles,
                 "reward_addr": op.reward_addr.clone().to_b58(),
+                "memo": memo_serialize(&op.memo),
                 "sender": stacks_addr_serialize(&op.sender),
                 "stacked_ustx": op.stacked_ustx,
                 "burn_txid": op.txid,
@@ -617,6 +620,7 @@ impl BlockstackOperationType {
                 "delegate_to": stacks_addr_serialize(&op.delegate_to),
                 "delegated_ustx": op.delegated_ustx,
                 "sender": stacks_addr_serialize(&op.sender),
+                "memo": memo_serialize(&op.memo),
                 "reward_addr": &op.reward_addr.as_ref().map(|(index, addr)| (index, addr.clone().to_b58())),
                 "burn_txid": op.txid,
                 "until_burn_height": op.until_burn_height,

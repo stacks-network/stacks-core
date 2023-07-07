@@ -49,6 +49,7 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddre
 struct ParsedData {
     stacked_ustx: u128,
     num_cycles: u8,
+    memo: Vec<u8>,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
@@ -158,12 +159,14 @@ impl StackStxOp {
         reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
+        memo: Vec<u8>
     ) -> StackStxOp {
         StackStxOp {
             sender: sender.clone(),
             reward_addr: reward_addr.clone(),
             stacked_ustx,
             num_cycles,
+            memo,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -175,9 +178,9 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19        20
-            |------|--|-----------------------------|---------|
-             magic  op         uSTX to lock (u128)     cycles (u8)
+            0      2  3                             19               20        80
+            |------|--|-----------------------------|----------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)     memo (up to 60 bytes)
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
@@ -196,12 +199,28 @@ impl StackStxOp {
             return None;
         }
 
+        if data.len() > 77 {
+            // too long
+            warn!(
+                "StacksStxOp payload is malformed ({} bytes, expected <= {})",
+                data.len(),
+                77
+            );
+            return None;
+        }
+
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
         let num_cycles = data[16];
+        let memo = if data.len() >= 18 {
+            Vec::from(&data[17..])
+        } else {
+            vec![]
+        };
 
         Some(ParsedData {
             stacked_ustx,
             num_cycles,
+            memo
         })
     }
 
@@ -306,6 +325,7 @@ impl StackStxOp {
             reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
+            memo: data.memo,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -329,15 +349,17 @@ impl StacksMessageCodec for PreStxOp {
 impl StacksMessageCodec for StackStxOp {
     /*
             Wire format:
-            0      2  3                             19        20
-            |------|--|-----------------------------|---------|
-             magic  op         uSTX to lock (u128)     cycles (u8)
+            0      2  3                             19               20        80
+            |------|--|-----------------------------|----------------|---------|
+             magic  op         uSTX to lock (u128)     cycles (u8)     memo (up to 60 bytes)
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
         fd.write_all(&self.stacked_ustx.to_be_bytes())
             .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
+        fd.write_all(&self.memo)
+            .map_err(|e| codec_error::WriteError(e))?;
         Ok(())
     }
 
@@ -559,7 +581,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
-            data: vec![1; 80],
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -622,6 +644,80 @@ mod tests {
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);
+        assert_eq!(op.memo, [1; 60]);
+    }
+
+    #[test]
+    fn test_parse_stack_stx_empty_memo() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: vec![1; 17],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+                .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = StackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+            16843023,
+        )
+            .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(
+            &op.reward_addr,
+            &PoxAddress::Standard(
+                StacksAddress::from_legacy_bitcoin_address(
+                    &tx.outputs[0].address.clone().expect_legacy()
+                ),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
+        );
+        assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.num_cycles, 1);
+        let memo: Vec<u8> = vec![];
+        assert_eq!(op.memo, memo);
     }
 
     #[test]
@@ -630,7 +726,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
-            data: vec![1; 80],
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -711,5 +807,6 @@ mod tests {
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);
+        assert_eq!(op.memo, [1; 60]);
     }
 }

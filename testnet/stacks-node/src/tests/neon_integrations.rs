@@ -1881,6 +1881,7 @@ fn stx_delegate_btc_integration_test() {
         delegate_to: recipient_addr.clone(),
         reward_addr: None,
         delegated_ustx: 100_000,
+        memo: vec![],
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,

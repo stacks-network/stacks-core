@@ -12019,6 +12019,7 @@ pub mod test {
             reward_addr: None,
             delegated_ustx: ((tenure_id + 1) * 1000) as u128,
             until_burn_height: None,
+            memo: vec![],
             // to be filled in
             txid: Txid::from_test_data(
                 tenure_id as u64,

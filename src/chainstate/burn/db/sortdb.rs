@@ -360,6 +360,8 @@ impl FromRow<StackStxOp> for StackStxOp {
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
 
         Ok(StackStxOp {
             txid,
@@ -370,6 +372,7 @@ impl FromRow<StackStxOp> for StackStxOp {
             reward_addr,
             stacked_ustx,
             num_cycles,
+            memo
         })
     }
 }
@@ -391,6 +394,8 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
         let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let until_burn_height = u64::from_column(row, "until_burn_height")?;
+        let memo_hex: String = row.get_unwrap("memo");
+        let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
 
         Ok(DelegateStxOp {
             txid,
@@ -402,6 +407,7 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
             reward_addr,
             delegated_ustx,
             until_burn_height,
+            memo,
         })
     }
 }
@@ -606,7 +612,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "5";
+pub const SORTITION_DB_VERSION: &'static str = "6";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -855,6 +861,50 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         memo TEXT,
 
         PRIMARY KEY(txid, burn_header_hash)
+    );"#,
+];
+
+// force the node to go and store the memo for stack_stx and delegate_stx
+const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[
+    r#"
+    DROP TABLE stack_stx;
+    "#,
+    r#"
+    DROP TABLE delegate_stx;
+    "#,
+    r#"
+    CREATE TABLE stack_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        reward_addr TEXT NOT NULL,
+        stacked_ustx TEXT NOT NULL,
+        num_cycles INTEGER NOT NULL,
+        memo TEXT,
+
+        -- The primary key here is (txid, burn_header_hash) because
+        -- this transaction will be accepted regardless of which sortition
+        -- history it is in.
+        PRIMARY KEY(txid,burn_header_hash)
+    );"#,
+    r#"
+    CREATE TABLE delegate_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+        memo TEXT,
+
+        sender_addr TEXT NOT NULL,
+        delegate_to TEXT NOT NULL,
+        reward_addr TEXT NOT NULL,
+        delegated_ustx TEXT NOT NULL,
+        until_burn_height INTEGER,
+
+        PRIMARY KEY(txid,burn_header_Hash)
     );"#,
 ];
 
@@ -2814,6 +2864,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
         SortitionDB::apply_schema_5(&db_tx)?;
+        SortitionDB::apply_schema_6(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -3084,6 +3135,18 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_6(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_6 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["6"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3125,6 +3188,10 @@ impl SortitionDB {
                     } else if version == "4" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_5(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "5" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_6(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -5018,9 +5085,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -5037,9 +5105,10 @@ impl<'a> SortitionHandleTx<'a> {
             &serde_json::to_string(&op.reward_addr).unwrap(),
             &op.delegated_ustx.to_string(),
             &opt_u64_to_sql(op.until_burn_height)?,
+            &to_hex(&op.memo),
         ];
 
-        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
 
         Ok(())
     }
@@ -10101,6 +10170,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                memo: vec![],
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10119,6 +10189,7 @@ pub mod tests {
                 )),
                 delegated_ustx: 789,
                 until_burn_height: Some(1000),
+                memo: vec![],
 
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
@@ -10173,6 +10244,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                memo: vec![],
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10188,6 +10260,7 @@ pub mod tests {
                 )),
                 delegated_ustx: 789,
                 until_burn_height: Some(1000),
+                memo: vec![3; 60],
 
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
