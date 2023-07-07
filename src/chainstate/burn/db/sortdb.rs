@@ -813,9 +813,6 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
     );"#,
 ];
 
-// update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
-
 const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
     r#"
     CREATE TABLE peg_in (
@@ -907,6 +904,9 @@ const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[
         PRIMARY KEY(txid,burn_header_Hash)
     );"#,
 ];
+
+// update this to add new indexes
+const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",

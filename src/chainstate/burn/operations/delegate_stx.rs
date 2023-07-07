@@ -710,4 +710,90 @@ mod tests {
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
         assert_eq!(op.memo, vec![1; 47]);
     }
+
+    // Parse a normal DelegateStx op in which the reward_addr is set to output index 2 and the
+    // memo field does not take up all available bytes
+    #[test]
+    fn test_parse_delegate_stx_partial_memo() {
+        let mut data = vec![1; 57];
+        // Perform these modifications in order for the reward_addr_index to be 2.
+        data[17] = 0;
+        data[18] = 0;
+        data[19] = 0;
+        data[20] = 2;
+
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::DelegateStx as u8,
+            data,
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }
+                    .into(),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([3; 20]),
+                    }
+                    .into(),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([4; 20]),
+                    }
+                    .into(),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = DelegateStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+        )
+        .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(
+            &op.reward_addr,
+            &Some((
+                2,
+                PoxAddress::Standard(
+                    StacksAddress::from_legacy_bitcoin_address(
+                        &tx.outputs[2].address.clone().expect_legacy()
+                    ),
+                    Some(AddressHashMode::SerializeP2PKH)
+                )
+            ))
+        );
+        assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
+        assert_eq!(op.memo, vec![1; 27]);
+    }
 }
