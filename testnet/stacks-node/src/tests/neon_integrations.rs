@@ -1574,6 +1574,7 @@ fn stx_transfer_btc_integration_test() {
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
         output: spender_stx_addr.clone(),
+        memo: vec![],
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -1643,6 +1644,7 @@ fn stx_transfer_btc_integration_test() {
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
         output: spender_2_stx_addr.clone(),
+        memo: vec![],
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -1852,6 +1854,7 @@ fn stx_delegate_btc_integration_test() {
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
         output: spender_stx_addr.clone(),
+        memo: vec![],
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,

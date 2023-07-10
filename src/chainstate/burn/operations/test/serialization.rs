@@ -110,6 +110,7 @@ fn test_serialization_pre_stx_op() {
 
     let op = PreStxOp {
         output,
+        memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
         txid: Txid([10u8; 32]),
         vtxindex: 10,
         block_height: 10,
@@ -120,6 +121,7 @@ fn test_serialization_pre_stx_op() {
         "pre_stx": {
             "burn_block_height": 10,
             "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+            "memo": "0x000102030405",
             "output": {
                 "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
                 "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",

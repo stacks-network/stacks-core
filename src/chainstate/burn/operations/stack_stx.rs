@@ -59,6 +59,7 @@ impl PreStxOp {
     pub fn new(sender: &StacksAddress) -> PreStxOp {
         PreStxOp {
             output: sender.clone(),
+            memo: vec![],
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -116,6 +117,9 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         };
 
+        let mut memo = tx.data();
+        memo.truncate(77);
+
         let outputs = tx.get_recipients();
         assert!(outputs.len() > 0);
 
@@ -144,6 +148,7 @@ impl PreStxOp {
 
         Ok(PreStxOp {
             output: output,
+            memo,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -337,6 +342,8 @@ impl StackStxOp {
 impl StacksMessageCodec for PreStxOp {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::PreStx as u8))?;
+        fd.write_all(&self.memo)
+            .map_err(|e| codec_error::WriteError(e))?;
         Ok(())
     }
 
@@ -436,7 +443,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::PreStx as u8,
-            data: vec![1; 80],
+            data: vec![1; 77],
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
@@ -492,6 +499,72 @@ mod tests {
                 &tx.outputs[0].address.clone().expect_legacy()
             )
         );
+        assert_eq!(op.memo, vec![1; 77]);
+    }
+
+    #[test]
+    fn test_parse_pre_stack_stx_partial_memo() {
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::PreStx as u8,
+            data: vec![1; 50],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = PreStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            16843023,
+        )
+        .unwrap();
+
+        assert_eq!(
+            &op.output,
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
+        );
+        assert_eq!(op.memo, vec![1; 50]);
     }
 
     #[test]
@@ -573,6 +646,7 @@ mod tests {
                 &tx.outputs[0].address.clone().expect_legacy()
             )
         );
+        assert_eq!(op.memo, vec![1; 77]);
     }
 
     #[test]
