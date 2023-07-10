@@ -33,7 +33,7 @@ use crate::chainstate::stacks::index::bits::{
 };
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
+    clear_metadata_bits, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
     TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath,
     TriePtr,
 };
@@ -46,7 +46,7 @@ use stacks_common::util::slice_partialeq;
 
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
+    ClarityMarfTrieId, MARFLeaf, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
     TrieMerkleProofType,
 };
 use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
@@ -1142,7 +1142,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         }
 
         let (mut node_hash, node_data) = match proof[0] {
-            TrieMerkleProofType::Leaf((_, ref node)) => (get_leaf_hash(node), node.data.clone()),
+            TrieMerkleProofType::Leaf((_, ref node)) => {
+                (get_leaf_hash(node), node.data.ref_value_hash().clone())
+            }
             _ => unreachable!(),
         };
 
@@ -1457,6 +1459,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut segment_proofs = vec![];
         let mut shunt_proofs = vec![];
         let mut block_header = root_block_header.clone();
+        let expected_value = MARFLeaf::Ref(expected_value.clone());
 
         loop {
             storage.open_block(&block_header)?;
@@ -1500,13 +1503,13 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 shunt_proofs.push(first_shunt_proof);
             }
 
-            if cursor.ptr().id() == TrieNodeID::Leaf as u8 {
+            if clear_metadata_bits(cursor.ptr().id()) == TrieNodeID::Leaf as u8 {
                 match reached_node {
                     TrieNodeType::Leaf(ref data) => {
-                        if data.data != *expected_value {
+                        if data.data != expected_value {
                             trace!(
                                 "Did not find leaf {:?} at {:?} (but got {:?})",
-                                expected_value,
+                                &expected_value,
                                 path,
                                 data
                             );

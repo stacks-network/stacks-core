@@ -287,7 +287,7 @@ pub fn make_node_path(
     }
 
     // add a leaf at the end
-    let child = TrieLeaf::new(&path_segments[path_segments.len() - 1].0, &leaf_data);
+    let child = TrieLeaf::new_ref(&path_segments[path_segments.len() - 1].0, &leaf_data);
     let child_chr = path_segments[path_segments.len() - 1].1;
     let child_ptr = s.last_ptr().unwrap();
     s.write_node(

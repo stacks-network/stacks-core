@@ -42,14 +42,14 @@ fn verifier_catches_stale_proof() {
 
     // Block #1
     m.begin(&block_0, &block_1).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&old_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&old_v)));
     m.seal().unwrap();
     let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
 
     // Block #2
     m.begin(&block_1, &block_2).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&new_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&new_v)));
     m.seal().unwrap();
     let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
@@ -117,35 +117,35 @@ fn ncc_verifier_catches_stale_proof() {
 
     // Block #1
     m.begin(&block_0, &block_1).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&new_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&new_v)));
     m.seal().unwrap();
     let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
 
     // Block #2
     m.begin(&block_1, &block_2).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&old_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&old_v)));
     m.seal().unwrap();
     let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
 
     // Block #3
     m.begin(&block_2, &block_3).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&new_new_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&new_new_v)));
     m.seal().unwrap();
     let (_, root_hash_3) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
 
     // Block #4
     m.begin(&block_3, &block_4).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&new_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&new_v)));
     m.seal().unwrap();
     let (_, root_hash_4) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();
 
     // Block #5
     m.begin(&block_4, &block_5).unwrap();
-    let r = m.insert(&k1, MARFValue::from_value(&another_v));
+    let r = m.insert(&k1, MARFLeaf::from_ref(MARFValue::from_value(&another_v)));
     m.seal().unwrap();
     let (_, root_hash_5) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
     m.commit().unwrap();

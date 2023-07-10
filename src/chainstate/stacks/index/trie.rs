@@ -314,7 +314,7 @@ impl Trie {
         value.path = cursor.path.as_bytes()[cursor.index..].to_vec();
 
         let leaf_hash = get_leaf_hash(value);
-        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, chr, ptr);
+        let leaf_ptr = TriePtr::new(value.id(), chr, ptr);
         storage.write_node(ptr, value, leaf_hash)?;
 
         trace!("append_leaf: append {:?} at {:?}", value, &leaf_ptr);
@@ -367,11 +367,8 @@ impl Trie {
 
         // update current leaf (path changed) and save it
         let cur_leaf_disk_ptr = cur_leaf_ptr.ptr();
-        let cur_leaf_new_ptr = TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            cur_leaf_chr,
-            cur_leaf_disk_ptr as u32,
-        );
+        let cur_leaf_new_ptr =
+            TriePtr::new(cur_leaf_data.id(), cur_leaf_chr, cur_leaf_disk_ptr as u32);
 
         assert!(cur_leaf_path.len() <= cur_leaf_data.path.len());
         let _sav_cur_leaf_data = cur_leaf_data.clone();
@@ -394,7 +391,7 @@ impl Trie {
         let new_leaf_hash = get_leaf_hash(new_leaf_data);
 
         // put new leaf at the end of this Trie
-        let new_leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, new_leaf_chr, new_leaf_disk_ptr);
+        let new_leaf_ptr = TriePtr::new(new_leaf_data.id(), new_leaf_chr, new_leaf_disk_ptr);
 
         storage.write_node(new_leaf_disk_ptr, new_leaf_data, new_leaf_hash.clone())?;
 
@@ -636,7 +633,7 @@ impl Trie {
         let leaf_chr = cursor.path[cursor.tell()];
         let leaf_disk_ptr = storage.last_ptr()?;
         let leaf_hash = get_leaf_hash(leaf);
-        let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, leaf_chr, leaf_disk_ptr);
+        let leaf_ptr = TriePtr::new(leaf.id(), leaf_chr, leaf_disk_ptr);
         storage.write_node(leaf_disk_ptr, leaf, leaf_hash.clone())?;
 
         // update current node (node-X) and make a new path and ptr for it

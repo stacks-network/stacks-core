@@ -18,7 +18,7 @@ use std::error;
 use std::fmt;
 use std::hash::Hash;
 use std::io;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ptr;
 
 use sha2::Digest;
@@ -27,6 +27,8 @@ use sha2::Sha512_256 as TrieHasher;
 use crate::util_lib::db::Error as db_error;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
+
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -90,8 +92,8 @@ pub struct ProofTriePtr<T> {
 /// Leaf of a Trie.
 #[derive(Clone)]
 pub struct TrieLeaf {
-    pub path: Vec<u8>,   // path to be lazily expanded
-    pub data: MARFValue, // the actual data
+    pub path: Vec<u8>,  // path to be lazily expanded
+    pub data: MARFLeaf, // the actual data
 }
 
 pub trait MarfTrieId:
@@ -125,8 +127,8 @@ macro_rules! impl_clarity_marf_trie_id {
             }
         }
 
-        impl From<MARFValue> for $thing {
-            fn from(m: MARFValue) -> Self {
+        impl From<&MARFValue> for $thing {
+            fn from(m: &MARFValue) -> Self {
                 let h = m.0;
                 let mut d = [0u8; 32];
                 for i in 0..32 {
@@ -140,6 +142,12 @@ macro_rules! impl_clarity_marf_trie_id {
                     }
                 }
                 Self(d)
+            }
+        }
+
+        impl From<MARFValue> for $thing {
+            fn from(m: MARFValue) -> Self {
+                Self::from(&m)
             }
         }
     };
@@ -223,6 +231,18 @@ impl TrieHashExtension for TrieHash {
 }
 
 /// Structure that holds the actual data in a MARF leaf node.
+/// This may be either a 40-byte opaque value (in practice, used to store a u32 or MarfTrieId or
+/// hash), or it may be the indexed value itself.  The former is used when creating a MARF that
+/// indexes state in another database in a content-addressible fashion, as well as for storing MARF
+/// metadata within tries.  The latter is for *interleaved* storage, whereby the MARF-indexed
+/// data is stored within the MARF's leaves.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MARFLeaf {
+    Ref(MARFValue),
+    Interleaved(MARFValue, Vec<u8>),
+}
+
+/// Container for a MARFLeaf that encodes a reference to another database.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
 /// If not used (the rule today), then they should all be 0.
 pub struct MARFValue(pub [u8; 40]);
@@ -260,8 +280,8 @@ impl<T: MarfTrieId> From<T> for MARFValue {
     }
 }
 
-impl From<MARFValue> for u32 {
-    fn from(m: MARFValue) -> u32 {
+impl From<&MARFValue> for u32 {
+    fn from(m: &MARFValue) -> u32 {
         let h = m.0;
         let mut d = [0u8; 4];
         for i in 0..4 {
@@ -273,6 +293,12 @@ impl From<MARFValue> for u32 {
             }
         }
         u32::from_le_bytes(d)
+    }
+}
+
+impl From<MARFValue> for u32 {
+    fn from(m: MARFValue) -> u32 {
+        u32::from(&m)
     }
 }
 
@@ -291,15 +317,20 @@ impl MARFValue {
         MARFValue::from_value_hash_bytes(h.as_bytes())
     }
 
-    /// Construct from a String that encodes a value inserted into the underlying data store
-    pub fn from_value(s: &str) -> MARFValue {
+    /// Construct from a byte string
+    pub fn from_slice(v: &[u8]) -> MARFValue {
         let mut tmp = [0u8; 32];
 
         let mut hasher = TrieHasher::new();
-        hasher.update(s.as_bytes());
+        hasher.update(v);
         tmp.copy_from_slice(hasher.finalize().as_slice());
 
         MARFValue::from_value_hash_bytes(&tmp)
+    }
+
+    /// Construct from a String that encodes a value inserted into the underlying data store
+    pub fn from_value(s: &str) -> MARFValue {
+        Self::from_slice(s.as_bytes())
     }
 
     /// Convert to a byte vector
@@ -315,10 +346,146 @@ impl MARFValue {
     }
 }
 
+impl MARFLeaf {
+    pub fn from_ref(marf_value: MARFValue) -> MARFLeaf {
+        MARFLeaf::Ref(marf_value)
+    }
+
+    pub fn from_interleaved(v: Vec<u8>) -> MARFLeaf {
+        MARFLeaf::Interleaved(MARFValue::from_slice(&v), v)
+    }
+
+    pub fn ref_from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFLeaf {
+        MARFLeaf::Ref(MARFValue::from_value_hash_bytes(h))
+    }
+
+    pub fn ref_from_value_hash(h: &TrieHash) -> MARFLeaf {
+        MARFLeaf::Ref(MARFValue::from_value_hash(h))
+    }
+
+    pub fn ref_from_value(s: &str) -> MARFLeaf {
+        MARFLeaf::Ref(MARFValue::from_value(s))
+    }
+
+    pub fn value_hash_bytes(&self) -> &[u8] {
+        match *self {
+            MARFLeaf::Ref(ref vh) => &vh.0,
+            MARFLeaf::Interleaved(ref vh, _) => &vh.0,
+        }
+    }
+
+    /// Extract the value hash from the MARF leaf as a TrieHash
+    /// (used in merkle proofs)
+    pub fn to_value_hash(&self) -> TrieHash {
+        match *self {
+            MARFLeaf::Ref(ref vh) => vh.to_value_hash(),
+            MARFLeaf::Interleaved(ref vh, _) => vh.to_value_hash(),
+        }
+    }
+
+    /// Ref the inner MARFValue (used in merkle proofs)
+    pub fn ref_value_hash(&self) -> &MARFValue {
+        match *self {
+            MARFLeaf::Ref(ref vh) => vh,
+            MARFLeaf::Interleaved(ref vh, _) => vh,
+        }
+    }
+
+    /// How many bytes are represented in the byte representation of this struct?
+    pub fn len(&self) -> usize {
+        match *self {
+            MARFLeaf::Ref(ref vh) => 1 + vh.len(),
+            MARFLeaf::Interleaved(ref vh, ref v) => 1 + vh.len() + 4 + v.len(),
+        }
+    }
+
+    /// Get a hex representation of this data
+    pub fn to_hex(&self) -> String {
+        let data = self.to_vec();
+        to_hex(&data)
+    }
+
+    /// Get the binary representation of this data
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut bytes = vec![];
+        let fd = &mut bytes;
+        match *self {
+            MARFLeaf::Ref(ref value_hash) => {
+                fd.write_all(&value_hash.0[..]).expect("malloc failure");
+            }
+            MARFLeaf::Interleaved(ref value_hash, ref value) => {
+                fd.write_all(&value_hash.0[..]).expect("malloc failure");
+                write_next(fd, value).expect("malloc failure");
+            }
+        }
+        bytes
+    }
+
+    /// Is this a ref?
+    pub fn is_ref(&self) -> bool {
+        match *self {
+            MARFLeaf::Ref(..) => true,
+            _ => false,
+        }
+    }
+
+    /// Is this an interleaved?
+    pub fn is_interleaved(&self) -> bool {
+        match *self {
+            MARFLeaf::Interleaved(..) => true,
+            _ => false,
+        }
+    }
+}
+
+#[repr(u8)]
+pub enum MARFLeafId {
+    Ref = 0x01,         // same as TrieNodeId::Leaf
+    Interleaved = 0x41, // TrieNodeId::Leaf | interleaved
+}
+
+/*
+impl StacksMessageCodec for MARFLeaf {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        match *self {
+            MARFLeaf::Ref(ref vh) => {
+                write_next(fd, &(MARFLeafId::Ref as u8))?;
+                write_next(fd, vh)?;
+            }
+            MARFLeaf::Interleaved(ref vh, ref v) => {
+                // NOTE: we store the value hash and value so we can implement the equivalent of an
+                // offline fsck tool for MARF data.  The value is not validated on
+                // consensus_deserialize() due to performance reasons.
+                write_next(fd, &(MARFLeafId::Interleaved as u8))?;
+                write_next(fd, vh)?;
+                write_next(fd, v)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MARFLeaf, codec_error> {
+        let id_byte : u8 = read_next(fd)?;
+        match id_byte {
+            x if x == (MARFLeafId::Ref as u8) => {
+                let marf_value: MARFValue = read_next(fd)?;
+                Ok(MARFLeaf::Ref(marf_value))
+            }
+            x if x == (MARFLeafId::Interleaved as u8) => {
+                let marf_value_hash: MARFValue = read_next(fd)?;
+                let marf_value: Vec<u8> = read_next(fd)?;
+                Ok(MARFLeaf::Interleaved(marf_value_hash, marf_value))
+            }
+        }
+    }
+}
+*/
+
 #[derive(Debug)]
 pub enum Error {
     NotOpenedError,
     IOError(io::Error),
+    CodecError(codec_error),
     SQLError(rusqlite::Error),
     RequestedIdentifierForExtensionTrie,
     NotFoundError,
@@ -364,10 +531,17 @@ impl From<db_error> for Error {
     }
 }
 
+impl From<codec_error> for Error {
+    fn from(e: codec_error) -> Error {
+        Error::CodecError(e)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
+            Error::CodecError(ref e) => fmt::Display::fmt(e, f),
             Error::SQLError(ref e) => fmt::Display::fmt(e, f),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),

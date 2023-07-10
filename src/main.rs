@@ -62,6 +62,7 @@ use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::index::node::TriePath;
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
+use blockstack_lib::chainstate::stacks::index::MARFLeaf;
 use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
@@ -117,7 +118,7 @@ fn marf_dump(argv: &[String]) {
     let count: usize = argv[4].parse().expect("FATAL: expected count");
 
     let mut marf_opts = MARFOpenOpts::default();
-    marf_opts.external_blobs = false;
+    marf_opts.external_blobs = true;
     let mut marf = MARF::from_path(path, marf_opts).unwrap();
     let mut dumped = 0;
 
@@ -125,17 +126,66 @@ fn marf_dump(argv: &[String]) {
 
     println!("path,value_hash");
     marf.open_block(&itip).expect("FATAL: no such stacks block");
-    marf.dump(|path, value| {
-        if dumped > 0 && dumped % 100 == 0 {
-            eprintln!("Dumped {} values...", dumped);
+    marf.dump(
+        |path, value| {
+            if dumped > 0 && dumped % 100 == 0 {
+                eprintln!("Dumped {} values...", dumped);
+            }
+
+            all_paths.push(path.clone());
+
+            println!("{},{}", &path.to_hex(), &value.to_hex());
+            dumped += 1;
+            dumped <= count
+        },
+        |_, _, _| {},
+    )
+    .unwrap();
+
+    for (i, path) in all_paths.into_iter().enumerate() {
+        // sanity check
+        if marf
+            .get_path(&itip, path.clone())
+            .expect("MARF error.")
+            .is_none()
+        {
+            eprintln!("Missing path #{}: {}", i, &path);
         }
+    }
+    return;
+}
 
-        all_paths.push(path.clone());
+fn marf_dump_nodes(argv: &[String]) {
+    let path = &argv[2];
+    let itip = StacksBlockId::from_hex(&argv[3]).expect("FATAL: invalid stacks block ID");
+    let count: usize = argv[4].parse().expect("FATAL: expected count");
 
-        println!("{},{}", &path.to_hex(), &value.to_hex());
-        dumped += 1;
-        dumped <= count
-    })
+    let mut marf_opts = MARFOpenOpts::default();
+    marf_opts.external_blobs = true;
+    let mut marf = MARF::from_path(path, marf_opts).unwrap();
+    let mut dumped = 0;
+
+    let mut all_paths = vec![];
+
+    marf.open_block(&itip).expect("FATAL: no such stacks block");
+    marf.dump(
+        |path, _value| {
+            if dumped > 0 && dumped % 100 == 0 {
+                eprintln!("Dumped {} values...", dumped);
+            }
+
+            all_paths.push(path.clone());
+            dumped += 1;
+            dumped <= count
+        },
+        |depth, path_so_far, node| {
+            print!("{: <64}|", to_hex(&path_so_far));
+            for _ in 0..depth {
+                print!("-");
+            }
+            println!("{:?}", &node);
+        },
+    )
     .unwrap();
 
     for (i, path) in all_paths.into_iter().enumerate() {
@@ -157,8 +207,8 @@ fn marf_dump_clarity_values(argv: &[String]) {
     let count: usize = argv[4].parse().expect("FATAL: expected count");
 
     let mut marf_opts = MARFOpenOpts::default();
-    marf_opts.external_blobs = false;
-    let mut marf = MARF::from_path(path, marf_opts).unwrap();
+    marf_opts.external_blobs = true;
+    let mut marf = MARF::from_path(path, marf_opts.clone()).unwrap();
     let sidestore = SqliteConnection::open(&path).unwrap();
     let mut dumped = 0;
 
@@ -166,26 +216,47 @@ fn marf_dump_clarity_values(argv: &[String]) {
 
     println!("path,value_hash,value");
     marf.open_block(&itip).expect("FATAL: no such stacks block");
-    marf.dump(|path, value_hash| {
-        if dumped > 0 && dumped % 100 == 0 {
-            eprintln!("Dumped {} values...", dumped);
-        }
+    marf.dump(
+        |path, marf_leaf| {
+            if dumped > 0 && dumped % 100 == 0 {
+                eprintln!("Dumped {} values...", dumped);
+            }
 
-        let value_hash_str = value_hash.to_hex();
-        let clarity_value = if let Some(value) = SqliteConnection::get(&sidestore, &value_hash_str)
-        {
-            value
-        } else {
-            // skip this path
-            return true;
-        };
+            let value_hash_str = marf_leaf.ref_value_hash().to_hex();
+            let clarity_value = if marf_opts.interleaved {
+                if let MARFLeaf::Interleaved(_, value_bytes) = marf_leaf {
+                    if let Ok(value_str) = std::str::from_utf8(&value_bytes) {
+                        if clarity::vm::Value::try_deserialize_hex_untyped(&value_str).is_ok() {
+                            value_str.to_string()
+                        } else {
+                            // not valid
+                            return true;
+                        }
+                    } else {
+                        // not a string
+                        return true;
+                    }
+                } else {
+                    // not interleaved
+                    return true;
+                }
+            } else {
+                if let Some(value) = SqliteConnection::get(&sidestore, &value_hash_str) {
+                    value
+                } else {
+                    // skip this path
+                    return true;
+                }
+            };
 
-        all_paths.push(path.clone());
+            println!("{},{},{}", &path.to_hex(), &value_hash_str, &clarity_value);
+            all_paths.push(path.clone());
 
-        println!("{},{},{}", &path.to_hex(), &value_hash_str, &clarity_value);
-        dumped += 1;
-        dumped <= count
-    })
+            dumped += 1;
+            dumped <= count
+        },
+        |_, _, _| {},
+    )
     .unwrap();
 
     for (i, path) in all_paths.into_iter().enumerate() {
@@ -271,20 +342,37 @@ fn marf_get_clarity_values_bench(argv: &[String]) {
 
     let mut marf_opts = MARFOpenOpts::default();
     marf_opts.external_blobs = true;
-    let mut marf = MARF::from_path(path, marf_opts).unwrap();
-    let sidestore = SqliteConnection::open(&path).unwrap();
 
-    let start_ns = now_nanos();
+    // override this to `false` to compare against non-interleaved chainstates
+    marf_opts.interleaved = true;
+    let mut marf = MARF::from_path(path, marf_opts.clone()).unwrap();
     let num_paths = paths.len();
-    for (i, path) in paths.into_iter().enumerate() {
-        let marf_value = marf
-            .get_path(&itip, path)
-            .expect("MARF error.")
-            .expect(&format!("Missing path {}", &i));
 
-        let _clarity_value = SqliteConnection::get(&sidestore, &marf_value.to_hex()).unwrap();
-    }
-    let end_ns = now_nanos();
+    let (start_ns, end_ns) = if marf_opts.interleaved {
+        let start_ns = now_nanos();
+        for (i, path) in paths.into_iter().enumerate() {
+            let _marf_value = marf
+                .get_path(&itip, path)
+                .expect("MARF error.")
+                .expect(&format!("Missing path {}", &i));
+        }
+        let end_ns = now_nanos();
+        (start_ns, end_ns)
+    } else {
+        let sidestore = SqliteConnection::open(&path).unwrap();
+
+        let start_ns = now_nanos();
+        for (i, path) in paths.into_iter().enumerate() {
+            let marf_value = marf
+                .get_path(&itip, path)
+                .expect("MARF error.")
+                .expect(&format!("Missing path {}", &i));
+
+            let _clarity_value = SqliteConnection::get(&sidestore, &marf_value.to_hex()).unwrap();
+        }
+        let end_ns = now_nanos();
+        (start_ns, end_ns)
+    };
 
     eprintln!(
         "Total time (ms):       {}",
@@ -1147,7 +1235,7 @@ simulating a miner.
             );
 
             let row = res.expect(&format!(
-                "Failed to query DB for MARF value hash {}",
+                "Failed to query DB for MARF value hash {:?}",
                 &value
             ));
             println!("{}", row);
@@ -1188,7 +1276,7 @@ simulating a miner.
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
-            Some(x) => println!("{}", x),
+            Some(x) => println!("{:?}", x),
             None => println!("None"),
         };
         return;
@@ -1204,6 +1292,10 @@ simulating a miner.
 
     if argv[1] == "marf-dump" {
         marf_dump(&argv);
+    }
+
+    if argv[1] == "marf-dump-nodes" {
+        marf_dump_nodes(&argv);
     }
 
     if argv[1] == "marf-dump-clarity-values" {
@@ -1263,11 +1355,12 @@ simulating a miner.
 
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
+            eprintln!("Usage: {} clarity_sqlite_db byte-prefix count", &argv[0]);
             process::exit(1);
         }
         let db_path = &argv[2];
         let byte_prefix = &argv[3];
+        let count: usize = argv[4].parse().unwrap();
         let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let query = format!(
             "SELECT value FROM data_table WHERE key LIKE \"{}%\"",
@@ -1275,14 +1368,39 @@ simulating a miner.
         );
         let mut stmt = conn.prepare(&query).unwrap();
         let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut val_strings = vec![];
         while let Ok(Some(row)) = rows.next() {
             let val_string: String = row.get(0).unwrap();
-            let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {
+            let _value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {
                 Ok(x) => x,
                 Err(_e) => continue,
             };
-            println!("{} => {}", val_string, clarity_value);
+
+            // find only strings that decode
+            val_strings.push(val_string);
+            if val_strings.len() > count {
+                break;
+            }
+
+            if val_strings.len() % 100 == 0 && val_strings.len() > 0 {
+                eprintln!("Read {} of {}...", val_strings.len(), count);
+            }
         }
+
+        let num_vals = val_strings.len();
+        let start_nanos = now_nanos();
+        for val_string in val_strings.into_iter() {
+            let _ = clarity::vm::Value::try_deserialize_hex_untyped(&val_string).unwrap();
+        }
+        let end_nanos = now_nanos();
+        println!(
+            "Deserialized {} Clarity values in {} ns",
+            num_vals,
+            end_nanos - start_nanos
+        );
+
+        let avg_ns = ((end_nanos - start_nanos) as f64) / (num_vals as f64);
+        println!("Avg deser time: {} ns ({} ms)", avg_ns, avg_ns / 1000000.0);
 
         process::exit(0);
     }

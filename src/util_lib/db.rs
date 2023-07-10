@@ -52,6 +52,7 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MarfTransaction;
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::Error as MARFError;
+use crate::chainstate::stacks::index::MARFLeaf;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::types::chainstate::TrieHash;
@@ -631,6 +632,7 @@ pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
     _index: Option<MarfTransaction<'a, T>>,
     pub context: C,
     block_linkage: Option<(T, T)>,
+    interleaved: bool,
 }
 
 impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
@@ -737,28 +739,39 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
 }
 
 /// Load some index data
-fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>, Error> {
-    let mut stmt = conn
-        .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
-        .map_err(Error::SqliteError)?;
-    let mut rows = stmt
-        .query(&[&marf_value.to_hex() as &dyn ToSql])
-        .map_err(Error::SqliteError)?;
-    let mut value = None;
+fn load_indexed(conn: &DBConn, marf_leaf: &MARFLeaf) -> Result<Option<String>, Error> {
+    match marf_leaf {
+        MARFLeaf::Ref(marf_value) => {
+            let mut stmt = conn
+                .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
+                .map_err(Error::SqliteError)?;
+            let mut rows = stmt
+                .query(&[&marf_value.to_hex() as &dyn ToSql])
+                .map_err(Error::SqliteError)?;
+            let mut value = None;
 
-    while let Some(row) = rows.next().expect("FATAL: Failed to read row from Sqlite") {
-        let value_str: String = row.get_unwrap(0);
-        if value.is_some() {
-            // should be impossible
-            panic!(
-                "FATAL: two or more values for {}",
-                &to_hex(&marf_value.to_vec())
-            );
+            while let Some(row) = rows.next().expect("FATAL: Failed to read row from Sqlite") {
+                let value_str: String = row.get_unwrap(0);
+                if value.is_some() {
+                    // should be impossible
+                    panic!(
+                        "FATAL: two or more values for {}",
+                        &to_hex(&marf_value.to_vec())
+                    );
+                }
+                value = Some(value_str);
+            }
+            Ok(value)
         }
-        value = Some(value_str);
+        MARFLeaf::Interleaved(_, value) => {
+            // since this API only stores strings, this should be infallible
+            Ok(Some(
+                std::str::from_utf8(&value)
+                    .expect("FATAL: could not recover string from interleaved data")
+                    .to_string(),
+            ))
+        }
     }
-
-    Ok(value)
 }
 
 /// Get a value from the fork index
@@ -787,13 +800,15 @@ fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
 
 impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     pub fn new(index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
-        let tx = index
+        let mut tx = index
             .begin_tx()
             .expect("BUG: failure to begin MARF transaction");
+        let interleaved = tx.with_conn(|c| c.interleaved);
         IndexDBTx {
             _index: Some(tx),
             block_linkage: None,
             context: context,
+            interleaved: interleaved,
         }
     }
 
@@ -864,13 +879,20 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Store some data to the index storage.
-    fn store_indexed(&mut self, value: &String) -> Result<MARFValue, Error> {
+    fn store_indexed(&mut self, value: &str) -> Result<MARFLeaf, Error> {
         let marf_value = MARFValue::from_value(value);
-        self.tx().execute(
-            "INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)",
-            &[&to_hex(&marf_value.to_vec()), value],
-        )?;
-        Ok(marf_value)
+        let marf_leaf = if self.interleaved {
+            // store data directly
+            MARFLeaf::Interleaved(marf_value, value.as_bytes().to_vec())
+        } else {
+            // store data separately
+            self.tx().execute(
+                "INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)",
+                &[&to_hex(&marf_value.to_vec()), value],
+            )?;
+            MARFLeaf::Ref(marf_value)
+        };
+        Ok(marf_leaf)
     }
 
     /// Get a value from the fork index
@@ -897,13 +919,13 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             Some(_) => panic!("Tried to put_indexed_all twice!"),
         }
 
-        let mut marf_values = Vec::with_capacity(values.len());
+        let mut marf_leaves = Vec::with_capacity(values.len());
         for i in 0..values.len() {
-            let marf_value = self.store_indexed(&values[i])?;
-            marf_values.push(marf_value);
+            let marf_leaf = self.store_indexed(&values[i])?;
+            marf_leaves.push(marf_leaf);
         }
 
-        self.index_mut().insert_batch(&keys, marf_values)?;
+        self.index_mut().insert_batch(&keys, marf_leaves)?;
         let root_hash = self.index_mut().seal()?;
         Ok(root_hash)
     }

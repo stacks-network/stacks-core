@@ -30,7 +30,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::{
-    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
+    marf::MARF, storage::TrieFileStorage, Error as MARFError, MarfTrieId,
 };
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 use crate::util_lib::db::Error as DBError;

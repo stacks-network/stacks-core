@@ -47,7 +47,7 @@ use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
+    clear_metadata_bits, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
@@ -740,6 +740,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let (node, node_hash) = self.get_nodetype(node_ptr as u32)?.to_owned();
         if node.is_leaf() {
             // base case: we already have the hash of the leaf, so return it.
+            trace!(
+                "calculate_node_hashes({:?}): at leaf {:?}",
+                &self.block_header,
+                &node_hash
+            );
             Ok(node_hash)
         } else {
             // inductive case: calculate children hashes, hash them, and return that hash.
@@ -794,7 +799,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     hasher.write_all(node_hash.as_bytes())?;
 
                     if TrieHashCalculationMode::Deferred == storage_tx.deref().hash_calculation_mode
-                        && ptr.id() != TrieNodeID::Leaf as u8
+                        && clear_metadata_bits(ptr.id()) != TrieNodeID::Leaf as u8
                     {
                         // need to store this hash too, since we deferred calculation
                         self.write_node_hash(ptr.ptr(), node_hash)?;
@@ -1046,7 +1051,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         self.read_count += 1;
         if is_backptr(ptr.id()) {
             self.read_backptr_count += 1;
-        } else if ptr.id() == TrieNodeID::Leaf as u8 {
+        } else if clear_metadata_bits(ptr.id()) == TrieNodeID::Leaf as u8 {
             self.read_leaf_count += 1;
         } else {
             self.read_node_count += 1;
@@ -1245,6 +1250,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     cache: &'a mut TrieCache<T>,
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
+    pub interleaved: bool,
 
     /// row ID of a trie that represents unconfirmed state (i.e. trie state that will never become
     /// part of the MARF, but nevertheless represents a persistent scratch space).  If this field
@@ -1311,6 +1317,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     cache: TrieCache<T>,
     bench: TrieBenchmark,
     hash_calculation_mode: TrieHashCalculationMode,
+    interleaved: bool,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
@@ -1357,6 +1364,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             cache: &mut self.cache,
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
+            interleaved: self.interleaved,
             unconfirmed_block_id: None,
 
             #[cfg(test)]
@@ -1378,6 +1386,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             cache: &mut self.cache,
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
+            interleaved: self.interleaved,
             unconfirmed_block_id: None,
 
             #[cfg(test)]
@@ -1482,6 +1491,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             blobs,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: marf_opts.hash_calculation_mode,
+            interleaved: marf_opts.interleaved,
 
             data: TrieStorageTransientData {
                 uncommitted_writes: None,
@@ -1588,6 +1598,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             cache: cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
+            interleaved: self.interleaved,
 
             data: TrieStorageTransientData {
                 uncommitted_writes: self.data.uncommitted_writes.clone(),
@@ -1657,6 +1668,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             cache: cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
+            interleaved: self.interleaved,
 
             data: TrieStorageTransientData {
                 uncommitted_writes: None,
@@ -2583,11 +2595,17 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         read_hash: bool,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         trace!(
-            "inner_read_persisted_nodetype({}): {:?} (unconfirmed={:?},{})",
+            "inner_read_persisted_nodetype({},read_hash={}): {:?} (unconfirmed={:?},{}), blobs={}",
             block_id,
+            read_hash,
             ptr,
             &self.unconfirmed_block_id,
-            self.unconfirmed()
+            self.unconfirmed(),
+            if self.blobs.is_some() {
+                "Some(..)"
+            } else {
+                "None"
+            }
         );
         if self.unconfirmed_block_id == Some(block_id) {
             trace!("Read persisted node from unconfirmed block id {}", block_id);
@@ -2636,12 +2654,13 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         self.data.read_count += 1;
         if is_backptr(ptr.id()) {
             self.data.read_backptr_count += 1;
-        } else if ptr.id() == TrieNodeID::Leaf as u8 {
+        } else if clear_metadata_bits(ptr.id()) == TrieNodeID::Leaf as u8 {
             self.data.read_leaf_count += 1;
         } else {
             self.data.read_node_count += 1;
         }
 
+        // NOTE: this preserves the interleaved bit!
         let clear_ptr = ptr.from_backptr();
 
         if let Some((ref uncommitted_bhh, ref mut uncommitted_trie)) = self.data.uncommitted_writes

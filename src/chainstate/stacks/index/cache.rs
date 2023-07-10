@@ -42,8 +42,8 @@ use crate::chainstate::stacks::index::bits::{
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+    is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
+    TrieNodeType, TriePath, TriePtr,
 };
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::TrieLeaf;
@@ -395,6 +395,7 @@ pub mod test {
         hash_strategy: TrieHashCalculationMode,
         data: &[Vec<(String, MARFValue)>],
         batch_size: Option<usize>,
+        interleaved: bool,
     ) -> TrieHash {
         let test_file = if test_name == ":memory:" {
             test_name.to_string()
@@ -412,7 +413,7 @@ pub mod test {
             test_file
         };
 
-        let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+        let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true, interleaved);
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
         let mut marf = MARF::from_storage(f);
         let mut last_block_header = BlockHeaderHash::sentinel();
@@ -430,13 +431,16 @@ pub mod test {
                 for b in (0..block_data.len()).step_by(batch_size) {
                     let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
                     let keys = batch.iter().map(|(k, _)| k.clone()).collect();
-                    let values = batch.iter().map(|(_, v)| v.clone()).collect();
+                    let values = batch
+                        .iter()
+                        .map(|(_, v)| MARFLeaf::from_ref(v.clone()))
+                        .collect();
                     marf.insert_batch(&keys, values).unwrap();
                 }
             } else {
                 for (key, value) in block_data.iter() {
                     let path = TriePath::from_key(key);
-                    let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                    let leaf = TrieLeaf::from_ref(&vec![], value.clone());
                     marf.insert_raw(path, leaf).unwrap();
                 }
             }
@@ -459,7 +463,7 @@ pub mod test {
             test_debug!("Read block {}", i);
             for (key, value) in block_data.iter() {
                 let path = TriePath::from_key(key);
-                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let marf_leaf = TrieLeaf::from_ref(&vec![], value.clone());
 
                 let read_time = SystemTime::now();
                 let leaf = MARF::get_path(
@@ -502,6 +506,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -511,6 +516,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -520,6 +526,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -529,6 +536,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -538,6 +546,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -551,6 +560,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -560,6 +570,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             None,
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -569,6 +580,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -578,6 +590,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -587,6 +600,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -596,6 +610,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -635,6 +650,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -644,6 +660,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -653,6 +670,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -662,6 +680,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -671,6 +690,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -684,6 +704,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -693,6 +714,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -702,6 +724,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -711,6 +734,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -720,6 +744,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -733,6 +758,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -742,6 +768,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -751,6 +778,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -760,6 +788,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -769,6 +798,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -782,6 +812,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -791,6 +822,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -800,6 +832,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -809,6 +842,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -818,6 +852,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }
@@ -831,6 +866,7 @@ pub mod test {
             TrieHashCalculationMode::Immediate,
             &test_data,
             None,
+            false,
         );
         eprintln!("Final root hash is {}", root_hash);
 
@@ -840,6 +876,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(64),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -849,6 +886,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(128),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -858,6 +896,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(67),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
 
@@ -867,6 +906,7 @@ pub mod test {
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(13),
+            false,
         );
         assert_eq!(root_hash, root_hash_batched);
     }

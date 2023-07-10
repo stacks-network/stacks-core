@@ -3741,7 +3741,7 @@ fn trie_node256_to_consensus_bytes() {
 
 #[test]
 fn trie_leaf_to_bytes() {
-    let leaf = TrieLeaf::new(
+    let leaf = TrieLeaf::new_ref(
         &vec![
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
         ],
@@ -3947,7 +3947,7 @@ fn read_write_node256() {
 
 #[test]
 fn read_write_leaf() {
-    let leaf = TrieLeaf::new(
+    let leaf = TrieLeaf::new_ref(
         &vec![
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
         ],
@@ -3990,7 +3990,7 @@ fn read_write_node4_hashes() {
 
     let mut child_hashes = vec![];
     for i in 0..3 {
-        let child = TrieLeaf::new(
+        let child = TrieLeaf::new_ref(
             &vec![
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
             ],
@@ -4034,7 +4034,7 @@ fn read_write_node16_hashes() {
 
     let mut child_hashes = vec![];
     for i in 0..15 {
-        let child = TrieLeaf::new(
+        let child = TrieLeaf::new_ref(
             &vec![
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
             ],
@@ -4080,7 +4080,7 @@ fn read_write_node48_hashes() {
 
     let mut child_hashes = vec![];
     for i in 0..47 {
-        let child = TrieLeaf::new(
+        let child = TrieLeaf::new_ref(
             &vec![
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
             ],
@@ -4126,7 +4126,7 @@ fn read_write_node256_hashes() {
 
     let mut child_hashes = vec![];
     for i in 0..255 {
-        let child = TrieLeaf::new(
+        let child = TrieLeaf::new_ref(
             &vec![
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
             ],
@@ -4254,7 +4254,7 @@ fn trie_cursor_walk_full() {
     assert_eq!(ptr, node_ptrs[31]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[31]);
 
@@ -4352,7 +4352,7 @@ fn trie_cursor_walk_1() {
     assert_eq!(ptr, node_ptrs[15]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[15]);
 
@@ -4445,7 +4445,7 @@ fn trie_cursor_walk_2() {
     assert_eq!(ptr, node_ptrs[10]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[10]);
 
@@ -4535,7 +4535,7 @@ fn trie_cursor_walk_3() {
     assert_eq!(ptr, node_ptrs[7]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![28, 29, 30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![28, 29, 30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[7]);
 
@@ -4624,7 +4624,7 @@ fn trie_cursor_walk_4() {
     assert_eq!(ptr, node_ptrs[6]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[6]);
 
@@ -4712,7 +4712,7 @@ fn trie_cursor_walk_5() {
     assert_eq!(ptr, node_ptrs[5]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[5]);
 
@@ -4799,7 +4799,7 @@ fn trie_cursor_walk_6() {
     assert_eq!(ptr, node_ptrs[4]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![28, 29, 30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new_ref(&vec![28, 29, 30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[4]);
 
@@ -4884,7 +4884,7 @@ fn trie_cursor_walk_10() {
     assert_eq!(ptr, node_ptrs[2]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(
+        TrieNodeType::Leaf(TrieLeaf::new_ref(
             &vec![22, 23, 24, 25, 26, 27, 28, 29, 30],
             &[31u8; 40].to_vec()
         ))
@@ -4976,7 +4976,7 @@ fn trie_cursor_walk_20() {
     assert_eq!(ptr, node_ptrs[1]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(
+        TrieNodeType::Leaf(TrieLeaf::new_ref(
             &vec![21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
             &[31u8; 40].to_vec()
         ))
@@ -5045,7 +5045,7 @@ fn trie_cursor_walk_32() {
     assert_eq!(ptr, node_ptrs[0]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(
+        TrieNodeType::Leaf(TrieLeaf::new_ref(
             &vec![
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                 23, 24, 25, 26, 27, 28, 29, 30

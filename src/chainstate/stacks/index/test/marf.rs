@@ -30,6 +30,7 @@ use crate::chainstate::stacks::index::test::*;
 use crate::chainstate::stacks::index::trie::*;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::MARFLeaf;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
@@ -59,7 +60,7 @@ fn marf_insert_different_leaf_same_block_100() {
         let path = TriePath::from_bytes(&path_bytes).unwrap();
 
         for i in 0..100 {
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.insert_raw(path.clone(), value).unwrap();
         }
 
@@ -67,7 +68,7 @@ fn marf_insert_different_leaf_same_block_100() {
         debug!("MARF gets");
         debug!("---------");
 
-        let value = TrieLeaf::new(&vec![], &[99; 40].to_vec());
+        let value = TrieLeaf::new_ref(&vec![], &[99; 40].to_vec());
         let leaf = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &path)
             .unwrap()
             .unwrap();
@@ -122,7 +123,7 @@ fn marf_insert_different_leaf_different_path_different_block_100() {
             marf.begin(&BlockHeaderHash::sentinel(), &block_header)
                 .unwrap();
             let path = TriePath::from_bytes(&path_bytes).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.insert_raw(path, value).unwrap();
         }
 
@@ -146,7 +147,7 @@ fn marf_insert_different_leaf_different_path_different_block_100() {
             ];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             let leaf = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &path)
                 .unwrap()
                 .unwrap();
@@ -197,12 +198,12 @@ fn marf_insert_same_leaf_different_block_100() {
 
         for i in 0..100 {
             let next_block_header = BlockHeaderHash::from_bytes(&[i + 1 as u8; 32]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.commit().unwrap();
             marf.begin(&BlockHeaderHash::sentinel(), &next_block_header)
                 .unwrap();
             let path = TriePath::from_bytes(&path_bytes).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.insert_raw(path, value).unwrap();
         }
 
@@ -220,7 +221,7 @@ fn marf_insert_same_leaf_different_block_100() {
 
         for i in 0..100 {
             let next_block_header = BlockHeaderHash::from_bytes(&[i + 1 as u8; 32]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             let leaf = MARF::get_path(
                 &mut marf.borrow_storage_backend(),
                 &next_block_header,
@@ -281,7 +282,7 @@ fn marf_insert_leaf_sequence_2() {
             marf.commit().unwrap();
             marf.begin(&prior_block_header, &next_block_header).unwrap();
 
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.insert_raw(path, value).unwrap();
         }
 
@@ -300,7 +301,7 @@ fn marf_insert_leaf_sequence_2() {
             ];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             let leaf = MARF::get_path(
                 &mut marf.borrow_storage_backend(),
                 &last_block_header,
@@ -359,7 +360,7 @@ fn marf_insert_leaf_sequence_100() {
             marf.begin(&last_block_header, &next_block_header).unwrap();
             last_block_header = next_block_header;
 
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             marf.insert_raw(path, value).unwrap();
         }
         marf.commit().unwrap();
@@ -378,7 +379,7 @@ fn marf_insert_leaf_sequence_100() {
             ];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
             eprintln!("Finding value inserted at {}", &next_block_header);
             let leaf = MARF::get_path(&mut f, &last_block_header, &path)
                 .unwrap()
@@ -572,7 +573,7 @@ where
             let next_path = path_gen(i, path.clone());
 
             let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
 
             debug!("----------------");
             debug!("insert");
@@ -683,7 +684,7 @@ where
             leaf_paths.push(TriePath::from_bytes(&next_path).unwrap().clone());
 
             let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = MARFValue([i as u8; 40]);
+            let value = MARFLeaf::Ref(MARFValue([i as u8; 40]));
 
             assert_eq!(
                 MARF::get_path(
@@ -733,6 +734,7 @@ where
                 dumped_leaves.push(next_path);
                 true
             },
+            |_, _, _| {},
         )
         .unwrap();
         dumped_leaves.sort();
@@ -894,7 +896,7 @@ fn marf_merkle_verify_backptrs() {
             marf.begin(&block_header_1, &block_header_2).unwrap();
             marf.insert_raw(
                 TriePath::from_bytes(&path_2[..]).unwrap(),
-                TrieLeaf::new(&vec![], &[20 as u8; 40].to_vec()),
+                TrieLeaf::new_ref(&vec![], &[20 as u8; 40].to_vec()),
             )
             .unwrap();
 
@@ -912,7 +914,7 @@ fn marf_merkle_verify_backptrs() {
             marf.begin(&block_header_2, &block_header_3).unwrap();
             marf.insert_raw(
                 TriePath::from_bytes(&path_3[..]).unwrap(),
-                TrieLeaf::new(&vec![], &[21 as u8; 40].to_vec()),
+                TrieLeaf::new_ref(&vec![], &[21 as u8; 40].to_vec()),
             )
             .unwrap();
 
@@ -969,7 +971,7 @@ where
             let (path, next_block_header) = path_gen(i);
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = TrieLeaf::new(
+            let value = TrieLeaf::new_ref(
                 &vec![],
                 &[
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1045,7 +1047,7 @@ where
             let (path, _next_block_header) = path_gen(i);
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = TrieLeaf::new(
+            let value = TrieLeaf::new_ref(
                 &vec![],
                 &[
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1186,7 +1188,7 @@ fn marf_split_leaf_path() {
 
     let path = [0u8; 32];
     let triepath = TriePath::from_bytes(&path[..]).unwrap();
-    let value = TrieLeaf::new(&vec![], &[0u8; 40].to_vec());
+    let value = TrieLeaf::new_ref(&vec![], &[0u8; 40].to_vec());
 
     debug!("----------------");
     debug!(
@@ -1208,7 +1210,7 @@ fn marf_split_leaf_path() {
         1, 1,
     ];
     let triepath_2 = TriePath::from_bytes(&path_2[..]).unwrap();
-    let value_2 = TrieLeaf::new(&vec![], &[1u8; 40].to_vec());
+    let value_2 = TrieLeaf::new_ref(&vec![], &[1u8; 40].to_vec());
 
     debug!("----------------");
     debug!(
@@ -1400,7 +1402,7 @@ fn marf_insert_random_10485760_4096_file_storage() {
 
         let values = values
             .drain(..)
-            .map(|x| MARFValue::from_value(&x))
+            .map(|x| MARFLeaf::from_ref(MARFValue::from_value(&x)))
             .collect();
 
         m.insert_batch(&keys, values).unwrap();
@@ -1455,7 +1457,10 @@ fn marf_insert_random_10485760_4096_file_storage() {
 
         for j in 0..block_size {
             let read_value = m.get(&block_header, &keys[j]).unwrap().unwrap();
-            assert_eq!(read_value, MARFValue::from_value(&values[j]));
+            assert_eq!(
+                read_value,
+                MARFLeaf::from_ref(MARFValue::from_value(&values[j]))
+            );
         }
 
         end_time = get_epoch_time_ms();
@@ -1527,7 +1532,10 @@ fn marf_insert_random_4096_128_merkle_proof() {
 
             m.begin(&prev_block_header, &block_header).unwrap();
 
-            let marf_values = values.iter().map(|x| MARFValue::from_value(&x)).collect();
+            let marf_values = values
+                .iter()
+                .map(|x| MARFLeaf::from_ref(MARFValue::from_value(&x)))
+                .collect();
 
             m.insert_batch(&keys, marf_values).unwrap();
             m.commit().unwrap();
@@ -1579,7 +1587,10 @@ fn marf_insert_random_4096_128_merkle_proof() {
                 debug!("Get {:?}, should be {:?}", &keys[j], &values[j]);
 
                 let read_value = m.get(&block_header, &keys[j]).unwrap().unwrap();
-                assert_eq!(read_value, MARFValue::from_value(&values[j]));
+                assert_eq!(
+                    read_value,
+                    MARFLeaf::from_ref(MARFValue::from_value(&values[j]))
+                );
 
                 debug!("Get {:?}, should be {:?}", &keys[j], &values[j]);
                 block_table_cache = Some(merkle_test_marf_key_value(
@@ -1649,7 +1660,7 @@ fn marf_read_random_1048576_4096_file_storage() {
             seed = path.clone();
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = TrieLeaf::new(
+            let value = TrieLeaf::new_ref(
                 &vec![],
                 &[
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1821,7 +1832,7 @@ fn marf_insert_get_128_fork_256() {
 
                 let values = values
                     .drain(..)
-                    .map(|x| MARFValue::from_value(&x))
+                    .map(|x| MARFLeaf::from_ref(MARFValue::from_value(&x)))
                     .collect();
 
                 m.insert_batch(&keys, values).unwrap();
@@ -1891,7 +1902,10 @@ fn marf_insert_get_128_fork_256() {
             let key = format!("{}-{}-{}-{}", 7, (k / 2), k, l);
 
             let marf_value = m.get(&expected_chain_tips[k], &key).unwrap().unwrap();
-            assert_eq!(marf_value, MARFValue::from_value(&expected_value));
+            assert_eq!(
+                marf_value,
+                MARFLeaf::Ref(MARFValue::from_value(&expected_value))
+            );
 
             block_table = Some(merkle_test_marf_key_value(
                 &mut m.borrow_storage_backend(),
@@ -1943,7 +1957,7 @@ fn marf_insert_flush_to_different_block() {
         };
 
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
-        let value = TrieLeaf::new(
+        let value = TrieLeaf::new_ref(
             &vec![],
             &[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2064,7 +2078,7 @@ fn marf_insert_flush_to_different_block() {
         ];
 
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
-        let value = TrieLeaf::new(
+        let value = TrieLeaf::new_ref(
             &vec![],
             &[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2121,7 +2135,7 @@ fn test_marf_read_only() {
         25, 26, 27, 28, 29, 30, 31,
     ];
     let triepath = TriePath::from_bytes(&path[..]).unwrap();
-    let leaf = TrieLeaf::new(
+    let leaf = TrieLeaf::new_ref(
         &vec![],
         &[
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2129,7 +2143,7 @@ fn test_marf_read_only() {
         ]
         .to_vec(),
     );
-    let value = MARFValue::from(0x1234);
+    let value = MARFLeaf::from_ref(MARFValue::from(0x1234));
 
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before
@@ -2192,8 +2206,8 @@ fn test_marf_begin_from_sentinel_twice() {
     ];
     let triepath_2 = TriePath::from_bytes(&path_2[..]).unwrap();
 
-    let value_1 = TrieLeaf::new(&vec![], &vec![1u8; 40]);
-    let value_2 = TrieLeaf::new(&vec![], &vec![2u8; 40]);
+    let value_1 = TrieLeaf::new_ref(&vec![], &vec![1u8; 40]);
+    let value_2 = TrieLeaf::new_ref(&vec![], &vec![2u8; 40]);
 
     marf.begin(&BlockHeaderHash::sentinel(), &block_header_1)
         .unwrap();
@@ -2257,14 +2271,14 @@ fn test_marf_unconfirmed() {
         25, 26, 27, 28, 29, 30, 31,
     ];
     let triepath_1 = TriePath::from_bytes(&path_1[..]).unwrap();
-    let value_1 = TrieLeaf::new(&vec![], &vec![1u8; 40]);
+    let value_1 = TrieLeaf::new_ref(&vec![], &vec![1u8; 40]);
 
     let path_2 = [
         1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31,
     ];
     let triepath_2 = TriePath::from_bytes(&path_2[..]).unwrap();
-    let value_2 = TrieLeaf::new(&vec![], &vec![2u8; 40]);
+    let value_2 = TrieLeaf::new_ref(&vec![], &vec![2u8; 40]);
 
     let block_header = StacksBlockId([0x33u8; 32]);
 

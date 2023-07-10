@@ -91,7 +91,7 @@ use stacks_common::util::vrf::*;
 
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{

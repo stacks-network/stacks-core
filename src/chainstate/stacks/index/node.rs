@@ -35,9 +35,9 @@ use stacks_common::util::slice_partialeq;
 
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
+    ClarityMarfTrieId, MARFLeaf, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
@@ -66,8 +66,11 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
-// identifies a back-pointer to be followed.
+// They are all 6-bit numbers
+// -- the 8th bit is used to indicate whether or not the value
+//    identifies a back-pointer to be followed.
+// -- the 7th bit is used to indicate whether or not the value
+//    is interleaved with stored data
 define_u8_enum!(TrieNodeID {
     Empty = 0,
     Leaf = 1,
@@ -87,9 +90,29 @@ pub fn set_backptr(id: u8) -> u8 {
     id | 0x80
 }
 
-/// Clear the back-pointer bit
+/// Is a node interleaved with data
+pub fn is_interleaved(id: u8) -> bool {
+    id & 0x40 != 0
+}
+
+/// Set the interleaved bit
+pub fn set_interleaved(id: u8) -> u8 {
+    id | 0x40
+}
+
+/// Clear all the upper metadata bits
+pub fn clear_metadata_bits(id: u8) -> u8 {
+    id & 0x3f
+}
+
+/// Clear the backpointer bit, but keep the interleaved bit
 pub fn clear_backptr(id: u8) -> u8 {
     id & 0x7f
+}
+
+/// Clear the interleaved bit, but keep the backptr bit
+pub fn clear_interleaved(id: u8) -> u8 {
+    id & 0xbf
 }
 
 // Byte writing operations for pointer lists, paths.
@@ -212,7 +235,8 @@ pub trait ConsensusSerializable<M> {
 
 impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
     fn write_consensus_bytes<W: Write>(&self, map: &mut M, w: &mut W) -> Result<(), Error> {
-        w.write_all(&[self.id()])?;
+        // NOTE: interleaved bit isn't part of the consensus representation
+        w.write_all(&[clear_interleaved(self.id())])?;
         ptrs_consensus_hash(self.ptrs(), map, w)?;
         write_path_to_bytes(self.path().as_slice(), w)
     }
@@ -311,7 +335,8 @@ impl TriePtr {
         block_map: &mut M,
         w: &mut W,
     ) -> Result<(), Error> {
-        w.write_all(&[self.id(), self.chr()])?;
+        // NOTE: interleaved bits aren't part of the consensus representation
+        w.write_all(&[clear_interleaved(self.id()), self.chr()])?;
 
         if is_backptr(self.id()) {
             w.write_all(
@@ -606,26 +631,57 @@ impl<T: MarfTrieId> TrieCursor<T> {
 
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
-        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes())
+        self.path == other.path
+            && slice_partialeq(self.data.value_hash_bytes(), other.data.value_hash_bytes())
     }
 }
 
 impl TrieLeaf {
-    pub fn new(path: &[u8], data: &Vec<u8>) -> TrieLeaf {
+    pub fn new_ref(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
         bytes.copy_from_slice(&data[..]);
         TrieLeaf {
             path: path.to_owned(),
-            data: MARFValue(bytes),
+            data: MARFLeaf::Ref(MARFValue(bytes)),
         }
     }
 
-    pub fn from_value(path: &[u8], value: MARFValue) -> TrieLeaf {
+    pub fn from_ref(path: &[u8], value: MARFValue) -> TrieLeaf {
         TrieLeaf {
             path: path.to_owned(),
-            data: value,
+            data: MARFLeaf::Ref(value),
         }
+    }
+
+    pub fn from_data(path: &[u8], value: Vec<u8>) -> TrieLeaf {
+        TrieLeaf {
+            path: path.to_owned(),
+            data: MARFLeaf::from_interleaved(value),
+        }
+    }
+
+    pub fn from_marf_leaf(path: &[u8], leaf: MARFLeaf) -> TrieLeaf {
+        TrieLeaf {
+            path: path.to_owned(),
+            data: leaf,
+        }
+    }
+
+    /// Write the bytes that are needed for calculating the leaf hash.
+    /// Specifically, the leaf hash does *not* commit the interleaved bit
+    pub fn write_node_hasher_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        match &self.data {
+            MARFLeaf::Ref(..) => {
+                self.write_bytes(w)?;
+            }
+            MARFLeaf::Interleaved(ref value_hash, ..) => {
+                w.write_all(&[clear_interleaved(self.id())])?;
+                write_path_to_bytes(&self.path, w)?;
+                w.write_all(&value_hash.0[..])?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -640,17 +696,22 @@ impl fmt::Debug for TrieLeaf {
     }
 }
 
+/// NOTE: the codec for TrieLeaf is only for the leaf's hash.  It's used by the proof generator.
+/// The interleaved value will not be preserved, since the proof ships this data separately.
 impl StacksMessageCodec for TrieLeaf {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.path.consensus_serialize(fd)?;
-        self.data.consensus_serialize(fd)
+        self.data.ref_value_hash().consensus_serialize(fd)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, codec_error> {
         let path = read_next(fd)?;
-        let data = read_next(fd)?;
+        let data: MARFValue = read_next(fd)?;
 
-        Ok(TrieLeaf { path, data })
+        Ok(TrieLeaf {
+            path,
+            data: MARFLeaf::from_ref(data),
+        })
     }
 }
 
@@ -1171,11 +1232,15 @@ impl TrieNode for TrieNode256 {
 
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
-        TrieNodeID::Leaf as u8
+        if self.data.is_interleaved() {
+            set_interleaved(TrieNodeID::Leaf as u8)
+        } else {
+            TrieNodeID::Leaf as u8
+        }
     }
 
     fn empty() -> TrieLeaf {
-        TrieLeaf::new(&vec![], &[0u8; 40].to_vec())
+        TrieLeaf::new_ref(&vec![], &[0u8; 40].to_vec())
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {
@@ -1183,9 +1248,19 @@ impl TrieNode for TrieLeaf {
     }
 
     fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        w.write_all(&[self.id()])?;
-        write_path_to_bytes(&self.path, w)?;
-        w.write_all(&self.data.0[..])?;
+        match &self.data {
+            MARFLeaf::Ref(ref value_hash) => {
+                w.write_all(&[self.id()])?;
+                write_path_to_bytes(&self.path, w)?;
+                w.write_all(&value_hash.0[..])?;
+            }
+            MARFLeaf::Interleaved(ref value_hash, ref value) => {
+                w.write_all(&[set_interleaved(self.id())])?;
+                write_path_to_bytes(&self.path, w)?;
+                w.write_all(&value_hash.0[..])?;
+                write_next(w, value)?;
+            }
+        }
         Ok(())
     }
 
@@ -1203,7 +1278,7 @@ impl TrieNode for TrieLeaf {
             ));
         }
 
-        if clear_backptr(idbuf[0]) != TrieNodeID::Leaf as u8 {
+        if clear_metadata_bits(idbuf[0]) != TrieNodeID::Leaf as u8 {
             return Err(Error::CorruptionError(format!(
                 "Leaf: bad ID {:x}",
                 idbuf[0]
@@ -1211,6 +1286,8 @@ impl TrieNode for TrieLeaf {
         }
 
         let path = path_from_bytes(r)?;
+
+        // both a Ref and Interleaved variant start with the MARFValue
         let mut leaf_data = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         let l_leaf_data = r.read(&mut leaf_data).map_err(Error::IOError)?;
 
@@ -1221,9 +1298,18 @@ impl TrieNode for TrieLeaf {
             )));
         }
 
+        let marf_leaf = if is_interleaved(idbuf[0]) {
+            // also expect data
+            let interleaved_data: Vec<u8> = read_next(r)?;
+            MARFLeaf::Interleaved(MARFValue(leaf_data), interleaved_data)
+        } else {
+            // just the hash ref
+            MARFLeaf::Ref(MARFValue(leaf_data))
+        };
+
         Ok(TrieLeaf {
             path: path,
-            data: MARFValue(leaf_data),
+            data: marf_leaf,
         })
     }
 

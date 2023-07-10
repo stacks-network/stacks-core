@@ -1886,6 +1886,7 @@ impl NodeConfig {
                 .as_ref()
                 .unwrap_or(&"noop".to_string()),
             true,
+            true,
         )
     }
 }

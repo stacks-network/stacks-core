@@ -24,8 +24,8 @@ use sha2::Digest;
 use sha2::Sha512_256 as TrieHasher;
 
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, ConsensusSerializable, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
-    TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
+    clear_backptr, clear_interleaved, is_interleaved, ConsensusSerializable, TrieNode16,
+    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::node::{TrieNode, TRIEPATH_MAX_LEN};
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
@@ -191,7 +191,7 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
 /// Calculate the hash of a TrieLeaf
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
-    node.write_bytes(&mut hasher)
+    node.write_node_hasher_bytes(&mut hasher)
         .expect("IO Failure pushing to hasher.");
 
     let mut res = [0u8; 32];
@@ -326,14 +326,21 @@ pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
 
 /// Deserialize a node.
 /// Node wire format:
-/// 0               32 33               33+X         33+X+Y
-/// |---------------|--|------------------|-----------|
-///   node hash      id  ptrs & ptr data      path
+/// 0               32 33               33+X         33+X+Y 37+X+Y         37+X+Y+Z
+/// |---------------|--|------------------|-----------|-----|-----------------|
+///   node hash      id  ptrs & ptr data      path      data        data
+///                                                     len
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len().
+/// Z is the value of `data len` if this node represents interleaved data.
+///
+/// Interleaved data (`data len` and `data`) will only be read if the `interleaved` bit is set in
+/// `id`.
 ///
 /// If `read_hash` is false, then the contents of the node hash are undefined.
+///
+/// `ptr_id` may have the `interleaved` bit set, but it _must not_ have the `backptr` bit set.
 fn inner_read_nodetype_at_head<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
@@ -347,7 +354,7 @@ fn inner_read_nodetype_at_head<F: Read + Seek>(
         None
     };
 
-    let node = match TrieNodeID::from_u8(ptr_id).ok_or_else(|| {
+    let node = match TrieNodeID::from_u8(clear_interleaved(ptr_id)).ok_or_else(|| {
         Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id))
     })? {
         TrieNodeID::Node4 => {
@@ -367,7 +374,19 @@ fn inner_read_nodetype_at_head<F: Read + Seek>(
             TrieNodeType::Node256(Box::new(node))
         }
         TrieNodeID::Leaf => {
+            let interleaved = is_interleaved(ptr_id);
             let node = TrieLeaf::from_bytes(f)?;
+            assert!(
+                (interleaved && node.data.is_interleaved()) || (!interleaved && node.data.is_ref()),
+                "{}",
+                &format!(
+                    "FATAL: interleaved = {}, is_interleaved = {}, is_ref = {}, node: {:?}",
+                    interleaved,
+                    node.data.is_interleaved(),
+                    node.data.is_ref(),
+                    &node
+                )
+            );
             TrieNodeType::Leaf(node)
         }
         TrieNodeID::Empty => {

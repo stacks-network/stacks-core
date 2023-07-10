@@ -16,7 +16,7 @@ use clarity::vm::errors::{
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFLeaf, MARFValue, TrieMerkleProof};
 use clarity::vm::database::SpecialCaseHandler;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -395,14 +395,23 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                 _ => Err(e),
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
-            .map(|(marf_value, proof)| {
-                let side_key = marf_value.to_hex();
-                let data =
-                    SqliteConnection::get(self.get_side_store(), &side_key).expect(&format!(
-                        "ERROR: MARF contained value_hash not found in side storage: {}",
-                        side_key
-                    ));
-                (data, proof.serialize_to_vec())
+            .map(|(marf_value, proof)| match marf_value {
+                MARFLeaf::Ref(value_hash) => {
+                    let side_key = value_hash.to_hex();
+                    trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                    let data =
+                        SqliteConnection::get(self.get_side_store(), &side_key).expect(&format!(
+                            "ERROR: MARF contained value_hash not found in side storage: {}",
+                            side_key
+                        ));
+                    (data, proof.serialize_to_vec())
+                }
+                MARFLeaf::Interleaved(_value_hash, value) => (
+                    std::str::from_utf8(&value)
+                        .expect("Corrupt interleaved value")
+                        .to_string(),
+                    proof.serialize_to_vec(),
+                ),
             })
     }
 
@@ -422,13 +431,18 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                 _ => Err(e),
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
-            .map(|marf_value| {
-                let side_key = marf_value.to_hex();
-                trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
-                SqliteConnection::get(self.get_side_store(), &side_key).expect(&format!(
-                    "ERROR: MARF contained value_hash not found in side storage: {}",
-                    side_key
-                ))
+            .map(|marf_value| match marf_value {
+                MARFLeaf::Ref(value_hash) => {
+                    let side_key = value_hash.to_hex();
+                    trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                    SqliteConnection::get(self.get_side_store(), &side_key).expect(&format!(
+                        "ERROR: MARF contained value_hash not found in side storage: {}",
+                        side_key
+                    ))
+                }
+                MARFLeaf::Interleaved(_value_hash, value) => std::str::from_utf8(&value)
+                    .expect("Corrupt interleaved value")
+                    .to_string(),
             })
     }
 
@@ -561,13 +575,18 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                 _ => Err(e),
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
-            .map(|marf_value| {
-                let side_key = marf_value.to_hex();
-                trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
-                SqliteConnection::get(self.marf.sqlite_tx(), &side_key).expect(&format!(
-                    "ERROR: MARF contained value_hash not found in side storage: {}",
-                    side_key
-                ))
+            .map(|marf_value| match marf_value {
+                MARFLeaf::Ref(value_hash) => {
+                    let side_key = value_hash.to_hex();
+                    trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                    SqliteConnection::get(self.marf.sqlite_tx(), &side_key).expect(&format!(
+                        "ERROR: MARF contained value_hash not found in side storage: {}",
+                        side_key
+                    ))
+                }
+                MARFLeaf::Interleaved(_value_hash, value) => std::str::from_utf8(&value)
+                    .expect("Corrupt interleaved value")
+                    .to_string(),
             })
     }
 
@@ -579,14 +598,23 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                 _ => Err(e),
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
-            .map(|(marf_value, proof)| {
-                let side_key = marf_value.to_hex();
-                let data =
-                    SqliteConnection::get(self.marf.sqlite_tx(), &side_key).expect(&format!(
-                        "ERROR: MARF contained value_hash not found in side storage: {}",
-                        side_key
-                    ));
-                (data, proof.serialize_to_vec())
+            .map(|(marf_value, proof)| match marf_value {
+                MARFLeaf::Ref(value_hash) => {
+                    let side_key = value_hash.to_hex();
+                    trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                    let data =
+                        SqliteConnection::get(self.marf.sqlite_tx(), &side_key).expect(&format!(
+                            "ERROR: MARF contained value_hash not found in side storage: {}",
+                            side_key
+                        ));
+                    (data, proof.serialize_to_vec())
+                }
+                MARFLeaf::Interleaved(_value_hash, value) => (
+                    std::str::from_utf8(&value)
+                        .expect("Corrupt interleaved value")
+                        .to_string(),
+                    proof.serialize_to_vec(),
+                ),
             })
     }
 
@@ -656,8 +684,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {
             trace!("MarfedKV put '{}' = '{}'", &key, &value);
-            let marf_value = MARFValue::from_value(&value);
-            SqliteConnection::put(self.get_side_store(), &marf_value.to_hex(), &value);
+            let marf_value = MARFLeaf::from_interleaved(value.as_bytes().to_vec());
             keys.push(key);
             values.push(marf_value);
         }

@@ -148,7 +148,7 @@ fn trie_cursor_try_attach_leaf() {
                 let ptr_opt_res = Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec()),
                     &mut node,
                 );
                 assert!(ptr_opt_res.is_ok());
@@ -176,7 +176,7 @@ fn trie_cursor_try_attach_leaf() {
                 let leaf = leaf_opt.unwrap();
                 assert_eq!(
                     leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -206,7 +206,7 @@ fn trie_cursor_try_attach_leaf() {
                 let leaf = leaf_opt.unwrap();
                 assert_eq!(
                     leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -266,7 +266,7 @@ fn trie_cursor_promote_leaf_to_node4() {
         Trie::test_try_attach_leaf(
             &mut f,
             &mut c,
-            &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()),
+            &mut TrieLeaf::new_ref(&vec![], &[128; 40].to_vec()),
             &mut node,
         )
         .unwrap()
@@ -285,7 +285,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             )
             .unwrap()
             .unwrap(),
-            TrieLeaf::new(
+            TrieLeaf::new_ref(
                 &vec![
                     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                     23, 24, 25, 26, 27, 28, 29, 30, 31
@@ -333,7 +333,7 @@ fn trie_cursor_promote_leaf_to_node4() {
                 &mut f,
                 &mut c,
                 &mut leaf_data,
-                &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[(i + 128) as u8; 40].to_vec()),
             )
             .unwrap();
             ptrs.push(ptr);
@@ -354,7 +354,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             let leaf = leaf_opt.unwrap();
             assert_eq!(
                 leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -384,7 +384,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             let leaf = leaf_opt.unwrap();
             assert_eq!(
                 leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -476,7 +476,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -492,7 +492,7 @@ fn trie_cursor_promote_node4_to_node16() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -525,7 +525,7 @@ fn trie_cursor_promote_node4_to_node16() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -542,7 +542,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -637,7 +637,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -654,7 +654,7 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -687,7 +687,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -704,7 +704,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -744,7 +744,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -761,7 +761,7 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -795,7 +795,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -812,7 +812,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -907,7 +907,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -924,7 +924,7 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -957,7 +957,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -974,7 +974,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -1014,7 +1014,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -1030,7 +1030,7 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -1063,7 +1063,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -1080,7 +1080,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -1120,7 +1120,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -1137,7 +1137,7 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -1170,7 +1170,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -1187,7 +1187,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new_ref(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
@@ -1272,7 +1272,7 @@ fn trie_cursor_splice_leaf_4() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap();
@@ -1289,7 +1289,7 @@ fn trie_cursor_splice_leaf_4() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[5 * k + 3..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[5 * k + 3..].to_vec(), &[192 + k as u8; 40].to_vec())
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
@@ -1361,7 +1361,7 @@ fn trie_cursor_splice_leaf_2() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new_ref(&vec![], &[192 + k as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap();
@@ -1378,7 +1378,7 @@ fn trie_cursor_splice_leaf_2() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[3 * k + 2..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    TrieLeaf::new_ref(&path[3 * k + 2..].to_vec(), &[192 + k as u8; 40].to_vec())
                 );
 
                 // proofs should still work
@@ -1416,7 +1416,7 @@ where
             eprintln!("{}", i);
             let path = path_gen(i);
             let triepath = TriePath::from_bytes(&path).unwrap();
-            let value = TrieLeaf::new(
+            let value = TrieLeaf::new_ref(
                 &vec![],
                 &[
                     0,

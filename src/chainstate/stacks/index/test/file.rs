@@ -90,7 +90,7 @@ fn test_migrate_existing_trie_blobs() {
     }
 
     let (data, last_block_header, root_header_map) = {
-        let marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
+        let marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false, false);
 
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
         let mut marf = MARF::from_storage(f);
@@ -107,7 +107,7 @@ fn test_migrate_existing_trie_blobs() {
 
             for (key, value) in block_data.iter() {
                 let path = TriePath::from_key(key);
-                let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let leaf = TrieLeaf::from_ref(&vec![], value.clone());
                 marf.insert_raw(path, leaf).unwrap();
             }
             marf.commit().unwrap();
@@ -121,7 +121,7 @@ fn test_migrate_existing_trie_blobs() {
     };
 
     // migrate
-    let mut marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true, false);
     marf_opts.force_db_migrate = true;
 
     let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
@@ -148,7 +148,7 @@ fn test_migrate_existing_trie_blobs() {
     for (i, block_data) in data.iter().enumerate() {
         for (key, value) in block_data.iter() {
             let path = TriePath::from_key(key);
-            let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+            let marf_leaf = TrieLeaf::from_ref(&vec![], value.clone());
 
             let leaf = MARF::get_path(
                 &mut marf.borrow_storage_backend(),

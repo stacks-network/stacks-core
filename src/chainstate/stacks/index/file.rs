@@ -44,8 +44,8 @@ use crate::chainstate::stacks::index::bits::{
     write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+    is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
+    TrieNodeType, TriePath, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::NodeHashReader;
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
@@ -421,6 +421,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
+        trace!("read_node_type: trie for block {} at {}", block_id, offset);
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
         read_nodetype_at_head(self, ptr.id())
     }
@@ -433,6 +434,11 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
+        trace!(
+            "read_node_type_nohash: trie for block {} at {}",
+            block_id,
+            offset
+        );
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
         read_nodetype_at_head_nohash(self, ptr.id())
     }

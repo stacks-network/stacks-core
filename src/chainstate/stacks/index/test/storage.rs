@@ -167,7 +167,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
         path_bytes[24..32].copy_from_slice(&i.to_be_bytes());
 
         let path = TriePath::from_bytes(&path_bytes).unwrap();
-        let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+        let value = TrieLeaf::new_ref(&vec![], &[i as u8; 40].to_vec());
         confirmed_marf.insert_raw(path.clone(), value).unwrap();
     }
 
@@ -238,7 +238,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
             }
 
             let path = TriePath::from_bytes(&path_bytes).unwrap();
-            let value = TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec());
+            let value = TrieLeaf::new_ref(&vec![], &[(i + 128) as u8; 40].to_vec());
 
             new_inserted.push((path.clone(), value.clone()));
 
