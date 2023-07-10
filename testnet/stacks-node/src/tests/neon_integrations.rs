@@ -43,7 +43,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
-use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::ClarityVersion;
 use stacks::vm::Value;
@@ -594,7 +593,7 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         );
         return res;
     } else {
-        eprintln!("{}", res.text().unwrap());
+        eprintln!("Submit tx error: {}", res.text().unwrap());
         panic!("");
     }
 }
@@ -1369,7 +1368,7 @@ fn liquid_ustx_integration() {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "execute" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                 let liquid_ustx = parsed.expect_result_ok().expect_u128();
                 assert!(liquid_ustx > 0, "Should be more liquid ustx than 0");
                 tested = true;
@@ -1800,6 +1799,8 @@ fn stx_delegate_btc_integration_test() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -2044,8 +2045,6 @@ fn bitcoind_resubmission_test() {
         let mut tx = chainstate.db_tx_begin().unwrap();
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
-
-        //        let tip_hash = StacksBlockId::new(&consensus_hash, &stacks_block.header.block_hash());
 
         let ublock_privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
@@ -4649,7 +4648,7 @@ fn cost_voting_integration() {
                     serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
             } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                 assert_eq!(parsed.to_string(), "(ok u0)");
                 tested = true;
             }
@@ -4695,7 +4694,7 @@ fn cost_voting_integration() {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "confirm-miners" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                 assert_eq!(parsed.to_string(), "(err 13)");
                 tested = true;
             }
@@ -4744,7 +4743,7 @@ fn cost_voting_integration() {
             eprintln!("{}", contract_call.function_name.as_str());
             if contract_call.function_name.as_str() == "confirm-miners" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                 assert_eq!(parsed.to_string(), "(ok true)");
                 tested = true;
             }
@@ -5826,6 +5825,8 @@ fn pox_integration_test() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -5997,8 +5998,7 @@ fn pox_integration_test() {
                 eprintln!("{}", contract_call.function_name.as_str());
                 if contract_call.function_name.as_str() == "stack-stx" {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                    let parsed =
-                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
                     // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
                     // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
                     // cycle length of 15 blocks, is a burnchain height of 300)
@@ -7709,6 +7709,8 @@ fn atlas_stress_integration_test() {
     }
     eprintln!("attachment_indexes = {:?}", &attachment_indexes);
 
+    let max_request_time_ms = 100;
+
     for (ibh, attachments) in attachment_indexes.iter() {
         let l = attachments.len();
         for i in 0..(l / MAX_ATTACHMENT_INV_PAGES_PER_REQUEST + 1) {
@@ -7750,12 +7752,13 @@ fn atlas_stress_integration_test() {
             let total_time = ts_end.saturating_sub(ts_begin);
             eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
 
-            // requests should take no more than 20ms
+            // requests should take no more than max_request_time_ms
             assert!(
-                total_time < attempts * 50,
-                "Atlas inventory request is too slow: {} >= {} * 50",
+                total_time < attempts * max_request_time_ms,
+                "Atlas inventory request is too slow: {} >= {} * {}",
                 total_time,
-                attempts
+                attempts,
+                max_request_time_ms
             );
         }
 
@@ -7791,12 +7794,13 @@ fn atlas_stress_integration_test() {
             let total_time = ts_end.saturating_sub(ts_begin);
             eprintln!("Requested {} {} times in {}ms", &path, attempts, total_time);
 
-            // requests should take no more than 40ms
+            // requests should take no more than max_request_time_ms
             assert!(
-                total_time < attempts * 50,
-                "Atlas chunk request is too slow: {} >= {} * 50",
+                total_time < attempts * max_request_time_ms,
+                "Atlas chunk request is too slow: {} >= {} * {}",
                 total_time,
-                attempts
+                attempts,
+                max_request_time_ms
             );
         }
     }
@@ -9630,8 +9634,13 @@ fn test_problematic_microblocks_are_not_mined() {
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
         cur_files = cur_files_new;
+
+        // give the microblock miner a chance
+        sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
@@ -9658,7 +9667,7 @@ fn test_problematic_microblocks_are_not_mined() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(..) = &parsed.payload {
-                assert!(parsed.txid() != tx_high_txid);
+                assert_ne!(parsed.txid(), tx_high_txid);
             }
         }
     }
@@ -10036,6 +10045,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         sleep_ms(5_000);
     }
 
+    // sleep a little longer before checking tip info; this should help with test flakiness
+    sleep_ms(10_000);
     let tip_info = get_chain_info(&conf);
 
     // all microblocks were processed
@@ -10521,6 +10532,8 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();

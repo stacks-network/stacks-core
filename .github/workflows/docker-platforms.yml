@@ -115,7 +115,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           platforms: ${{ env.BUILD_PLATFORMS }}
-          file: Dockerfile.stretch
+          file: Dockerfile.debian
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

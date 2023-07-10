@@ -1,4 +1,4 @@
-FROM rust:stretch as build
+FROM rust:bullseye as build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
@@ -14,7 +14,7 @@ RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json -
 
 RUN cp target/release/stacks-node /out
 
-FROM debian:stretch-slim
+FROM debian:bullseye-slim
 
 RUN apt update && apt install -y netcat
 COPY --from=build /out/ /bin/

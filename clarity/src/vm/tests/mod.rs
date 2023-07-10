@@ -71,6 +71,13 @@ where
     f(&mut owned_env)
 }
 
+#[cfg(test)]
+impl Value {
+    pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
+        Value::cons_list_unsanitized(list_data)
+    }
+}
+
 pub fn with_versioned_memory_environment<F>(
     f: F,
     epoch: StacksEpochId,
