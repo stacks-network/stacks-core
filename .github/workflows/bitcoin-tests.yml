@@ -48,6 +48,14 @@ jobs:
         run: | 
           df -h
 
+      - name: Docker image sizes
+        run: |
+          docker images
+
+      - name: pwd
+        run: |
+          pwd
+        
       - name: Export docker image as tarball
         id: export_docker_image
         run: docker save -o integration-image.tar stacks-blockchain:integrations
