@@ -1353,6 +1353,11 @@ pub struct DataVarResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstantValResponse {
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
     #[serde(rename = "proof")]
@@ -1587,6 +1592,13 @@ pub enum HttpRequestType {
         TipRequest,
         bool,
     ),
+    GetConstantVal(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        ClarityName,
+        TipRequest,
+    ),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
@@ -1731,6 +1743,7 @@ pub enum HttpResponseType {
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetDataVar(HttpResponseMetadata, DataVarResponse),
+    GetConstantVal(HttpResponseMetadata, ConstantValResponse),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
@@ -2593,9 +2606,11 @@ pub mod test {
                 3,
                 25,
                 5,
-                u64::max_value(),
-                u64::max_value(),
-                u32::max_value(),
+                u64::MAX,
+                u64::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
             );
 
             let mut spending_account = TestMinerFactory::new().next_miner(
@@ -2825,8 +2840,7 @@ pub mod test {
             }
 
             let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
-            let atlasdb =
-                AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
+            let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
@@ -3048,10 +3062,8 @@ pub mod test {
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
-            let mut stacks_node = self.stacks_node.take().unwrap();
-            let mut mempool = self.mempool.take().unwrap();
-
+            let sortdb = self.sortdb.take().unwrap();
+            let stacks_node = self.stacks_node.take().unwrap();
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
@@ -3066,6 +3078,17 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+
+            self.step_with_ibd(ibd)
+        }
+
+        pub fn step_with_ibd(&mut self, ibd: bool) -> Result<NetworkResult, net_error> {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(

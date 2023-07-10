@@ -28,6 +28,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use clarity::vm::database::ClarityDatabase;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
@@ -248,6 +249,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -382,6 +384,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -516,6 +519,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
@@ -541,6 +545,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 &stx_transfer,
@@ -1230,6 +1235,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
                 mempool
                     .submit(
                         chainstate,
+                        sortdb,
                         &parent_consensus_hash,
                         &parent_header_hash,
                         &tx,
@@ -1430,6 +1436,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -1451,6 +1458,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1471,6 +1479,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &stx_transfer,
@@ -1617,6 +1626,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1771,6 +1781,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_tx,
@@ -1901,6 +1912,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -1928,6 +1940,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2262,6 +2275,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2290,6 +2304,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2326,6 +2341,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2354,6 +2370,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_tip_ch,
                             &parent_header_hash,
                             contract_tx_bytes,
@@ -2599,6 +2616,7 @@ fn test_build_microblock_stream_forks() {
                             mempool
                                 .submit_raw(
                                     chainstate,
+                                    sortdb,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     tx_bytes,
@@ -2925,6 +2943,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                             mempool
                                 .submit_raw(
                                     chainstate,
+                                    sortdb,
                                     &parent_consensus_hash,
                                     &parent_header_hash,
                                     tx_bytes,
@@ -3000,6 +3019,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             tx_bytes,
@@ -3032,6 +3052,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     mempool
                         .submit_raw(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             tx_bytes,
@@ -3989,6 +4010,7 @@ fn test_is_tx_problematic() {
                         mempool
                             .submit(
                                 chainstate,
+                                sortdb,
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx,
@@ -4015,6 +4037,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &contract_spends_too_much_tx,
@@ -4063,6 +4086,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                           sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &spend_too_much,
@@ -4113,6 +4137,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                            sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &runtime_checkerror_problematic,
@@ -4161,6 +4186,7 @@ fn test_is_tx_problematic() {
                     mempool
                         .submit(
                             chainstate,
+                                sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
                             &runtime_checkerror_problematic,
@@ -4201,6 +4227,241 @@ fn test_is_tx_problematic() {
 
                 (anchored_block.0, vec![])
             },
+        );
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        last_block = Some(StacksBlockHeader::make_index_block_hash(
+            &consensus_hash,
+            &stacks_block.block_hash(),
+        ));
+    }
+}
+
+#[test]
+fn mempool_incorporate_pox_unlocks() {
+    let mut initial_balances = vec![];
+    let total_balance = 10_000_000_000;
+    let pk = StacksPrivateKey::new();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&pk)],
+    )
+    .unwrap();
+    initial_balances.push((addr.to_account_principal(), total_balance));
+    let principal = PrincipalData::from(addr.clone());
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
+    peer_config.initial_balances = initial_balances;
+    peer_config.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 36,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 36,
+            end_height: i64::MAX as u64,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
+    peer_config.burnchain.pox_constants.v1_unlock_height =
+        peer_config.epochs.as_ref().unwrap()[1].end_height as u32 + 1;
+    let pox_constants = peer_config.burnchain.pox_constants.clone();
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let first_block_height = peer.sortdb.as_ref().unwrap().first_block_height;
+    let first_pox_cycle = pox_constants
+        .block_height_to_reward_cycle(first_block_height, first_stacks_block_height)
+        .unwrap();
+    let active_pox_cycle_start =
+        pox_constants.reward_cycle_to_block_height(first_block_height, first_pox_cycle + 1);
+    let lockup_end = pox_constants.v1_unlock_height as u64;
+
+    // test for two PoX cycles
+    let num_blocks = 3 + lockup_end - first_stacks_block_height;
+    info!(
+        "Starting test";
+        "num_blocks" => num_blocks,
+        "first_stacks_block_height" => first_stacks_block_height,
+        "active_pox_cycle_start" => active_pox_cycle_start,
+        "active_pox_cycle_end" => lockup_end,
+        "first_block_height" => first_block_height,
+    );
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let mut last_block = None;
+    for tenure_id in 0..num_blocks {
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                 let parent_tip = match parent_opt {
+                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                     Some(block) => {
+                         let ic = sortdb.index_conn();
+                         let snapshot =
+                             SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                 &ic,
+                                 &tip.sortition_id,
+                                 &block.block_hash(),
+                             )
+                             .unwrap()
+                             .unwrap(); // succeeds because we don't fork
+                         StacksChainState::get_anchored_block_header_info(
+                             chainstate.db(),
+                             &snapshot.consensus_hash,
+                             &snapshot.winning_stacks_block_hash,
+                         )
+                             .unwrap()
+                             .unwrap()
+                     }
+                 };
+
+                 let parent_height = parent_tip.burn_header_height;
+
+                 let parent_header_hash = parent_tip.anchored_header.block_hash();
+                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
+
+                 let mut mempool =
+                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+                 let mut expected_txids = vec![];
+                 expected_txids.push(coinbase_tx.txid());
+
+                 // this will be the height of the block that includes this new tenure
+                 let my_height = first_stacks_block_height + 1 + tenure_id;
+
+                 let available_balance = chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), &parent_tip.index_block_hash(), |clarity_tx| {
+                     clarity_tx.with_clarity_db_readonly(|db| {
+                         let burn_block_height = db.get_current_burnchain_block_height() as u64;
+                         let v1_unlock_height = db.get_v1_unlock_height();
+                         let v2_unlock_height = db.get_v2_unlock_height();
+                         let balance = db.get_account_stx_balance(&principal);
+                         info!("Checking balance"; "v1_unlock_height" => v1_unlock_height, "burn_block_height" => burn_block_height);
+                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height)
+                     })
+                 }).unwrap();
+
+                 if tenure_id <= 1 {
+                     assert_eq!(available_balance, total_balance as u128, "Failed at tenure_id={}", tenure_id);
+                 } else if my_height <= lockup_end + 1 {
+                     assert_eq!(available_balance, 0, "Failed at tenure_id={}", tenure_id);
+                 } else if my_height == lockup_end + 2 {
+                     assert_eq!(available_balance, total_balance as u128 - 10_000, "Failed at tenure_id={}", tenure_id);
+                 } else {
+                     assert_eq!(available_balance, 0, "Failed at tenure_id={}", tenure_id);
+                 }
+
+                 if tenure_id == 1 {
+                     let stack_stx = make_user_contract_call(
+                         &pk,
+                         0,
+                         10_000,
+                         &StacksAddress::burn_address(false),
+                         "pox",
+                         "stack-stx",
+                         vec![
+                             Value::UInt(total_balance as u128 - 10_000),
+                             Value::Tuple(
+                                 TupleData::from_data(vec![
+                                     ("version".into(), Value::buff_from(vec![0x00]).unwrap()),
+                                     ("hashbytes".into(), Value::buff_from(vec![0; 20]).unwrap()),
+                                 ]).unwrap(),
+                             ),
+                             Value::UInt(my_height as u128),
+                             Value::UInt(10)
+                         ],
+                     );
+                     mempool
+                         .submit(
+                             chainstate,
+                             sortdb,
+                             &parent_consensus_hash,
+                             &parent_header_hash,
+                             &stack_stx,
+                             None,
+                             &ExecutionCost::max_value(),
+                             &StacksEpochId::Epoch2_05,
+                         )
+                         .unwrap();
+                     expected_txids.push(stack_stx.txid());
+                 } else if my_height == lockup_end + 2 {
+                     let stx_transfer = make_user_stacks_transfer(
+                         &pk,
+                         1,
+                         10_000,
+                         &StacksAddress::burn_address(false).into(),
+                         total_balance - 10_000 - 10_000,
+                     );
+                     mempool
+                         .submit(
+                             chainstate,
+                             sortdb,
+                             &parent_consensus_hash,
+                             &parent_header_hash,
+                             &stx_transfer,
+                             None,
+                             &ExecutionCost::max_value(),
+                             &StacksEpochId::Epoch2_05,
+                         )
+                         .unwrap();
+                     expected_txids.push(stx_transfer.txid());
+                 }
+
+                 let anchored_block = StacksBlockBuilder::build_anchored_block(
+                     chainstate,
+                     &sortdb.index_conn(),
+                     &mut mempool,
+                     &parent_tip,
+                     tip.total_burn,
+                     vrf_proof,
+                     Hash160([tenure_id as u8; 20]),
+                     &coinbase_tx,
+                     BlockBuilderSettings::limited(),
+                     None,
+                 )
+                 .unwrap();
+
+                 // make sure the right txs get included
+                 let txids : Vec<_> = anchored_block.0.txs.iter().map(|tx| tx.txid()).collect();
+                 assert_eq!(txids, expected_txids);
+
+                 (anchored_block.0, vec![])
+             },
         );
 
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -4296,6 +4557,7 @@ fn test_fee_order_mismatch_nonce_order() {
             mempool
                 .submit(
                     chainstate,
+                    sortdb,
                     &parent_consensus_hash,
                     &parent_header_hash,
                     &stx_transfer0,
@@ -4308,6 +4570,7 @@ fn test_fee_order_mismatch_nonce_order() {
             mempool
                 .submit(
                     chainstate,
+                    sortdb,
                     &parent_consensus_hash,
                     &parent_header_hash,
                     &stx_transfer1,

@@ -40,17 +40,21 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
+      - name: Add code coverage tools
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install grcov
       - uses: actions/checkout@v2
       - name: Run units tests (with coverage)
         env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
+          RUSTFLAGS: -Cinstrument-coverage
+          LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
         run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+          cargo test --workspace
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - uses: codecov/codecov-action@v2
         with:
-          files: ./coverage-output/lcov.info
+          files: ./lcov.info
           name: unit_tests
           fail_ci_if_error: false
 
@@ -113,9 +117,10 @@ jobs:
       matrix:
         platform:
           [
+            # disable mac builds until osxcross can be updated for bullseye
             windows-x64,
-            macos-x64,
-            macos-arm64,
+            # macos-x64,
+            # macos-arm64,
             linux-x64,
             linux-musl-x64,
             linux-armv7,
@@ -257,7 +262,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           platforms: linux/amd64
-          file: Dockerfile.stretch
+          file: Dockerfile.debian
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -302,9 +307,10 @@ jobs:
       matrix:
         platform:
           [
+            # disable mac builds until osxcross can be updated for bullseye
             windows-x64,
-            macos-x64,
-            macos-arm64,
+#            macos-x64,
+#            macos-arm64,
             linux-x64,
             linux-musl-x64,
             linux-armv7,

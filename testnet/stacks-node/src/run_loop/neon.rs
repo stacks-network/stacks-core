@@ -504,7 +504,7 @@ impl RunLoop {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis Atlas attachments
-        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
             .into_iter()
@@ -515,7 +515,7 @@ impl RunLoop {
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
         // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
-        let moved_atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
@@ -525,7 +525,8 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer = make_bitcoin_indexer(&self.config);
+        let coordinator_indexer =
+            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -632,7 +633,7 @@ impl RunLoop {
         last_stacks_pox_reorg_recover_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
@@ -652,7 +653,7 @@ impl RunLoop {
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
@@ -727,7 +728,9 @@ impl RunLoop {
                 &stacks_tip_affirmation_map, &heaviest_affirmation_map
             );
 
-            // do it anyway since it's harmless
+            // announce a new stacks block to force the chains coordinator
+            //  to wake up anyways. this isn't free, so we have to make sure
+            //  the chain-liveness thread doesn't wake up too often
             globals.coord().announce_new_stacks_block();
         }
 
@@ -750,7 +753,7 @@ impl RunLoop {
         last_announce_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
@@ -797,7 +800,7 @@ impl RunLoop {
                 }
             };
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
@@ -1080,7 +1083,7 @@ impl RunLoop {
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                Some(remote_chain_height),
+                remote_chain_height,
                 num_sortitions_in_last_cycle,
             ) {
                 Ok(ibd) => ibd,
@@ -1088,6 +1091,13 @@ impl RunLoop {
                     debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
                     continue;
                 }
+            };
+
+            // calculate burnchain sync percentage
+            let percent: f64 = if remote_chain_height > 0 {
+                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+            } else {
+                0.0
             };
 
             // will recalculate this in the following loop
@@ -1103,7 +1113,10 @@ impl RunLoop {
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height,
+                target_burnchain_block_height;
+                "total_burn_sync_percent" => %percent,
+                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "remote_tip_height" => remote_chain_height
             );
 
             loop {

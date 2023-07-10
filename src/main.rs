@@ -81,6 +81,8 @@ use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;
 use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::util::secp256k1::Secp256k1PrivateKey;
+use blockstack_lib::util::secp256k1::Secp256k1PublicKey;
 use blockstack_lib::util::sleep_ms;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
@@ -113,6 +115,19 @@ fn main() {
                 option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
             )
         );
+        process::exit(0);
+    }
+
+    if argv[1] == "peer-pub-key" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} peer-pub-key <local-peer-seed>", argv[0]);
+            process::exit(1);
+        }
+
+        let local_seed = hex_bytes(&argv[2]).expect("Failed to parse hex input local-peer-seed");
+        let node_privkey = Secp256k1PrivateKey::from_seed(&local_seed);
+        let pubkey = Secp256k1PublicKey::from_private(&node_privkey).to_hex();
+        println!("{}", pubkey);
         process::exit(0);
     }
 
@@ -719,8 +734,8 @@ simulating a miner.
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let mut min_fee = u64::max_value();
-        let mut max_time = u64::max_value();
+        let mut min_fee = u64::MAX;
+        let mut max_time = u64::MAX;
 
         if argv.len() >= 4 {
             min_fee = argv[3].parse().expect("Could not parse min_fee");
@@ -1005,6 +1020,59 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "deserialize-db" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
+            process::exit(1);
+        }
+        let db_path = &argv[2];
+        let byte_prefix = &argv[3];
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let query = format!(
+            "SELECT value FROM data_table WHERE key LIKE \"{}%\"",
+            byte_prefix
+        );
+        let mut stmt = conn.prepare(&query).unwrap();
+        let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        while let Ok(Some(row)) = rows.next() {
+            let val_string: String = row.get(0).unwrap();
+            let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {
+                Ok(x) => x,
+                Err(_e) => continue,
+            };
+            println!("{} => {}", val_string, clarity_value);
+        }
+
+        process::exit(0);
+    }
+
+    if argv[1] == "check-deser-data" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} check-file.txt", &argv[0]);
+            process::exit(1);
+        }
+        let txt_path = &argv[2];
+        let check_file = File::open(txt_path).unwrap();
+        let mut i = 1;
+        for line in io::BufReader::new(check_file).lines() {
+            if i % 100000 == 0 {
+                println!("{}...", i);
+            }
+            i += 1;
+            let line = line.unwrap().trim().to_string();
+            if line.len() == 0 {
+                continue;
+            }
+            let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
+            let hex_string = &vals[0];
+            let expected_value_display = &vals[1];
+            let value = clarity::vm::Value::try_deserialize_hex_untyped(&hex_string).unwrap();
+            assert_eq!(&value.to_string(), expected_value_display);
+        }
+
+        process::exit(0);
+    }
+
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
@@ -1054,11 +1122,7 @@ simulating a miner.
         let burnchain = Burnchain::regtest(&burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
-        let epochs = StacksEpoch::all(
-            first_burnchain_block_height,
-            u64::max_value(),
-            u64::max_value(),
-        );
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
                 true,
@@ -1143,11 +1207,7 @@ simulating a miner.
         let mut known_stacks_blocks = HashSet::new();
         let mut next_arrival = 0;
 
-        let epochs = StacksEpoch::all(
-            first_burnchain_block_height,
-            u64::max_value(),
-            u64::max_value(),
-        );
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
@@ -1433,6 +1493,7 @@ simulating a miner.
                         }
                         let result = mempool_db.submit(
                             &mut chain_state,
+                            &sort_db,
                             &stacks_block.consensus_hash,
                             &stacks_block.anchored_block_hash,
                             &raw_tx,

@@ -7,12 +7,101 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+- When the Clarity library is built with feature flag `developer-mode`, comments
+  from the source code are now attached to the `SymbolicExpression` nodes. This
+  will be useful for tools that use the Clarity library to analyze and
+  manipulate Clarity source code, e.g. a formatter.
+- New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
+
 ### Fixed
 
 - The transaction receipts for smart contract publish transactions now indicate
   a result of `(err none)` if the top-level code of the smart contract contained
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
+
+- Added config setting `burnchain.wallet_name` which addresses blank wallets no 
+  longer being created by default in recent bitcoin versions. Fixes issue #3596
+
+- Use the current burnchain tip to lookup UTXOs (Issue #3733)
+
+- The node now gracefully shuts down even if it is in the middle of a handshake with 
+  bitcoind. Fixes issue #3734.
+
+## [2.4.0.0.0]
+This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
+
+- [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md)
+- [SIP-024](https://github.com/stacksgov/sips/blob/main/sips/sip-024/sip-024-least-supertype-fix.md)
+
+### Fixed
+- PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
+- Peer network id is updated to `0x18000009`
+- Adds the type sanitization described in SIP-024
+
+This release is compatible with chainstate directories from 2.1.0.0.x and 2.3.0.0.x
+
+## [2.3.0.0.2]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability.
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.1]
+
+This is a hotfix release to update:
+- peer version identifier used by the stacks-node p2p network.
+- yield interpreter errors in deser_hex
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.0]
+
+This is a **consensus-breaking** release to address a Clarity VM bug discovered in 2.2.0.0.1.
+Tx and read-only calls to functions with traits as parameters are rejected with unchecked TypeValueError.
+Additional context and rationale can be found in [SIP-023](https://github.com/stacksgov/sips/blob/main/sips/sip-023/sip-023-emergency-fix-traits.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
+## [2.2.0.0.1]
+
+This is a **consensus-breaking** release to address a bug and DoS vector in pox-2's `stack-increase` function.
+Additional context and rationale can be found in [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
+## [2.1.0.0.3]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability. This
+release's chainstate directory is compatible with chainstate
+directories from 2.1.0.0.2.
+
+## [2.1.0.0.2]
+
+This software update is a hotfix to resolve improper unlock handling
+in mempool admission. This release's chainstate directory is
+compatible with chainstate directories from 2.1.0.0.1.
+
+### Fixed
+
+- Fix mempool admission logic's improper handling of PoX unlocks. This would
+  cause users to get spurious `NotEnoughFunds` rejections when trying to submit
+  their transactions (#3623)
+
+## [2.1.0.0.1]
+
+### Fixed
+
+- Handle the case where a bitcoin node returns zero headers (#3588)
+- The default value for `always_use_affirmation_maps` is now set to `false`,
+  instead of `true`.  This was preventing testnet nodes from reaching the chain
+  tip with the default configuration.
+- Reduce default poll time of the `chain-liveness` thread which reduces the
+  possibility that a miner thread will get interrupted (#3610).
 
 ## [2.1]
 
