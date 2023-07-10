@@ -31,21 +31,3 @@ name = "fuzz_sanitize"
 path = "fuzz_targets/fuzz_sanitize.rs"
 test = false
 doc = false
-
-# [[bin]]
-# name = "fuzz_serialize"
-# path = "fuzz_targets/fuzz_serialize.rs"
-# test = false
-# doc = false
-
-# [[bin]]
-# name = "fuzz_least_supertype"
-# path = "fuzz_targets/fuzz_least_supertype.rs"
-# test = false
-# doc = false
-
-# [[bin]]
-# name = "fuzz_admits_type"
-# path = "fuzz_targets/fuzz_admits_type.rs"
-# test = false
-# doc = false
