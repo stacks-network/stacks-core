@@ -44,6 +44,10 @@ jobs:
         with:
           tool-cache: true
 
+      - name: docker prune
+        run: |
+          docker system prune --force
+
       - name: Post clean diskfree
         run: | 
           df -h
