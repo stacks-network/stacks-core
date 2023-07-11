@@ -27,6 +27,9 @@ jobs:
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
+
+      # Could run a `docker system prune here to clean up a little extra space, ~4-5GB
+
       - name: Build bitcoin integration testing image
         id: build_docker_image
         env:
@@ -35,23 +38,12 @@ jobs:
         run: |
           rm .dockerignore
           docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
-      - name: Pre clean diskfree
-        run: |
-          df -h
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
           docker-images: false
-
-      - name: Post clean diskfree
-        run: |
-          df -h
-
-      - name: Docker image sizes
-        run: |
-          docker images
 
       - name: Export docker image as tarball
         id: export_docker_image
