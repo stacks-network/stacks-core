@@ -35,7 +35,7 @@ jobs:
         run: |
           rm .dockerignore
           docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
-      - name: Pre clean diskfree 
+      - name: Pre clean diskfree
         run: |
           df -h
 
@@ -43,9 +43,10 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
+          docker-images: false
 
       - name: Post clean diskfree
-        run: | 
+        run: |
           df -h
 
       - name: Docker image sizes
