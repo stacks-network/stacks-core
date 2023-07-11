@@ -28,7 +28,7 @@ jobs:
         id: git_checkout
         uses: actions/checkout@v3
 
-      # Could run a `docker system prune here to clean up a little extra space, ~4-5GB
+      # Could run a `docker system prune --force`` here to clean up a little extra space, ~4-5GB
 
       - name: Build bitcoin integration testing image
         id: build_docker_image
@@ -47,14 +47,15 @@ jobs:
 
       - name: Export docker image as tarball
         id: export_docker_image
-        run: docker save -o integration-image.tar stacks-blockchain:integrations
+        # run: docker save -o integration-image.tar stacks-blockchain:integrations
+        run: docker save stacks-blockchain:integrations | gzip > integration-image.tar.gz
 
       - name: Upload built docker image
         id: upload_docker_image
         uses: actions/upload-artifact@v3
         with:
-          name: integration-image.tar
-          path: integration-image.tar
+          name: integration-image.tar.gz
+          path: integration-image.tar.gz
 
   # Run integration tests using sampled genesis block
   sampled-genesis:
@@ -141,10 +142,10 @@ jobs:
         id: download_docker_image
         uses: actions/download-artifact@v3
         with:
-          name: integration-image.tar
+          name: integration-image.tar.gz
       - name: Load docker image
         id: load_docker_image
-        run: docker load -i integration-image.tar && rm integration-image.tar
+        run: docker load -i integration-image.tar.gz && rm integration-image.tar.gz
       - name: All integration tests with sampled genesis
         id: bitcoin_integration_tests
         timeout-minutes: 30
@@ -180,10 +181,10 @@ jobs:
         id: download_docker_image
         uses: actions/download-artifact@v3
         with:
-          name: integration-image.tar
+          name: integration-image.tar.gz
       - name: Load docker image
         id: load_docker_image
-        run: docker load -i integration-image.tar && rm integration-image.tar
+        run: docker load -i integration-image.tar.gz && rm integration-image.tar.gz
       - name: Atlas integration tests
         id: atlas_integration_tests
         timeout-minutes: 40
