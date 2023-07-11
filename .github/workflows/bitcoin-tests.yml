@@ -44,10 +44,6 @@ jobs:
         with:
           tool-cache: true
 
-      - name: docker prune
-        run: |
-          docker system prune --force
-
       - name: Post clean diskfree
         run: | 
           df -h
@@ -56,13 +52,10 @@ jobs:
         run: |
           docker images
 
-      - name: pwd
-        run: |
-          pwd
-        
       - name: Export docker image as tarball
         id: export_docker_image
         run: docker save -o integration-image.tar stacks-blockchain:integrations
+
       - name: Upload built docker image
         id: upload_docker_image
         uses: actions/upload-artifact@v3
