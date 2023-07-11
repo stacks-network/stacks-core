@@ -148,7 +148,7 @@ impl Samples {
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
-        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::max_value());
+        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
         tx.execute(
             sql,
             rusqlite::params![identifier, current_value, self.to_json()],
@@ -230,6 +230,12 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch20 => "",
                     StacksEpochId::Epoch2_05 => ":2.05",
                     StacksEpochId::Epoch21 => ":2.1",
+                    // reuse cost estimates in Epoch22
+                    StacksEpochId::Epoch22 => ":2.1",
+                    // reuse cost estimates in Epoch23
+                    StacksEpochId::Epoch23 => ":2.1",
+                    // reuse cost estimates in Epoch24
+                    StacksEpochId::Epoch24 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",

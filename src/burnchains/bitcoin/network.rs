@@ -18,6 +18,7 @@ use std::io;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Deref;
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -222,6 +223,12 @@ impl BitcoinIndexer {
 
             if backoff > 10.0 {
                 warn!("Connection broken; retrying in {} sec...", backoff);
+            }
+
+            if let Some(ref should_keep_running) = self.should_keep_running {
+                if !should_keep_running.load(Ordering::SeqCst) {
+                    return Err(btc_error::TimedOut);
+                }
             }
 
             let duration = time::Duration::from_millis((backoff * 1_000.0) as u64);

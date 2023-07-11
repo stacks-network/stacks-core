@@ -84,8 +84,9 @@ use crate::net::HTTP_REQUEST_ID_RESERVED;
 use crate::net::MAX_HEADERS;
 use crate::net::MAX_NEIGHBORS_DATA_LEN;
 use crate::net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ConstantValResponse,
+    ContractSrcResponse, DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    MapEntryResponse,
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
@@ -117,7 +118,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -314,6 +315,13 @@ impl RPCPoxInfoData {
             .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
             .ok_or(net_error::ChainstateError(
                 "PoX-2 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_3_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-3 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -519,6 +527,14 @@ impl RPCPoxInfoData {
                     activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
                         as u64,
                     first_reward_cycle_id: pox_2_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_3_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_3_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_3_first_cycle,
                 },
             ],
         })
@@ -1260,6 +1276,7 @@ impl ConversationHttp {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
                     let v1_unlock_height = clarity_db.get_v1_unlock_height();
+                    let v2_unlock_height = clarity_db.get_v2_unlock_height();
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
@@ -1285,10 +1302,16 @@ impl ConversationHttp {
                             .unwrap_or_else(|| (0, None))
                     };
 
-                    let unlocked = balance
-                        .get_available_balance_at_burn_block(burn_block_height, v1_unlock_height);
-                    let (locked, unlock_height) = balance
-                        .get_locked_balance_at_burn_block(burn_block_height, v1_unlock_height);
+                    let unlocked = balance.get_available_balance_at_burn_block(
+                        burn_block_height,
+                        v1_unlock_height,
+                        v2_unlock_height,
+                    );
+                    let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
+                        burn_block_height,
+                        v1_unlock_height,
+                        v2_unlock_height,
+                    );
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                     let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
@@ -1341,21 +1364,64 @@ impl ConversationHttp {
                         var_name,
                     );
 
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get::<Value>(&key).map(|a| (a, None))?
+                        clarity_db.get(&key).map(|a| (a, None))?
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     Some(DataVarResponse { data, marf_proof })
                 })
             }) {
                 Ok(Some(Some(data))) => HttpResponseType::GetDataVar(response_metadata, data),
                 Ok(Some(None)) => {
                     HttpResponseType::NotFound(response_metadata, "Data var not found".into())
+                }
+                Ok(None) | Err(_) => {
+                    HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
+                }
+            };
+
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_constant_val<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        constant_name: &ClarityName,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let contract_identifier =
+            QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let contract = clarity_db.get_contract(&contract_identifier).ok()?;
+
+                    let cst = contract
+                        .contract_context
+                        .lookup_variable(constant_name)?
+                        .serialize_to_hex();
+
+                    let data = format!("0x{cst}");
+                    Some(ConstantValResponse { data })
+                })
+            }) {
+                Ok(Some(Some(data))) => HttpResponseType::GetConstantVal(response_metadata, data),
+                Ok(Some(None)) => {
+                    HttpResponseType::NotFound(response_metadata, "Constant not found".into())
                 }
                 Ok(None) | Err(_) => {
                     HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
@@ -1394,25 +1460,22 @@ impl ConversationHttp {
                         map_name,
                         key,
                     );
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), Some("".into()))
+                                (Value::none().serialize_to_hex(), Some("".into()))
                             })
                     } else {
-                        clarity_db
-                            .get::<Value>(&key)
-                            .map(|a| (a, None))
-                            .unwrap_or_else(|| {
-                                test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), None)
-                            })
+                        clarity_db.get(&key).map(|a| (a, None)).unwrap_or_else(|| {
+                            test_debug!("No value for '{}' in {}", &key, tip);
+                            (Value::none().serialize_to_hex(), None)
+                        })
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     MapEntryResponse { data, marf_proof }
                 })
             }) {
@@ -1506,7 +1569,7 @@ impl ConversationHttp {
                 response_metadata,
                 CallReadOnlyResponse {
                     okay: true,
-                    result: Some(format!("0x{}", data.serialize())),
+                    result: Some(format!("0x{}", data.serialize_to_hex())),
                     cause: None,
                 },
             ),
@@ -2093,6 +2156,7 @@ impl ConversationHttp {
             } else {
                 match mempool.submit(
                     chainstate,
+                    sortdb,
                     &consensus_hash,
                     &block_hash,
                     &tx,
@@ -2577,6 +2641,37 @@ impl ConversationHttp {
                         contract_name,
                         var_name,
                         *with_proof,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
+                None
+            }
+            HttpRequestType::GetConstantVal(
+                ref _md,
+                ref contract_addr,
+                ref contract_name,
+                ref const_name,
+                ref tip_req,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_req,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_constant_val(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        &tip,
+                        contract_addr,
+                        contract_name,
+                        const_name,
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
@@ -3489,6 +3584,22 @@ impl ConversationHttp {
         )
     }
 
+    pub fn new_getconstantval(
+        &self,
+        contract_add: StacksAddress,
+        contract_name: ContractName,
+        constant_name: ClarityName,
+        tip_req: TipRequest,
+    ) -> HttpRequestType {
+        HttpRequestType::GetConstantVal(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            contract_add,
+            contract_name,
+            constant_name,
+            tip_req,
+        )
+    }
+
     /// Make a new request for a data map
     pub fn new_getmapentry(
         &self,
@@ -3629,6 +3740,7 @@ mod test {
     use super::*;
 
     const TEST_CONTRACT: &'static str = "
+        (define-constant cst 123)
         (define-data-var bar int 0)
         (define-map unit-map { account: principal } { units: int })
         (define-public (get-bar) (ok (var-get bar)))
@@ -5786,6 +5898,148 @@ mod test {
                 match http_response {
                     HttpResponseType::NotFound(_, msg) => {
                         assert_eq!(msg, "Data var not found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val() {
+        test_rpc(
+            function_name!(),
+            40122,
+            40123,
+            50122,
+            50123,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val_unconfirmed() {
+        test_rpc(
+            function_name!(),
+            40124,
+            40125,
+            50124,
+            50125,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let unconfirmed_tip = peer_client
+                    .chainstate()
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst".try_into().unwrap(),
+                    TipRequest::SpecificTip(unconfirmed_tip),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetConstantVal(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(123)
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_constant_val_nonexistant() {
+        test_rpc(
+            function_name!(),
+            40125,
+            40126,
+            50125,
+            50126,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getconstantval(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "cst-nonexistant".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, msg) => {
+                        assert_eq!(msg, "Constant not found");
                         true
                     }
                     _ => {

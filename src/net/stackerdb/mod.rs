@@ -75,7 +75,7 @@
 /// stores the list of smart contracts in its `PeerDB` as part of the network frontier state.  In
 /// doing so, nodes eventually learn of all of the StackerDBs replicated by all other nodes.  To
 /// bound the size of this state, the protocol mandates that a node can only replicate up to 256
-/// StackerDBs.
+/// StackerDBs.  The handshake-handling code happens in src::net::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
 /// that claim to have copies.  This set, called the "DB neighbors", is ddistinct from the set

@@ -912,47 +912,40 @@ pub enum MemPoolSyncData {
     TxTags([u8; 32], Vec<TxTag>),
 }
 
-/// Make QualifiedContractIdentifier usable to the networking code.
-/// N.B. the `serde` serializers are used for database storage.
-/// The `StacksMessageCodec` implementation for this struct is used for network transmission.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ContractId(QualifiedContractIdentifier);
-impl ContractId {
-    pub fn new(addr: StacksAddress, name: ContractName) -> ContractId {
+/// Make QualifiedContractIdentifier usable to the networking code
+pub trait QualifiedContractIdentifierExtension {
+    fn new(addr: StacksAddress, name: ContractName) -> Self;
+    fn address(&self) -> StacksAddress;
+    fn name(&self) -> ContractName;
+    fn parse(txt: &str) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl QualifiedContractIdentifierExtension for QualifiedContractIdentifier {
+    fn new(addr: StacksAddress, name: ContractName) -> QualifiedContractIdentifier {
         let id_addr = StandardPrincipalData(addr.version, addr.bytes.0);
-        ContractId(QualifiedContractIdentifier::new(id_addr, name))
+        QualifiedContractIdentifier::new(id_addr, name)
     }
 
-    pub fn address(&self) -> StacksAddress {
+    fn address(&self) -> StacksAddress {
         StacksAddress {
-            version: self.0.issuer.0,
-            bytes: Hash160(self.0.issuer.1.clone()),
+            version: self.issuer.0,
+            bytes: Hash160(self.issuer.1.clone()),
         }
     }
 
-    pub fn name(&self) -> ContractName {
-        self.0.name.clone()
+    fn name(&self) -> ContractName {
+        self.name.clone()
     }
 
-    pub fn parse(txt: &str) -> Option<ContractId> {
-        QualifiedContractIdentifier::parse(txt)
-            .ok()
-            .map(|qc| ContractId(qc))
+    fn parse(txt: &str) -> Option<QualifiedContractIdentifier> {
+        QualifiedContractIdentifier::parse(txt).ok()
     }
 }
 
-impl ToSql for ContractId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let str_repr = format!("{}", &self);
-        Ok(str_repr.into())
-    }
-}
-
-impl fmt::Display for ContractId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.0)
-    }
-}
+/// short-hand type alias
+pub type ContractId = QualifiedContractIdentifier;
 
 /// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
 #[derive(Debug, Clone, PartialEq)]
@@ -994,7 +987,7 @@ pub struct StackerDBGetChunkData {
     pub chunk_version: u32,
 }
 
-/// Stacker DB chunk
+/// Stacker DB chunk reply to a StackerDBGetChunkData
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBChunkData {
     /// chunk ID (i.e. the ith bit)
@@ -1362,6 +1355,11 @@ pub struct DataVarResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstantValResponse {
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
     #[serde(rename = "proof")]
@@ -1596,6 +1594,13 @@ pub enum HttpRequestType {
         TipRequest,
         bool,
     ),
+    GetConstantVal(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        ClarityName,
+        TipRequest,
+    ),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
@@ -1740,6 +1745,7 @@ pub enum HttpResponseType {
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetDataVar(HttpResponseMetadata, DataVarResponse),
+    GetConstantVal(HttpResponseMetadata, ConstantValResponse),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
@@ -2522,10 +2528,10 @@ pub mod test {
             &self,
             block: &StacksBlock,
             metadata: &StacksHeaderInfo,
-            receipts: &Vec<events::StacksTransactionReceipt>,
+            receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
             winner_txid: Txid,
-            matured_rewards: &Vec<accounts::MinerReward>,
+            matured_rewards: &[accounts::MinerReward],
             matured_rewards_info: Option<&MinerRewardInfo>,
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
@@ -2537,10 +2543,10 @@ pub mod test {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
                 metadata: metadata.clone(),
-                receipts: receipts.clone(),
+                receipts: receipts.to_owned(),
                 parent: parent.clone(),
                 winner_txid,
-                matured_rewards: matured_rewards.clone(),
+                matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
             })
         }
@@ -2606,9 +2612,11 @@ pub mod test {
                 3,
                 25,
                 5,
-                u64::max_value(),
-                u64::max_value(),
-                u32::max_value(),
+                u64::MAX,
+                u64::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
             );
 
             let mut spending_account = TestMinerFactory::new().next_miner(
@@ -2849,8 +2857,7 @@ pub mod test {
             }
 
             let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
-            let atlasdb =
-                AtlasDB::connect(AtlasConfig::default(false), &atlasdb_path, true).unwrap();
+            let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
@@ -2924,18 +2931,15 @@ pub mod test {
             )
             .unwrap();
 
-            let (tx, _) = sync_channel(100000);
-
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
-            let coord_indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
-            let mut coord = ChainsCoordinator::test_new_with_observer(
+            let mut coord = ChainsCoordinator::test_new_full(
                 &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
-                tx,
                 observer,
-                coord_indexer,
+                indexer,
+                None,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -3076,11 +3080,8 @@ pub mod test {
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
-            let mut stacks_node = self.stacks_node.take().unwrap();
-            let mut mempool = self.mempool.take().unwrap();
-            let indexer = self.indexer.take().unwrap();
-
+            let sortdb = self.sortdb.take().unwrap();
+            let stacks_node = self.stacks_node.take().unwrap();
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
@@ -3095,6 +3096,18 @@ pub mod test {
                 stacks_tip_height,
                 burn_tip_height,
             );
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+
+            self.step_with_ibd(ibd)
+        }
+
+        pub fn step_with_ibd(&mut self, ibd: bool) -> Result<NetworkResult, net_error> {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
                 &indexer,
@@ -3106,7 +3119,6 @@ pub mod test {
                 ibd,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -3149,7 +3161,6 @@ pub mod test {
                 ibd,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);

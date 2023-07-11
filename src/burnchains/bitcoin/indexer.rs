@@ -58,6 +58,8 @@ use crate::core::{
     StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
 };
 use std::convert::TryFrom;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 pub const USER_AGENT: &'static str = "Stacks/2.1";
 
@@ -140,6 +142,7 @@ pub struct BitcoinIndexerRuntime {
 pub struct BitcoinIndexer {
     pub config: BitcoinIndexerConfig,
     pub runtime: BitcoinIndexerRuntime,
+    pub should_keep_running: Option<Arc<AtomicBool>>,
 }
 
 impl BitcoinIndexerConfig {
@@ -211,10 +214,16 @@ impl BitcoinIndexerRuntime {
 }
 
 impl BitcoinIndexer {
-    pub fn new(config: BitcoinIndexerConfig, runtime: BitcoinIndexerRuntime) -> BitcoinIndexer {
+    #[cfg(test)]
+    pub fn new(
+        config: BitcoinIndexerConfig,
+        runtime: BitcoinIndexerRuntime,
+        should_keep_running: Option<Arc<AtomicBool>>,
+    ) -> BitcoinIndexer {
         BitcoinIndexer {
-            config: config,
-            runtime: runtime,
+            config,
+            runtime,
+            should_keep_running,
         }
     }
 
@@ -243,6 +252,7 @@ impl BitcoinIndexer {
                 working_dir_path.to_str().unwrap().to_string(),
             ),
             runtime: BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            should_keep_running: None,
         }
     }
 
@@ -250,6 +260,7 @@ impl BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
             runtime: BitcoinIndexerRuntime::new(self.runtime.network_id),
+            should_keep_running: self.should_keep_running.clone(),
         }
     }
 
@@ -1203,7 +1214,8 @@ mod test {
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
 
-    use std::env;
+    use std::sync::atomic::Ordering;
+    use std::{env, thread};
 
     #[test]
     fn test_indexer_find_bitcoin_reorg_genesis() {
@@ -1353,6 +1365,7 @@ mod test {
         let mut indexer = BitcoinIndexer::new(
             BitcoinIndexerConfig::test_default(path_1.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            None,
         );
         let common_ancestor_height = indexer
             .inner_find_bitcoin_reorg(
@@ -1527,6 +1540,7 @@ mod test {
         let mut indexer = BitcoinIndexer::new(
             BitcoinIndexerConfig::test_default(path_1.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            None,
         );
         let common_ancestor_height = indexer
             .inner_find_bitcoin_reorg(
@@ -1610,7 +1624,7 @@ mod test {
             fs::remove_file(&indexer_conf.spv_headers_path).unwrap();
         }
 
-        let mut indexer = BitcoinIndexer::new(indexer_conf, BitcoinIndexerRuntime::new(mode));
+        let mut indexer = BitcoinIndexer::new(indexer_conf, BitcoinIndexerRuntime::new(mode), None);
         let last_block = indexer.sync_headers(0, None).unwrap();
         eprintln!("sync'ed to block {}", last_block);
 
@@ -3181,6 +3195,7 @@ mod test {
         let mut indexer = BitcoinIndexer::new(
             BitcoinIndexerConfig::test_default(db_path.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            None,
         );
 
         let mut inserted_bad_header = false;
@@ -3341,6 +3356,7 @@ mod test {
         let mut indexer = BitcoinIndexer::new(
             BitcoinIndexerConfig::test_default(db_path.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            None,
         );
 
         let mut inserted_good_header = false;
@@ -3481,6 +3497,7 @@ mod test {
         let mut indexer = BitcoinIndexer::new(
             BitcoinIndexerConfig::test_default(db_path.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            None,
         );
 
         if let Err(burnchain_error::TrySyncAgain) = indexer.check_chain_tip_timestamp() {
@@ -3492,5 +3509,27 @@ mod test {
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 1);
         assert!(indexer.check_chain_tip_timestamp().is_ok());
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 1);
+    }
+
+    /// This test ensures that setting `should_keep_running` to false halts the handshake function.
+    #[test]
+    fn test_should_keep_running_halts_handshake() {
+        let db_path = "/tmp/test_should_keep_running.dat".to_string();
+
+        if fs::metadata(&db_path).is_ok() {
+            fs::remove_file(&db_path).unwrap();
+        }
+
+        let should_keep_running = Arc::new(AtomicBool::new(true));
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            Some(should_keep_running.clone()),
+        );
+
+        thread::spawn(move || indexer.connect_handshake_backoff());
+        thread::sleep(Duration::from_millis(10_000));
+
+        should_keep_running.store(false, Ordering::SeqCst);
     }
 }

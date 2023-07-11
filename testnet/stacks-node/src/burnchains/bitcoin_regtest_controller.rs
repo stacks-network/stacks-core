@@ -132,7 +132,10 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
 }
 
 /// Helper method to create a BitcoinIndexer
-pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
+pub fn make_bitcoin_indexer(
+    config: &Config,
+    should_keep_running: Option<Arc<AtomicBool>>,
+) -> BitcoinIndexer {
     let (network, _) = config.burnchain.get_bitcoin_network();
     let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
         .expect("Bitcoin network unsupported");
@@ -158,6 +161,7 @@ pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
     let burnchain_indexer = BitcoinIndexer {
         config: indexer_config.clone(),
         runtime: indexer_runtime,
+        should_keep_running: should_keep_running,
     };
     burnchain_indexer
 }
@@ -307,6 +311,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: should_keep_running.clone(),
         };
 
         Self {
@@ -352,6 +357,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: None,
         };
 
         Self {
@@ -667,13 +673,13 @@ impl BitcoinRegtestController {
         result_vec
     }
 
-    /// Checks if there is a default wallet with the name of "".
-    /// If the default wallet does not exist, this function creates a wallet with name "".
+    /// Checks if the config-supplied wallet exists.
+    /// If it does not exist, this function creates it.
     pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
         let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
 
-        if !wallets.contains(&("".to_string())) {
-            BitcoinRPCRequest::create_wallet(&self.config, "")?;
+        if !wallets.contains(&self.config.burnchain.wallet_name) {
+            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
         }
         Ok(())
     }
@@ -1154,6 +1160,9 @@ impl BitcoinRegtestController {
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1161,7 +1170,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            payload.parent_block_ptr as u64,
+            burn_chain_tip.block_height,
         )?;
 
         // Serialize the payload
@@ -2138,15 +2147,15 @@ impl BitcoinRPCRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
-                "importaddress" | "listunspent" => Some("".to_string()),
+                "importaddress" | "listunspent" => Some(config.burnchain.wallet_name.clone()),
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
             Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
         };
         debug!(
-            "BitcoinRPC builder: {:?}:{:?}@{}",
-            &config.burnchain.username, &config.burnchain.password, &url
+            "BitcoinRPC builder '{}': {:?}:{:?}@{}",
+            &payload.method, &config.burnchain.username, &config.burnchain.password, &url
         );
 
         let mut req = Request::new(Method::Post, url);
