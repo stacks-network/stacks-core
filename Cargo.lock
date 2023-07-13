@@ -393,6 +393,7 @@ dependencies = [
  "mio 0.6.23",
  "nix",
  "percent-encoding",
+ "pox-locking",
  "prometheus",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -1868,6 +1869,15 @@ dependencies = [
  "cpuid-bool",
  "opaque-debug 0.3.0",
  "universal-hash",
+]
+
+[[package]]
+name = "pox-locking"
+version = "2.4.0"
+dependencies = [
+ "clarity",
+ "slog",
+ "stacks-common",
 ]
 
 [[package]]

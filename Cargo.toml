@@ -55,6 +55,7 @@ chrono = "0.4.19"
 libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
+pox_locking = { package = "pox-locking", path = "./pox-locking/." }
 siphasher = "0.3.7"
 
 [target.'cfg(unix)'.dependencies]
@@ -106,7 +107,7 @@ profile-sqlite = []
 disable-costs = []
 developer-mode = []
 monitoring_prom = ["prometheus"]
-slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json"]
+slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json", "pox_locking/slog_json"]
 testing = []
 
 # Use a bit more than default optimization for
@@ -129,6 +130,7 @@ sha2 = { version = "0.10" }
 [workspace]
 members = [
     ".",
+    "pox-locking",
     "clarity",
     "stx-genesis",
     "testnet/stacks-node"]
