@@ -73,6 +73,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
+use crate::monitoring::{set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed};
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -2646,6 +2647,9 @@ impl StacksBlockBuilder {
                 tx_events,
             );
         }
+
+        set_last_mined_block_transaction_count(block.txs.len() as u64);
+        set_last_mined_execution_cost_observed(&consumed, &block_limit);
 
         info!(
             "Miner: mined anchored block";

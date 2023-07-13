@@ -149,7 +149,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid, BurnchainSigner};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -205,7 +205,7 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
@@ -4158,14 +4158,6 @@ impl StacksNode {
 
         let local_peer = p2p_net.local_peer.clone();
 
-        let burnchain_signer = keychain.get_burnchain_signer();
-        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
-            Err(e) => {
-                warn!("Failed to set global burnchain signer: {:?}", &e);
-            }
-            _ => {}
-        }
-
         // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
@@ -4182,6 +4174,17 @@ impl StacksNode {
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
+
+        let public_key = keychain.get_pub_key();
+        let miner_addr = relayer_thread.bitcoin_controller.get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr_str = addr2str(&miner_addr);
+        match monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)) {
+            Err(e) => {
+                warn!("Failed to set global burnchain signer: {:?}", &e);
+            }
+            _ => {}
+        }
+
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)

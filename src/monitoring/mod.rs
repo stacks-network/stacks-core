@@ -134,6 +134,37 @@ pub fn set_last_block_transaction_count(transactions_in_block: u64) {
         .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
 }
 
+/// Log `execution_cost` as a ratio of `block_limit`.
+#[allow(unused_variables)]
+pub fn set_last_mined_execution_cost_observed(
+    execution_cost: &ExecutionCost,
+    block_limit: &ExecutionCost,
+) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        prometheus::LAST_MINED_BLOCK_READ_COUNT
+            .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_MINED_BLOCK_WRITE_COUNT
+            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_MINED_BLOCK_READ_LENGTH
+            .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
+        prometheus::LAST_MINED_BLOCK_WRITE_LENGTH
+            .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
+        prometheus::LAST_MINED_BLOCK_RUNTIME
+            .set(execution_cost.runtime as f64 / block_limit.runtime as f64);
+    }
+}
+
+/// Log the number of transactions in the latest block.
+#[allow(unused_variables)]
+pub fn set_last_mined_block_transaction_count(transactions_in_block: u64) {
+    // Saturating cast from u64 to i64
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_MINED_BLOCK_TRANSACTION_COUNT
+        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
+}
+
+
 pub fn increment_btc_ops_sent_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_OPS_SENT_COUNTER.inc();

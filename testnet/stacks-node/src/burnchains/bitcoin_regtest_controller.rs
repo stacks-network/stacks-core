@@ -1390,7 +1390,7 @@ impl BitcoinRegtestController {
         res
     }
 
-    fn get_miner_address(
+    pub(crate) fn get_miner_address(
         &self,
         epoch_id: StacksEpochId,
         public_key: &Secp256k1PublicKey,
