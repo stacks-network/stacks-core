@@ -864,45 +864,11 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
 // force the node to go and store the memo for stack_stx and delegate_stx
 const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[
     r#"
-    DROP TABLE stack_stx;
+    ALTER TABLE stack_stx ADD COLUMN memo TEXT;
     "#,
     r#"
-    DROP TABLE delegate_stx;
+    ALTER TABLE delegate_stx ADD COLUMN memo TEXT;
     "#,
-    r#"
-    CREATE TABLE stack_stx (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        sender_addr TEXT NOT NULL,
-        reward_addr TEXT NOT NULL,
-        stacked_ustx TEXT NOT NULL,
-        num_cycles INTEGER NOT NULL,
-        memo TEXT,
-
-        -- The primary key here is (txid, burn_header_hash) because
-        -- this transaction will be accepted regardless of which sortition
-        -- history it is in.
-        PRIMARY KEY(txid,burn_header_hash)
-    );"#,
-    r#"
-    CREATE TABLE delegate_stx (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-        memo TEXT,
-
-        sender_addr TEXT NOT NULL,
-        delegate_to TEXT NOT NULL,
-        reward_addr TEXT NOT NULL,
-        delegated_ustx TEXT NOT NULL,
-        until_burn_height INTEGER,
-
-        PRIMARY KEY(txid,burn_header_Hash)
-    );"#,
 ];
 
 // update this to add new indexes
