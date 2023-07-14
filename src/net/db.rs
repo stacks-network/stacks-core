@@ -1284,7 +1284,7 @@ impl PeerDB {
                 &network_id,
                 &u64_to_sql(now_secs)?,
                 &u64_to_sql(now_secs)?,
-                &peer_version,
+                &(peer_version & 0x000000ff),
                 &curr_network_epoch,
             ];
             let mut allow_rows = query_rows::<Neighbor, _>(conn, &allow_qry, allow_args)?;

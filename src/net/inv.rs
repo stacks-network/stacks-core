@@ -1143,6 +1143,37 @@ impl InvState {
         list
     }
 
+    pub fn get_max_height_of_neighbors(&self, neighbors: &Vec<Neighbor>, ibd: bool) -> Option<u64> {
+        let mut max_height: u64 = 1;
+        let mut stats_obtained = false;
+        for neighbor in neighbors.iter() {
+            let nk = &neighbor.addr;
+            match self.block_stats.get(nk) {
+                Some(stats) => {
+                    // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
+                    // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
+                    // reward cycle N).
+                    if (ibd
+                        && (stats.status == NodeStatus::Online
+                            || stats.status == NodeStatus::Diverged))
+                        || (!ibd && stats.status == NodeStatus::Online)
+                    {
+                        let height = stats.inv.get_block_height();
+                        max_height = max_height.max(height);
+                        stats_obtained = true;
+                    }
+                }
+                None => {}
+            }
+        }
+
+        if stats_obtained {
+            Some(max_height)
+        } else {
+            None
+        }
+    }
+
     /// Get the list of dead
     pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];

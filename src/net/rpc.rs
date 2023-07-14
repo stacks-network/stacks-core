@@ -128,7 +128,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 
 use crate::clarity_vm::clarity::Error as clarity_error;
 
-use crate::net::inv::{NeighborBlockStats, NodeStatus};
+use crate::net::inv::InvState;
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
@@ -2400,7 +2400,7 @@ impl ConversationHttp {
         network: &PeerNetwork,
         network_id: u32,
         peerdb: &PeerDB,
-        block_stats: Option<&HashMap<NeighborKey, NeighborBlockStats>>,
+        inv_state_opt: &Option<InvState>,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
@@ -2437,40 +2437,18 @@ impl ConversationHttp {
         );
 
         // get max block height amongst bootstrap nodes
-        let response = if let Some(block_stats) = block_stats {
-            let mut max_height: u64 = 1;
-            let mut stats_obtained = false;
-            for neighbor in initial_neighbors.iter() {
-                let nk = &neighbor.addr;
-                match block_stats.get(nk) {
-                    Some(stats) => {
-                        // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
-                        // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
-                        // reward cycle N).
-                        if (ibd
-                            && (stats.status == NodeStatus::Online
-                                || stats.status == NodeStatus::Diverged))
-                            || (!ibd && stats.status == NodeStatus::Online)
-                        {
-                            let height = stats.inv.get_block_height();
-                            max_height = max_height.max(height);
-                            stats_obtained = true;
-                        }
-                    }
-                    None => {}
-                }
-            }
-
-            if !stats_obtained {
-                // no valid bootstrap nodes found, unable to determine health.
+        let max_height_opt = match inv_state_opt {
+            Some(inv_state) => inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd),
+            None => {
                 let response = HttpResponseType::GetHealthNoDataError(
                     response_metadata.clone(),
-                    "Couldn't obtain stats on any bootstrap peers, unable to determine health"
-                        .to_string(),
+                    "Peer block stats not found, unable to determine health.".to_string(),
                 );
                 return response.send(http, fd).map(|_| ());
             }
+        };
 
+        let response = if let Some(max_height) = max_height_opt {
             if stacks_tip_height >= max_height - 1 {
                 let data = GetHealthResponse {
                     matches_peers: true,
@@ -2487,7 +2465,8 @@ impl ConversationHttp {
         } else {
             HttpResponseType::GetHealthNoDataError(
                 response_metadata.clone(),
-                "Peer block stats not found.".to_string(),
+                "Couldn't obtain stats on any bootstrap peers, unable to determine health"
+                    .to_string(),
             )
         };
 
@@ -3043,7 +3022,7 @@ impl ConversationHttp {
                     network,
                     network.local_peer.network_id,
                     &network.peerdb,
-                    network.inv_state.as_ref().map(|state| &state.block_stats),
+                    &network.inv_state,
                     network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
