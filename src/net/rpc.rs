@@ -784,7 +784,9 @@ impl ConversationHttp {
                 warn!("Failed to get PoX info {:?}: {:?}", req, &e);
                 let response = HttpResponseType::ServerError(
                     response_metadata,
-                    "Failed to query peer info".to_string(),
+                    json!({
+                        "error": "Failed to query peer info".to_string(),
+                    }),
                 );
                 response.send(http, fd)
             }
@@ -930,7 +932,7 @@ impl ConversationHttp {
     ) -> Result<Option<StreamCursor>, net_error> {
         // oops
         warn!("{}", &msg);
-        let response = HttpResponseType::ServerError(response_metadata, msg);
+        let response = HttpResponseType::ServerError(response_metadata, json!({ "error": msg }));
         return response.send(http, fd).and_then(|_| Ok(None));
     }
 
@@ -976,7 +978,9 @@ impl ConversationHttp {
                     warn!("Failed to load block header {:?}: {:?}", req, &e);
                     let response = HttpResponseType::ServerError(
                         response_metadata,
-                        format!("Failed to query block header {}", tip.to_hex()),
+                        json!({
+                            "error": format!("Failed to query block header {}", tip.to_hex()),
+                        }),
                     );
                     return response.send(http, fd).and_then(|_| Ok(None));
                 }
@@ -1018,7 +1022,9 @@ impl ConversationHttp {
                 warn!("Failed to serve block {:?}: {:?}", req, &e);
                 let response = HttpResponseType::ServerError(
                     response_metadata,
-                    format!("Failed to query block {}", index_block_hash.to_hex()),
+                    json!({
+                        "error": format!("Failed to query block {}", index_block_hash.to_hex()),
+                    }),
                 );
                 response.send(http, fd).and_then(|_| Ok(None))
             }
@@ -1124,10 +1130,12 @@ impl ConversationHttp {
                         (
                             HttpResponseType::ServerError(
                                 response_metadata,
-                                format!(
-                                    "Failed to query confirmed microblock stream {}",
-                                    tail_index_microblock_hash.to_hex()
-                                ),
+                                json!({
+                                    "error": format!(
+                                        "Failed to query confirmed microblock stream {}",
+                                        tail_index_microblock_hash.to_hex()
+                                    ),
+                                }),
                             ),
                             None,
                         )
@@ -1212,10 +1220,12 @@ impl ConversationHttp {
                         (
                             HttpResponseType::ServerError(
                                 response_metadata,
-                                format!(
-                                    "Failed to query confirmed microblock stream {}",
-                                    tail_index_microblock_hash.to_hex()
-                                ),
+                                json!({
+                                    "error": format!(
+                                        "Failed to query confirmed microblock stream {}",
+                                        tail_index_microblock_hash.to_hex()
+                                    ),
+                                }),
                             ),
                             None,
                         )
@@ -1738,11 +1748,13 @@ impl ConversationHttp {
                 );
                 let response = HttpResponseType::ServerError(
                     response_metadata,
-                    format!(
-                        "Failed to query unconfirmed microblock stream for {} at or after {}",
-                        index_anchor_block_hash.to_hex(),
-                        min_seq
-                    ),
+                    json!({
+                        "error": format!(
+                            "Failed to query unconfirmed microblock stream for {} at or after {}",
+                            index_anchor_block_hash.to_hex(),
+                            min_seq
+                        ),
+                    }),
                 );
                 response.send(http, fd).and_then(|_| Ok(None))
             }
@@ -1775,10 +1787,12 @@ impl ConversationHttp {
                         (
                             HttpResponseType::ServerError(
                                 response_metadata,
-                                format!(
-                                    "Failed to query unconfirmed microblock stream {}",
-                                    index_anchor_block_hash.to_hex()
-                                ),
+                                json!({
+                                   "error": format!(
+                                       "Failed to query unconfirmed microblock stream {}",
+                                       index_anchor_block_hash.to_hex()
+                                   ),
+                                }),
                             ),
                             None,
                         )
@@ -1923,7 +1937,9 @@ impl ConversationHttp {
                     warn!("Failed to load Stacks chain tip");
                     let response = HttpResponseType::ServerError(
                         response_metadata,
-                        format!("Failed to load Stacks chain tip"),
+                        json!({
+                            "error": format!("Failed to load Stacks chain tip"),
+                        }),
                     );
                     response.send(http, fd).and_then(|_| Ok(None))
                 }
@@ -1950,7 +1966,9 @@ impl ConversationHttp {
         warn!("Failed to load Stacks chain tip");
         let response = HttpResponseType::ServerError(
             response_metadata,
-            format!("Failed to load Stacks chain tip"),
+            json!({
+                "error": format!("Failed to load Stacks chain tip"),
+            }),
         );
         response.send(http, fd).and_then(|_| Ok(None))
     }
@@ -2155,107 +2173,108 @@ impl ConversationHttp {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         // is this a consensus hash we recognize?
-        let (response, accepted) =
-            match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
-                Ok(Some(_)) => {
-                    // we recognize this consensus hash
-                    let ic = sortdb.index_conn();
-                    match Relayer::process_new_anchored_block(
-                        &ic,
-                        chainstate,
-                        consensus_hash,
-                        block,
-                        0,
-                    ) {
-                        Ok(true) => {
-                            debug!(
-                                "Accepted Stacks block {}/{}",
-                                consensus_hash,
-                                &block.block_hash()
-                            );
-                            (
-                                HttpResponseType::StacksBlockAccepted(
-                                    response_metadata,
-                                    StacksBlockHeader::make_index_block_hash(
-                                        consensus_hash,
-                                        &block.block_hash(),
-                                    ),
-                                    true,
+        let (response, accepted) = match SortitionDB::get_sortition_id_by_consensus(
+            &sortdb.conn(),
+            consensus_hash,
+        ) {
+            Ok(Some(_)) => {
+                // we recognize this consensus hash
+                let ic = sortdb.index_conn();
+                match Relayer::process_new_anchored_block(&ic, chainstate, consensus_hash, block, 0)
+                {
+                    Ok(true) => {
+                        debug!(
+                            "Accepted Stacks block {}/{}",
+                            consensus_hash,
+                            &block.block_hash()
+                        );
+                        (
+                            HttpResponseType::StacksBlockAccepted(
+                                response_metadata,
+                                StacksBlockHeader::make_index_block_hash(
+                                    consensus_hash,
+                                    &block.block_hash(),
                                 ),
                                 true,
-                            )
-                        }
-                        Ok(false) => {
-                            debug!(
-                                "Did not accept Stacks block {}/{}",
-                                consensus_hash,
-                                &block.block_hash()
-                            );
-                            (
-                                HttpResponseType::StacksBlockAccepted(
-                                    response_metadata,
-                                    StacksBlockHeader::make_index_block_hash(
-                                        consensus_hash,
-                                        &block.block_hash(),
-                                    ),
-                                    false,
+                            ),
+                            true,
+                        )
+                    }
+                    Ok(false) => {
+                        debug!(
+                            "Did not accept Stacks block {}/{}",
+                            consensus_hash,
+                            &block.block_hash()
+                        );
+                        (
+                            HttpResponseType::StacksBlockAccepted(
+                                response_metadata,
+                                StacksBlockHeader::make_index_block_hash(
+                                    consensus_hash,
+                                    &block.block_hash(),
                                 ),
                                 false,
-                            )
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to process anchored block {}/{}: {:?}",
-                                consensus_hash,
-                                &block.block_hash(),
-                                &e
-                            );
-                            (
-                                HttpResponseType::ServerError(
-                                    response_metadata,
-                                    format!(
+                            ),
+                            false,
+                        )
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to process anchored block {}/{}: {:?}",
+                            consensus_hash,
+                            &block.block_hash(),
+                            &e
+                        );
+                        (
+                            HttpResponseType::ServerError(
+                                response_metadata,
+                                json!({
+                                    "error": format!(
                                         "Failed to process anchored block {}/{}: {:?}",
                                         consensus_hash,
                                         &block.block_hash(),
                                         &e
                                     ),
-                                ),
-                                false,
-                            )
-                        }
+                                }),
+                            ),
+                            false,
+                        )
                     }
                 }
-                Ok(None) => {
-                    debug!(
-                        "Unrecognized consensus hash {} for block {}",
-                        consensus_hash,
-                        &block.block_hash()
-                    );
-                    (
-                        HttpResponseType::NotFound(
-                            response_metadata,
-                            format!("No such consensus hash '{}'", consensus_hash),
-                        ),
-                        false,
-                    )
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to query sortition ID by consensus '{}'",
-                        consensus_hash
-                    );
-                    (
-                        HttpResponseType::ServerError(
-                            response_metadata,
-                            format!(
-                                "Failed to query sortition ID for consensus hash '{}': {:?}",
-                                consensus_hash, &e
-                            ),
-                        ),
-                        false,
-                    )
-                }
-            };
+            }
+            Ok(None) => {
+                debug!(
+                    "Unrecognized consensus hash {} for block {}",
+                    consensus_hash,
+                    &block.block_hash()
+                );
+                (
+                    HttpResponseType::NotFound(
+                        response_metadata,
+                        format!("No such consensus hash '{}'", consensus_hash),
+                    ),
+                    false,
+                )
+            }
+            Err(e) => {
+                error!(
+                    "Failed to query sortition ID by consensus '{}'",
+                    consensus_hash
+                );
+                (
+                    HttpResponseType::ServerError(
+                        response_metadata,
+                        json!({
+                                "error": format!(
+                                    "Failed to query sortition ID for consensus hash '{}': {:?}",
+                                    consensus_hash, &e
+                                ),
+                        }),
+                    ),
+                    false,
+                )
+            }
+        };
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -2423,9 +2442,9 @@ impl ConversationHttp {
 
         // no bootstrap nodes found, unable to determine health.
         if initial_neighbors.len() == 0 {
-            let response = HttpResponseType::GetHealthNoDataError(
+            let response = HttpResponseType::ServerError(
                 response_metadata.clone(),
-                "No viable bootstrap peers found, unable to determine health".to_string(),
+                json!({"error": "No viable bootstrap peers found, unable to determine health".to_string()}),
             );
             return response.send(http, fd).map(|_| ());
         }
@@ -2440,9 +2459,9 @@ impl ConversationHttp {
         let max_height_opt = match inv_state_opt {
             Some(inv_state) => inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd),
             None => {
-                let response = HttpResponseType::GetHealthNoDataError(
+                let response = HttpResponseType::ServerError(
                     response_metadata.clone(),
-                    "Peer block stats not found, unable to determine health.".to_string(),
+                    json!({"error": "Peer block stats not found, unable to determine health.".to_string()}),
                 );
                 return response.send(http, fd).map(|_| ());
             }
@@ -2456,17 +2475,19 @@ impl ConversationHttp {
                 };
                 HttpResponseType::GetHealth(response_metadata, data)
             } else {
-                let data = GetHealthResponse {
-                    matches_peers: false,
-                    percent_of_blocks_synced: (stacks_tip_height * 100 / max_height) as u8,
-                };
-                HttpResponseType::GetHealthError(response_metadata.clone(), json!(data))
+                let data = json!({
+                    "error": "Node not at tip",
+                    "matches_peers": false,
+                    "percent_of_blocks_synced": (stacks_tip_height * 100 / max_height) as u8,
+                });
+                HttpResponseType::ServerError(response_metadata.clone(), data)
             }
         } else {
-            HttpResponseType::GetHealthNoDataError(
+            HttpResponseType::ServerError(
                 response_metadata.clone(),
-                "Couldn't obtain stats on any bootstrap peers, unable to determine health"
-                    .to_string(),
+                json!({
+                    "error": "Couldn't obtain stats on any bootstrap peers, unable to determine health".to_string()
+                }),
             )
         };
 
@@ -2859,7 +2880,7 @@ impl ConversationHttp {
                         warn!("Failed to load Stacks chain tip");
                         let response = HttpResponseType::ServerError(
                             response_metadata,
-                            format!("Failed to load Stacks chain tip"),
+                            json!({ "error": format!("Failed to load Stacks chain tip") }),
                         );
                         response.send(&mut self.connection.protocol, &mut reply)?;
                     }
@@ -6588,11 +6609,25 @@ mod test {
              ref convo_client,
              ref convo_server| {
                 match http_response {
-                    HttpResponseType::GetHealthError(response_md, data) => {
-                        let get_health_error_resp: GetHealthResponse =
-                            serde_json::from_value(data.clone()).unwrap();
-                        assert_eq!(get_health_error_resp.matches_peers, false);
-                        assert_eq!(get_health_error_resp.percent_of_blocks_synced, 33);
+                    HttpResponseType::ServerError(response_md, data) => {
+                        let error_str = data
+                            .get("error")
+                            .expect("Field missing")
+                            .as_str()
+                            .expect("Expected str");
+                        let matches_peers = data
+                            .get("matches_peers")
+                            .expect("Field missing")
+                            .as_bool()
+                            .expect("Expected bool");
+                        let percent_of_blocks_synced = data
+                            .get("percent_of_blocks_synced")
+                            .expect("Field missing")
+                            .as_u64()
+                            .expect("Expected u8");
+                        assert_eq!(error_str, "Node not at tip");
+                        assert_eq!(matches_peers, false);
+                        assert_eq!(percent_of_blocks_synced, 33);
                         true
                     }
                     _ => {
@@ -6684,8 +6719,16 @@ mod test {
              ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetHealthNoDataError(response_md, msg) => {
-                        assert_eq!(msg, "Peer block stats not found.");
+                    HttpResponseType::ServerError(response_md, data) => {
+                        let error_msg = data
+                            .get("error")
+                            .expect("Invalid response.")
+                            .as_str()
+                            .expect("Invalid type.");
+                        assert_eq!(
+                            error_msg,
+                            "Peer block stats not found, unable to determine health."
+                        );
                         true
                     }
                     _ => {
@@ -6729,9 +6772,14 @@ mod test {
              ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetHealthNoDataError(response_md, msg) => {
+                    HttpResponseType::ServerError(response_md, data) => {
+                        let error_msg = data
+                            .get("error")
+                            .expect("Invalid response.")
+                            .as_str()
+                            .expect("Invalid type.");
                         assert_eq!(
-                            msg,
+                            error_msg,
                             "Couldn't obtain stats on any bootstrap peers, unable to determine health"
                         );
                         true

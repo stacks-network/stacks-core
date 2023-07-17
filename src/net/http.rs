@@ -3232,10 +3232,8 @@ impl HttpResponseType {
             402 => HttpResponseType::PaymentRequired(md, error_text),
             403 => HttpResponseType::Forbidden(md, error_text),
             404 => HttpResponseType::NotFound(md, error_text),
-            500 => HttpResponseType::ServerError(md, error_text),
+            500 => HttpResponseType::ServerError(md, json_val),
             503 => HttpResponseType::ServiceUnavailable(md, error_text),
-            512 => HttpResponseType::GetHealthError(md, json_val),
-            513 => HttpResponseType::GetHealthNoDataError(md, error_text),
             _ => HttpResponseType::Error(md, preamble.status_code, error_text),
         };
         Ok(resp)
@@ -4085,8 +4083,6 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
-            HttpResponseType::GetHealthError(ref md, _) => md,
-            HttpResponseType::GetHealthNoDataError(ref md, _) => md,
         }
     }
 
@@ -4407,18 +4403,11 @@ impl HttpResponseType {
             HttpResponseType::PaymentRequired(_, ref msg) => self.error_response(fd, 402, msg)?,
             HttpResponseType::Forbidden(_, ref msg) => self.error_response(fd, 403, msg)?,
             HttpResponseType::NotFound(_, ref msg) => self.error_response(fd, 404, msg)?,
-            HttpResponseType::ServerError(_, ref msg) => self.error_response(fd, 500, msg)?,
-            HttpResponseType::ServiceUnavailable(_, ref msg) => {
-                self.error_response(fd, 503, msg)?
-            }
-            HttpResponseType::Error(_, ref error_code, ref msg) => {
-                self.error_response(fd, *error_code, msg)?
-            }
-            HttpResponseType::GetHealthError(ref md, ref data) => {
+            HttpResponseType::ServerError(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
-                    512,
-                    HttpResponseType::error_reason(512),
+                    500,
+                    HttpResponseType::error_reason(500),
                     md.content_length.clone(),
                     &HttpContentType::JSON,
                     md.request_id,
@@ -4426,8 +4415,11 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetHealthNoDataError(_, ref msg) => {
-                self.error_response(fd, 513, msg)?
+            HttpResponseType::ServiceUnavailable(_, ref msg) => {
+                self.error_response(fd, 503, msg)?
+            }
+            HttpResponseType::Error(_, ref error_code, ref msg) => {
+                self.error_response(fd, *error_code, msg)?
             }
         };
         Ok(())
@@ -4556,8 +4548,6 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TransactionFeeEstimation(_, _) => {
                     "HTTP(TransactionFeeEstimation)"
                 }
-                HttpResponseType::GetHealthError(..) => "HTTP(512)",
-                HttpResponseType::GetHealthNoDataError(..) => "HTTP(513)",
             },
         }
     }
@@ -6243,6 +6233,12 @@ mod test {
             .consensus_serialize(&mut test_microblock_info_bytes)
             .unwrap();
 
+        let get_health_data = json!({"error": "".to_string()});
+        let get_health_len = serde_json::to_string(&get_health_data).unwrap().len() as u32;
+
+        let get_health_data_two = json!({"error": "foo".to_string()});
+        let get_health_len_two = serde_json::to_string(&get_health_data_two).unwrap().len() as u32;
+
         let tests = vec![
             // length is known
             (
@@ -6370,8 +6366,14 @@ mod test {
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
-                    "".to_string(),
+                    HttpResponseMetadata::new(
+                        HttpVersion::Http11,
+                        123,
+                        Some(get_health_len),
+                        true,
+                        None,
+                    ),
+                    get_health_data,
                 ),
                 "/v2/neighbors".to_string(),
             ),
@@ -6381,16 +6383,6 @@ mod test {
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
-            ),
-            (
-                HttpResponseType::GetHealthError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
-                    json!({
-                        "matches_peers": false,
-                        "percent_of_blocks_synced": 93,
-                    }),
-                ),
-                "/v2/health".to_string(),
             ),
             (
                 HttpResponseType::Error(
@@ -6438,8 +6430,14 @@ mod test {
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
-                    "foo".to_string(),
+                    HttpResponseMetadata::new(
+                        HttpVersion::Http11,
+                        123,
+                        Some(get_health_len_two),
+                        true,
+                        None,
+                    ),
+                    get_health_data_two,
                 ),
                 "/v2/neighbors".to_string(),
             ),
@@ -6457,13 +6455,6 @@ mod test {
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
-            ),
-            (
-                HttpResponseType::GetHealthNoDataError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(7), true, None),
-                    "no data".to_string(),
-                ),
-                "/v2/health".to_string(),
             ),
         ];
 
@@ -6540,16 +6531,15 @@ mod test {
             HttpResponsePreamble::new_error(402, 123, None),
             HttpResponsePreamble::new_error(403, 123, None),
             HttpResponsePreamble::new_error(404, 123, None),
-            HttpResponsePreamble::new_error(500, 123, None),
-            HttpResponsePreamble::new_error(503, 123, None),
             HttpResponsePreamble::new(
-                512,
-                "Error".to_string(),
-                Some(0),
+                500,
+                "Internal Server Error".to_string(),
+                Some(get_health_len),
                 HttpContentType::JSON,
                 true,
                 123,
             ),
+            HttpResponsePreamble::new_error(503, 123, None),
             // generic error
             HttpResponsePreamble::new_error(502, 123, None),
             // errors with messages
@@ -6558,10 +6548,16 @@ mod test {
             HttpResponsePreamble::new_error(402, 123, Some("foo".to_string())),
             HttpResponsePreamble::new_error(403, 123, Some("foo".to_string())),
             HttpResponsePreamble::new_error(404, 123, Some("foo".to_string())),
-            HttpResponsePreamble::new_error(500, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new(
+                500,
+                "Internal Server Error".to_string(),
+                Some(get_health_len_two),
+                HttpContentType::JSON,
+                true,
+                123,
+            ),
             HttpResponsePreamble::new_error(503, 123, Some("foo".to_string())),
             HttpResponsePreamble::new_error(502, 123, Some("foo".to_string())),
-            HttpResponsePreamble::new_error(513, 123, Some("no data".to_string())),
         ];
 
         let expected_http_bodies = vec![

@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to query node health",
+  "title": "ServerError",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error"],
+  "properties": {
+    "error": {
+      "type": "string"
+    },
+    "matches_peers": {
+      "type": "boolean"
+    },
+    "percent_of_blocks_synced": {
+      "type": "integer"
+    }
+  }
+}

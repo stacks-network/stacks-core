@@ -1661,11 +1661,9 @@ pub enum HttpResponseType {
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),
     NotFound(HttpResponseMetadata, String),
-    ServerError(HttpResponseMetadata, String),
+    ServerError(HttpResponseMetadata, serde_json::Value),
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String),
-    GetHealthError(HttpResponseMetadata, serde_json::Value),
-    GetHealthNoDataError(HttpResponseMetadata, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
