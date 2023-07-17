@@ -149,7 +149,9 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid, BurnchainSigner};
+use stacks::burnchains::{
+    db::BurnchainHeaderReader, Burnchain, BurnchainParameters, BurnchainSigner, Txid,
+};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -205,8 +207,8 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
-use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
+use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
@@ -4176,14 +4178,14 @@ impl StacksNode {
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
 
         let public_key = keychain.get_pub_key();
-        let miner_addr = relayer_thread.bitcoin_controller.get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr = relayer_thread
+            .bitcoin_controller
+            .get_miner_address(StacksEpochId::Epoch21, &public_key);
         let miner_addr_str = addr2str(&miner_addr);
-        match monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)) {
-            Err(e) => {
-                warn!("Failed to set global burnchain signer: {:?}", &e);
-            }
-            _ => {}
-        }
+        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
+            warn!("Failed to set global burnchain signer: {:?}", &e);
+            e
+        });
 
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))

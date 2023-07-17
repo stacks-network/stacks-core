@@ -164,7 +164,6 @@ pub fn set_last_mined_block_transaction_count(transactions_in_block: u64) {
         .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
 }
 
-
 pub fn increment_btc_ops_sent_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_OPS_SENT_COUNTER.inc();

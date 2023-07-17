@@ -63,6 +63,9 @@ use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
+use crate::monitoring::{
+    set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
+};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
@@ -73,7 +76,6 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
-use crate::monitoring::{set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed};
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
