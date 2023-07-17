@@ -1538,7 +1538,9 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 || num_new_confirmed_microblocks > 0
+        if new_blocks.len() > 0
+            || new_microblocks.len() > 0
+            || num_new_confirmed_microblocks > 0
             || num_synced_microblocks > 0
         {
             info!(

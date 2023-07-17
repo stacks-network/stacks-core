@@ -4071,15 +4071,19 @@ impl PeerNetwork {
         tip_data: Vec<(UrlString, SocketAddr, u16)>,
         local_seq_num_opt: Option<u16>,
     ) -> VecDeque<(UrlString, SocketAddr, u16)> {
-        let mut filtered_tip_data: Vec<(UrlString, SocketAddr, u16)> = tip_data.into_iter().filter(|(_, _, seq_num)| {
-            if let Some(local_seq_num) = local_seq_num_opt {
-                seq_num > &local_seq_num
-            } else {
-                true
-            }
-        }).collect();
+        let mut filtered_tip_data: Vec<(UrlString, SocketAddr, u16)> = tip_data
+            .into_iter()
+            .filter(|(_, _, seq_num)| {
+                if let Some(local_seq_num) = local_seq_num_opt {
+                    seq_num > &local_seq_num
+                } else {
+                    true
+                }
+            })
+            .collect();
 
-        filtered_tip_data.sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| Ord::cmp(seq_num_a, seq_num_b));
+        filtered_tip_data
+            .sort_by(|(_, _, seq_num_a), (_, _, seq_num_b)| Ord::cmp(seq_num_a, seq_num_b));
 
         filtered_tip_data.into_iter().collect()
     }
@@ -4105,9 +4109,7 @@ impl PeerNetwork {
         let mut next_seq_num_data = vec![];
         loop {
             let should_pop_next = match sorted_tip_data.back() {
-                Some((_, _, seq_num)) => {
-                    *seq_num == next_seq_num
-                }
+                Some((_, _, seq_num)) => *seq_num == next_seq_num,
                 None => {
                     // there is no more tip data
                     false
