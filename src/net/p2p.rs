@@ -4046,10 +4046,10 @@ impl PeerNetwork {
                                 }
                                 _ => {
                                     warn!(
-                                    "{:?}: Microblock tip sync request v2/microblocks/unconfirmed, but received unexpected response type {:?}",
-                                    &network.local_peer,
-                                    &http_response
-                                );
+                                        "{:?}: Microblock tip sync request v2/microblocks/unconfirmed, but received unexpected response type {:?}",
+                                        &network.local_peer,
+                                        &http_response
+                                    );
                                     faulty_peers.broken_connections.push(event_id);
                                     // done requesting current peer
                                     Ok((true, None))
@@ -4106,11 +4106,7 @@ impl PeerNetwork {
         loop {
             let should_pop_next = match sorted_tip_data.back() {
                 Some((_, _, seq_num)) => {
-                    if *seq_num == next_seq_num {
-                        true
-                    } else {
-                        false
-                    }
+                    *seq_num == next_seq_num
                 }
                 None => {
                     // there is no more tip data
@@ -4212,7 +4208,7 @@ impl PeerNetwork {
                     // gather URLs from peers
                     let mut urls = vec![];
                     for (_event_id, convo) in &self.peers {
-                        if !convo.is_authenticated() || !convo.is_outbound() {
+                        if !convo.is_authenticated() {
                             continue;
                         }
                         if convo.data_url.len() == 0 {

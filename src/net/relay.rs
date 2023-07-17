@@ -914,7 +914,7 @@ impl Relayer {
     ///   through the microblock tip sync protocol.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks
-    ///   that produced these streams, as well as an option of the microblocks obtained through
+    ///   that produced these streams, as well as the amount of microblocks obtained through
     ///   the microblock tip sync protocol.
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
@@ -922,10 +922,10 @@ impl Relayer {
         chainstate: &mut StacksChainState,
     ) -> (
         HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-        Option<(StacksBlockId, Vec<StacksMicroblock>)>,
+        u64,
     ) {
         let mut downloaded_microblock_map = HashMap::new();
-        let mut synced_microblocks = None;
+        let mut num_synced_microblocks = 0;
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -1026,7 +1026,7 @@ impl Relayer {
         // Now, process and store microblocks obtained through the microblock tip sync protocol.
         if let Some(result) = &network_result.synced_microblock_result {
             if result.microblocks.len() == 0 {
-                return (downloaded_microblock_map, None);
+                return (downloaded_microblock_map, 0);
             }
 
             let consensus_hash = result.stacks_tip_consensus_hash;
@@ -1040,11 +1040,11 @@ impl Relayer {
                             "Failed to load parent anchored block snapshot for {}/{}",
                             consensus_hash, &anchored_block_hash
                         );
-                        return (downloaded_microblock_map, None);
+                        return (downloaded_microblock_map, 0);
                     }
                     Err(e) => {
                         warn!("Failed to load parent stacks block snapshot: {:?}", &e);
-                        return (downloaded_microblock_map, None);
+                        return (downloaded_microblock_map, 0);
                     }
                 };
 
@@ -1052,7 +1052,7 @@ impl Relayer {
                 Ok(rules) => rules,
                 Err(e) => {
                     error!("Failed to load current AST rules: {:?}", &e);
-                    return (downloaded_microblock_map, None);
+                    return (downloaded_microblock_map, 0);
                 }
             };
 
@@ -1064,11 +1064,10 @@ impl Relayer {
                 }
                 Err(e) => {
                     error!("Failed to load epoch: {:?}", &e);
-                    return (downloaded_microblock_map, None);
+                    return (downloaded_microblock_map, 0);
                 }
             };
 
-            let mut stored_microblocks = Vec::new();
             for microblock in result.microblocks.iter() {
                 debug!(
                     "Preprocess synced microblock {}/{}-{}",
@@ -1092,7 +1091,7 @@ impl Relayer {
                 ) {
                     Ok(stored) => {
                         if stored {
-                            stored_microblocks.push(microblock.clone());
+                            num_synced_microblocks += 1;
                         }
                     }
                     Err(e) => {
@@ -1107,19 +1106,16 @@ impl Relayer {
                 }
             }
 
-            // If we did store any microblocks (i.e. we didn't have it), then we relay them
-            if stored_microblocks.len() > 0 {
+            // The number of microblocks (i.e. we didn't have it) we stored through the tip sync protocol.
+            if num_synced_microblocks > 0 {
                 info!(
                     "Stored {} microblocks obtained from the tip sync protocol.",
-                    stored_microblocks.len()
+                    num_synced_microblocks
                 );
-                let index_block_hash =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash);
-                synced_microblocks = Some((index_block_hash, stored_microblocks));
             }
         }
 
-        (downloaded_microblock_map, synced_microblocks)
+        (downloaded_microblock_map, num_synced_microblocks)
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
@@ -1450,7 +1446,7 @@ impl Relayer {
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
-    /// * a tuple of the microblocks synced through the microblock tip sync protocol & the block ID of the tip they were built off of (as an option)
+    /// * the number of microblocks synced through the microblock tip sync protocol
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
@@ -1462,7 +1458,7 @@ impl Relayer {
             HashMap<ConsensusHash, StacksBlock>,
             HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
             Vec<(Vec<RelayData>, MicroblocksData)>,
-            Option<(StacksBlockId, Vec<StacksMicroblock>)>,
+            u64,
             Vec<NeighborKey>,
         ),
         net_error,
@@ -1527,15 +1523,13 @@ impl Relayer {
         }
 
         // Process microblocks we downloaded.
-        let (new_confirmed_microblocks, new_synced_microblocks) =
+        let (new_confirmed_microblocks, num_synced_microblocks) =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
 
         let num_new_confirmed_microblocks: usize = new_confirmed_microblocks
             .iter()
             .map(|(_ch, (_id, mbs))| mbs.len())
             .fold(0, |a, b| a + b);
-
-        let num_synced_microblocks = new_synced_microblocks.as_ref().map_or(0, |(_, mbs)| mbs.len());
 
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
         // (these ones will have already been processed, but we need to report them as
@@ -1566,7 +1560,7 @@ impl Relayer {
             new_blocks,
             new_confirmed_microblocks,
             new_microblocks,
-            new_synced_microblocks,
+            num_synced_microblocks,
             bad_neighbors,
         ))
     }
@@ -1852,7 +1846,7 @@ impl Relayer {
                 new_blocks,
                 new_confirmed_microblocks,
                 new_microblocks,
-                new_synced_microblocks,
+                num_synced_microblocks,
                 bad_block_neighbors,
             )) => {
                 // report quantities of new data in the receipts
@@ -1862,10 +1856,7 @@ impl Relayer {
                     .map(|(_ch, (_id, mbs))| mbs.len())
                     .fold(0, |a, b| a + b) as u64;
                 num_new_unconfirmed_microblocks = new_microblocks.len() as u64;
-                num_new_synced_microblocks = new_synced_microblocks
-                    .as_ref()
-                    .map_or(0, |(_id, mbs)| mbs.len())
-                    as u64;
+                num_new_synced_microblocks = num_synced_microblocks;
 
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
@@ -1928,22 +1919,6 @@ impl Relayer {
                             );
                             let msg = StacksMessageType::Microblocks(mblocks_msg);
                             if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                                warn!("Failed to broadcast microblock: {:?}", &e);
-                            }
-                        }
-                    }
-
-                    // have the p2p thread forward all new unconfirmed microblocks obtained through tip sync protocol
-                    if let Some((id, mbs)) = new_synced_microblocks {
-                        if mbs.len() > 0 {
-                            debug!("{:?}: Microblocks from tip sync protocol: {}", &_local_peer, mbs.len());
-                            let mblocks_msg = MicroblocksData {
-                                index_anchor_block: id,
-                                microblocks: mbs,
-                            };
-
-                            let msg = StacksMessageType::Microblocks(mblocks_msg);
-                            if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
                                 warn!("Failed to broadcast microblock: {:?}", &e);
                             }
                         }
@@ -5472,7 +5447,7 @@ pub mod test {
         assert_eq!(processed_blocks.len(), 0);
         assert_eq!(processed_mblocks.len(), 0);
         assert_eq!(relay_mblocks.len(), 0);
-        assert_eq!(num_synced_microblocks, None);
+        assert_eq!(num_synced_microblocks, 0);
         assert_eq!(bad_neighbors.len(), 0);
 
         let txs_relayed = Relayer::process_transactions(
