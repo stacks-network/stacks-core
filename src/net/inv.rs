@@ -1143,6 +1143,9 @@ impl InvState {
         list
     }
 
+    /// This function obtains the block stats of each of the neighbors provided as an input to this
+    /// function, and returns the max height amongst those neighbors as an option. If no stats
+    /// exist for any of the neighbors, the function returns `None`.
     pub fn get_max_height_of_neighbors(&self, neighbors: &Vec<Neighbor>, ibd: bool) -> Option<u64> {
         let mut max_height: u64 = 1;
         let mut stats_obtained = false;

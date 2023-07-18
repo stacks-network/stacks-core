@@ -1358,10 +1358,11 @@ pub struct AttachmentPage {
     pub inventory: Vec<u8>,
 }
 
+/// This struct is used for a success response for the v2/health endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetHealthResponse {
-    pub matches_peers: bool,
-    pub percent_of_blocks_synced: u8,
+    pub matches_peers: bool, // if this is true, this node is caught up to the tip of its most advanced neighbor
+    pub percent_of_blocks_synced: u8, // provides the percent the node is at relative to its most advanced neighbor (wrt burnchain height)
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -2111,12 +2112,12 @@ pub fn infer_initial_burnchain_block_download(
     let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
     if ibd {
         debug!(
-            "PoX watchdog: {} + {} < {}, so initial block download",
+            "{} + {} < {}, so initial block download",
             last_processed_height, burnchain.stable_confirmations, burnchain_height
         );
     } else {
         debug!(
-            "PoX watchdog: {} + {} >= {}, so steady-state",
+            "{} + {} >= {}, so steady-state",
             last_processed_height, burnchain.stable_confirmations, burnchain_height
         );
     }

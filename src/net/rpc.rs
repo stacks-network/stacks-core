@@ -2418,8 +2418,6 @@ impl ConversationHttp {
         req: &HttpRequestType,
         network: &PeerNetwork,
         network_id: u32,
-        peerdb: &PeerDB,
-        inv_state_opt: &Option<InvState>,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
@@ -2432,7 +2430,7 @@ impl ConversationHttp {
         let epoch = network.get_current_epoch();
 
         let initial_neighbors = PeerDB::get_valid_initial_neighbors(
-            peerdb.conn(),
+            network.peerdb.conn(),
             network_id,
             epoch.network_epoch,
             peer_version,
@@ -2456,7 +2454,7 @@ impl ConversationHttp {
         );
 
         // get max block height amongst bootstrap nodes
-        let max_height_opt = match inv_state_opt {
+        let max_height_opt = match &network.inv_state {
             Some(inv_state) => inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd),
             None => {
                 let response = HttpResponseType::ServerError(
@@ -3042,8 +3040,6 @@ impl ConversationHttp {
                     &req,
                     network,
                     network.local_peer.network_id,
-                    &network.peerdb,
-                    &network.inv_state,
                     network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
