@@ -910,22 +910,120 @@ impl Relayer {
         Ok((new_blocks, bad_neighbors))
     }
 
-    /// Preprocess all downloaded & confirmed microblock streams, as well as streams downloaded
-    ///   through the microblock tip sync protocol.
+    /// Preprocess all streams downloaded through the microblock tip sync protocol.
+    /// Returns the amount of microblocks obtained through the microblock tip sync protocol.
+    fn preprocess_synced_microblocks(sort_ic: &SortitionDBConn,
+                                     network_result: &mut NetworkResult,
+                                     chainstate: &mut StacksChainState) -> u64 {
+        let mut num_synced_microblocks = 0;
+
+        // Now, process and store microblocks obtained through the microblock tip sync protocol.
+        if let Some(result) = &network_result.synced_microblock_result {
+            if result.microblocks.len() == 0 {
+                return 0;
+            }
+
+            let consensus_hash = result.stacks_tip_consensus_hash;
+            let anchored_block_hash = result.stacks_tip_block_hash;
+
+            let block_snapshot =
+                match SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash) {
+                    Ok(Some(sn)) => sn,
+                    Ok(None) => {
+                        warn!(
+                            "Failed to load parent anchored block snapshot for {}/{}",
+                            consensus_hash, &anchored_block_hash
+                        );
+                        return 0;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load parent stacks block snapshot: {:?}", &e);
+                        return 0;
+                    }
+                };
+
+            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
+                Ok(rules) => rules,
+                Err(e) => {
+                    error!("Failed to load current AST rules: {:?}", &e);
+                    return 0;
+                }
+            };
+
+            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
+            {
+                Ok(Some(epoch)) => epoch.epoch_id,
+                Ok(None) => {
+                    panic!("FATAL: no epoch defined");
+                }
+                Err(e) => {
+                    error!("Failed to load epoch: {:?}", &e);
+                    return 0;
+                }
+            };
+
+            for microblock in result.microblocks.iter() {
+                debug!(
+                    "Preprocess synced microblock {}/{}-{}",
+                    consensus_hash,
+                    &anchored_block_hash,
+                    &microblock.block_hash()
+                );
+                if !Relayer::static_check_problematic_relayed_microblock(
+                    chainstate.mainnet,
+                    epoch_id,
+                    microblock,
+                    ast_rules,
+                ) {
+                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &anchored_block_hash);
+                    break;
+                }
+                match chainstate.preprocess_streamed_microblock(
+                    &consensus_hash,
+                    &anchored_block_hash,
+                    microblock,
+                ) {
+                    Ok(stored) => {
+                        if stored {
+                            num_synced_microblocks += 1;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Invalid synced microblock {}/{}-{}: {:?}",
+                            consensus_hash,
+                            &anchored_block_hash,
+                            microblock.block_hash(),
+                            &e
+                        );
+                    }
+                }
+            }
+
+            // The number of microblocks (i.e. we didn't have it) we stored through the tip sync protocol.
+            if num_synced_microblocks > 0 {
+                info!(
+                    "Stored {} microblocks obtained from the tip sync protocol.",
+                    num_synced_microblocks
+                );
+            }
+        }
+
+        num_synced_microblocks
+    }
+
+    /// Preprocess all downloaded & confirmed microblock streams.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks
-    ///   that produced these streams, as well as the amount of microblocks obtained through
-    ///   the microblock tip sync protocol.
+    ///   that produced these streams
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> (
-        HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-        u64,
-    ) {
+    ) ->
+        HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>
+     {
         let mut downloaded_microblock_map = HashMap::new();
-        let mut num_synced_microblocks = 0;
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -1023,99 +1121,7 @@ impl Relayer {
             }
         }
 
-        // Now, process and store microblocks obtained through the microblock tip sync protocol.
-        if let Some(result) = &network_result.synced_microblock_result {
-            if result.microblocks.len() == 0 {
-                return (downloaded_microblock_map, 0);
-            }
-
-            let consensus_hash = result.stacks_tip_consensus_hash;
-            let anchored_block_hash = result.stacks_tip_block_hash;
-
-            let block_snapshot =
-                match SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash) {
-                    Ok(Some(sn)) => sn,
-                    Ok(None) => {
-                        warn!(
-                            "Failed to load parent anchored block snapshot for {}/{}",
-                            consensus_hash, &anchored_block_hash
-                        );
-                        return (downloaded_microblock_map, 0);
-                    }
-                    Err(e) => {
-                        warn!("Failed to load parent stacks block snapshot: {:?}", &e);
-                        return (downloaded_microblock_map, 0);
-                    }
-                };
-
-            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
-                Ok(rules) => rules,
-                Err(e) => {
-                    error!("Failed to load current AST rules: {:?}", &e);
-                    return (downloaded_microblock_map, 0);
-                }
-            };
-
-            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
-            {
-                Ok(Some(epoch)) => epoch.epoch_id,
-                Ok(None) => {
-                    panic!("FATAL: no epoch defined");
-                }
-                Err(e) => {
-                    error!("Failed to load epoch: {:?}", &e);
-                    return (downloaded_microblock_map, 0);
-                }
-            };
-
-            for microblock in result.microblocks.iter() {
-                debug!(
-                    "Preprocess synced microblock {}/{}-{}",
-                    consensus_hash,
-                    &anchored_block_hash,
-                    &microblock.block_hash()
-                );
-                if !Relayer::static_check_problematic_relayed_microblock(
-                    chainstate.mainnet,
-                    epoch_id,
-                    microblock,
-                    ast_rules,
-                ) {
-                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &anchored_block_hash);
-                    break;
-                }
-                match chainstate.preprocess_streamed_microblock(
-                    &consensus_hash,
-                    &anchored_block_hash,
-                    microblock,
-                ) {
-                    Ok(stored) => {
-                        if stored {
-                            num_synced_microblocks += 1;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Invalid synced microblock {}/{}-{}: {:?}",
-                            consensus_hash,
-                            &anchored_block_hash,
-                            microblock.block_hash(),
-                            &e
-                        );
-                    }
-                }
-            }
-
-            // The number of microblocks (i.e. we didn't have it) we stored through the tip sync protocol.
-            if num_synced_microblocks > 0 {
-                info!(
-                    "Stored {} microblocks obtained from the tip sync protocol.",
-                    num_synced_microblocks
-                );
-            }
-        }
-
-        (downloaded_microblock_map, num_synced_microblocks)
+        downloaded_microblock_map
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
@@ -1523,8 +1529,10 @@ impl Relayer {
         }
 
         // Process microblocks we downloaded.
-        let (new_confirmed_microblocks, num_synced_microblocks) =
+        let new_confirmed_microblocks =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
+        let num_synced_microblocks =
+            Relayer::preprocess_synced_microblocks(&sort_ic, network_result, chainstate);
 
         let num_new_confirmed_microblocks: usize = new_confirmed_microblocks
             .iter()
