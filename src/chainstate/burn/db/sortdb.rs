@@ -864,10 +864,10 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
 // force the node to go and store the memo for stack_stx and delegate_stx
 const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[
     r#"
-    ALTER TABLE stack_stx ADD COLUMN memo TEXT;
+    ALTER TABLE stack_stx ADD COLUMN memo TEXT NOT NULL DEFAULT "";
     "#,
     r#"
-    ALTER TABLE delegate_stx ADD COLUMN memo TEXT;
+    ALTER TABLE delegate_stx ADD COLUMN memo TEXT NOT NULL DEFAULT "";
     "#,
 ];
 

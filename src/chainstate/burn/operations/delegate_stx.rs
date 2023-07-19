@@ -1,3 +1,4 @@
+use std::cmp;
 use std::io::{Read, Write};
 
 use crate::burnchains::BurnchainTransaction;
@@ -33,7 +34,7 @@ impl DelegateStxOp {
         )
     }
 
-    fn parse_data(data: &mut Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -63,23 +64,25 @@ impl DelegateStxOp {
         if data.len() > 77 {
             // too long
             warn!(
-                "DelegateStxOp payload is too long ({} bytes, expected <= {}); truncating to correct length",
+                "DelegateStxOp payload is too long ({} bytes, expected <= {}); ignoring the extra data in parsing.",
                 data.len(),
                 77
             );
-            data.truncate(77);
         }
 
-        let delegated_ustx = parse_u128_from_be(&data[0..16]).unwrap();
+        let max_len = cmp::min(77, data.len());
+        let relevant_data = &data[0..max_len];
+
+        let delegated_ustx = parse_u128_from_be(&relevant_data[0..16]).unwrap();
 
         // `reward_addr_index` is type Option<u32>.
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
         // If the first byte is 1, then the next 4 bytes are parsed as a u32
         let reward_addr_index = {
-            if data[16] == 1 {
-                let index = parse_u32_from_be(&data[17..21]).unwrap();
+            if relevant_data[16] == 1 {
+                let index = parse_u32_from_be(&relevant_data[17..21]).unwrap();
                 Some(index)
-            } else if data[16] == 0 {
+            } else if relevant_data[16] == 0 {
                 None
             } else {
                 warn!("DELEGATE_STX payload is malformed (invalid byte value for reward_addr_index option flag)");
@@ -91,15 +94,15 @@ impl DelegateStxOp {
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
         // If the first byte is 1, then the next 8 bytes are parsed
         let until_burn_height = {
-            if data[21] == 1 {
-                if data.len() < 30 {
+            if relevant_data[21] == 1 {
+                if relevant_data.len() < 30 {
                     // too short to have required data
-                    warn!("DELEGATE_STX payload is malformed ({} bytes)", data.len());
+                    warn!("DELEGATE_STX payload is malformed ({} bytes)", relevant_data.len());
                     return None;
                 }
-                let burn_height = parse_u64_from_be(&data[22..30]).unwrap();
+                let burn_height = parse_u64_from_be(&relevant_data[22..30]).unwrap();
                 Some(burn_height)
-            } else if data[21] == 0 {
+            } else if relevant_data[21] == 0 {
                 None
             } else {
                 warn!("DELEGATE_STX payload is malformed (invalid byte value for until_burn_height option flag)");
@@ -107,8 +110,8 @@ impl DelegateStxOp {
             }
         };
 
-        let memo = if data.len() >= 31 {
-            Vec::from(&data[30..])
+        let memo = if relevant_data.len() >= 31 {
+            Vec::from(&relevant_data[30..])
         } else {
             vec![]
         };

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
 use std::io::{Read, Write};
 
 use stacks_common::address::AddressHashMode;
@@ -175,7 +176,7 @@ impl StackStxOp {
         }
     }
 
-    fn parse_data(data: &mut Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3                             19               20        80
@@ -202,17 +203,19 @@ impl StackStxOp {
         if data.len() > 77 {
             // too long
             warn!(
-                "StacksStxOp payload is too long ({} bytes, expected <= {}); truncating to correct length",
+                "StacksStxOp payload is too long ({} bytes, expected <= {}); ignoring the extra data in parsing.",
                 data.len(),
                 77
             );
-            data.truncate(77);
         }
 
-        let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let num_cycles = data[16];
-        let memo = if data.len() >= 18 {
-            Vec::from(&data[17..])
+        let max_len = cmp::min(77, data.len());
+        let relevant_data = &data[0..max_len];
+
+        let stacked_ustx = parse_u128_from_be(&relevant_data[0..16]).unwrap();
+        let num_cycles = relevant_data[16];
+        let memo = if relevant_data.len() >= 18 {
+            Vec::from(&relevant_data[17..])
         } else {
             vec![]
         };
