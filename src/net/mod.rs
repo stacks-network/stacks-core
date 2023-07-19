@@ -1255,6 +1255,11 @@ pub struct DataVarResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstantValResponse {
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
     #[serde(rename = "proof")]
@@ -1496,6 +1501,13 @@ pub enum HttpRequestType {
         TipRequest,
         bool,
     ),
+    GetConstantVal(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        ClarityName,
+        TipRequest,
+    ),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
@@ -1641,6 +1653,7 @@ pub enum HttpResponseType {
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetDataVar(HttpResponseMetadata, DataVarResponse),
+    GetConstantVal(HttpResponseMetadata, ConstantValResponse),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
@@ -2514,9 +2527,11 @@ pub mod test {
                 3,
                 25,
                 5,
-                u64::max_value(),
-                u64::max_value(),
-                u32::max_value(),
+                u64::MAX,
+                u64::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
             );
 
             let mut spending_account = TestMinerFactory::new().next_miner(

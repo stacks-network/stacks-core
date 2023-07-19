@@ -2764,7 +2764,7 @@ mod test {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
-                end_height: u64::max_value(),
+                end_height: u64::MAX,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             })
@@ -2774,7 +2774,15 @@ mod test {
         }
 
         fn get_v1_unlock_height(&self) -> u32 {
-            u32::max_value()
+            u32::MAX
+        }
+
+        fn get_v2_unlock_height(&self) -> u32 {
+            u32::MAX
+        }
+
+        fn get_pox_3_activation_height(&self) -> u32 {
+            u32::MAX
         }
 
         fn get_pox_prepare_length(&self) -> u32 {

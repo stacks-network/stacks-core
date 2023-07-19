@@ -127,6 +127,11 @@ lazy_static! {
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
     ))
     .unwrap();
+    static ref PATH_GET_CONSTANT_VAL: Regex = Regex::new(&format!(
+        "^/v2/constant_val/(?P<address>{})/(?P<contract>{})/(?P<constname>{})$",
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+    ))
+    .unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
         "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
@@ -1554,6 +1559,11 @@ impl HttpRequestType {
                 &HttpRequestType::parse_get_data_var,
             ),
             (
+                "GET",
+                &PATH_GET_CONSTANT_VAL,
+                &HttpRequestType::parse_get_constant_val,
+            ),
+            (
                 "POST",
                 &PATH_GET_MAP_ENTRY,
                 &HttpRequestType::parse_get_map_entry,
@@ -1848,6 +1858,42 @@ impl HttpRequestType {
             var_name,
             tip,
             with_proof,
+        ))
+    }
+
+    fn parse_get_constant_val<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if content_len != 0 {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for GetConstantVal ({})",
+                content_len
+            )));
+        }
+
+        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+            net_error::DeserializeError("Failed to parse contract address".into())
+        })?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let const_name =
+            ClarityName::try_from(captures["constname"].to_string()).map_err(|_e| {
+                net_error::DeserializeError("Failed to parse constant value name".into())
+            })?;
+
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetConstantVal(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_addr,
+            contract_name,
+            const_name,
+            tip,
         ))
     }
 
@@ -2712,6 +2758,7 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
             HttpRequestType::GetDataVar(ref md, ..) => md,
+            HttpRequestType::GetConstantVal(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
             HttpRequestType::GetTransferCost(ref md) => md,
             HttpRequestType::GetContractABI(ref md, ..) => md,
@@ -2744,6 +2791,7 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
             HttpRequestType::GetDataVar(ref mut md, ..) => md,
+            HttpRequestType::GetConstantVal(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
             HttpRequestType::GetTransferCost(ref mut md) => md,
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
@@ -2834,6 +2882,19 @@ impl HttpRequestType {
                 contract_name.as_str(),
                 var_name.as_str(),
                 HttpRequestType::make_tip_query_string(tip_req, *with_proof)
+            ),
+            HttpRequestType::GetConstantVal(
+                _md,
+                contract_addr,
+                contract_name,
+                const_name,
+                tip_req,
+            ) => format!(
+                "/v2/constant_val/{}/{}/{}{}",
+                &contract_addr.to_string(),
+                contract_name.as_str(),
+                const_name.as_str(),
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2952,6 +3013,9 @@ impl HttpRequestType {
             HttpRequestType::PostMicroblock(..) => "/v2/microblocks",
             HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
             HttpRequestType::GetDataVar(..) => "/v2/data_var/:principal/:contract_name/:var_name",
+            HttpRequestType::GetConstantVal(..) => {
+                "/v2/constant_val/:principal/:contract_name/:const_name"
+            }
             HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
             HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
             HttpRequestType::GetContractABI(..) => {
@@ -3403,6 +3467,10 @@ impl HttpResponseType {
             (&PATH_GETHEADERS, &HttpResponseType::parse_headers),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GET_DATA_VAR, &HttpResponseType::parse_get_data_var),
+            (
+                &PATH_GET_CONSTANT_VAL,
+                &HttpResponseType::parse_get_constant_val,
+            ),
             (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
                 &PATH_GETMICROBLOCKS_INDEXED,
@@ -3624,6 +3692,21 @@ impl HttpResponseType {
         Ok(HttpResponseType::GetDataVar(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             data_var,
+        ))
+    }
+
+    fn parse_get_constant_val<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let constant_val =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetConstantVal(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            constant_val,
         ))
     }
 
@@ -4059,6 +4142,7 @@ impl HttpResponseType {
             HttpResponseType::MicroblockHash(ref md, _) => md,
             HttpResponseType::TokenTransferCost(ref md, _) => md,
             HttpResponseType::GetDataVar(ref md, _) => md,
+            HttpResponseType::GetConstantVal(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
             HttpResponseType::GetAccount(ref md, _) => md,
             HttpResponseType::GetContractABI(ref md, _) => md,
@@ -4179,6 +4263,10 @@ impl HttpResponseType {
             HttpResponseType::GetDataVar(ref md, ref var_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, var_data)?;
+            }
+            HttpResponseType::GetConstantVal(ref md, ref constant_val) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, constant_val)?;
             }
             HttpResponseType::GetMapEntry(ref md, ref map_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -4493,6 +4581,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
                 HttpRequestType::GetDataVar(..) => "HTTP(GetDataVar)",
+                HttpRequestType::GetConstantVal(..) => "HTTP(GetConstantVal)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
@@ -4510,6 +4599,7 @@ impl MessageSequence for StacksHttpMessage {
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
                 HttpResponseType::GetDataVar(_, _) => "HTTP(GetDataVar)",
+                HttpResponseType::GetConstantVal(..) => "HTTP(GetConstantVal)",
                 HttpResponseType::GetMapEntry(_, _) => "HTTP(GetMapEntry)",
                 HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",

@@ -163,6 +163,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
     )
 }
 
+// This function is called for helium and mocknet.
 fn spawn_peer(
     is_mainnet: bool,
     chain_id: u32,
@@ -239,7 +240,7 @@ fn spawn_peer(
                 }
             };
 
-            let indexer = make_bitcoin_indexer(&config);
+            let indexer = make_bitcoin_indexer(&config, None);
 
             let net_result = this
                 .run(
@@ -379,72 +380,6 @@ impl Node {
         }
     }
 
-    pub fn init_and_sync(
-        config: Config,
-        burnchain_controller: &mut Box<dyn BurnchainController>,
-    ) -> Node {
-        let burnchain_tip = burnchain_controller.get_chain_tip();
-
-        let keychain = Keychain::default(config.node.seed.clone());
-
-        let mut event_dispatcher = EventDispatcher::new();
-
-        for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
-
-        let chainstate_path = config.get_chainstate_path_str();
-        let sortdb_path = config.get_burn_db_file_path();
-
-        let (chain_state, _) = match StacksChainState::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &chainstate_path,
-            Some(config.node.get_marf_opts()),
-        ) {
-            Ok(x) => x,
-            Err(_e) => panic!(),
-        };
-
-        let mut node = Node {
-            active_registered_key: None,
-            bootstraping_chain: false,
-            chain_state,
-            chain_tip: None,
-            keychain,
-            last_sortitioned_block: None,
-            config,
-            burnchain_tip: None,
-            nonce: 0,
-            event_dispatcher,
-            leader_key_registers: HashSet::new(),
-            block_commits: HashSet::new(),
-        };
-
-        node.spawn_peer_server();
-
-        let pox_constants = burnchain_controller.sortdb_ref().pox_constants.clone();
-        loop {
-            let sortdb = SortitionDB::open(&sortdb_path, false, pox_constants.clone())
-                .expect("BUG: failed to open burn database");
-            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&sortdb) {
-                if chain_tip.consensus_hash == burnchain_tip.block_snapshot.consensus_hash {
-                    info!("Syncing Stacks blocks - completed");
-                    break;
-                } else {
-                    info!(
-                        "Syncing Stacks blocks - received block #{}",
-                        chain_tip.height
-                    );
-                }
-            } else {
-                info!("Syncing Stacks blocks - unable to progress");
-            }
-            thread::sleep(time::Duration::from_secs(5));
-        }
-        node
-    }
-
     fn make_atlas_config() -> AtlasConfig {
         AtlasConfig::new(false)
     }
@@ -458,6 +393,7 @@ impl Node {
         .unwrap()
     }
 
+    // This function is used for helium and mocknet.
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
