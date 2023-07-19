@@ -669,6 +669,7 @@ fn transition_fixes_bitcoin_rigidity() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        memo: vec![],
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
@@ -826,6 +827,7 @@ fn transition_fixes_bitcoin_rigidity() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        memo: vec![],
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
@@ -899,6 +901,7 @@ fn transition_fixes_bitcoin_rigidity() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        memo: vec![],
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
@@ -966,6 +969,7 @@ fn transition_fixes_bitcoin_rigidity() {
         vtxindex: 0,
         block_height: 0,
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        memo: vec![],
     };
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
