@@ -35,6 +35,8 @@ use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::PEER_VERSION_EPOCH_2_2;
+use crate::core::PEER_VERSION_EPOCH_2_3;
 use crate::monitoring;
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
@@ -706,6 +708,17 @@ impl ConversationP2P {
             // epoch shift hasn't happened yet, and this peer supports the current epoch
             test_debug!(
                 "Remote peer has epoch {} and current epoch is {}, so still valid",
+                remote_epoch,
+                cur_epoch
+            );
+            return true;
+        }
+
+        // be a little more permissive with epochs 2.3 and 2.2, because 2.3.0.0.0 shipped with
+        //  PEER_VERSION_MAINNET = 0x18000007 and PEER_VERSION_TESTNET = 0xfacade07
+        if cur_epoch == PEER_VERSION_EPOCH_2_3 && remote_epoch == PEER_VERSION_EPOCH_2_2 {
+            debug!(
+                "Remote peer has epoch {} and current epoch is {}, but we're permissive about 2.2/2.3 boundary",
                 remote_epoch,
                 cur_epoch
             );

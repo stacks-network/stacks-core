@@ -132,7 +132,10 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
 }
 
 /// Helper method to create a BitcoinIndexer
-pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
+pub fn make_bitcoin_indexer(
+    config: &Config,
+    should_keep_running: Option<Arc<AtomicBool>>,
+) -> BitcoinIndexer {
     let (network, _) = config.burnchain.get_bitcoin_network();
     let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
         .expect("Bitcoin network unsupported");
@@ -158,6 +161,7 @@ pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
     let burnchain_indexer = BitcoinIndexer {
         config: indexer_config.clone(),
         runtime: indexer_runtime,
+        should_keep_running: should_keep_running,
     };
     burnchain_indexer
 }
@@ -307,6 +311,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: should_keep_running.clone(),
         };
 
         Self {
@@ -352,6 +357,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: None,
         };
 
         Self {
@@ -1154,6 +1160,9 @@ impl BitcoinRegtestController {
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1161,7 +1170,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            payload.parent_block_ptr as u64,
+            burn_chain_tip.block_height,
         )?;
 
         // Serialize the payload

@@ -411,6 +411,34 @@ impl Config {
             burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
         }
 
+        if let Some(epochs) = &self.burnchain.epochs {
+            // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
+            {
+                // Override v2_unlock_height to the start_height of epoch2.2
+                debug!(
+                    "Override v2_unlock_height from {} to {}",
+                    burnchain.pox_constants.v2_unlock_height,
+                    epoch.start_height + 1
+                );
+                burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
+            }
+
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch24)
+            {
+                // Override pox_3_activation_height to the start_height of epoch2.4
+                debug!(
+                    "Override pox_3_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_3_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
+            }
+        }
+
         if let Some(sunset_start) = self.burnchain.sunset_start {
             debug!(
                 "Override sunset_start from {} to {}",
@@ -510,6 +538,12 @@ impl Config {
                 Ok(StacksEpochId::Epoch2_05)
             } else if epoch_name == EPOCH_CONFIG_2_1_0 {
                 Ok(StacksEpochId::Epoch21)
+            } else if epoch_name == EPOCH_CONFIG_2_2_0 {
+                Ok(StacksEpochId::Epoch22)
+            } else if epoch_name == EPOCH_CONFIG_2_3_0 {
+                Ok(StacksEpochId::Epoch23)
+            } else if epoch_name == EPOCH_CONFIG_2_4_0 {
+                Ok(StacksEpochId::Epoch24)
             } else {
                 Err(format!("Unknown epoch name specified: {}", epoch_name))
             }?;
@@ -532,6 +566,9 @@ impl Config {
             StacksEpochId::Epoch20,
             StacksEpochId::Epoch2_05,
             StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -872,6 +909,9 @@ impl Config {
                 candidate_retry_cache_size: miner
                     .candidate_retry_cache_size
                     .unwrap_or(miner_default_config.candidate_retry_cache_size),
+                unprocessed_block_deadline_secs: miner
+                    .unprocessed_block_deadline_secs
+                    .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
             },
             None => miner_default_config,
         };
@@ -1409,6 +1449,9 @@ pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
 pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
 pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
 pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
+pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
+pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
+pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
@@ -1862,6 +1905,7 @@ pub struct MinerConfig {
     pub wait_for_block_download: bool,
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
+    pub unprocessed_block_deadline_secs: u64,
 }
 
 impl MinerConfig {
@@ -1877,6 +1921,7 @@ impl MinerConfig {
             wait_for_block_download: true,
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
+            unprocessed_block_deadline_secs: 30,
         }
     }
 }
@@ -1978,6 +2023,7 @@ pub struct MinerConfigFile {
     pub segwit: Option<bool>,
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
+    pub unprocessed_block_deadline_secs: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

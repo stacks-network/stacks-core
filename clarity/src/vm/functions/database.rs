@@ -204,6 +204,11 @@ pub fn special_contract_call(
         nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
     }?;
 
+    // sanitize contract-call outputs in epochs >= 2.4
+    let result_type = TypeSignature::type_of(&result);
+    let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
+        .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
+
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
@@ -241,9 +246,10 @@ pub fn special_fetch_variable_v200(
         data_types.value_type.size(),
     )?;
 
+    let epoch = env.epoch().clone();
     env.global_context
         .database
-        .lookup_variable(contract, var_name, data_types)
+        .lookup_variable(contract, var_name, data_types, &epoch)
 }
 
 /// The Stacks v205 version of fetch_variable uses the actual stored size of the
@@ -265,10 +271,11 @@ pub fn special_fetch_variable_v205(
         .get(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .lookup_variable_with_size(contract, var_name, data_types);
+        .lookup_variable_with_size(contract, var_name, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -311,9 +318,10 @@ pub fn special_set_variable_v200(
 
     env.add_memory(value.get_memory_use())?;
 
+    let epoch = env.epoch().clone();
     env.global_context
         .database
-        .set_variable(contract, var_name, value, data_types)
+        .set_variable(contract, var_name, value, data_types, &epoch)
         .map(|data| data.value)
 }
 
@@ -342,10 +350,11 @@ pub fn special_set_variable_v205(
         .get(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .set_variable(contract, var_name, value, data_types);
+        .set_variable(contract, var_name, value, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -384,9 +393,10 @@ pub fn special_fetch_entry_v200(
         data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
+    let epoch = env.epoch().clone();
     env.global_context
         .database
-        .fetch_entry(contract, map_name, &key, data_types)
+        .fetch_entry(contract, map_name, &key, data_types, &epoch)
 }
 
 /// The Stacks v205 version of fetch_entry uses the actual stored size of the
@@ -410,10 +420,11 @@ pub fn special_fetch_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .fetch_entry_with_size(contract, map_name, &key, data_types);
+        .fetch_entry_with_size(contract, map_name, &key, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -486,9 +497,10 @@ pub fn special_set_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    let epoch = env.epoch().clone();
     env.global_context
         .database
-        .set_entry(contract, map_name, key, value, data_types)
+        .set_entry(contract, map_name, key, value, data_types, &epoch)
         .map(|data| data.value)
 }
 
@@ -519,10 +531,11 @@ pub fn special_set_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .set_entry(contract, map_name, key, value, data_types);
+        .set_entry(contract, map_name, key, value, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -570,9 +583,11 @@ pub fn special_insert_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    let epoch = env.epoch().clone();
+
     env.global_context
         .database
-        .insert_entry(contract, map_name, key, value, data_types)
+        .insert_entry(contract, map_name, key, value, data_types, &epoch)
         .map(|data| data.value)
 }
 
@@ -603,10 +618,11 @@ pub fn special_insert_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .insert_entry(contract, map_name, key, value, data_types);
+        .insert_entry(contract, map_name, key, value, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -651,9 +667,10 @@ pub fn special_delete_entry_v200(
 
     env.add_memory(key.get_memory_use())?;
 
+    let epoch = env.epoch().clone();
     env.global_context
         .database
-        .delete_entry(contract, map_name, &key, data_types)
+        .delete_entry(contract, map_name, &key, data_types, &epoch)
         .map(|data| data.value)
 }
 
@@ -682,10 +699,11 @@ pub fn special_delete_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
+    let epoch = env.epoch().clone();
     let result = env
         .global_context
         .database
-        .delete_entry(contract, map_name, &key, data_types);
+        .delete_entry(contract, map_name, &key, data_types, &epoch);
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -876,11 +894,12 @@ pub fn special_get_burn_block_info(
                     TupleData::from_data(vec![
                         (
                             "addrs".into(),
-                            Value::list_from(
+                            Value::cons_list(
                                 addrs
                                     .into_iter()
                                     .map(|addr_tuple| Value::Tuple(addr_tuple))
                                     .collect(),
+                                env.epoch(),
                             )
                             .expect("FATAL: could not convert address list to Value"),
                         ),
