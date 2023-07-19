@@ -14,6 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Special contract-call handling for updating PoX locks on user
+//! accounts.
+//!
+//! This library provides a contract-call special case handler
+//! `crate::handle_contract_call_special_cases()` which matches a
+//! contract-call result against zero-address published contracts
+//! `pox`, `pox-2`, and `pox-3`. For each of those contracts, it
+//! checks if the function called requires applying or updating the
+//! `STXBalance` struct's locks, and if the function was successfully
+//! invoked. If so, it updates the PoX lock.
+
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
