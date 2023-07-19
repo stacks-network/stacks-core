@@ -4130,6 +4130,21 @@ impl StacksNode {
         info!("P2P thread exit!");
     }
 
+    /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
+    /// This variable is used for prometheus monitoring (which only runs when the feature flag
+    /// `monitoring_prom` is activated
+    pub fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
+        let public_key = keychain.get_pub_key();
+        let miner_addr = relayer_thread
+            .bitcoin_controller
+            .get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr_str = addr2str(&miner_addr);
+        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
+            warn!("Failed to set global burnchain signer: {:?}", &e);
+            e
+        });
+    }
+
     pub fn spawn(
         runloop: &RunLoop,
         globals: Globals,
@@ -4177,15 +4192,7 @@ impl StacksNode {
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
 
-        let public_key = keychain.get_pub_key();
-        let miner_addr = relayer_thread
-            .bitcoin_controller
-            .get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let miner_addr_str = addr2str(&miner_addr);
-        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
-            warn!("Failed to set global burnchain signer: {:?}", &e);
-            e
-        });
+        StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
 
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
