@@ -28,7 +28,18 @@ jobs:
         id: git_checkout
         uses: actions/checkout@v3
 
-      # Could run a `docker system prune --force`` here to clean up a little extra space, ~4-5GB
+      - name: Reclaim disk space
+        id: cleanup
+        run: |
+          sudo apt-get remove -y '^dotnet-.*'
+          sudo apt-get remove -y '^llvm-.*'
+          sudo apt-get remove -y 'php.*'
+          sudo apt-get remove -y '^mongodb-.*'
+          sudo apt-get remove -y '^mysql-.*'
+          sudo apt-get remove -y azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          docker system prune --force
 
       - name: Build bitcoin integration testing image
         id: build_docker_image
@@ -38,12 +49,6 @@ jobs:
         run: |
           rm .dockerignore
           docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
-
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          docker-images: false
 
       - name: Export docker image as tarball
         id: export_docker_image
