@@ -78,7 +78,7 @@
 /// StackerDBs.  The handshake-handling code happens in src::net::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
-/// that claim to have copies.  This set, called the "DB neighbors", is ddistinct from the set
+/// that claim to have copies.  This set, called the "DB neighbors", is distinct from the set
 /// of neighbors the node uses to replicate blocks and transactions.  It then connects
 /// to these nodes with a `Handshake` / `StackerDBHandshakeAccept` exchange (if the neighbor walk
 /// has not done so already), and proceeds to query each DB's chunk inventories.
