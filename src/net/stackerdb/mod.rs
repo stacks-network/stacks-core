@@ -58,7 +58,7 @@
 /// The smart contract to which a StackerDB is bound controls how many chunks the DB has, who can
 /// write to which chunks (identified by public key hash), how big a chunk is, and how often a
 /// chunk can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
-/// in order to configure the database.  The act of configuring the re-configuring the database
+/// in order to configure the database.  The act of re-configuring the database
 /// is also the act of dropping and reinstantiating it.
 ///
 /// Applications that employ StackerDBs would deploy one or more smart contracts that list out
