@@ -101,7 +101,7 @@ you push your code. Follow these instruction to set it up:
 #!/bin/sh
 HAS_ISSUES=0
 for file in $(git diff --name-only --staged); do
-    FMT_RESULT="$(cargo fmt -- $file --check --config group_imports=StdExternalCrate 2>/dev/null || true)"
+    FMT_RESULT="$(rustfmt $file --check --config group_imports=StdExternalCrate 2>/dev/null || true)"
     if [ "$FMT_RESULT" != "" ]; then
         HAS_ISSUES=1
     fi
