@@ -22,7 +22,7 @@
 /// blockchain.  Instead, developers use StackerDBs to host and replicate auxiliary smart contract
 /// data for the purposes of some (off-chain) application in a best-effort manner.  In doing so,
 /// Stacks-powered applications are able to leverage the Stacks peer-to-peer node network to host
-/// and dissiminate their data without incuring the cost and performance penalties of bundling it
+/// and disseminate their data without incuring the cost and performance penalties of bundling it
 /// within a transaction.
 ///
 /// ## Data Model
