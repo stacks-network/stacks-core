@@ -40,22 +40,26 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
+      - name: Add code coverage tools
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install grcov
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
-      - name: Run unit tests (with coverage)
+      - name: Run units tests (with coverage)
         id: unit_tests_codecov
         env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
+          RUSTFLAGS: -Cinstrument-coverage
+          LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
         run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-      - name: Run unit tests
-        id: codedov
+          cargo test --workspace
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+      - name: Upload codecov results
         uses: codecov/codecov-action@v3
+        id: codedov
         with:
-          files: ./coverage-output/lcov.info
+          files: ./lcov.info
           name: unit_tests
           fail_ci_if_error: false
 
