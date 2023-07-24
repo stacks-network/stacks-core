@@ -5,7 +5,7 @@
 name: Open Clarity JS SDK PR
 
 env:
-  CLARITY_JS_SDK_REPOSITORY: blockstack/clarity-js-sdk
+  CLARITY_JS_SDK_REPOSITORY: stacks-network/clarity-js-sdk
   COMMIT_USER: Hiro DevOps
   COMMIT_EMAIL: 45208873+blockstack-devops@users.noreply.github.com
 on:
@@ -16,28 +16,30 @@ on:
 
 jobs:
   run:
+    name: Open Clarity JS SDK PR
     runs-on: ubuntu-latest
     # This condition can be removed once the main `stacks-blockchain` workflow creates pre-releases
     # when appropriate, instead of full releases for every tag passed in.
     if: "!contains(github.ref, '-rc')"
     steps:
       - name: Checkout latest clarity js sdk
-        uses: actions/checkout@v2
+        id: git_checkout
+        uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ env.CLARITY_JS_SDK_REPOSITORY }}
           ref: master
-
       - name: Determine Release Version
+        id: get_release_version
         run: |
           RELEASE_VERSION=$(echo ${GITHUB_REF#refs/*/} | tr / -)
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
-
       - name: Update SDK Tag
+        id: update_sdk_tag
         run: sed -i "s@CORE_SDK_TAG = \".*\"@CORE_SDK_TAG = \"$RELEASE_VERSION\"@g" packages/clarity-native-bin/src/index.ts
-
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v3
+        id: create_pr
+        uses: peter-evans/create-pull-request@v4
         with:
           token: ${{ secrets.GH_TOKEN }}
           commit-message: "chore: update clarity-native-bin tag"
@@ -49,7 +51,7 @@ jobs:
           labels: |
             dependencies
           body: |
-            :robot: This is an automated pull request created from a new release in [stacks-blockchain](https://github.com/blockstack/stacks-blockchain/releases).
+            :robot: This is an automated pull request created from a new release in [stacks-blockchain](https://github.com/stacks-network/stacks-blockchain/releases).
 
             Updates the clarity-native-bin tag.
           assignees: zone117x

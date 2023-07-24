@@ -16,98 +16,26 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::CheckError;
 use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute as vm_execute;
-use crate::vm::tests::{
-    execute, symbols_from_values, with_memory_environment, with_versioned_memory_environment,
-};
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, ResponseData, TypeSignature, Value,
-};
-use std::convert::TryInto;
+use crate::vm::errors::{CheckErrors, Error};
+use crate::vm::tests::{execute, symbols_from_values};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
+use crate::vm::tests::env_factory;
+use crate::vm::tests::test_clarity_versions;
+use crate::vm::tests::test_epochs;
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
 
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
-fn test_epoch_clarity_versions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
+use super::MemoryEnvironmentGenerator;
 
-#[template]
-#[rstest]
-#[case(StacksEpochId::Epoch21)]
-#[case(StacksEpochId::Epoch22)]
-#[case(StacksEpochId::Epoch23)]
-#[case(StacksEpochId::Epoch24)]
-fn test_epoch_only_clarity_2(#[case] epoch: StacksEpochId) {}
-
-#[apply(test_epoch_clarity_versions)]
-fn test_trait_basics(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    let to_test = [
-        test_dynamic_dispatch_pass_trait_nested_in_let,
-        test_dynamic_dispatch_pass_trait,
-        test_dynamic_dispatch_intra_contract_call,
-        test_dynamic_dispatch_by_defining_trait,
-        test_dynamic_dispatch_by_implementing_imported_trait,
-        test_dynamic_dispatch_by_importing_trait,
-        test_dynamic_dispatch_including_nested_trait,
-        test_dynamic_dispatch_mismatched_args,
-        test_dynamic_dispatch_mismatched_returned,
-        test_reentrant_dynamic_dispatch,
-        test_readwrite_dynamic_dispatch,
-        test_readwrite_violation_dynamic_dispatch,
-        test_bad_call_with_trait,
-        test_good_call_with_trait,
-        test_good_call_2_with_trait,
-        test_contract_of_value,
-        test_contract_of_no_impl,
-        test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs,
-        test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions,
-        test_return_trait_with_contract_of,
-        test_return_trait_with_contract_of_wrapped_in_begin,
-        test_return_trait_with_contract_of_wrapped_in_let,
-    ];
-    for test in to_test.iter() {
-        with_versioned_memory_environment(test, epoch, version, false);
-    }
-}
-
-#[apply(test_epoch_only_clarity_2)]
-fn test_clarity2(#[case] epoch: StacksEpochId) {
-    let to_test = [
-        test_pass_principal_literal_to_trait,
-        test_pass_trait_to_subtrait,
-        test_embedded_trait,
-        test_pass_embedded_trait_to_subtrait_optional,
-        test_pass_embedded_trait_to_subtrait_ok,
-        test_pass_embedded_trait_to_subtrait_err,
-        test_pass_embedded_trait_to_subtrait_list,
-        test_pass_embedded_trait_to_subtrait_list_option,
-        test_pass_embedded_trait_to_subtrait_option_list,
-        test_let_trait,
-        test_let3_trait,
-    ];
-    for test in to_test.iter() {
-        with_memory_environment(test, epoch, false);
-    }
-}
-
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_defining_trait(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -156,10 +84,13 @@ fn test_dynamic_dispatch_by_defining_trait(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_pass_trait_nested_in_let(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -211,7 +142,13 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
     }
 }
 
-fn test_dynamic_dispatch_pass_trait(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_dynamic_dispatch_pass_trait(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -262,10 +199,13 @@ fn test_dynamic_dispatch_pass_trait(owned_env: &mut OwnedEnvironment, version: C
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_intra_contract_call(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -317,10 +257,13 @@ fn test_dynamic_dispatch_intra_contract_call(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_implementing_imported_trait(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -377,10 +320,13 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))))";
@@ -439,10 +385,13 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_importing_trait(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -498,10 +447,13 @@ fn test_dynamic_dispatch_by_importing_trait(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_including_nested_trait(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_nested_trait = "(define-trait trait-a (
         (get-a (uint) (response uint uint))))";
     let contract_defining_trait = "(use-trait trait-a .contract-defining-nested-trait.trait-a)
@@ -579,10 +531,13 @@ fn test_dynamic_dispatch_including_nested_trait(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_mismatched_args(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -633,10 +588,13 @@ fn test_dynamic_dispatch_mismatched_args(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_mismatched_returned(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -687,7 +645,13 @@ fn test_dynamic_dispatch_mismatched_returned(
     }
 }
 
-fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_reentrant_dynamic_dispatch(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -741,7 +705,13 @@ fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment, version: Cl
     }
 }
 
-fn test_readwrite_dynamic_dispatch(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_readwrite_dynamic_dispatch(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-read-only (wrapped-get-1 (contract <trait-1>))
@@ -792,10 +762,13 @@ fn test_readwrite_dynamic_dispatch(owned_env: &mut OwnedEnvironment, version: Cl
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_readwrite_violation_dynamic_dispatch(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-read-only (wrapped-get-1 (contract <trait-1>))
@@ -846,7 +819,13 @@ fn test_readwrite_violation_dynamic_dispatch(
     }
 }
 
-fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_bad_call_with_trait(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     // This set of contracts should be working in this context,
     // the analysis is not being performed.
     let contract_defining_trait = "(define-trait trait-1 (
@@ -911,7 +890,13 @@ fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment, version: ClarityVe
     }
 }
 
-fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_good_call_with_trait(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -973,7 +958,13 @@ fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment, version: ClarityV
     }
 }
 
-fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_good_call_2_with_trait(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -1040,10 +1031,13 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment, version: Clarit
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -1101,7 +1095,13 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     }
 }
 
-fn test_contract_of_value(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_contract_of_value(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -1160,7 +1160,13 @@ fn test_contract_of_value(owned_env: &mut OwnedEnvironment, version: ClarityVers
     }
 }
 
-fn test_contract_of_no_impl(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_contract_of_no_impl(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -1221,10 +1227,13 @@ fn test_contract_of_no_impl(owned_env: &mut OwnedEnvironment, version: ClarityVe
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_return_trait_with_contract_of_wrapped_in_begin(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1275,10 +1284,13 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
     }
 }
 
+#[apply(test_clarity_versions)]
 fn test_return_trait_with_contract_of_wrapped_in_let(
-    owned_env: &mut OwnedEnvironment,
     version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1329,7 +1341,13 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
     }
 }
 
-fn test_return_trait_with_contract_of(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+#[apply(test_clarity_versions)]
+fn test_return_trait_with_contract_of(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1378,7 +1396,12 @@ fn test_return_trait_with_contract_of(owned_env: &mut OwnedEnvironment, version:
     }
 }
 
-fn test_pass_trait_to_subtrait(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1438,7 +1461,12 @@ fn test_pass_trait_to_subtrait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_embedded_trait(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (echo (uint) (response uint uint))
         ))
@@ -1496,7 +1524,15 @@ fn test_embedded_trait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_optional(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_optional(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1560,7 +1596,15 @@ fn test_pass_embedded_trait_to_subtrait_optional(owned_env: &mut OwnedEnvironmen
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_ok(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_ok(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1624,7 +1668,15 @@ fn test_pass_embedded_trait_to_subtrait_ok(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_err(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_err(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1688,7 +1740,15 @@ fn test_pass_embedded_trait_to_subtrait_err(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_list(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_list(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1752,7 +1812,15 @@ fn test_pass_embedded_trait_to_subtrait_list(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_list_option(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_list_option(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1819,7 +1887,15 @@ fn test_pass_embedded_trait_to_subtrait_list_option(owned_env: &mut OwnedEnviron
     }
 }
 
-fn test_pass_embedded_trait_to_subtrait_option_list(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_embedded_trait_to_subtrait_option_list(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))
@@ -1886,7 +1962,12 @@ fn test_pass_embedded_trait_to_subtrait_option_list(owned_env: &mut OwnedEnviron
     }
 }
 
-fn test_let_trait(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (echo (uint) (response uint uint))
         ))
@@ -1942,7 +2023,12 @@ fn test_let_trait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_let3_trait(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (echo (uint) (response uint uint))
         ))
@@ -2002,7 +2088,15 @@ fn test_let3_trait(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-fn test_pass_principal_literal_to_trait(owned_env: &mut OwnedEnvironment) {
+#[apply(test_epochs)]
+fn test_pass_principal_literal_to_trait(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut owned_env = env_factory.get_env(epoch);
     let dispatching_contract = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
         ))

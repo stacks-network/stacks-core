@@ -30,9 +30,7 @@ use clarity::vm::execute as vm_execute;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::tests::{
-    execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB,
-};
+use clarity::vm::tests::{execute, symbols_from_values, UnitTestBurnStateDB};
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };

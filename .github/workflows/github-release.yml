@@ -1,0 +1,58 @@
+##
+## Create the github release and store artifact files (with checksum)
+##
+
+name: Github Release
+
+# Only run when:
+#   - manually triggered via the ci.yml workflow
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      arch:
+        description: "Stringified JSON object listing of platform matrix"
+        required: true
+        type: string
+    secrets:
+      GH_TOKEN:
+        required: true
+
+jobs:
+  create-release:
+    if: ${{ inputs.tag != '' }}
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        id: download_artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: release
+      # Generate a checksums file to be added to the release page
+      - name: Generate Checksums
+        id: generate_checksum
+        uses: jmgilman/actions-generate-checksum@v1
+        with:
+          output: CHECKSUMS.txt
+          patterns: |
+            release/*.zip
+      # Upload the release archives with the checksums file
+      - name: Upload Release
+        id: upload_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          name: Release ${{ github.event.inputs.tag || github.ref }}
+          tag_name: ${{ github.event.inputs.tag || github.ref }}
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.zip
+            CHECKSUMS.txt
