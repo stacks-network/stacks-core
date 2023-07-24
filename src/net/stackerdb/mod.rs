@@ -22,7 +22,7 @@
 /// blockchain.  Instead, developers use StackerDBs to host and replicate auxiliary smart contract
 /// data for the purposes of some (off-chain) application in a best-effort manner.  In doing so,
 /// Stacks-powered applications are able to leverage the Stacks peer-to-peer node network to host
-/// and dissiminate their data without incuring the cost and performance penalties of bundling it
+/// and disseminate their data without incuring the cost and performance penalties of bundling it
 /// within a transaction.
 ///
 /// ## Data Model
@@ -58,7 +58,7 @@
 /// The smart contract to which a StackerDB is bound controls how many chunks the DB has, who can
 /// write to which chunks (identified by public key hash), how big a chunk is, and how often a
 /// chunk can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
-/// in order to configure the database.  The act of configuring the re-configuring the database
+/// in order to configure the database.  The act of re-configuring the database
 /// is also the act of dropping and reinstantiating it.
 ///
 /// Applications that employ StackerDBs would deploy one or more smart contracts that list out
@@ -78,7 +78,7 @@
 /// StackerDBs.  The handshake-handling code happens in src::net::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
-/// that claim to have copies.  This set, called the "DB neighbors", is ddistinct from the set
+/// that claim to have copies.  This set, called the "DB neighbors", is distinct from the set
 /// of neighbors the node uses to replicate blocks and transactions.  It then connects
 /// to these nodes with a `Handshake` / `StackerDBHandshakeAccept` exchange (if the neighbor walk
 /// has not done so already), and proceeds to query each DB's chunk inventories.
