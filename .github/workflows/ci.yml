@@ -45,7 +45,7 @@ jobs:
   ## Release tests: Execute on every run
   release-tests:
     name: Release Tests
-    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
+    uses: ./.github/workflows/stacks-blockchain-tests.yml
 
   ## Checked for leaked credentials: Execute on every run
   leaked-cred-test:
