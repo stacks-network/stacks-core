@@ -7,7 +7,9 @@ COPY . .
 COPY ./rust-toolchain .
 COPY ./Cargo.toml .
 
-RUN echo "nightly" > ./rust-toolchain
+RUN echo "nightly-2023-06-15" > ./rust-toolchain
+RUN rustup update
+
 # rebuild with nightly toolchain
 RUN cargo build
 # ensure cargo-mutagen is installed
