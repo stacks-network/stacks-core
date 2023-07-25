@@ -35,6 +35,9 @@ use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
+#[cfg(test)]
+use mutagen::mutate;
+
 type Result<R> = std::result::Result<R, CheckErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -537,6 +540,7 @@ impl TypeSignature {
         }
     }
 
+    #[cfg_attr(test, mutate)]
     pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool> {
         match self {
             SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
@@ -626,6 +630,7 @@ impl TypeSignature {
         }
     }
 
+    #[cfg_attr(test, mutate)]
     fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool> {
         let other = match other.concretize() {
             Ok(other) => other,
@@ -735,6 +740,7 @@ impl TypeSignature {
         }
     }
 
+    #[cfg_attr(test, mutate)]
     pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(ref list_type)) => {
@@ -1062,6 +1068,7 @@ impl TypeSignature {
         }
     }
 
+    #[cfg_attr(test, mutate)]
     pub fn least_supertype_v2_0(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         match (a, b) {
             (
@@ -1164,6 +1171,7 @@ impl TypeSignature {
         }
     }
 
+    #[cfg_attr(test, mutate)]
     pub fn least_supertype_v2_1(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         match (a, b) {
             (

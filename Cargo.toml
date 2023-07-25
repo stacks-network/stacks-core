@@ -99,6 +99,7 @@ stdext = "0.3.1"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
+mutagen = {git = "https://github.com/llogiq/mutagen"}
 
 [features]
 default = ["developer-mode"]

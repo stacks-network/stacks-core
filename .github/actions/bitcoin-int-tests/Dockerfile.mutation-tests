@@ -1,0 +1,5 @@
+FROM rust:bullseye
+
+RUN echo "nightly" > rust-toolchain
+RUN cargo install cargo-mutagen
+RUN cargo mutagen

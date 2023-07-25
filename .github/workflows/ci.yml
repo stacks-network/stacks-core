@@ -110,6 +110,16 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
 
+  # mutation testing
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run mutagen check
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.mutation-tests .
+
   # Create distributions
   dist:
     runs-on: ubuntu-latest
