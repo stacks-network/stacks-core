@@ -1,6 +1,8 @@
 FROM rust:bullseye
 
 WORKDIR /src
+
+COPY . .
 COPY ./rust-toolchain .
 COPY ./Cargo.toml .
 
