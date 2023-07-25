@@ -2,10 +2,15 @@ FROM rust:bullseye
 
 WORKDIR /src
 
+# copy files into the current workdir
 COPY . .
 COPY ./rust-toolchain .
 COPY ./Cargo.toml .
 
 RUN echo "nightly" > ./rust-toolchain
+# rebuild with nightly toolchain
+RUN cargo build
+# ensure cargo-mutagen is installed
 RUN cargo install cargo-mutagen
+# run the mutation tests
 RUN cargo mutagen
