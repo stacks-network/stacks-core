@@ -111,7 +111,7 @@ jobs:
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
 
   # mutation testing
-  rustfmt:
+  mutagen:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
