@@ -26,7 +26,6 @@ use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use clarity::vm::execute as vm_execute;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
@@ -34,6 +33,7 @@ use clarity::vm::tests::{execute, symbols_from_values, UnitTestBurnStateDB};
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use clarity::vm::{execute as vm_execute, ContractName};
 use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
@@ -44,12 +44,11 @@ use crate::types::StacksEpochId;
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
 
-pub fn test_tracked_costs(
-    prog: &str,
+fn setup_tracked_cost_test(
     use_mainnet: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> ExecutionCost {
+) -> ClarityInstance {
     let marf = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf);
@@ -70,21 +69,6 @@ pub fn test_tracked_costs(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
-    let contract_self = format!(
-        "(define-map map-foo {{ a: int }} {{ b: int }})
-        (define-non-fungible-token nft-foo int)
-        (define-fungible-token ft-foo)
-        (define-data-var var-foo int 0)
-        (define-constant tuple-foo (tuple (a 1)))
-        (define-constant list-foo (list true))
-        (define-constant list-bar (list 1))
-        (define-constant str-foo \"foobar\")
-        (use-trait trait-1 .contract-trait.trait-1)
-        (define-public (execute (contract <trait-1>)) (ok {}))",
-        prog
-    );
-
-    let self_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
     let trait_contract_id =
@@ -192,10 +176,53 @@ pub fn test_tracked_costs(
         conn.commit_block();
     }
 
+    clarity_instance
+}
+
+fn test_tracked_costs(
+    prog: &str,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+    prog_id: usize,
+    clarity_instance: &mut ClarityInstance,
+) -> ExecutionCost {
+    let contract_self = format!(
+        "(define-map map-foo {{ a: int }} {{ b: int }})
+        (define-non-fungible-token nft-foo int)
+        (define-fungible-token ft-foo)
+        (define-data-var var-foo int 0)
+        (define-constant tuple-foo (tuple (a 1)))
+        (define-constant list-foo (list true))
+        (define-constant list-bar (list 1))
+        (define-constant str-foo \"foobar\")
+        (use-trait trait-1 .contract-trait.trait-1)
+        (define-public (execute (contract <trait-1>)) (ok {}))",
+        prog
+    );
+
+    let p1 = vm_execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+        .unwrap()
+        .unwrap();
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+
+    let self_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
+    );
+
+    let burn_state_db = UnitTestBurnStateDB {
+        epoch_id: epoch,
+        ast_rules: ASTRules::PrecheckSize,
+    };
+
     {
         let mut conn = clarity_instance.begin_block(
             &StacksBlockId([3 as u8; 32]),
-            &StacksBlockId([4 as u8; 32]),
+            &StacksBlockId([4 + prog_id as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
         );
@@ -226,15 +253,17 @@ pub fn test_tracked_costs(
 }
 
 fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21, version);
+    let mut instance = setup_tracked_cost_test(use_mainnet, StacksEpochId::Epoch21, version);
 
-    for f in NativeFunctions::ALL.iter() {
+    let baseline = test_tracked_costs("1", StacksEpochId::Epoch21, version, 0, &mut instance);
+
+    for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
         if version < f.get_version() {
             continue;
         }
 
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21, version);
+        let cost = test_tracked_costs(test, StacksEpochId::Epoch21, version, ix + 1, &mut instance);
         assert!(cost.exceeds(&baseline));
     }
 }
@@ -252,21 +281,28 @@ fn epoch_21_test_all_testnet() {
 }
 
 fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs(
-        "1",
+    let mut instance = setup_tracked_cost_test(
         use_mainnet,
         StacksEpochId::Epoch2_05,
         ClarityVersion::Clarity1,
     );
+    let baseline = test_tracked_costs(
+        "1",
+        StacksEpochId::Epoch2_05,
+        ClarityVersion::Clarity1,
+        0,
+        &mut instance,
+    );
 
-    for f in NativeFunctions::ALL.iter() {
+    for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
         if f.get_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
             let cost = test_tracked_costs(
                 test,
-                use_mainnet,
                 StacksEpochId::Epoch2_05,
                 ClarityVersion::Clarity1,
+                ix + 1,
+                &mut instance,
             );
             assert!(cost.exceeds(&baseline));
         }
