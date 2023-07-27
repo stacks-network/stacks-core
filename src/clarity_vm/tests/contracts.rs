@@ -38,8 +38,8 @@ use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::execute as vm_execute;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{
-    execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    with_memory_environment, BurnStateDB, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values, BurnStateDB,
+    TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
