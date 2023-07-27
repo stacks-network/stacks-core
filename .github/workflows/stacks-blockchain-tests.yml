@@ -52,9 +52,13 @@ jobs:
         uses: actions/checkout@v3
       - name: Run units tests (with coverage)
         id: unit_tests_codecov
-        env:
-          RUSTFLAGS: -Cinstrument-coverage
-          LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
+        # unset the coverage instrumentation flags.
+        # these slow tests down a lot locally (5-10x), and since
+        # grcov cannot collect this coverage data right now anyways,
+        # this is a speed win.
+        #env:
+        #  RUSTFLAGS: -Cinstrument-coverage
+        #  LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
         run: |
           cargo nextest run --workspace
       - name: Collate grcov
