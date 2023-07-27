@@ -44,6 +44,9 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           cargo install grcov
+      - name: Add nextest
+        run: |
+          cargo install cargo-nextest
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
@@ -53,9 +56,23 @@ jobs:
           RUSTFLAGS: -Cinstrument-coverage
           LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
         run: |
-          cargo test --workspace
+          cargo nextest run --workspace
+      - name: Collate grcov
+        # grcov doesn't work with cargo nextest currently, getting
+        #  that to work again will have to happen separately. Getting unit
+        #  test run times below 2 hours is more important for now.
+        if: ${{ false }}
+        id: unit_tests_grcov
+        env:
+          RUSTFLAGS: -Cinstrument-coverage
+          LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
+        run: |
           grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload codecov results
+        # grcov doesn't work with cargo nextest currently, getting
+        #  that to work again will have to happen separately. Getting unit
+        #  test run times below 2 hours is more important for now.
+        if: ${{ false }}
         uses: codecov/codecov-action@v3
         id: codedov
         with:
