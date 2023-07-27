@@ -27,6 +27,20 @@ jobs:
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
+
+      - name: Reclaim disk space
+        id: cleanup
+        run: |
+          sudo apt-get remove -y '^dotnet-.*'
+          sudo apt-get remove -y '^llvm-.*'
+          sudo apt-get remove -y 'php.*'
+          sudo apt-get remove -y '^mongodb-.*'
+          sudo apt-get remove -y '^mysql-.*'
+          sudo apt-get remove -y azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          docker system prune --force
+
       - name: Build bitcoin integration testing image
         id: build_docker_image
         env:
@@ -35,15 +49,17 @@ jobs:
         run: |
           rm .dockerignore
           docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
+
       - name: Export docker image as tarball
         id: export_docker_image
-        run: docker save -o integration-image.tar stacks-blockchain:integrations
+        run: docker save stacks-blockchain:integrations | gzip > integration-image.tar.gz
+
       - name: Upload built docker image
         id: upload_docker_image
         uses: actions/upload-artifact@v3
         with:
-          name: integration-image.tar
-          path: integration-image.tar
+          name: integration-image.tar.gz
+          path: integration-image.tar.gz
 
   # Run integration tests using sampled genesis block
   sampled-genesis:
@@ -130,10 +146,10 @@ jobs:
         id: download_docker_image
         uses: actions/download-artifact@v3
         with:
-          name: integration-image.tar
+          name: integration-image.tar.gz
       - name: Load docker image
         id: load_docker_image
-        run: docker load -i integration-image.tar && rm integration-image.tar
+        run: docker load -i integration-image.tar.gz && rm integration-image.tar.gz
       - name: All integration tests with sampled genesis
         id: bitcoin_integration_tests
         timeout-minutes: 30
@@ -169,10 +185,10 @@ jobs:
         id: download_docker_image
         uses: actions/download-artifact@v3
         with:
-          name: integration-image.tar
+          name: integration-image.tar.gz
       - name: Load docker image
         id: load_docker_image
-        run: docker load -i integration-image.tar && rm integration-image.tar
+        run: docker load -i integration-image.tar.gz && rm integration-image.tar.gz
       - name: Atlas integration tests
         id: atlas_integration_tests
         timeout-minutes: 40
