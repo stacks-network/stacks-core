@@ -149,7 +149,9 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{
+    db::BurnchainHeaderReader, Burnchain, BurnchainParameters, BurnchainSigner, Txid,
+};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -205,8 +207,8 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
+use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
@@ -4128,6 +4130,28 @@ impl StacksNode {
         info!("P2P thread exit!");
     }
 
+    /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
+    ///
+    /// This variable is used for prometheus monitoring (which only
+    /// runs when the feature flag `monitoring_prom` is activated).
+    /// The address is set using the single-signature BTC address
+    /// associated with `keychain`'s public key. This address always
+    /// assumes Epoch-2.1 rules for the miner address: if the
+    /// node is configured for segwit, then the miner address generated
+    /// is a segwit address, otherwise it is a p2pkh.
+    ///
+    fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
+        let public_key = keychain.get_pub_key();
+        let miner_addr = relayer_thread
+            .bitcoin_controller
+            .get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr_str = addr2str(&miner_addr);
+        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
+            warn!("Failed to set global burnchain signer: {:?}", &e);
+            e
+        });
+    }
+
     pub fn spawn(
         runloop: &RunLoop,
         globals: Globals,
@@ -4158,14 +4182,6 @@ impl StacksNode {
 
         let local_peer = p2p_net.local_peer.clone();
 
-        let burnchain_signer = keychain.get_burnchain_signer();
-        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
-            Err(e) => {
-                warn!("Failed to set global burnchain signer: {:?}", &e);
-            }
-            _ => {}
-        }
-
         // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
@@ -4182,6 +4198,9 @@ impl StacksNode {
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
+
+        StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
+
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)

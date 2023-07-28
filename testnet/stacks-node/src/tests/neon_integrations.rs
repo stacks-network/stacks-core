@@ -772,6 +772,13 @@ fn bitcoind_integration_test() {
 
     conf.burnchain.max_rbf = 1000000;
 
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -812,6 +819,20 @@ fn bitcoind_integration_test() {
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
 
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(4_000);
+
+    let burn_blocks_observed = test_observer::get_burn_blocks();
+    let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
+        .into_iter()
+        .filter(|block| block.get("burn_amount").unwrap().as_u64().unwrap() > 0)
+        .collect();
+    assert!(
+        burn_blocks_with_burns.len() >= 1,
+        "Burn block sortitions {} should be >= 1",
+        burn_blocks_with_burns.len()
+    );
+
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
@@ -824,13 +845,27 @@ fn bitcoind_integration_test() {
             .text()
             .unwrap();
         assert!(res.contains("stacks_node_computed_miner_commitment_high 0"));
-        assert!(res.contains("stacks_node_computed_miner_commitment_low 1"));
+        assert!(res.contains("stacks_node_computed_miner_commitment_low 20000"));
         assert!(res.contains("stacks_node_computed_relative_miner_score 100"));
         assert!(res.contains("stacks_node_miner_current_median_commitment_high 0"));
-        assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
+        assert!(res.contains("stacks_node_miner_current_median_commitment_low 20000"));
         assert!(res.contains("stacks_node_active_miners_total 1"));
-    }
 
+        assert!(res.contains("stacks_node_last_block_read_count 0"));
+        assert!(res.contains("stacks_node_last_block_read_length 0"));
+        assert!(res.contains("stacks_node_last_block_write_count 0"));
+        assert!(res.contains("stacks_node_last_block_write_length 0"));
+        assert!(res.contains("stacks_node_last_block_runtime 0"));
+        assert!(res.contains("stacks_node_last_block_transaction_count 1"));
+
+        assert!(res.contains("stacks_node_last_mined_block_read_count 0"));
+        assert!(res.contains("stacks_node_last_mined_block_read_length 0"));
+        assert!(res.contains("stacks_node_last_mined_block_write_count 0"));
+        assert!(res.contains("stacks_node_last_mined_block_write_length 0"));
+        assert!(res.contains("stacks_node_last_mined_block_runtime 0"));
+        assert!(res.contains("stacks_node_last_mined_block_transaction_count 1"));
+    }
+    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
