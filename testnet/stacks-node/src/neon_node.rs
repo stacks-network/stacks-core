@@ -4131,9 +4131,16 @@ impl StacksNode {
     }
 
     /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
-    /// This variable is used for prometheus monitoring (which only runs when the feature flag
-    /// `monitoring_prom` is activated
-    pub fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
+    ///
+    /// This variable is used for prometheus monitoring (which only
+    /// runs when the feature flag `monitoring_prom` is activated).
+    /// The address is set using the single-signature BTC address
+    /// associated with `keychain`'s public key. This address always
+    /// assumes Epoch-2.1 rules for the miner address: if the
+    /// node is configured for segwit, then the miner address generated
+    /// is a segwit address, otherwise it is a p2pkh.
+    ///
+    fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
         let public_key = keychain.get_pub_key();
         let miner_addr = relayer_thread
             .bitcoin_controller
