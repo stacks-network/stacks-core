@@ -16,7 +16,6 @@ use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use crate::util::hash::DoubleSha256;
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
 use crate::util::secp256k1::Secp256k1PrivateKey;
@@ -24,6 +23,7 @@ use crate::util::secp256k1::Secp256k1PublicKey;
 use crate::util::uint::Uint256;
 use crate::util::vrf::VRFProof;
 use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
+use stacks_core::hash::sha256::DoubleSha256Hash;
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -380,13 +380,15 @@ impl BurnchainHeaderHash {
         index_root: &TrieHash,
         noise: u64,
     ) -> BurnchainHeaderHash {
+        use stacks_core::hash::sha256::HashUtils;
+
         let mut bytes = vec![];
         bytes.extend_from_slice(&block_height.to_be_bytes());
         bytes.extend_from_slice(index_root.as_bytes());
         bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256::from_data(&bytes[..]);
+        let h = DoubleSha256Hash::new(&bytes[..]);
         let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
+        hb.copy_from_slice(h.as_ref());
 
         BurnchainHeaderHash(hb)
     }

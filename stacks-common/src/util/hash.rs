@@ -20,20 +20,24 @@ use std::fmt;
 use std::fmt::Write;
 use std::mem;
 
+use crate::util::log;
+use crate::util::pair::*;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::HexError;
+
 use ripemd::Ripemd160;
+use sha2::{Digest, Sha256, Sha512, Sha512_256};
+use sha3::Keccak256;
+use stacks_core::hash::sha256::{DoubleSha256Hash, HashUtils, Sha256Hash};
+
+use crate::util::uint::Uint256;
+
+use crate::types::StacksPublicKeyBuffer;
+
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
-use sha2::{Digest, Sha256, Sha512, Sha512_256};
-use sha3::Keccak256;
-
-use crate::types::StacksPublicKeyBuffer;
-use crate::util::log;
-use crate::util::pair::*;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::uint::Uint256;
-use crate::util::HexError;
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {
@@ -109,23 +113,23 @@ impl_array_newtype!(Keccak256Hash, u8, 32);
 impl_array_hexstring_fmt!(Keccak256Hash);
 impl_byte_array_newtype!(Keccak256Hash, u8, 32);
 
-#[derive(Serialize, Deserialize)]
-pub struct Sha256Sum(
-    #[serde(
-        serialize_with = "Hash32::json_serialize",
-        deserialize_with = "Hash32::json_deserialize"
-    )]
-    pub [u8; 32],
-);
-impl_array_newtype!(Sha256Sum, u8, 32);
-impl_array_hexstring_fmt!(Sha256Sum);
-impl_byte_array_newtype!(Sha256Sum, u8, 32);
+// #[derive(Serialize, Deserialize)]
+// pub struct Sha256Sum(
+//     #[serde(
+//         serialize_with = "Hash32::json_serialize",
+//         deserialize_with = "Hash32::json_deserialize"
+//     )]
+//     pub [u8; 32],
+// );
+// impl_array_newtype!(Sha256Sum, u8, 32);
+// impl_array_hexstring_fmt!(Sha256Sum);
+// impl_byte_array_newtype!(Sha256Sum, u8, 32);
 
-impl Default for Sha256Sum {
-    fn default() -> Self {
-        Sha256Sum::zero()
-    }
-}
+// impl Default for Sha256Sum {
+//     fn default() -> Self {
+//         Sha256Sum::zero()
+//     }
+// }
 
 #[derive(Serialize, Deserialize)]
 pub struct Sha512Sum(
@@ -151,18 +155,18 @@ impl_array_newtype!(Sha512Trunc256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha512Trunc256Sum);
 impl_byte_array_newtype!(Sha512Trunc256Sum, u8, 32);
 
-#[derive(Serialize, Deserialize)]
-pub struct DoubleSha256(
-    #[serde(
-        serialize_with = "Hash32::json_serialize",
-        deserialize_with = "Hash32::json_deserialize"
-    )]
-    pub [u8; 32],
-);
-impl_array_newtype!(DoubleSha256, u8, 32);
-impl_array_hexstring_fmt!(DoubleSha256);
-impl_byte_array_newtype!(DoubleSha256, u8, 32);
-pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
+// #[derive(Serialize, Deserialize)]
+// pub struct DoubleSha256(
+//     #[serde(
+//         serialize_with = "Hash32::json_serialize",
+//         deserialize_with = "Hash32::json_deserialize"
+//     )]
+//     pub [u8; 32],
+// );
+// impl_array_newtype!(DoubleSha256, u8, 32);
+// impl_array_hexstring_fmt!(DoubleSha256);
+// impl_byte_array_newtype!(DoubleSha256, u8, 32);
+// pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
@@ -234,50 +238,53 @@ impl MerkleHashFunc for Hash160 {
     }
 }
 
-impl MerkleHashFunc for Sha256Sum {
-    fn empty() -> Sha256Sum {
-        Sha256Sum([0u8; 32])
+impl MerkleHashFunc for Sha256Hash {
+    fn empty() -> Self
+    where
+        Self: Sized,
+    {
+        Self::zeroes()
     }
 
-    fn from_tagged_data(tag: u8, data: &[u8]) -> Sha256Sum {
-        let mut tmp = [0u8; 32];
+    fn from_tagged_data(tag: u8, data: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        let mut buffer = Vec::with_capacity(data.len() + 1);
 
-        let mut sha2 = Sha256::new();
-        sha2.update(&[tag]);
-        sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
+        buffer.push(tag);
+        buffer.extend_from_slice(data);
 
-        Sha256Sum(tmp)
+        Self::new(buffer)
     }
 
     fn bits(&self) -> &[u8] {
-        &self.0
+        self.as_ref()
     }
 }
 
-impl MerkleHashFunc for DoubleSha256 {
-    fn empty() -> DoubleSha256 {
-        DoubleSha256([0u8; 32])
+impl MerkleHashFunc for DoubleSha256Hash {
+    fn empty() -> Self
+    where
+        Self: Sized,
+    {
+        Self::zeroes()
     }
 
-    fn from_tagged_data(tag: u8, data: &[u8]) -> DoubleSha256 {
-        let mut tmp = [0u8; 32];
-        let mut tmp2 = [0u8; 32];
+    fn from_tagged_data(tag: u8, data: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        let mut buffer = Vec::with_capacity(data.len() + 1);
 
-        let mut sha2_1 = Sha256::new();
-        sha2_1.update(&[tag]);
-        sha2_1.update(data);
-        tmp.copy_from_slice(sha2_1.finalize().as_slice());
+        buffer.push(tag);
+        buffer.extend_from_slice(data);
 
-        let mut sha2_2 = Sha256::new();
-        sha2_2.update(&tmp);
-        tmp2.copy_from_slice(sha2_2.finalize().as_slice());
-
-        DoubleSha256(tmp2)
+        Self::new(buffer)
     }
 
     fn bits(&self) -> &[u8] {
-        &self.0
+        self.as_ref()
     }
 }
 
@@ -309,66 +316,66 @@ impl Keccak256Hash {
     }
 }
 
-impl Sha256Sum {
-    pub fn from_data(data: &[u8]) -> Sha256Sum {
-        Sha256Sum(Sha256::digest(data).try_into().unwrap())
-    }
-    pub fn zero() -> Sha256Sum {
-        Sha256Sum([0u8; 32])
-    }
-}
+// impl Sha256Sum {
+//     pub fn from_data(data: &[u8]) -> Sha256Sum {
+//         Sha256Sum(Sha256::digest(data).try_into().unwrap())
+//     }
+//     pub fn zero() -> Sha256Sum {
+//         Sha256Sum([0u8; 32])
+//     }
+// }
 
-impl DoubleSha256 {
-    pub fn from_data(data: &[u8]) -> DoubleSha256 {
-        let hashed = Sha256::digest(Sha256::digest(data));
-        DoubleSha256(hashed.try_into().unwrap())
-    }
+// impl DoubleSha256 {
+//     pub fn from_data(data: &[u8]) -> DoubleSha256 {
+//         let hashed = Sha256::digest(Sha256::digest(data));
+//         DoubleSha256(hashed.try_into().unwrap())
+//     }
 
-    /// Converts a hash to a little-endian Uint256
-    #[inline]
-    pub fn into_le(self) -> Uint256 {
-        let DoubleSha256(data) = self;
-        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
-            *x = x.to_le();
-        }
-        Uint256(ret)
-    }
+//     /// Converts a hash to a little-endian Uint256
+//     #[inline]
+//     pub fn into_le(self) -> Uint256 {
+//         let DoubleSha256(data) = self;
+//         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+//         for x in (&mut ret).iter_mut() {
+//             *x = x.to_le();
+//         }
+//         Uint256(ret)
+//     }
 
-    /// Converts a hash to a big-endian Uint256
-    #[inline]
-    pub fn into_be(self) -> Uint256 {
-        let DoubleSha256(mut data) = self;
-        data.reverse();
-        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
-            *x = x.to_be();
-        }
-        Uint256(ret)
-    }
+//     /// Converts a hash to a big-endian Uint256
+//     #[inline]
+//     pub fn into_be(self) -> Uint256 {
+//         let DoubleSha256(mut data) = self;
+//         data.reverse();
+//         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+//         for x in (&mut ret).iter_mut() {
+//             *x = x.to_be();
+//         }
+//         Uint256(ret)
+//     }
 
-    /// Human-readable hex output
-    pub fn le_hex_string(&self) -> String {
-        let &DoubleSha256(data) = self;
-        let mut ret = String::with_capacity(64);
-        for item in data.iter().take(32) {
-            ret.push(from_digit((*item / 0x10) as u32, 16).unwrap());
-            ret.push(from_digit((*item & 0x0f) as u32, 16).unwrap());
-        }
-        ret
-    }
+//     /// Human-readable hex output
+//     pub fn le_hex_string(&self) -> String {
+//         let &DoubleSha256(data) = self;
+//         let mut ret = String::with_capacity(64);
+//         for item in data.iter().take(32) {
+//             ret.push(from_digit((*item / 0x10) as u32, 16).unwrap());
+//             ret.push(from_digit((*item & 0x0f) as u32, 16).unwrap());
+//         }
+//         ret
+//     }
 
-    /// Human-readable hex output
-    pub fn be_hex_string(&self) -> String {
-        let &DoubleSha256(data) = self;
-        let mut ret = String::with_capacity(64);
-        for i in (0..32).rev() {
-            ret.push(from_digit((data[i] / 0x10) as u32, 16).unwrap());
-            ret.push(from_digit((data[i] & 0x0f) as u32, 16).unwrap());
-        }
-        ret
-    }
-}
+//     /// Human-readable hex output
+//     pub fn be_hex_string(&self) -> String {
+//         let &DoubleSha256(data) = self;
+//         let mut ret = String::with_capacity(64);
+//         for i in (0..32).rev() {
+//             ret.push(from_digit((data[i] / 0x10) as u32, 16).unwrap());
+//             ret.push(from_digit((data[i] & 0x0f) as u32, 16).unwrap());
+//         }
+//         ret
+//     }
+// }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MerkleTree<H: MerkleHashFunc> {
@@ -426,7 +433,7 @@ where
             row_hashes.reserve(nodes[i].len() / 2);
 
             for j in 0..(nodes[i].len() / 2) {
-                let h = MerkleTree::get_node_hash(&nodes[i][(2 * j)], &nodes[i][2 * j + 1]);
+                let h = MerkleTree::get_node_hash(&nodes[i][2 * j], &nodes[i][2 * j + 1]);
                 row_hashes.push(h);
             }
 
@@ -683,17 +690,19 @@ pub fn bytes_to_hex(s: &[u8]) -> String {
 
 #[cfg(test)]
 mod test {
+    use stacks_core::hash::sha256::HashUtils;
+
     use super::bin_bytes;
     use super::hex_bytes;
     use super::to_bin;
-    use super::DoubleSha256;
+    use super::DoubleSha256Hash;
     use super::MerkleHashFunc;
     use super::MerklePath;
     use super::MerkleTree;
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
-        res: Option<MerkleTree<DoubleSha256>>,
+        res: Option<MerkleTree<DoubleSha256Hash>>,
     }
 
     #[test]
@@ -710,11 +719,11 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()).unwrap()
+                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap())
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("0486bee7283eb9a1251cf134e60635ea797ab54e5986b27c13ac83f03119d680").unwrap()).unwrap()
+                            DoubleSha256Hash::new(&hex_bytes("0486bee7283eb9a1251cf134e60635ea797ab54e5986b27c13ac83f03119d680").unwrap())
                         ]
                     ]
                 })
@@ -727,11 +736,11 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
                         ],
                     ],
                 })
@@ -745,17 +754,17 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("ae7c314ff379af325a26f408b6f883add2542a44f5c39313f545a42c25bad17c").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("ae7c314ff379af325a26f408b6f883add2542a44f5c39313f545a42c25bad17c").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("978d9d2ea33ce554e38fa49141f80e2cba770cdacc8d0da6605b4bbd31f50b3b").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("978d9d2ea33ce554e38fa49141f80e2cba770cdacc8d0da6605b4bbd31f50b3b").unwrap()),
                         ]
                     ]
                 })
@@ -771,25 +780,25 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("9b1ab546065ba19b028bcac528162af25931c785e60d635db9038defbf022a4c").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("9b1ab546065ba19b028bcac528162af25931c785e60d635db9038defbf022a4c").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("cb985eb38b2184a9ebc0df8ea7b54579ffc25bc6a127e51a3e701b2ac0db73cc").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("cb985eb38b2184a9ebc0df8ea7b54579ffc25bc6a127e51a3e701b2ac0db73cc").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("5f040e3625c217bba84f89a61c70cb954c848e035db28c0568a13c691f73fb73").unwrap()).unwrap(),
-                            DoubleSha256::from_vec(&hex_bytes("9f8e10332f968166b526c6eea230d7f31d4f8f6cd2eb6d84b0c34320dc976b8b").unwrap()).unwrap(),
+                            DoubleSha256Hash::new(&hex_bytes("5f040e3625c217bba84f89a61c70cb954c848e035db28c0568a13c691f73fb73").unwrap()),
+                            DoubleSha256Hash::new(&hex_bytes("9f8e10332f968166b526c6eea230d7f31d4f8f6cd2eb6d84b0c34320dc976b8b").unwrap()),
                         ],
                         vec![
-                            DoubleSha256::from_vec(&hex_bytes("6695db0423ffd46dc936a35b454223c4ff663ceeaffbc30a970cf33c861e50a2").unwrap()).unwrap()
+                            DoubleSha256Hash::new(&hex_bytes("6695db0423ffd46dc936a35b454223c4ff663ceeaffbc30a970cf33c861e50a2").unwrap())
                         ]
                     ]
                 })
@@ -806,7 +815,7 @@ mod test {
                 if nodes.len() > 0 {
                     assert_eq!(tree.root(), nodes[nodes.len() - 1][0]);
                 } else {
-                    assert_eq!(tree.root(), DoubleSha256::empty());
+                    assert_eq!(tree.root(), DoubleSha256Hash::zeroes());
                 }
 
                 for d in fixture.data {
