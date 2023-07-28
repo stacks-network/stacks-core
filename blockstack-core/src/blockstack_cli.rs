@@ -172,7 +172,7 @@ The decode-microblock command decodes a serialized Stacks microblock and prints 
 The microblock, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary microblock will be read from stdin.
 
-N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
+N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in
 block's sqlite database.";
 
 const DECODE_MICROBLOCKS_USAGE: &str = "blockstack-cli (options) decode-microblocks [microblocks-path-or-stdin]
@@ -181,7 +181,7 @@ The decode-microblocks command decodes a serialized list of Stacks microblocks a
 The microblocks, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary microblocks will be read from stdin.
 
-N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
+N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in
 block's sqlite database.";
 
 #[derive(Debug)]
@@ -594,7 +594,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     )
     .expect("Failed to generate address from public key");
     Ok(format!(
-        "{{ 
+        "{{
   \"secretKey\": \"{}\",
   \"publicKey\": \"{}\",
   \"stacksAddress\": \"{}\"
@@ -910,7 +910,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "./sample-contracts/tokens.clar",
+            "../sample-contracts/tokens.clar",
         ];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
@@ -921,7 +921,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "./sample-contracts/non-existent-tokens.clar",
+            "../sample-contracts/non-existent-tokens.clar",
         ];
 
         assert!(format!(
