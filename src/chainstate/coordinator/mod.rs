@@ -503,8 +503,12 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
         let atlas_config = atlas_config.unwrap_or(AtlasConfig::new(false));
-        let atlas_db =
-            AtlasDB::connect(atlas_config.clone(), &format!("{}/atlas", path), true).unwrap();
+        let atlas_db = AtlasDB::connect(
+            atlas_config.clone(),
+            &format!("{}/atlas.sqlite", path),
+            true,
+        )
+        .unwrap();
 
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
