@@ -51,7 +51,8 @@ use rand::thread_rng;
 
 impl PeerNetwork {
     /// Find out which organizations have which of our outbound neighbors.
-    /// Gives back a map from the organization ID to the list of (neighbor, neighbor-stats) tuples
+    /// Gives back a map from the organization ID to the list of (neighbor, neighbor-stats) tuples.
+    /// Connections in `preserve` are not considered in the distribution.
     fn org_neighbor_distribution(
         &self,
         peer_dbconn: &DBConn,
@@ -96,21 +97,24 @@ impl PeerNetwork {
             };
         }
 
-        test_debug!(
-            "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
-            &self.local_peer
-        );
-        for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
-            let _neighbors: Vec<NeighborKey> =
-                neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+        #[cfg(test)]
+        {
             test_debug!(
-                "Org {}: {} neighbors: {:?}",
-                _org,
-                _neighbors.len(),
-                &_neighbors
+                "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
+                &self.local_peer
             );
+            for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+                let _neighbors: Vec<NeighborKey> =
+                    neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+                test_debug!(
+                    "Org {}: {} neighbors: {:?}",
+                    _org,
+                    _neighbors.len(),
+                    &_neighbors
+                );
+            }
+            test_debug!("===============================================================");
         }
-        test_debug!("===============================================================");
 
         Ok(org_neighbor)
     }
