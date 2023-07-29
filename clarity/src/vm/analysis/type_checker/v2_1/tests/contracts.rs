@@ -27,6 +27,7 @@ use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, Chec
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::Error;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
@@ -42,19 +43,6 @@ use stacks_common::types::StacksEpochId;
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
-fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[template]
 #[rstest]
@@ -451,7 +439,7 @@ fn test_names_tokens_contracts_interface() {
     assert_json_eq!(test_contract_json, test_contract_json_expected);
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
@@ -468,7 +456,7 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
     .unwrap();
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price uint))
@@ -563,7 +551,7 @@ fn test_bad_map_usage() {
     });
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let ca_id = QualifiedContractIdentifier::local("contract-a").unwrap();
     let cb_id = QualifiedContractIdentifier::local("contract-b").unwrap();
@@ -1778,7 +1766,7 @@ fn call_versioned(
         .map_err(|e| e.to_string())
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -1793,7 +1781,7 @@ fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -1808,7 +1796,7 @@ fn clarity_trait_experiments_use(#[case] version: ClarityVersion, #[case] epoch:
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_empty_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1824,7 +1812,7 @@ fn clarity_trait_experiments_empty_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_duplicate_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1843,7 +1831,7 @@ fn clarity_trait_experiments_duplicate_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_undefined(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1860,7 +1848,7 @@ fn clarity_trait_experiments_use_undefined(
     ));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_circular(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1878,7 +1866,7 @@ fn clarity_trait_experiments_circular(
     assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"circular\"])"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_no_response(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1893,7 +1881,7 @@ fn clarity_trait_experiments_no_response(
     assert!(err.starts_with("DefineTraitBadSignature"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_out_of_order(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1909,7 +1897,7 @@ fn clarity_trait_experiments_out_of_order(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1927,7 +1915,7 @@ fn clarity_trait_experiments_double_trait(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl_double_trait_both(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1948,7 +1936,7 @@ fn clarity_trait_experiments_impl_double_trait_both(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl_double_trait_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1971,7 +1959,7 @@ fn clarity_trait_experiments_impl_double_trait_1(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl_double_trait_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1992,7 +1980,7 @@ fn clarity_trait_experiments_impl_double_trait_2(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2016,7 +2004,7 @@ fn clarity_trait_experiments_use_double_trait(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_partial_double_trait_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2040,7 +2028,7 @@ fn clarity_trait_experiments_use_partial_double_trait_1(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_partial_double_trait_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2062,7 +2050,7 @@ fn clarity_trait_experiments_use_partial_double_trait_2(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_identical_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2080,7 +2068,7 @@ fn clarity_trait_experiments_identical_double_trait(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl_identical_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2101,7 +2089,7 @@ fn clarity_trait_experiments_impl_identical_double_trait(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_selfret_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2116,7 +2104,7 @@ fn clarity_trait_experiments_selfret_trait(
     assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"self-return\"])"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_math_trait_transitive_alias(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2136,7 +2124,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_alias(
     assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_math_trait_transitive_name(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2159,7 +2147,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_name(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_original_and_define_a_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2181,7 +2169,7 @@ fn clarity_trait_experiments_use_original_and_define_a_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_redefined_and_define_a_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2203,7 +2191,7 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_a_trait_transitive_original(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2222,7 +2210,7 @@ fn clarity_trait_experiments_use_a_trait_transitive_original(
     assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use_a_trait_transitive_redefined(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2242,7 +2230,7 @@ fn clarity_trait_experiments_use_a_trait_transitive_redefined(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_nested_traits(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2264,7 +2252,7 @@ fn clarity_trait_experiments_nested_traits(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_nested_trait_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2297,7 +2285,7 @@ fn clarity_trait_experiments_call_nested_trait_1(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_nested_trait_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2323,7 +2311,7 @@ fn clarity_trait_experiments_call_nested_trait_2(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_nested_trait_3_ok(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2349,7 +2337,7 @@ fn clarity_trait_experiments_call_nested_trait_3_ok(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_nested_trait_3_err(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2372,7 +2360,7 @@ fn clarity_trait_experiments_call_nested_trait_3_err(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_nested_trait_4(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2405,7 +2393,7 @@ fn clarity_trait_experiments_call_nested_trait_4(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl_math_trait_incomplete(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2423,7 +2411,7 @@ fn clarity_trait_experiments_impl_math_trait_incomplete(
     assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_literal(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2443,7 +2431,7 @@ fn clarity_trait_experiments_trait_literal(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_pass_let_rename_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2462,7 +2450,7 @@ fn clarity_trait_experiments_pass_let_rename_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_literal_incomplete(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2481,7 +2469,7 @@ fn clarity_trait_experiments_trait_literal_incomplete(
     assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_let_rename_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2503,7 +2491,7 @@ fn clarity_trait_experiments_call_let_rename_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_data_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2522,7 +2510,7 @@ fn clarity_trait_experiments_trait_data_1(
     assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_data_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2541,7 +2529,7 @@ fn clarity_trait_experiments_trait_data_2(
     assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_upcast_trait_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2557,14 +2545,14 @@ fn clarity_trait_experiments_upcast_trait_1(
             load_versioned(db, "upcast-trait-1", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
     } else {
         assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_upcast_trait_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2583,7 +2571,7 @@ fn clarity_trait_experiments_upcast_trait_2(
     assert!(err.starts_with("TypeError(TupleType(TupleTypeSignature { \"val\": principal,}), TupleType(TupleTypeSignature { \"val\": <S1G2081040G2081040G2081040G208105NK8PE5.math-trait.math>,}))"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_upcast_trait_3(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2599,14 +2587,14 @@ fn clarity_trait_experiments_upcast_trait_3(
             load_versioned(db, "upcast-trait-3", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
     } else {
         assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_return_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2625,7 +2613,7 @@ fn clarity_trait_experiments_return_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_upcast_renamed(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2641,14 +2629,14 @@ fn clarity_trait_experiments_upcast_renamed(
             load_versioned(db, "upcast-renamed", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(PrincipalType, TraitReferenceType"));
     } else {
         assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_constant_call(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2671,7 +2659,7 @@ fn clarity_trait_experiments_constant_call(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_constant_to_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2687,7 +2675,7 @@ fn clarity_trait_experiments_constant_to_trait(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
-        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+        Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }
         Err(err) if version == ClarityVersion::Clarity1 => {
@@ -2697,7 +2685,7 @@ fn clarity_trait_experiments_constant_to_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_constant_to_constant_call(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2714,7 +2702,7 @@ fn clarity_trait_experiments_constant_to_constant_call(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
-        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+        Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }
         Err(err) if version == ClarityVersion::Clarity1 => {
@@ -2724,7 +2712,7 @@ fn clarity_trait_experiments_constant_to_constant_call(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_literal_1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2741,7 +2729,7 @@ fn clarity_trait_experiments_downcast_literal_1(
             load_versioned(db, "downcast-literal-1", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         println!("err: {}", err);
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
@@ -2749,7 +2737,7 @@ fn clarity_trait_experiments_downcast_literal_1(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_literal_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2773,7 +2761,7 @@ fn clarity_trait_experiments_downcast_literal_2(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_literal_3(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2792,7 +2780,7 @@ fn clarity_trait_experiments_downcast_literal_3(
     assert!(err.starts_with("TraitReferenceUnknown(\"p\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2809,14 +2797,14 @@ fn clarity_trait_experiments_downcast_trait_2(
             load_versioned(db, "downcast-trait-2", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
         assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_3(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2832,14 +2820,14 @@ fn clarity_trait_experiments_downcast_trait_3(
             load_versioned(db, "downcast-trait-3", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
         assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_4(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2855,14 +2843,14 @@ fn clarity_trait_experiments_downcast_trait_4(
             load_versioned(db, "downcast-trait-4", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
         assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_5(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2878,14 +2866,14 @@ fn clarity_trait_experiments_downcast_trait_5(
             load_versioned(db, "downcast-trait-5", version, epoch)
         })
         .unwrap_err();
-    if epoch == StacksEpochId::Epoch2_05 {
+    if epoch <= StacksEpochId::Epoch2_05 {
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
         assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_identical_trait_cast(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2901,7 +2889,7 @@ fn clarity_trait_experiments_identical_trait_cast(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
-        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+        Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
         }
         Err(err) if version == ClarityVersion::Clarity1 => {
@@ -2911,7 +2899,7 @@ fn clarity_trait_experiments_identical_trait_cast(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_cast(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2927,7 +2915,7 @@ fn clarity_trait_experiments_trait_cast(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
-        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+        Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
         }
         Err(err) if version == ClarityVersion::Clarity1 => {
@@ -2937,7 +2925,7 @@ fn clarity_trait_experiments_trait_cast(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_cast_incompatible(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2955,7 +2943,7 @@ fn clarity_trait_experiments_trait_cast_incompatible(
         .unwrap_err();
     match version {
         ClarityVersion::Clarity1 => {
-            if epoch == StacksEpochId::Epoch2_05 {
+            if epoch <= StacksEpochId::Epoch2_05 {
                 assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
             } else {
                 assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
@@ -2965,7 +2953,7 @@ fn clarity_trait_experiments_trait_cast_incompatible(
     }
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_renamed_trait_cast(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -2984,7 +2972,7 @@ fn clarity_trait_experiments_renamed_trait_cast(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_readonly_use_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3003,7 +2991,7 @@ fn clarity_trait_experiments_readonly_use_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_readonly_pass_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3023,7 +3011,7 @@ fn clarity_trait_experiments_readonly_pass_trait(
 }
 
 // TODO: This should be allowed
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_readonly_call_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3042,7 +3030,7 @@ fn clarity_trait_experiments_readonly_call_trait(
 }
 
 // TODO: This should be allowed
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_readonly_static_call(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3062,7 +3050,7 @@ fn clarity_trait_experiments_readonly_static_call(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_readonly_static_call_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3081,7 +3069,7 @@ fn clarity_trait_experiments_readonly_static_call_trait(
     assert!(err.starts_with("WriteAttemptedInReadOnly"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_dyn_call_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3109,7 +3097,7 @@ fn clarity_trait_experiments_dyn_call_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_dyn_call_trait_partial(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3136,7 +3124,7 @@ fn clarity_trait_experiments_dyn_call_trait_partial(
     assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_dyn_call_not_implemented(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3163,7 +3151,7 @@ fn clarity_trait_experiments_dyn_call_not_implemented(
     assert!(err.starts_with("BadTraitImplementation(\"math\", \"add\")"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_use_principal(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3182,7 +3170,7 @@ fn clarity_trait_experiments_call_use_principal(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_return_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3210,7 +3198,7 @@ fn clarity_trait_experiments_call_return_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_full_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3241,7 +3229,7 @@ fn clarity_trait_experiments_call_full_double_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_call_partial_double_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3272,7 +3260,7 @@ fn clarity_trait_experiments_call_partial_double_trait(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_trait_recursion(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3301,7 +3289,7 @@ fn clarity_trait_experiments_trait_recursion(
 }
 
 // Additional tests using this framework
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_principals_list_to_traits_list(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3324,7 +3312,7 @@ fn clarity_trait_experiments_principals_list_to_traits_list(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_traits_list_to_traits_list(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3344,7 +3332,7 @@ fn clarity_trait_experiments_traits_list_to_traits_list(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_mixed_list_to_traits_list(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3360,7 +3348,7 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity2 => (),
-        Err(err) if epoch == StacksEpochId::Epoch2_05 => {
+        Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }
         Err(err) if version == ClarityVersion::Clarity1 => {
@@ -3370,7 +3358,7 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3405,7 +3393,7 @@ fn clarity_trait_experiments_double_trait_method1_v1(
     assert!(err.starts_with("TypeError(BoolType, UIntType)"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3441,7 +3429,7 @@ fn clarity_trait_experiments_double_trait_method2_v1(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1_v2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3476,7 +3464,7 @@ fn clarity_trait_experiments_double_trait_method1_v1_v2(
     assert!(err.starts_with("TypeError(BoolType, UIntType)"));
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1_v2(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -3512,7 +3500,7 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
     };
 }
 
-#[apply(test_clarity_versions_contracts)]
+#[apply(test_clarity_versions)]
 fn clarity_trait_experiments_cross_epochs(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
