@@ -1398,11 +1398,12 @@ impl ConversationP2P {
         let epoch = self.get_current_epoch(chain_view.burn_block_height);
 
         // get neighbors at random as long as they're fresh, and as long as they're compatible with
-        // the current system epoch
-        let mut neighbors = PeerDB::get_random_neighbors(
+        // the current system epoch.
+        let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
+            (get_epoch_time_secs() as u64).saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
