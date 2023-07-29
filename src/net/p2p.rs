@@ -561,6 +561,31 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Get bound neighbor key. This is how this PeerNetwork appears to other nodes.
+    pub fn bound_neighbor_key(&self) -> &NeighborKey {
+        &self.bind_nk
+    }
+
+    /// Get a ref to the current chain view
+    pub fn get_chain_view(&self) -> &BurnchainView {
+        &self.chain_view
+    }
+
+    /// Get a ref to the local peer
+    pub fn get_local_peer(&self) -> &LocalPeer {
+        &self.local_peer
+    }
+
+    /// Get a ref to the connection opts
+    pub fn get_connection_opts(&self) -> &ConnectionOptions {
+        &self.connection_opts
+    }
+
+    /// How many p2p conversations are we tracking?
+    pub fn get_num_p2p_convos(&self) -> usize {
+        self.peers.len()
+    }
+
     /// Run a closure with the network state
     pub fn with_network_state<F, R>(
         peer_network: &mut PeerNetwork,
@@ -852,6 +877,21 @@ impl PeerNetwork {
         ret
     }
 
+    /// Is the network connected to always-allowed peers?
+    /// Returns (count, total)
+    pub fn count_connected_always_allowed_peers(&self) -> Result<(u64, u64), net_error> {
+        let allowed_peers =
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+        let num_allowed_peers = allowed_peers.len();
+        let mut count = 0;
+        for allowed in allowed_peers {
+            if self.events.contains_key(&allowed.addr) {
+                count += 1;
+            }
+        }
+        Ok((count, num_allowed_peers as u64))
+    }
+
     /// Connect to a peer.
     /// Idempotent -- will not re-connect if already connected.
     /// Fails if the peer is denied.
@@ -861,6 +901,7 @@ impl PeerNetwork {
 
     /// Connect to a peer, optionally checking our deny information.
     /// Idempotent -- will not re-connect if already connected.
+    /// It will, however, permit multiple connection attempts if none have yet connected.
     /// Fails if the peer is denied.
     fn connect_peer_deny_checks(
         &mut self,
@@ -1501,11 +1542,7 @@ impl PeerNetwork {
 
     /// Get the event ID associated with a neighbor key
     pub fn get_event_id(&self, neighbor_key: &NeighborKey) -> Option<usize> {
-        let event_id_opt = match self.events.get(neighbor_key) {
-            Some(eid) => Some(*eid),
-            None => None,
-        };
-        event_id_opt
+        self.events.get(neighbor_key).map(|eid| *eid)
     }
 
     /// Get a ref to a conversation given a neighbor key
@@ -1767,7 +1804,7 @@ impl PeerNetwork {
     }
 
     /// Process any newly-connecting sockets
-    fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) -> () {
+    fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
@@ -1802,14 +1839,14 @@ impl PeerNetwork {
 
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
-                test_debug!("Rogue socket event {}", event_id);
+                test_debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                 to_remove.push(*event_id);
                 continue;
             }
 
             let client_sock_opt = self.sockets.get_mut(&event_id);
             if client_sock_opt.is_none() {
-                test_debug!("No such socket event {}", event_id);
+                test_debug!("{:?}: No such socket event {}", &self.local_peer, event_id);
                 to_remove.push(*event_id);
                 continue;
             }
@@ -1833,13 +1870,22 @@ impl PeerNetwork {
                     ) {
                         Ok((convo_unhandled, alive)) => {
                             if !alive {
-                                test_debug!("Connection to {:?} is no longer alive", &convo);
+                                test_debug!(
+                                    "{:?}: Connection to {:?} is no longer alive",
+                                    &self.local_peer,
+                                    &convo
+                                );
                                 to_remove.push(*event_id);
                             }
                             convo_unhandled
                         }
                         Err(_e) => {
-                            test_debug!("Connection to {:?} failed: {:?}", &convo, &_e);
+                            test_debug!(
+                                "{:?}: Connection to {:?} failed: {:?}",
+                                &self.local_peer,
+                                &convo,
+                                &_e
+                            );
                             to_remove.push(*event_id);
                             continue;
                         }
@@ -1856,7 +1902,10 @@ impl PeerNetwork {
                     }
                 }
                 None => {
-                    warn!("Rogue event {} for socket {:?}", event_id, &client_sock);
+                    warn!(
+                        "{:?}: Rogue event {} for socket {:?}",
+                        &self.local_peer, event_id, &client_sock
+                    );
                     to_remove.push(*event_id);
                 }
             }
