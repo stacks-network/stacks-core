@@ -14,6 +14,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   will be useful for tools that use the Clarity library to analyze and
   manipulate Clarity source code, e.g. a formatter.
 - New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
+- Message definitions and codecs for Stacker DB, a replicated off-chain DB
+  hosted by subscribed Stacks nodes and controlled by smart contracts
 
 ### Fixed
 
