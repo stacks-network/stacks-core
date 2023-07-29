@@ -141,6 +141,9 @@ pub mod rpc;
 pub mod server;
 pub mod stackerdb;
 
+#[cfg(test)]
+pub mod tests;
+
 use crate::net::stackerdb::StackerDBSyncResult;
 
 #[derive(Debug)]
@@ -253,6 +256,8 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// state machine step took too long
+    StepTimeout,
 }
 
 impl From<codec_error> for Error {
@@ -354,6 +359,7 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StepTimeout => write!(f, "State-machine step took too long"),
         }
     }
 }
@@ -415,6 +421,7 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StepTimeout => None,
         }
     }
 }
@@ -3013,6 +3020,7 @@ pub mod test {
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
+            let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
             TestPeer {
                 config: config,
@@ -3106,8 +3114,9 @@ pub mod test {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+            let indexer = self.indexer.take().unwrap();
 
-            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+            // let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
                 &indexer,
