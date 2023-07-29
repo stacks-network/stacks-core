@@ -3187,14 +3187,15 @@ mod test {
                         assert_eq!(data.handshake.data_url, "http://peer2.com".into());
                         assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
 
-                        // remote peer always replies with its supported smart contracts
-                        assert_eq!(
-                            db_data.smart_contracts,
-                            vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
-                        );
-
                         if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
                             assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
+
+                            // remote peer always replies with its supported smart contracts
+                            assert_eq!(
+                                db_data.smart_contracts,
+                                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc")
+                                    .unwrap()]
+                            );
 
                             // peers learn each others' smart contract DBs
                             eprintln!(
