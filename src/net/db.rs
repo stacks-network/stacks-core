@@ -529,7 +529,7 @@ impl PeerDB {
     }
 
     fn apply_schema_2<'a>(tx: &Transaction<'a>) -> Result<(), db_error> {
-        debug!("Apply schema 2 to peer DB");
+        test_debug!("Apply schema 2 to peer DB");
         for row_text in PEERDB_SCHEMA_2 {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
@@ -537,7 +537,7 @@ impl PeerDB {
     }
 
     fn apply_schema_migrations<'a>(tx: &Transaction<'a>) -> Result<String, db_error> {
-        debug!("Apply any schema migrations");
+        test_debug!("Apply any schema migrations");
         let expected_version = PEERDB_VERSION.to_string();
         let mut ret = None;
         loop {
