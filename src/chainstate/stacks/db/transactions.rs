@@ -1133,6 +1133,7 @@ impl StacksChainState {
                                 warn!(
                                     "Runtime error in contract analysis for {}: {:?}",
                                     &contract_id, &other_error;
+                                    "txid" => %tx.txid(),
                                     "AST rules" => %format!("{:?}", &ast_rules)
                                 );
                                 let receipt = StacksTransactionReceipt::from_analysis_failure(
@@ -1187,6 +1188,7 @@ impl StacksChainState {
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Smart-contract processed with {}", err_type;
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => ?error);
@@ -1215,6 +1217,7 @@ impl StacksChainState {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
                                 warn!("Smart-contract encountered an analysis error at runtime";
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => %check_error);
@@ -1230,6 +1233,7 @@ impl StacksChainState {
                             } else {
                                 // prior to 2.1, this is not permitted in a block.
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => %check_error);
@@ -1240,6 +1244,7 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
+                                       "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
                                        "code" => %contract_code_str,
                                        "error" => ?e);
