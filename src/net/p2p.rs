@@ -81,6 +81,7 @@ use crate::net::NeighborKey;
 use crate::net::PeerAddress;
 use crate::net::*;
 use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::BurnStateDB;
 use stacks_common::util::get_epoch_time_ms;
@@ -231,7 +232,6 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-#[derive(Debug)]
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -289,7 +289,7 @@ pub struct PeerNetwork {
     have_data_to_download: bool,
 
     // neighbor walk state
-    pub walk: Option<NeighborWalk>,
+    pub walk: Option<NeighborWalk<PeerDBNeighborWalk>>,
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_attempts: u64,
@@ -581,9 +581,39 @@ impl PeerNetwork {
         &self.connection_opts
     }
 
+    /// Get a peer conversation ref by its event ID
+    pub fn get_p2p_convo(&self, event_id: usize) -> Option<&ConversationP2P> {
+        self.peers.get(&event_id)
+    }
+
     /// How many p2p conversations are we tracking?
     pub fn get_num_p2p_convos(&self) -> usize {
         self.peers.len()
+    }
+
+    /// Get a DB implementation for the neighbor walk
+    pub fn get_neighbor_walk_db(&self) -> PeerDBNeighborWalk {
+        PeerDBNeighborWalk::new()
+    }
+
+    /// Get a connection to the PeerDB
+    pub fn peerdb_conn(&self) -> &DBConn {
+        self.peerdb.conn()
+    }
+
+    /// Create a transaction against the PeerDB
+    pub fn peerdb_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, db_error> {
+        self.peerdb.tx_begin()
+    }
+
+    /// Get a ref to the walk pingbacks --
+    pub fn get_walk_pingbacks(&self) -> &HashMap<NeighborAddress, NeighborPingback> {
+        &self.walk_pingbacks
+    }
+
+    /// Get an iterator over all of the event ids for all peer connections
+    pub fn iter_peer_event_ids(&self) -> impl Iterator<Item = &usize> {
+        self.peers.keys()
     }
 
     /// Run a closure with the network state
