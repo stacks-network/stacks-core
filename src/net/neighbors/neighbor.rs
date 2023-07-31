@@ -34,6 +34,7 @@ use rand::thread_rng;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::log;
 
+/// Walk-specific helper functions for neighbors
 impl Neighbor {
     pub fn empty(key: &NeighborKey, pubk: &Secp256k1PublicKey, expire_block: u64) -> Neighbor {
         Neighbor {
