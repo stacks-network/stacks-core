@@ -1707,10 +1707,19 @@ impl PeerDB {
         conn: &DBConn,
         network_id: u32,
         network_epoch: u8,
+        min_age: u64,
         count: u32,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, db_error> {
-        PeerDB::get_random_neighbors(conn, network_id, network_epoch, count, block_height, false)
+        PeerDB::get_fresh_random_neighbors(
+            conn,
+            network_id,
+            network_epoch,
+            min_age,
+            count,
+            block_height,
+            false,
+        )
     }
 
     /// Add an IPv4 <--> ASN mapping
