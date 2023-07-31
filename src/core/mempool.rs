@@ -38,6 +38,7 @@ use rusqlite::NO_PARAMS;
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
 use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
@@ -174,10 +175,17 @@ impl MemPoolAdmitter {
     pub fn will_admit_tx(
         &mut self,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
-        chainstate.will_admit_mempool_tx(&self.cur_consensus_hash, &self.cur_block, tx, tx_size)
+        chainstate.will_admit_mempool_tx(
+            &sortdb.index_conn(),
+            &self.cur_consensus_hash,
+            &self.cur_block,
+            tx,
+            tx_size,
+        )
     }
 }
 
@@ -306,7 +314,7 @@ impl MemPoolWalkSettings {
     pub fn default() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
-            max_walk_time_ms: u64::max_value(),
+            max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
@@ -315,7 +323,7 @@ impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
-            max_walk_time_ms: u64::max_value(),
+            max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
@@ -1973,6 +1981,7 @@ impl MemPoolDB {
     fn tx_submit(
         mempool_tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2027,7 +2036,9 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx.admitter.will_admit_tx(chainstate, tx, len)?;
+            mempool_tx
+                .admitter
+                .will_admit_tx(chainstate, sortdb, tx, len)?;
         }
 
         MemPoolDB::try_add_tx(
@@ -2064,6 +2075,7 @@ impl MemPoolDB {
     pub fn submit(
         &mut self,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2101,6 +2113,7 @@ impl MemPoolDB {
         MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
+            sortdb,
             consensus_hash,
             block_hash,
             tx,
@@ -2116,6 +2129,7 @@ impl MemPoolDB {
     pub fn miner_submit(
         &mut self,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2129,6 +2143,7 @@ impl MemPoolDB {
         MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
+            sortdb,
             consensus_hash,
             block_hash,
             tx,
@@ -2146,6 +2161,7 @@ impl MemPoolDB {
     pub fn submit_raw(
         &mut self,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
@@ -2187,6 +2203,7 @@ impl MemPoolDB {
         MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
+            sortdb,
             consensus_hash,
             block_hash,
             &tx,

@@ -5,13 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::atomic::AtomicU64;
 
 use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
-
-use std::collections::HashSet;
 
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
@@ -28,7 +26,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
-use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
@@ -502,11 +500,11 @@ impl RunLoop {
         burnchain_config: &Burnchain,
         coordinator_receivers: CoordinatorReceivers,
         miner_status: Arc<Mutex<MinerStatus>>,
-    ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
+    ) -> JoinHandle<()> {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis Atlas attachments
-        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
             .into_iter()
@@ -517,12 +515,18 @@ impl RunLoop {
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
         // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
-        let moved_atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
-        let coordinator_indexer = make_bitcoin_indexer(&self.config);
+        let atlas_db = AtlasDB::connect(
+            moved_atlas_config.clone(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .expect("Failed to connect Atlas DB during startup");
+        let coordinator_indexer =
+            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -549,7 +553,6 @@ impl RunLoop {
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    attachments_tx,
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
@@ -557,11 +560,12 @@ impl RunLoop {
                     fee_estimator.as_deref_mut(),
                     miner_status,
                     coordinator_indexer,
+                    atlas_db,
                 );
             })
             .expect("FATAL: failed to start chains coordinator thread");
 
-        (coordinator_thread_handle, attachments_rx)
+        coordinator_thread_handle
     }
 
     /// Instantiate the PoX watchdog
@@ -629,7 +633,7 @@ impl RunLoop {
         last_stacks_pox_reorg_recover_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
@@ -649,7 +653,7 @@ impl RunLoop {
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
@@ -724,7 +728,9 @@ impl RunLoop {
                 &stacks_tip_affirmation_map, &heaviest_affirmation_map
             );
 
-            // do it anyway since it's harmless
+            // announce a new stacks block to force the chains coordinator
+            //  to wake up anyways. this isn't free, so we have to make sure
+            //  the chain-liveness thread doesn't wake up too often
             globals.coord().announce_new_stacks_block();
         }
 
@@ -747,7 +753,7 @@ impl RunLoop {
         last_announce_time: &mut u128,
     ) {
         let delay = cmp::max(
-            1,
+            config.node.chain_liveness_poll_time_secs,
             cmp::max(
                 config.miner.first_attempt_time_ms,
                 config.miner.subsequent_attempt_time_ms,
@@ -794,7 +800,7 @@ impl RunLoop {
                 }
             };
 
-        let indexer = make_bitcoin_indexer(config);
+        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
             &burnchain,
@@ -979,7 +985,7 @@ impl RunLoop {
         self.set_globals(globals.clone());
 
         // have headers; boot up the chains coordinator and instantiate the chain state
-        let (coordinator_thread_handle, attachments_rx) = self.spawn_chains_coordinator(
+        let coordinator_thread_handle = self.spawn_chains_coordinator(
             &burnchain_config,
             coordinator_receivers,
             globals.get_miner_status(),
@@ -1011,7 +1017,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, attachments_rx);
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv);
         let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process
@@ -1077,7 +1083,7 @@ impl RunLoop {
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                Some(remote_chain_height),
+                remote_chain_height,
                 num_sortitions_in_last_cycle,
             ) {
                 Ok(ibd) => ibd,
@@ -1085,6 +1091,13 @@ impl RunLoop {
                     debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
                     continue;
                 }
+            };
+
+            // calculate burnchain sync percentage
+            let percent: f64 = if remote_chain_height > 0 {
+                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+            } else {
+                0.0
             };
 
             // will recalculate this in the following loop
@@ -1100,7 +1113,10 @@ impl RunLoop {
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height,
+                target_burnchain_block_height;
+                "total_burn_sync_percent" => %percent,
+                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "remote_tip_height" => remote_chain_height
             );
 
             loop {

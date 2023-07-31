@@ -32,6 +32,7 @@ use rand::RngCore;
 use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
+use serde::Serialize;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::BurnchainDB;
@@ -193,10 +194,10 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         &self,
         _block: &StacksBlock,
         _metadata: &StacksHeaderInfo,
-        _receipts: &Vec<StacksTransactionReceipt>,
+        _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
         _winner_txid: Txid,
-        _rewards: &Vec<MinerReward>,
+        _rewards: &[MinerReward],
         _rewards_info: Option<&MinerRewardInfo>,
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
@@ -853,7 +854,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    pub fn atomic_file_write(path: &str, bytes: &Vec<u8>) -> Result<(), Error> {
+    pub fn atomic_file_write(path: &str, bytes: &[u8]) -> Result<(), Error> {
         StacksChainState::atomic_file_store(path, false, |ref mut fd| {
             fd.write_all(bytes)
                 .map_err(|e| Error::DBError(db_error::IOError(e)))
@@ -2049,7 +2050,7 @@ impl StacksChainState {
         tx: &mut DBTx<'a>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-        burn_supports: &Vec<UserBurnSupportOp>,
+        burn_supports: &[UserBurnSupportOp],
     ) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
             assert!(burn_support.burn_fee < i64::MAX as u64);
@@ -3704,13 +3705,18 @@ impl StacksChainState {
         Ok(count - to_write)
     }
 
-    /// Check whether or not there exists a Stacks block at or higher than a given height that is
-    /// unprocessed.  This is used by miners to determine whether or not the block-commit they're
-    /// about to send is about to be invalidated
-    pub fn has_higher_unprocessed_blocks(conn: &DBConn, height: u64) -> Result<bool, Error> {
+    /// Check whether or not there exists a Stacks block at or higher
+    /// than a given height that is unprocessed and relatively
+    /// new. This is used by miners to determine whether or not the
+    /// block-commit they're about to send is about to be invalidated.
+    pub fn has_higher_unprocessed_blocks(
+        conn: &DBConn,
+        height: u64,
+        deadline: u64,
+    ) -> Result<bool, Error> {
         let sql =
-            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1 AND arrival_time >= ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(deadline)?];
         let res = conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -3720,16 +3726,19 @@ impl StacksChainState {
 
     /// Get the metadata of the highest unprocessed block.
     /// The block data will not be returned
-    pub fn get_highest_unprocessed_block(conn: &DBConn) -> Result<Option<StagingBlock>, Error> {
+    pub fn get_highest_unprocessed_block(
+        conn: &DBConn,
+        deadline: u64,
+    ) -> Result<Option<StagingBlock>, Error> {
         let sql =
-            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 ORDER BY height DESC LIMIT 1";
-        let res = query_row(conn, sql, NO_PARAMS)?;
+            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND arrival_time >= ?1 ORDER BY height DESC LIMIT 1";
+        let res = query_row(conn, sql, &[u64_to_sql(deadline)?])?;
         Ok(res)
     }
 
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
     ) -> Vec<StacksMicroblock> {
         let mut signed_microblocks = vec![];
         for microblock in microblocks.iter() {
@@ -3763,7 +3772,7 @@ impl StacksChainState {
     pub fn validate_parent_microblock_stream(
         parent_anchored_block_header: &StacksBlockHeader,
         anchored_block_header: &StacksBlockHeader,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
         verify_signatures: bool,
     ) -> Option<(usize, Option<TransactionPayload>)> {
         if anchored_block_header.is_first_mined() {
@@ -3784,7 +3793,7 @@ impl StacksChainState {
         let signed_microblocks = if verify_signatures {
             StacksChainState::extract_signed_microblocks(&parent_anchored_block_header, microblocks)
         } else {
-            microblocks.clone()
+            microblocks.to_owned()
         };
 
         if signed_microblocks.len() == 0 {
@@ -4813,7 +4822,7 @@ impl StacksChainState {
     /// Return the fees and burns.
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
         ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
@@ -4878,21 +4887,103 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch22 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch23 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch24 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
-                    StacksEpochId::Epoch2_05 => {
+                    StacksEpochId::Epoch2_05 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch21 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch22 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch21 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch22 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch22 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch23 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch21,
-                            "Should only transition from Epoch2_05 to Epoch21"
+                            StacksEpochId::Epoch24,
+                            "Should only transition from Epoch23 to Epoch24"
                         );
-                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch21 => {
-                        panic!("No defined transition from Epoch21 forward")
+                    StacksEpochId::Epoch24 => {
+                        panic!("No defined transition from Epoch23 forward")
                     }
                 }
             }
@@ -5239,7 +5330,7 @@ impl StacksChainState {
     pub fn process_matured_miner_rewards<'a, 'b>(
         clarity_tx: &mut ClarityTx<'a, 'b>,
         miner_share: &MinerReward,
-        users_share: &Vec<MinerReward>,
+        users_share: &[MinerReward],
         parent_share: &MinerReward,
     ) -> Result<u128, Error> {
         let mut coinbase_reward = miner_share.coinbase;
@@ -5265,12 +5356,14 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
+                let epoch = tx_connection.get_epoch();
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
                     let res = db.fetch_entry_unknown_descriptor(
                         &lockup_contract_id,
                         "lockups",
                         &block_height,
+                        &epoch,
                     )?;
                     Ok(res)
                 })?;
@@ -5312,7 +5405,7 @@ impl StacksChainState {
     pub fn get_parent_matured_miner(
         conn: &DBConn,
         mainnet: bool,
-        latest_matured_miners: &Vec<MinerPaymentSchedule>,
+        latest_matured_miners: &[MinerPaymentSchedule],
     ) -> Result<MinerPaymentSchedule, Error> {
         let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
             StacksChainState::get_scheduled_block_rewards_at_block(
@@ -5479,7 +5572,10 @@ impl StacksChainState {
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
                 Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 => {
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5512,38 +5608,67 @@ impl StacksChainState {
         // Do not try to handle auto-unlocks on pox_reward_cycle 0
         // This cannot even occur in the mainchain, because 2.1 starts much
         //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
-        if pox_reward_cycle > 1 {
-            // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
-            //  or written to the sortition db (at block = 1 of cycle)
-            if Burnchain::is_before_reward_cycle(
-                burn_dbconn.get_burn_start_height().into(),
-                burn_tip_height,
-                burn_dbconn.get_pox_reward_cycle_length().into(),
-            ) {
-                debug!("check_and_handle_reward_start: before reward cycle");
-                return Ok(vec![]);
-            }
-            let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
-            });
-            debug!("check_and_handle_reward_start: handled = {}", handled);
-
-            if !handled {
-                let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
-                    parent_sortition_id,
-                    chain_tip.burn_header_height.into(),
-                    pox_reward_cycle,
-                )?;
-                debug!("check_and_handle_reward_start: got pox reward cycle info");
-                let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
-                    Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
-                })?;
-                debug!("check_and_handle_reward_start: handled pox cycle start");
-                return Ok(events);
-            }
+        if pox_reward_cycle <= 1 {
+            return Ok(vec![]);
         }
 
-        Ok(vec![])
+        // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
+        //  or written to the sortition db (at block = 1 of cycle)
+        if Burnchain::is_before_reward_cycle(
+            burn_dbconn.get_burn_start_height().into(),
+            burn_tip_height,
+            burn_dbconn.get_pox_reward_cycle_length().into(),
+        ) {
+            debug!("check_and_handle_reward_start: before reward cycle");
+            return Ok(vec![]);
+        }
+        let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+            Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
+        });
+        debug!("check_and_handle_reward_start: handled = {}", handled);
+
+        if handled {
+            // already handled this cycle, don't need to do anything
+            return Ok(vec![]);
+        }
+
+        let active_epoch = clarity_tx.get_epoch();
+
+        let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
+            parent_sortition_id,
+            chain_tip.burn_header_height.into(),
+            pox_reward_cycle,
+        )?;
+        debug!("check_and_handle_reward_start: got pox reward cycle info");
+        let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
+            match active_epoch {
+                StacksEpochId::Epoch10
+                | StacksEpochId::Epoch20
+                | StacksEpochId::Epoch2_05
+                | StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23 => {
+                    // prior to epoch-2.4, the semantics of this method were such that any epoch
+                    // would invoke the `handle_pox_cycle_start_pox_2()` method.
+                    // however, only epoch-2.1 ever actually *does* invoke this method,
+                    //  so, with some careful testing, this branch could perhaps be simplified
+                    //  such that only Epoch21 matches, and all the other ones _panic_.
+                    // For now, I think it's better to preserve the exact prior semantics.
+                    Self::handle_pox_cycle_start_pox_2(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
+                StacksEpochId::Epoch24 => Self::handle_pox_cycle_start_pox_3(
+                    clarity_tx,
+                    pox_reward_cycle,
+                    pox_start_cycle_info,
+                ),
+            }
+        })?;
+        debug!("check_and_handle_reward_start: handled pox cycle start");
+        return Ok(events);
     }
 
     /// Called in both follower and miner block assembly paths.
@@ -5901,7 +6026,7 @@ impl StacksChainState {
         microblocks: &Vec<StacksMicroblock>, // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
@@ -6975,6 +7100,7 @@ impl StacksChainState {
     /// unconfirmed microblock stream trailing off of it.
     pub fn will_admit_mempool_tx(
         &mut self,
+        burn_state_db: &dyn BurnStateDB,
         current_consensus_hash: &ConsensusHash,
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -7019,7 +7145,7 @@ impl StacksChainState {
 
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
+        let res = match self.with_read_only_clarity_tx(burn_state_db, &current_tip, |conn| {
             StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
             Some(r) => r,
@@ -7039,7 +7165,7 @@ impl StacksChainState {
                 {
                     debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
-                    self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
+                    self.with_read_only_unconfirmed_clarity_tx(burn_state_db, |conn| {
                         StacksChainState::can_include_tx(
                             conn,
                             &conf,
@@ -7137,11 +7263,12 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height) =
-            clarity_connection.with_clarity_db_readonly(|ref mut db| {
+        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
+            .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height() as u64,
                     db.get_v1_unlock_height(),
+                    db.get_v2_unlock_height(),
                 )
             });
 
@@ -7150,6 +7277,7 @@ impl StacksChainState {
             fee as u128,
             block_height,
             v1_unlock_height,
+            v2_unlock_height,
         ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -7158,9 +7286,11 @@ impl StacksChainState {
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         fee as u128,
-                        payer
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        payer.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
             }
@@ -7183,12 +7313,15 @@ impl StacksChainState {
                     total_spent,
                     block_height,
                     v1_unlock_height,
+                    v2_unlock_height,
                 ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
-                        origin
-                            .stx_balance
-                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
+                        origin.stx_balance.get_available_balance_at_burn_block(
+                            block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        ),
                     ));
                 }
 
@@ -7198,12 +7331,14 @@ impl StacksChainState {
                         fee as u128,
                         block_height,
                         v1_unlock_height,
+                        v2_unlock_height,
                     ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
                             payer.stx_balance.get_available_balance_at_burn_block(
                                 block_height,
                                 v1_unlock_height,
+                                v2_unlock_height,
                             ),
                         ));
                     }
@@ -7981,8 +8116,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store_empty() {
-        let chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store_empty");
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         let path = StacksChainState::get_block_path(
             &chainstate.blocks_path,
@@ -8026,8 +8160,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8188,11 +8321,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_accept",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8243,11 +8372,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_reject() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_reject",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8298,8 +8423,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_load_store_microblock_stream() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_load_store_microblock_stream");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8359,11 +8483,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_confirm_all() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_store_confirm_all",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8584,11 +8704,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_store_partial_confirm",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8846,11 +8962,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_continuous_streams() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblock_stream_load_continuous_streams",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9296,11 +9408,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_block_load_store_accept_attachable",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9436,11 +9544,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_reversed() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stx_db_staging_block_load_store_accept_attachable_r",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9577,11 +9681,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_fork() {
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stx_db_staging_block_load_store_accept_attachable_f",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9763,11 +9863,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_multiple_descendants() {
         // multiple anchored blocks build off of different microblock parents
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblocks_multiple_descendants",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9903,8 +9999,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_blocks_orphaned() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_staging_blocks_orphaned");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10074,8 +10169,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_drop_staging_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_drop_staging_microblocks_1");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10166,8 +10260,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_has_blocks_and_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_has_blocks_and_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10510,7 +10603,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_blocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_stream_blocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10590,7 +10683,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_headers() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_stream_headers");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10843,8 +10936,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_staging_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_stream_staging_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10962,8 +11054,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_stream_confirmed_microblocks() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_stream_confirmed_microblocks");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -11075,8 +11166,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_get_blocks_inventory");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         let mut blocks: Vec<StacksBlock> = vec![];
         let mut privks = vec![];
@@ -11719,8 +11809,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_fork() {
         // multiple anchored blocks build off of a forked microblock stream
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblocks_fork");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -11880,11 +11969,7 @@ pub mod test {
     fn stacks_db_staging_microblocks_multiple_forks() {
         // multiple anchored blocks build off of a microblock stream that gets forked multiple
         // times
-        let mut chainstate = instantiate_chainstate(
-            false,
-            0x80000000,
-            "stacks_db_staging_microblocks_multiple_fork",
-        );
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -12095,8 +12180,7 @@ pub mod test {
     /// there are empty sortitions.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210() {
-        let mut peer_config =
-            TestPeerConfig::new("test_stacking_and_transfer_burn_ops_v210", 21315, 21316);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21315, 21316);
         let num_blocks = 10;
 
         let privk = StacksPrivateKey::from_hex(
@@ -12410,11 +12494,7 @@ pub mod test {
     /// between when they are mined and when the next Stacks block is mined.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210_expiration() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_stacking_and_transfer_burn_ops_v210_expiration",
-            21317,
-            21318,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21317, 21318);
         let num_blocks = 20;
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",

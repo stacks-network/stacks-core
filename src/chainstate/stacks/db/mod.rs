@@ -223,6 +223,9 @@ impl DBConfig {
                 self.version == "2" || self.version == "3" || self.version == "4"
             }
             StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
         }
     }
 }
@@ -1296,16 +1299,18 @@ impl StacksChainState {
                     }
 
                     let lockup_contract_id = boot_code_id("lockup", mainnet);
+                    let epoch = clarity.get_epoch();
                     clarity
                         .with_clarity_db(|db| {
                             for (block_height, schedule) in lockups_per_block.into_iter() {
                                 let key = Value::UInt(block_height.into());
-                                let value = Value::list_from(schedule).unwrap();
+                                let value = Value::cons_list(schedule, &epoch).unwrap();
                                 db.insert_entry_unknown_descriptor(
                                     &lockup_contract_id,
                                     "lockups",
                                     key,
                                     value,
+                                    &epoch,
                                 )?;
                             }
                             Ok(())
@@ -1317,6 +1322,7 @@ impl StacksChainState {
                 let bns_contract_id = boot_code_id("bns", mainnet);
                 if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
                     info!("Initializing chain with namespaces");
+                    let epoch = clarity.get_epoch();
                     clarity
                         .with_clarity_db(|db| {
                             let initial_namespaces = get_namespaces();
@@ -1355,7 +1361,10 @@ impl StacksChainState {
                                     assert_eq!(buckets.len(), 16);
 
                                     TupleData::from_data(vec![
-                                        ("buckets".into(), Value::list_from(buckets).unwrap()),
+                                        (
+                                            "buckets".into(),
+                                            Value::cons_list(buckets, &epoch).unwrap(),
+                                        ),
                                         ("base".into(), base),
                                         ("coeff".into(), coeff),
                                         ("nonalpha-discount".into(), nonalpha_discount),
@@ -1381,6 +1390,7 @@ impl StacksChainState {
                                     "namespaces",
                                     namespace,
                                     namespace_props,
+                                    &epoch,
                                 )?;
                             }
                             Ok(())
@@ -1391,6 +1401,7 @@ impl StacksChainState {
                 // BNS Names
                 if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
                     info!("Initializing chain with names");
+                    let epoch = clarity.get_epoch();
                     clarity
                         .with_clarity_db(|db| {
                             let initial_names = get_names();
@@ -1446,6 +1457,7 @@ impl StacksChainState {
                                     &fqn,
                                     &owner_address,
                                     &expected_asset_type,
+                                    &epoch,
                                 )?;
 
                                 let registered_at = Value::UInt(0);
@@ -1467,6 +1479,7 @@ impl StacksChainState {
                                     "name-properties",
                                     fqn.clone(),
                                     name_props,
+                                    &epoch,
                                 )?;
 
                                 db.insert_entry_unknown_descriptor(
@@ -1474,6 +1487,7 @@ impl StacksChainState {
                                     "owner-name",
                                     Value::Principal(owner_address),
                                     fqn,
+                                    &epoch,
                                 )?;
                             }
                             Ok(())
@@ -1925,15 +1939,6 @@ impl StacksChainState {
         self.clarity_state.with_marf(f)
     }
 
-    fn begin_read_only_clarity_tx<'a>(
-        &'a mut self,
-        burn_dbconn: &'a dyn BurnStateDB,
-        index_block: &StacksBlockId,
-    ) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state
-            .read_only_connection(&index_block, &self.state_index, burn_dbconn)
-    }
-
     /// Run to_do on the state of the Clarity VM at the given chain tip.
     /// Returns Some(x: R) if the given parent_tip exists.
     /// Returns None if not
@@ -1956,7 +1961,17 @@ impl StacksChainState {
                 return None;
             }
         }
-        let mut conn = self.begin_read_only_clarity_tx(burn_dbconn, parent_tip);
+        let mut conn = match self.clarity_state.read_only_connection_checked(
+            parent_tip,
+            &self.state_index,
+            burn_dbconn,
+        ) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                warn!("Failed to load read only connection"; "err" => %e);
+                None
+            }
+        }?;
         let result = to_do(&mut conn);
         Some(result)
     }
@@ -2380,7 +2395,7 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
@@ -2577,7 +2592,7 @@ pub mod test {
 
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -2653,7 +2668,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate-test");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -2743,7 +2758,7 @@ pub mod test {
             })),
         };
 
-        let path = chainstate_path("genesis-consistency-chainstate");
+        let path = chainstate_path(function_name!());
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();

@@ -34,21 +34,11 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::clarity_vm::database::marf::MarfedKV;
+use clarity::vm::tests::test_clarity_versions;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_type_checker(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
-
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_forking_simple(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     with_separate_forks_environment(
         version,
@@ -66,7 +56,7 @@ fn test_forking_simple(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     );
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     // test how at-block works when a mutation has occurred
     fn initialize(owned_env: &mut OwnedEnvironment) {
@@ -143,7 +133,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
     );
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
@@ -222,7 +212,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
     );
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();

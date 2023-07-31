@@ -294,7 +294,7 @@ impl RelayerStats {
     /// Map neighbors to the frequency of their AS numbers in the given neighbors list
     fn count_ASNs(
         conn: &DBConn,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         // look up ASNs
         let mut asns = HashMap::new();
@@ -338,7 +338,7 @@ impl RelayerStats {
     /// to some other peer that's already forwarding it data.  Thus, we don't need to do so.
     pub fn get_inbound_relay_rankings<R: RelayPayload>(
         &self,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
         msg: &R,
         warmup_threshold: usize,
     ) -> HashMap<NeighborKey, usize> {
@@ -374,7 +374,7 @@ impl RelayerStats {
     pub fn get_outbound_relay_rankings(
         &self,
         peerdb: &PeerDB,
-        neighbors: &Vec<NeighborKey>,
+        neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
         let asn_total = asn_counts.values().fold(0, |t, s| t + s);
@@ -5328,8 +5328,7 @@ pub mod test {
 
     #[test]
     fn test_block_pay_to_contract_gated_at_v210() {
-        let mut peer_config =
-            TestPeerConfig::new("test_block_pay_to_contract_gated_at_v210", 4246, 4247);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4246, 4247);
         let epochs = vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -5490,11 +5489,7 @@ pub mod test {
 
     #[test]
     fn test_block_versioned_smart_contract_gated_at_v210() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_block_versioned_smart_contract_gated_at_v210",
-            4248,
-            4249,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
 
         let initial_balances = vec![(
             PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
@@ -5671,11 +5666,7 @@ pub mod test {
 
     #[test]
     fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
-        let mut peer_config = TestPeerConfig::new(
-            "test_block_versioned_smart_contract_mempool_rejection_until_v210",
-            4250,
-            4251,
-        );
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4250, 4251);
 
         let initial_balances = vec![(
             PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
@@ -5833,6 +5824,7 @@ pub mod test {
             let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
             let versioned_contract_len = versioned_contract.serialize_to_vec().len();
             match node.chainstate.will_admit_mempool_tx(
+                &sortdb.index_conn(),
                 &consensus_hash,
                 &stacks_block.block_hash(),
                 &versioned_contract,
@@ -5882,6 +5874,7 @@ pub mod test {
         let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
         match node.chainstate.will_admit_mempool_tx(
+            &sortdb.index_conn(),
             &consensus_hash,
             &stacks_block.block_hash(),
             &versioned_contract,

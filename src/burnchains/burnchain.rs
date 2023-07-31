@@ -118,7 +118,7 @@ impl BurnchainStateTransition {
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        missed_commits: &[MissedBlockCommit],
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
@@ -1129,7 +1129,7 @@ impl Burnchain {
             indexer.get_first_block_header_timestamp()?,
             indexer.get_stacks_epochs(),
         )?;
-        let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
+        let burnchain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e
         })?;
@@ -1138,12 +1138,12 @@ impl Burnchain {
 
         // does the bunchain db have more blocks than the sortition db has processed?
         assert_eq!(last_snapshot_processed.block_height,
-                   burn_chain_tip.block_height,
+                   burnchain_tip.block_height,
                    "FATAL: Last snapshot processed height={} and current burnchain db height={} have diverged",
                    last_snapshot_processed.block_height,
-                   burn_chain_tip.block_height);
+                   burnchain_tip.block_height);
 
-        let db_height = burn_chain_tip.block_height;
+        let db_height = burnchain_tip.block_height;
 
         // handle reorgs
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
@@ -1351,7 +1351,7 @@ impl Burnchain {
             }
         };
 
-        let burn_chain_tip = match burndb.get_canonical_chain_tip() {
+        let burnchain_tip = match burndb.get_canonical_chain_tip() {
             Ok(tip) => tip,
             Err(burnchain_error::MissingParentBlock) => {
                 // database is empty
@@ -1362,7 +1362,7 @@ impl Burnchain {
             }
         };
 
-        Ok(Some(burn_chain_tip))
+        Ok(Some(burnchain_tip))
     }
 
     /// Top-level burnchain sync.
@@ -1389,12 +1389,12 @@ impl Burnchain {
             indexer.get_stacks_epochs(),
         )?;
 
-        let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
+        let burnchain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e
         })?;
 
-        let db_height = burn_chain_tip.block_height;
+        let db_height = burnchain_tip.block_height;
 
         // handle reorgs (which also updates our best-known chain work and headers DB)
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
@@ -1487,7 +1487,7 @@ impl Burnchain {
 
         if start_block == db_height && db_height == end_block {
             // all caught up
-            return Ok(burn_chain_tip);
+            return Ok(burnchain_tip);
         }
 
         let total = sync_height - self.first_block_height;
@@ -1590,7 +1590,7 @@ impl Burnchain {
             thread::Builder::new()
                 .name("burnchain-db".to_string())
                 .spawn(move || {
-                    let mut last_processed = burn_chain_tip;
+                    let mut last_processed = burnchain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block");
 

@@ -100,13 +100,8 @@ fn test_store_and_fetch() {
     let headers = vec![first_block_header.clone()];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        &vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let ops = burnchain_db
         .store_new_burnchain_block(
             &burnchain,
@@ -148,7 +143,7 @@ fn test_store_and_fetch() {
         400,
         &non_canon_hash,
         &first_bhh,
-        &broadcast_ops,
+        broadcast_ops,
         350,
     ));
 
@@ -222,13 +217,8 @@ fn test_classify_stack_stx() {
     let mut headers = vec![first_block_header.clone()];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        &vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let ops = burnchain_db
         .store_new_burnchain_block(
             &burnchain,
@@ -374,11 +364,12 @@ fn test_classify_stack_stx() {
     let block_height_1 = 502;
     let block_hash_1 = BurnchainHeaderHash([3; 32]);
 
+    let num_txs_ops_0: u64 = ops_0.len() as u64;
     let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_0,
         &block_hash_0,
         &first_bhh,
-        &ops_0,
+        ops_0,
         350,
     ));
 
@@ -386,15 +377,16 @@ fn test_classify_stack_stx() {
         block_height: first_block_header.block_height + 1,
         block_hash: block_hash_0.clone(),
         parent_block_hash: first_bhh.clone(),
-        num_txs: ops_0.len() as u64,
+        num_txs: num_txs_ops_0,
         timestamp: first_block_header.timestamp + 1,
     });
 
+    let num_txs_ops_1: u64 = ops_1.len() as u64;
     let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_1,
         &block_hash_1,
         &block_hash_0,
-        &ops_1,
+        ops_1,
         360,
     ));
 
@@ -402,7 +394,7 @@ fn test_classify_stack_stx() {
         block_height: first_block_header.block_height + 2,
         block_hash: block_hash_1.clone(),
         parent_block_hash: block_hash_0.clone(),
-        num_txs: ops_1.len() as u64,
+        num_txs: num_txs_ops_1,
         timestamp: first_block_header.timestamp + 2,
     });
 
@@ -517,8 +509,18 @@ fn test_get_commit_at() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory");
-    burnchain.pox_constants =
-        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -632,8 +634,18 @@ fn test_get_set_check_anchor_block() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants =
-        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -717,8 +729,18 @@ fn test_update_block_descendancy() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants =
-        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -836,8 +858,18 @@ fn test_update_block_descendancy_with_fork() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants =
-        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(
+        5,
+        3,
+        2,
+        3,
+        0,
+        u64::MAX - 1,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -1032,13 +1064,8 @@ fn test_classify_delegate_stx() {
 
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
-    let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-        500,
-        &canon_hash,
-        &first_bhh,
-        &vec![],
-        485,
-    ));
+    let canonical_block =
+        BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
     let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
 
     let ops = burnchain_db
@@ -1214,11 +1241,13 @@ fn test_classify_delegate_stx() {
     let block_height_1 = 502;
     let block_hash_1 = BurnchainHeaderHash([3; 32]);
 
+    let ops_0_length = ops_0.len();
+    let ops_1_length = ops_1.len();
     let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         block_height_0,
         &block_hash_0,
         &first_bhh,
-        &ops_0,
+        ops_0,
         350,
     ));
 
@@ -1226,14 +1255,14 @@ fn test_classify_delegate_stx() {
         block_height_1,
         &block_hash_1,
         &block_hash_0,
-        &ops_1,
+        ops_1,
         360,
     ));
 
     headers.push(block_0.header().clone());
     headers.push(block_1.header().clone());
 
-    test_debug!("store ops ({}) for block 0", &ops_0.len());
+    test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
         .unwrap();
@@ -1244,7 +1273,7 @@ fn test_classify_delegate_stx() {
         "Only pre_delegate_stx op should have been accepted"
     );
 
-    test_debug!("store ops ({}) for block 1", &ops_1.len());
+    test_debug!("store ops ({}) for block 1", ops_1_length);
     let processed_ops_1 = burnchain_db
         .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
         .unwrap();

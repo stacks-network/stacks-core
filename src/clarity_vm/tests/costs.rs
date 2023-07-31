@@ -43,6 +43,7 @@ use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 use clarity::vm::ClarityVersion;
+use clarity::vm::ContractName;
 use stacks_common::util::hash::hex_bytes;
 
 use std::collections::HashMap;
@@ -826,12 +827,11 @@ fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
 
-fn test_tracked_costs(
-    prog: &str,
+fn setup_cost_tracked_test(
     use_mainnet: bool,
-    epoch: StacksEpochId,
     version: ClarityVersion,
-) -> ExecutionCost {
+    owned_env: &mut OwnedEnvironment,
+) {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -839,6 +839,49 @@ fn test_tracked_costs(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!(),
+    };
+
+    let other_contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let trait_contract_id =
+        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+
+    owned_env
+        .initialize_versioned_contract(
+            trait_contract_id.clone(),
+            version,
+            contract_trait,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
+    owned_env
+        .initialize_versioned_contract(
+            other_contract_id.clone(),
+            version,
+            contract_other,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
+}
+
+fn test_program_cost(
+    prog: &str,
+    version: ClarityVersion,
+    owned_env: &mut OwnedEnvironment,
+    prog_id: usize,
+) -> ExecutionCost {
     let contract_self = format!(
         "(define-map map-foo {{ a: int }} {{ b: int }})
         (define-non-fungible-token nft-foo int)
@@ -865,149 +908,96 @@ fn test_tracked_costs(
         _ => panic!(),
     };
 
-    let self_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
+    let self_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
+    );
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    with_owned_env(epoch, use_mainnet, |mut owned_env| {
-        owned_env
-            .initialize_versioned_contract(
-                trait_contract_id.clone(),
-                version,
-                contract_trait,
-                None,
-                ASTRules::PrecheckSize,
-            )
-            .unwrap();
-        owned_env
-            .initialize_versioned_contract(
-                other_contract_id.clone(),
-                version,
-                contract_other,
-                None,
-                ASTRules::PrecheckSize,
-            )
-            .unwrap();
-        owned_env
-            .initialize_versioned_contract(
-                self_contract_id.clone(),
-                version,
-                &contract_self,
-                None,
-                ASTRules::PrecheckSize,
-            )
-            .unwrap();
-
-        let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
-
-        eprintln!("{}", &contract_self);
-        execute_transaction(
-            &mut owned_env,
-            p2_principal.clone(),
-            &self_contract_id,
-            "execute",
-            &symbols_from_values(vec![target_contract]),
+    owned_env
+        .initialize_versioned_contract(
+            self_contract_id.clone(),
+            version,
+            &contract_self,
+            None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
-        let (_db, tracker) = owned_env.destruct().unwrap();
-        tracker.get_total()
-    })
+    let start = owned_env.get_cost_total();
+
+    let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
+    eprintln!("{}", &contract_self);
+    execute_transaction(
+        owned_env,
+        p2_principal.clone(),
+        &self_contract_id,
+        "execute",
+        &symbols_from_values(vec![target_contract]),
+    )
+    .unwrap();
+
+    let mut result = owned_env.get_cost_total();
+    result.sub(&start).unwrap();
+    result
 }
 
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.00
-fn epoch_20_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs(
-        "1",
-        use_mainnet,
-        StacksEpochId::Epoch20,
-        ClarityVersion::Clarity1,
-    );
+fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
+    with_owned_env(epoch, use_mainnet, |mut owned_env| {
+        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity1, &mut owned_env);
 
-    for f in NativeFunctions::ALL.iter() {
-        // Note: The 2.05 test assumes Clarity1.
-        if f.get_version() == ClarityVersion::Clarity1 {
-            let test = get_simple_test(f);
-            let cost = test_tracked_costs(
-                test,
-                use_mainnet,
-                StacksEpochId::Epoch20,
-                ClarityVersion::Clarity1,
-            );
-            assert!(cost.exceeds(&baseline));
+        let baseline = test_program_cost("1", ClarityVersion::Clarity1, &mut owned_env, 0);
+
+        for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
+            // Note: The 2.0 and 2.05 test assumes Clarity1.
+            if f.get_version() == ClarityVersion::Clarity1 {
+                let test = get_simple_test(f);
+                let cost =
+                    test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);
+                assert!(cost.exceeds(&baseline));
+            }
         }
-    }
+    })
 }
 
 #[test]
 fn epoch_20_test_all_mainnet() {
-    epoch_20_test_all(true)
+    epoch_20_205_test_all(true, StacksEpochId::Epoch20)
 }
 
 #[test]
 fn epoch_20_test_all_testnet() {
-    epoch_20_test_all(false)
-}
-
-// test each individual cost function can be correctly invoked as
-//  Clarity code executes in Epoch 2.05
-fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs(
-        "1",
-        use_mainnet,
-        StacksEpochId::Epoch2_05,
-        ClarityVersion::Clarity1,
-    );
-
-    for f in NativeFunctions::ALL.iter() {
-        // Note: The 2.05 test assumes Clarity1.
-        if f.get_version() == ClarityVersion::Clarity1 {
-            let test = get_simple_test(f);
-            let cost = test_tracked_costs(
-                test,
-                use_mainnet,
-                StacksEpochId::Epoch2_05,
-                ClarityVersion::Clarity1,
-            );
-            assert!(cost.exceeds(&baseline));
-        }
-    }
+    epoch_20_205_test_all(false, StacksEpochId::Epoch20)
 }
 
 #[test]
 fn epoch_205_test_all_mainnet() {
-    epoch_205_test_all(true)
+    epoch_20_205_test_all(true, StacksEpochId::Epoch2_05)
 }
 
 #[test]
 fn epoch_205_test_all_testnet() {
-    epoch_205_test_all(false)
+    epoch_20_205_test_all(false, StacksEpochId::Epoch2_05)
 }
 
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.1
 fn epoch_21_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs(
-        "1",
-        use_mainnet,
-        StacksEpochId::Epoch21,
-        ClarityVersion::Clarity2,
-    );
+    with_owned_env(StacksEpochId::Epoch21, use_mainnet, |mut owned_env| {
+        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity2, &mut owned_env);
 
-    for f in NativeFunctions::ALL.iter() {
-        // Note: Include Clarity2 functions for Epoch21.
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(
-            test,
-            use_mainnet,
-            StacksEpochId::Epoch21,
-            ClarityVersion::Clarity2,
-        );
-        assert!(cost.exceeds(&baseline));
-    }
+        let baseline = test_program_cost("1", ClarityVersion::Clarity2, &mut owned_env, 0);
+
+        for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
+            // Note: Include Clarity2 functions for Epoch21.
+            let test = get_simple_test(f);
+            let cost = test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
+            assert!(cost.exceeds(&baseline));
+        }
+    })
 }
 
 #[test]
@@ -1190,11 +1180,13 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                  confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
+        let epoch = db.get_clarity_epoch_version();
         db.set_entry_unknown_descriptor(
             voting_contract_to_use,
             "confirmed-proposals",
             execute_on_network("{ confirmed-id: u0 }", use_mainnet),
             execute_on_network(&value, use_mainnet),
+            &epoch,
         )
         .unwrap();
         db.commit();
@@ -1480,6 +1472,12 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
     let bad_proposals = bad_cases.len();
 
+    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
+        &COST_VOTING_MAINNET_CONTRACT
+    } else {
+        &COST_VOTING_TESTNET_CONTRACT
+    };
+
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
@@ -1487,7 +1485,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         db.begin();
 
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128),
         )
@@ -1504,11 +1502,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                      confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
-                &COST_VOTING_TESTNET_CONTRACT,
+                voting_contract_to_use,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }
@@ -1542,7 +1542,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             assert_eq!(
                 &referenced_function.contract_id,
-                &boot_code_id("costs", false),
+                &boot_code_id("costs", use_mainnet),
                 "All cost functions should still point to the boot costs"
             );
             assert_eq!(
@@ -1564,7 +1564,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             "cost-definition",
         ),
         (
-            boot_code_id("costs", false),
+            boot_code_id("costs", use_mainnet),
             "cost_le",
             cost_definer.clone(),
             "cost-definition-le",
@@ -1585,7 +1585,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
         let good_proposals = good_cases.len() as u128;
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(bad_proposals as u128 + good_proposals),
         )
@@ -1602,11 +1602,13 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
+            let epoch = db.get_clarity_epoch_version();
             db.set_entry_unknown_descriptor(
-                &COST_VOTING_TESTNET_CONTRACT,
+                voting_contract_to_use,
                 "confirmed-proposals",
                 execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
                 execute(&value),
+                &epoch,
             )
             .unwrap();
         }
@@ -1659,7 +1661,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             } else {
                 assert_eq!(
                     &referenced_function.contract_id,
-                    &boot_code_id("costs", false),
+                    &boot_code_id("costs", use_mainnet),
                     "Cost function should still point to the boot costs"
                 );
                 assert_eq!(
@@ -1673,11 +1675,11 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     };
 }
 
-// TODO: Reinstate this test. We couldn't get it working in time for pr/2940.
-//#[test]
-//fn test_cost_voting_integration_mainnet() {
-//    test_cost_voting_integration(true)
-//}
+#[test]
+fn test_cost_voting_integration_mainnet() {
+    test_cost_voting_integration(true, ClarityVersion::Clarity1);
+    test_cost_voting_integration(true, ClarityVersion::Clarity2);
+}
 
 #[test]
 fn test_cost_voting_integration_testnet() {

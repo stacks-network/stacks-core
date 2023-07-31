@@ -14,31 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
-#[cfg(test)]
 use rstest::rstest;
-#[cfg(test)]
 use rstest_reuse::{self, *};
 
-#[cfg(test)]
 use crate::vm::ast::parse;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use crate::vm::tests::execute;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::*;
+use crate::vm::types::StacksAddressExtensions;
 use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
+use crate::vm::types::{PrincipalData, SequenceData};
 use crate::vm::ClarityVersion;
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
 };
 use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
-use stacks_common::address::c32;
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
@@ -48,20 +45,6 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_simple_apply_eval(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
-
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::StacksAddressExtensions;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -78,7 +61,7 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
-#[apply(test_clarity_versions_simple_apply_eval)]
+#[apply(test_clarity_versions)]
 fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     /*
       test program:
@@ -648,7 +631,7 @@ fn test_principal_equality() {
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
-#[apply(test_clarity_versions_simple_apply_eval)]
+#[apply(test_clarity_versions)]
 fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     //
     //  test program:
@@ -1092,7 +1075,7 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 }
 
-#[apply(test_clarity_versions_simple_apply_eval)]
+#[apply(test_clarity_versions)]
 fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
         "(>= 1)",

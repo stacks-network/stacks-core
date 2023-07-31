@@ -752,21 +752,34 @@ impl StacksMessageCodec for MemPoolSyncData {
     }
 }
 
-impl StacksMessageCodec for ContractId {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.0.issuer.0)?;
-        write_next(fd, &self.0.issuer.1)?;
-        write_next(fd, &self.0.name)?;
-        Ok(())
-    }
+/// We can't implement StacksMessageCodec directly for T: QualifiedContractIdentifierExtension, so
+/// we have to resort to these crude methods.
+fn contract_id_consensus_serialize<W: Write, T: QualifiedContractIdentifierExtension>(
+    fd: &mut W,
+    cid: &T,
+) -> Result<(), codec_error> {
+    let addr = cid.address();
+    let name = cid.name();
+    write_next(fd, &addr.version)?;
+    write_next(fd, &addr.bytes.0)?;
+    write_next(fd, &name)?;
+    Ok(())
+}
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractId, codec_error> {
-        let version: u8 = read_next(fd)?;
-        let bytes: [u8; 20] = read_next(fd)?;
-        let name: ContractName = read_next(fd)?;
-        let qn = QualifiedContractIdentifier::new(StandardPrincipalData(version, bytes), name);
-        Ok(ContractId(qn))
-    }
+fn contract_id_consensus_deserialize<R: Read, T: QualifiedContractIdentifierExtension>(
+    fd: &mut R,
+) -> Result<T, codec_error> {
+    let version: u8 = read_next(fd)?;
+    let bytes: [u8; 20] = read_next(fd)?;
+    let name: ContractName = read_next(fd)?;
+    let qn = T::new(
+        StacksAddress {
+            version,
+            bytes: Hash160(bytes),
+        },
+        name,
+    );
+    Ok(qn)
 }
 
 impl StacksMessageCodec for StackerDBHandshakeData {
@@ -779,7 +792,7 @@ impl StacksMessageCodec for StackerDBHandshakeData {
         write_next(fd, &self.rc_consensus_hash)?;
         write_next(fd, &len_u8)?;
         for cid in self.smart_contracts.iter() {
-            write_next(fd, cid)?;
+            contract_id_consensus_serialize(fd, cid)?;
         }
         Ok(())
     }
@@ -789,7 +802,7 @@ impl StacksMessageCodec for StackerDBHandshakeData {
         let len_u8: u8 = read_next(fd)?;
         let mut smart_contracts = Vec::with_capacity(len_u8 as usize);
         for _ in 0..len_u8 {
-            let cid: ContractId = read_next(fd)?;
+            let cid: ContractId = contract_id_consensus_deserialize(fd)?;
             smart_contracts.push(cid);
         }
         Ok(StackerDBHandshakeData {
@@ -801,13 +814,13 @@ impl StacksMessageCodec for StackerDBHandshakeData {
 
 impl StacksMessageCodec for StackerDBGetChunkInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.contract_id)?;
+        contract_id_consensus_serialize(fd, &self.contract_id)?;
         write_next(fd, &self.rc_consensus_hash)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkInvData, codec_error> {
-        let contract_id: ContractId = read_next(fd)?;
+        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
         Ok(StackerDBGetChunkInvData {
             contract_id,
@@ -833,7 +846,7 @@ impl StacksMessageCodec for StackerDBChunkInvData {
 
 impl StacksMessageCodec for StackerDBGetChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.contract_id)?;
+        contract_id_consensus_serialize(fd, &self.contract_id)?;
         write_next(fd, &self.rc_consensus_hash)?;
         write_next(fd, &self.chunk_id)?;
         write_next(fd, &self.chunk_version)?;
@@ -841,7 +854,7 @@ impl StacksMessageCodec for StackerDBGetChunkData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkData, codec_error> {
-        let contract_id: ContractId = read_next(fd)?;
+        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
         let chunk_id: u32 = read_next(fd)?;
         let chunk_version: u32 = read_next(fd)?;

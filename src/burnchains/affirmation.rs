@@ -573,11 +573,11 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
                         test_debug!("Skip too-early block commit");
                         continue;
                     }
-                    if (opdata.parent_block_ptr as u64) < first_block_height {
-                        if opdata.parent_block_ptr != 0 || opdata.parent_vtxindex != 0 {
-                            test_debug!("Skip orphaned block-commit");
-                            continue;
-                        }
+                    // the block commit's parent must be a burnchain block that is evaluated by the node
+                    //  blocks that are <= first_block_height do not meet this requirement.
+                    if (opdata.parent_block_ptr as u64) <= first_block_height {
+                        test_debug!("Skip orphaned block-commit");
+                        continue;
                     }
                     if opdata.block_height <= opdata.parent_block_ptr as u64 {
                         test_debug!("Skip block-commit whose 'parent' comes at or after it");
@@ -621,7 +621,7 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
 pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
     indexer: &B,
-    prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
+    prepare_phase_ops: &[Vec<LeaderBlockCommitOp>],
 ) -> Result<Vec<LeaderBlockCommitOp>, Error> {
     let mut parents = HashMap::new();
     for ops in prepare_phase_ops.iter() {
@@ -691,7 +691,7 @@ pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
 /// Given a list of prepare-phase block-commits, and a list of parent commits, filter out and remove
 /// the prepare-phase commits that _don't_ have a parent.
 pub fn filter_orphan_block_commits(
-    parents: &Vec<LeaderBlockCommitOp>,
+    parents: &[LeaderBlockCommitOp],
     prepare_phase_ops: Vec<Vec<LeaderBlockCommitOp>>,
 ) -> Vec<Vec<LeaderBlockCommitOp>> {
     let mut parent_set = HashSet::new();
@@ -773,7 +773,7 @@ pub fn filter_missed_block_commits(
 /// exists at all.
 /// Returns None otherwise
 fn inner_find_heaviest_block_commit_ptr(
-    prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
+    prepare_phase_ops: &[Vec<LeaderBlockCommitOp>],
     anchor_threshold: u32,
 ) -> Option<(PoxAnchorPtr, BTreeMap<(u64, u32), (u64, u32)>)> {
     // sanity check -- must be in order by block height and vtxindex

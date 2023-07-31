@@ -63,6 +63,9 @@ use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
+use crate::monitoring::{
+    set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
+};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
@@ -177,7 +180,7 @@ pub struct BlockBuilderSettings {
 impl BlockBuilderSettings {
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: u64::max_value(),
+            max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
@@ -185,7 +188,7 @@ impl BlockBuilderSettings {
 
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: u64::max_value(),
+            max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
         }
@@ -2646,6 +2649,9 @@ impl StacksBlockBuilder {
                 tx_events,
             );
         }
+
+        set_last_mined_block_transaction_count(block.txs.len() as u64);
+        set_last_mined_execution_cost_observed(&consumed, &block_limit);
 
         info!(
             "Miner: mined anchored block";

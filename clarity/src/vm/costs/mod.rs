@@ -18,7 +18,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
-use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
@@ -325,12 +324,15 @@ pub enum CostErrors {
 fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 
+    let clarity_epoch = clarity_db.get_clarity_epoch_version();
     let last_processed_at = match clarity_db.get_value(
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
+        &clarity_epoch,
     ) {
-        Some(v) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
-        None => return Ok(CostStateSummary::empty()),
+        Ok(Some(v)) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
+        Ok(None) => return Ok(CostStateSummary::empty()),
+        Err(e) => return Err(CostErrors::CostComputationFailed(e.to_string())),
     };
 
     let metadata_result = clarity_db
@@ -354,11 +356,14 @@ fn store_state_summary(
 ) -> Result<()> {
     let block_height = clarity_db.get_current_block_height();
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-
-    clarity_db.put(
-        "vm-costs::last-processed-at-height",
-        &Value::UInt(block_height as u128),
-    );
+    let epoch = clarity_db.get_clarity_epoch_version();
+    clarity_db
+        .put_value(
+            "vm-costs::last-processed-at-height",
+            Value::UInt(block_height as u128),
+            &epoch,
+        )
+        .map_err(|_e| CostErrors::CostContractLoadFailure)?;
     let serialized_summary =
         serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
             .expect("BUG: failure to serialize cost state summary struct");
@@ -386,14 +391,24 @@ fn load_cost_functions(
     clarity_db: &mut ClarityDatabase,
     apply_updates: bool,
 ) -> Result<CostStateSummary> {
+    let clarity_epoch = clarity_db.get_clarity_epoch_version();
     let last_processed_count = clarity_db
-        .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
+        .get_value(
+            "vm-costs::last_processed_count",
+            &TypeSignature::UIntType,
+            &clarity_epoch,
+        )
+        .map_err(|_e| CostErrors::CostContractLoadFailure)?
         .map(|result| result.value)
         .unwrap_or(Value::UInt(0))
         .expect_u128();
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
     let confirmed_proposals_count = clarity_db
-        .lookup_variable_unknown_descriptor(&cost_voting_contract, "confirmed-proposal-count")
+        .lookup_variable_unknown_descriptor(
+            &cost_voting_contract,
+            "confirmed-proposal-count",
+            &clarity_epoch,
+        )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         .expect_u128();
     debug!("Check cost voting contract";
@@ -420,6 +435,7 @@ fn load_cost_functions(
                     )])
                     .expect("BUG: failed to construct simple tuple"),
                 ),
+                &clarity_epoch,
             )
             .expect("BUG: Failed querying confirmed-proposals")
             .expect_optional()
@@ -613,10 +629,13 @@ fn load_cost_functions(
     }
     if confirmed_proposals_count > last_processed_count {
         store_state_summary(mainnet, clarity_db, &state_summary)?;
-        clarity_db.put(
-            "vm-costs::last_processed_count",
-            &Value::UInt(confirmed_proposals_count),
-        );
+        clarity_db
+            .put_value(
+                "vm-costs::last_processed_count",
+                Value::UInt(confirmed_proposals_count),
+                &clarity_epoch,
+            )
+            .map_err(|_e| CostErrors::CostContractLoadFailure)?;
     }
 
     Ok(state_summary)
@@ -699,7 +718,10 @@ impl LimitedCostTracker {
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
-            StacksEpochId::Epoch21 => COSTS_3_NAME.to_string(),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => COSTS_3_NAME.to_string(),
         }
     }
 }

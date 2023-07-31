@@ -546,7 +546,7 @@ where
 
     /// Get the path from the given data's leaf up to the root.
     /// will be None if the data isn't a leaf.
-    pub fn path(&self, data: &Vec<u8>) -> Option<MerklePath<H>> {
+    pub fn path(&self, data: &[u8]) -> Option<MerklePath<H>> {
         let leaf_hash = MerkleTree::get_leaf_hash(&data[..]);
         let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
             None => {
@@ -589,7 +589,7 @@ where
     }
 
     /// Verify a datum and its Merkle path against a Merkle root
-    pub fn path_verify(data: &Vec<u8>, path: &MerklePath<H>, root: &H) -> bool {
+    pub fn path_verify(data: &[u8], path: &MerklePath<H>, root: &H) -> bool {
         if path.len() < 1 {
             // invalid path
             return false;
@@ -680,7 +680,7 @@ pub fn to_bin(s: &[u8]) -> String {
 }
 
 /// Convert a vec of u8 to a hex string
-pub fn bytes_to_hex(s: &Vec<u8>) -> String {
+pub fn bytes_to_hex(s: &[u8]) -> String {
     to_hex(&s[..])
 }
 

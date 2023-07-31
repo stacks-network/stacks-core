@@ -84,3 +84,13 @@ amount = 100000000
 #     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
 #     "stx"
 # ]
+
+## Atlas database
+## The Atlas database, which handles file attachments, can be configured here
+## The values used in the example below are the minimum values which Atlas will accept
+## 
+#[atlas]
+#attachments_max_size = 1048576
+#max_uninstantiated_attachments = 10000
+#uninstantiated_attachments_expire_after = 3600
+#unresolved_attachment_instances_expire_after = 172800

@@ -381,7 +381,7 @@ impl SpvClient {
     }
 
     /// Calculate the total work over a given interval of headers.
-    fn get_interval_work(interval_headers: &Vec<LoneBlockHeader>) -> Uint256 {
+    fn get_interval_work(interval_headers: &[LoneBlockHeader]) -> Uint256 {
         let mut work = Uint256::from_u64(0);
         for hdr in interval_headers.iter() {
             work = work + hdr.header.work();
@@ -831,6 +831,11 @@ impl SpvClient {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         let num_headers = block_headers.len();
+        if num_headers == 0 {
+            // nothing to do
+            return Ok(());
+        }
+
         let first_header_hash = block_headers[0].header.bitcoin_hash();
         let last_header_hash = block_headers[block_headers.len() - 1].header.bitcoin_hash();
         let total_work_before = self.update_chain_work()?;
@@ -1826,5 +1831,25 @@ mod test {
         println!("witness size serialized {}", encoded_tx.len());
 
         let deserialized: Vec<Vec<u8>> = deserialize(&encoded_tx).unwrap();
+    }
+
+    #[test]
+    fn test_handle_headers_empty() {
+        let headers_path = "/tmp/test-spv-handle_headers_empty.dat";
+        if fs::metadata(headers_path).is_ok() {
+            fs::remove_file(headers_path).unwrap();
+        }
+
+        let mut spv_client = SpvClient::new(
+            headers_path,
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+
+        spv_client.handle_headers(1, vec![]).unwrap();
     }
 }

@@ -33,22 +33,6 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
-[[bench]]
-name = "marf_bench"
-harness = false
-
-[[bench]]
-name = "large_contract_bench"
-harness = false
-
-[[bench]]
-name = "block_limits"
-harness = false
-
-[[bench]]
-name = "c32_bench"
-harness = false
-
 [dependencies]
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
@@ -71,6 +55,7 @@ chrono = "0.4.19"
 libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
+pox_locking = { package = "pox-locking", path = "./pox-locking/." }
 siphasher = "0.3.7"
 
 [target.'cfg(unix)'.dependencies]
@@ -87,7 +72,7 @@ version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.secp256k1]
-version = "0.24.2"
+version = "0.24.3"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
@@ -107,14 +92,14 @@ version = "0.2.23"
 features = ["std"]
 
 [dev-dependencies]
-rstest = "0.11.0"
-rstest_reuse = "0.1.3"
 assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
 
 [features]
 default = ["developer-mode"]
@@ -122,11 +107,19 @@ profile-sqlite = []
 disable-costs = []
 developer-mode = []
 monitoring_prom = ["prometheus"]
-slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json"]
+slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json", "pox_locking/slog_json"]
 testing = []
 
-[profile.dev.package.regex]
-opt-level = 2
+# Use a bit more than default optimization for
+#  dev builds to speed up test execution
+[profile.dev]
+opt-level = 1
+
+# Use release-level optimization for dependencies
+# This slows down "first" builds on development environments,
+#  but won't impact subsequent builds.
+[profile.dev.package."*"]
+opt-level = 3
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
@@ -137,6 +130,7 @@ sha2 = { version = "0.10" }
 [workspace]
 members = [
     ".",
+    "pox-locking",
     "clarity",
     "stx-genesis",
     "testnet/stacks-node"]

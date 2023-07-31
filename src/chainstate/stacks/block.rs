@@ -440,7 +440,7 @@ impl StacksBlock {
     }
 
     /// verify no duplicate txids
-    pub fn validate_transactions_unique(txs: &Vec<StacksTransaction>) -> bool {
+    pub fn validate_transactions_unique(txs: &[StacksTransaction]) -> bool {
         // no duplicates
         let mut txids = HashMap::new();
         for (i, tx) in txs.iter().enumerate() {
@@ -515,7 +515,7 @@ impl StacksBlock {
     }
 
     /// verify that a coinbase is present and is on-chain only, or is absent
-    pub fn validate_coinbase(txs: &Vec<StacksTransaction>, check_present: bool) -> bool {
+    pub fn validate_coinbase(txs: &[StacksTransaction], check_present: bool) -> bool {
         let mut found_coinbase = false;
         let mut coinbase_index = 0;
         for (i, tx) in txs.iter().enumerate() {

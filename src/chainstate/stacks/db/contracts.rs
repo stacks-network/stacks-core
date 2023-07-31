@@ -72,9 +72,10 @@ impl StacksChainState {
         contract_id: &QualifiedContractIdentifier,
         data_var: &str,
     ) -> Result<Option<Value>, Error> {
+        let epoch = clarity_tx.get_epoch();
         clarity_tx
             .with_clarity_db_readonly(|ref mut db| {
-                match db.lookup_variable_unknown_descriptor(contract_id, data_var) {
+                match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
                     Ok(c) => Ok(Some(c)),
                     Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
                         Ok(None)
