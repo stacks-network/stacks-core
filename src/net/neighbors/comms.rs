@@ -19,34 +19,26 @@ use crate::core::PEER_VERSION_TESTNET;
 use crate::net::{
     connection::{ConnectionOptions, ReplyHandleP2P},
     db::{LocalPeer, PeerDB},
-    neighbors::{NeighborWalk, MAX_NEIGHBOR_BLOCK_DELAY, NEIGHBOR_MINIMUM_CONTACT_INTERVAL},
+    neighbors::{
+        NeighborWalk, NeighborWalkDB, MAX_NEIGHBOR_BLOCK_DELAY, NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
+    },
     p2p::PeerNetwork,
     Error as net_error, HandshakeData, Neighbor, NeighborAddress, NeighborKey, PeerAddress,
     StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };
 
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as db_error;
-
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use std::cmp;
 use std::mem;
-use std::net::SocketAddr;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
 use crate::burnchains::PublicKey;
 
-use rand::prelude::*;
-use rand::thread_rng;
 use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 
@@ -470,7 +462,7 @@ impl NeighborSetRequest {
 }
 
 /// Transport-level API for the neighbor walk
-impl NeighborWalk {
+impl<DB: NeighborWalkDB> NeighborWalk<DB> {
     /// Try and get the next reply from the single neighbor we're talking to
     pub(crate) fn try_get_reply(
         &mut self,
