@@ -28,10 +28,16 @@ trait BitArray {
     fn max() -> Self;
 }
 
+/**
+A structure that represents large integers and provides basic arithmetic.
+It accepts a const generic `N` which controls the number of u64s used to represent the number.
+*/
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Uint<const N: usize>([u64; N]);
 
 impl<const N: usize> Uint<N> {
+    pub const MAX: Self = Self([0xffffffffffffffff; N]);
+
     pub fn from_u64_array(data: [u64; N]) -> Self {
         Self(data)
     }
@@ -60,69 +66,49 @@ impl<const N: usize> Uint<N> {
     pub fn mul_u32(self, other: u32) -> Self {
         let mut carry = [0u64; N];
         let mut ret = [0u64; N];
+
         for i in 0..N {
             let not_last_word = i < N - 1;
             let upper = other as u64 * (self.0[i] >> 32);
             let lower = other as u64 * (self.0[i] & 0xFFFFFFFF);
+
             if not_last_word {
                 carry[i + 1] += upper >> 32;
             }
+
             let (sum, overflow) = lower.overflowing_add(upper << 32);
             ret[i] = sum;
+
             if overflow && not_last_word {
                 carry[i + 1] += 1;
             }
         }
+
         Self(ret) + Self(carry)
     }
 
-    /// Create an object from a given unsigned 64-bit integer
-    pub fn from_u64(init: u64) -> Self {
-        let mut ret = [0; N];
-        ret[0] = init;
-
-        Self(ret)
-    }
-
-    /// Create an object from a given signed 64-bit integer
-    pub fn from_i64(init: i64) -> Self {
-        assert!(init >= 0);
-
-        Self::from_u64(init as u64)
-    }
-
-    /// Create an object from a given unsigned 128-bit integer
-    pub fn from_u128(init: u128) -> Self {
-        let mut ret = [0u64; N];
-
-        ret[0] = (init & 0xffffffffffffffffffffffffffffffff) as u64;
-        ret[1] = (init >> 64) as u64;
-
-        Self(ret)
-    }
-
-    /// max
-    pub fn max() -> Self {
-        let ret = [0xffffffffffffffff; N];
-        Self(ret)
-    }
-
-    /// as litte-endian byte array
-    pub fn to_u8_slice(&self) -> Vec<u8> {
-        let mut ret = vec![0; N * 8];
+    /// To litte-endian byte array
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        let mut buffer = vec![0; N * 8];
 
         for i in 0..N {
             let bytes = self.0[i].to_le_bytes();
             for j in 0..bytes.len() {
-                ret[i * 8 + j] = bytes[j];
+                buffer[i * 8 + j] = bytes[j];
             }
         }
 
-        ret
+        // self.0
+        //     .iter()
+        //     .flat_map(|part| part.to_le_bytes())
+        //     .enumerate()
+        //     .for_each(|(i, byte)| buffer[i] = byte);
+
+        buffer
     }
 
-    /// as big-endian byte array
-    pub fn to_u8_slice_be(&self) -> Vec<u8> {
+    /// To big-endian byte array
+    pub fn to_be_bytes(&self) -> Vec<u8> {
         let mut ret = vec![0; N * 8];
 
         for i in 0..N {
@@ -135,10 +121,9 @@ impl<const N: usize> Uint<N> {
         ret
     }
 
-    /// from a little-endian hex string
-    /// padding is expected
-    pub fn from_hex_le(hex: &str) -> Option<Self> {
-        let bytes = hex::decode(hex).ok()?;
+    /// Build from a little-endian hex string (padding expected)
+    pub fn from_le_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+        let bytes = bytes.as_ref();
 
         if bytes.len() % 8 != 0 {
             return None;
@@ -152,22 +137,18 @@ impl<const N: usize> Uint<N> {
         for i in 0..(bytes.len() / 8) {
             let mut next_bytes = [0u8; 8];
             next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+
             let next = u64::from_le_bytes(next_bytes);
+
             ret[i] = next;
         }
 
         Some(Self(ret))
     }
 
-    /// to a little-endian hex string
-    pub fn to_hex_le(&self) -> String {
-        hex::encode(self.to_u8_slice())
-    }
-
-    /// from a big-endian hex string
-    /// padding is expected
-    pub fn from_hex_be(hex: &str) -> Option<Self> {
-        let bytes = hex::decode(hex).ok()?;
+    /// Build from a big-endian hex string (padding expected)
+    pub fn from_be_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+        let bytes = bytes.as_ref();
 
         if bytes.len() % 8 != 0 {
             return None;
@@ -181,16 +162,13 @@ impl<const N: usize> Uint<N> {
         for i in 0..(bytes.len() / 8) {
             let mut next_bytes = [0u8; 8];
             next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+
             let next = u64::from_be_bytes(next_bytes);
+
             ret[(bytes.len() / 8) - 1 - i] = next;
         }
 
         Some(Self(ret))
-    }
-
-    /// to a big-endian hex string
-    pub fn to_hex_be(&self) -> String {
-        hex::encode(&self.to_u8_slice_be())
     }
 
     pub fn increment(&mut self) {
@@ -535,6 +513,44 @@ impl<const N: usize> fmt::Display for Uint<N> {
     }
 }
 
+impl<const N: usize> From<u8> for Uint<N> {
+    fn from(value: u8) -> Self {
+        (value as u64).into()
+    }
+}
+
+impl<const N: usize> From<u16> for Uint<N> {
+    fn from(value: u16) -> Self {
+        (value as u64).into()
+    }
+}
+
+impl<const N: usize> From<u32> for Uint<N> {
+    fn from(value: u32) -> Self {
+        (value as u64).into()
+    }
+}
+
+impl<const N: usize> From<u64> for Uint<N> {
+    fn from(value: u64) -> Self {
+        let mut ret = [0; N];
+        ret[0] = value;
+
+        Self(ret)
+    }
+}
+
+impl<const N: usize> From<u128> for Uint<N> {
+    fn from(value: u128) -> Self {
+        let mut ret = [0u64; N];
+
+        ret[0] = (value & 0xffffffffffffffffffffffffffffffff) as u64;
+        ret[1] = (value >> 64) as u64;
+
+        Self(ret)
+    }
+}
+
 pub type Uint256 = Uint<4>;
 pub type Uint512 = Uint<8>;
 
@@ -543,15 +559,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn should_convert_from_u32() {
+        assert_eq!(Uint256::from(1337u32), Uint256::from(1337u64));
+    }
+
+    #[test]
     pub fn uint256_bits_test() {
-        assert_eq!(Uint256::from_u64(255).bits(), 8);
-        assert_eq!(Uint256::from_u64(256).bits(), 9);
-        assert_eq!(Uint256::from_u64(300).bits(), 9);
-        assert_eq!(Uint256::from_u64(60000).bits(), 16);
-        assert_eq!(Uint256::from_u64(70000).bits(), 17);
+        assert_eq!(Uint256::from(255u64).bits(), 8);
+        assert_eq!(Uint256::from(256u64).bits(), 9);
+        assert_eq!(Uint256::from(300u64).bits(), 9);
+        assert_eq!(Uint256::from(60000u64).bits(), 16);
+        assert_eq!(Uint256::from(70000u64).bits(), 17);
 
         // Try to read the following lines out loud quickly
-        let mut shl = Uint256::from_u64(70000);
+        let mut shl = Uint256::from(70000u64);
         shl = shl << 100;
         assert_eq!(shl.bits(), 117);
         shl = shl << 100;
@@ -560,21 +581,21 @@ mod tests {
         assert_eq!(shl.bits(), 0);
 
         // Bit set check
-        assert!(!Uint256::from_u64(10).bit(0));
-        assert!(Uint256::from_u64(10).bit(1));
-        assert!(!Uint256::from_u64(10).bit(2));
-        assert!(Uint256::from_u64(10).bit(3));
-        assert!(!Uint256::from_u64(10).bit(4));
+        assert!(!Uint256::from(10u64).bit(0));
+        assert!(Uint256::from(10u64).bit(1));
+        assert!(!Uint256::from(10u64).bit(2));
+        assert!(Uint256::from(10u64).bit(3));
+        assert!(!Uint256::from(10u64).bit(4));
     }
 
     #[test]
     pub fn uint256_display_test() {
         assert_eq!(
-            format!("{}", Uint256::from_u64(0xDEADBEEF)),
+            format!("{}", Uint256::from(0xDEADBEEFu64)),
             "0x00000000000000000000000000000000000000000000000000000000deadbeef"
         );
         assert_eq!(
-            format!("{}", Uint256::from_u64(u64::MAX)),
+            format!("{}", Uint256::from(u64::MAX)),
             "0x000000000000000000000000000000000000000000000000ffffffffffffffff"
         );
 
@@ -612,7 +633,7 @@ mod tests {
 
     #[test]
     pub fn uint256_arithmetic_test() {
-        let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let init = Uint256::from(0xDEADBEEFDEADBEEFu64);
         let copy = init;
 
         let add = init + copy;
@@ -652,12 +673,12 @@ mod tests {
         );
         // Division
         assert_eq!(
-            Uint256::from_u64(105) / Uint256::from_u64(5),
-            Uint256::from_u64(21)
+            Uint256::from(105u64) / Uint256::from(5u64),
+            Uint256::from(21u64)
         );
-        let div = mult / Uint256::from_u64(300);
+        let div = mult / Uint256::from(300u64);
 
-        dbg!(mult, Uint256::from_u64(300), div);
+        dbg!(mult, Uint256::from(300u64), div);
 
         assert_eq!(
             div,
@@ -668,7 +689,7 @@ mod tests {
 
     #[test]
     pub fn mul_u32_test() {
-        let u64_val = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let u64_val = Uint256::from(0xDEADBEEFDEADBEEFu64);
 
         let u96_res = u64_val.mul_u32(0xFFFFFFFF);
         let u128_res = u96_res.mul_u32(0xFFFFFFFF);
@@ -720,7 +741,7 @@ mod tests {
 
     #[test]
     pub fn multiplication_test() {
-        let u64_val = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let u64_val = Uint256::from(0xDEADBEEFDEADBEEFu64);
 
         let u128_res = u64_val * u64_val;
 
@@ -744,7 +765,7 @@ mod tests {
 
     #[test]
     pub fn uint256_bitslice_test() {
-        let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let init = Uint256::from(0xDEADBEEFDEADBEEFu64);
         let add = init + (init << 64);
         assert_eq!(add.bit_slice(64, 128), init);
         assert_eq!(add.mask(64), init);
@@ -754,7 +775,7 @@ mod tests {
     pub fn uint256_extreme_bitshift_test() {
         // Shifting a u64 by 64 bits gives an undefined value, so make sure that
         // we're doing the Right Thing here
-        let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let init = Uint256::from(0xDEADBEEFDEADBEEFu64);
 
         assert_eq!(
             init << 64,
@@ -786,19 +807,25 @@ mod tests {
     #[test]
     pub fn hex_codec() {
         let init =
-            Uint256::from_u64(0xDEADBEEFDEADBEEF) << 64 | Uint256::from_u64(0x0102030405060708);
+            Uint256::from(0xDEADBEEFDEADBEEFu64) << 64 | Uint256::from(0x0102030405060708u64);
 
         // little-endian representation
         let hex_init = "0807060504030201efbeaddeefbeadde00000000000000000000000000000000";
-        assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
-        assert_eq!(&init.to_hex_le(), hex_init);
-        assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
+        assert_eq!(
+            Uint256::from_le_bytes(&hex::decode(hex_init).unwrap()).unwrap(),
+            init
+        );
+        assert_eq!(hex::encode(init.to_le_bytes()), hex_init);
+        assert_eq!(Uint256::from_le_bytes(&init.to_le_bytes()).unwrap(), init);
 
         // big-endian representation
         let hex_init = "00000000000000000000000000000000deadbeefdeadbeef0102030405060708";
-        assert_eq!(Uint256::from_hex_be(&hex_init).unwrap(), init);
-        assert_eq!(&init.to_hex_be(), hex_init);
-        assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);
+        assert_eq!(
+            Uint256::from_be_bytes(&hex::decode(hex_init).unwrap()).unwrap(),
+            init
+        );
+        assert_eq!(hex::encode(init.to_be_bytes()), hex_init);
+        assert_eq!(Uint256::from_be_bytes(&init.to_be_bytes()).unwrap(), init);
     }
 
     #[test]
