@@ -2742,6 +2742,7 @@ where
                     let all_neighbors =
                         PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
                     peer_counts += all_neighbors.len();
+                    test_debug!("Peer {} has {} neighbors", i, all_neighbors.len());
 
                     if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
                         test_debug!(
