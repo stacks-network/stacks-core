@@ -26,7 +26,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::{test::*, RawRewardSetEntry};
 use crate::address::AddressHashMode;

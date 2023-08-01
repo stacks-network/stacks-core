@@ -1,76 +1,193 @@
-use ruint::aliases::U256;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const SHA256_LENGTH: usize = 32;
-const CHECKSUM_LENGTH: usize = 4;
+use crate::{StacksError, StacksResult};
 
-pub trait HashUtils: AsRef<[u8]> {
-    fn new(value: impl AsRef<[u8]>) -> Self;
-    fn zeroes() -> Self;
-    fn checksum(&self) -> [u8; CHECKSUM_LENGTH];
-    fn to_uint256(&self) -> U256 {
-        let nontransmuted: [u8; SHA256_LENGTH] = self.as_ref().try_into().unwrap();
+pub(crate) const SHA256_LENGTH: usize = 32;
+pub(crate) const CHECKSUM_LENGTH: usize = 4;
 
-        #[allow(unused_assignments)]
-        let mut transmuted = [0u64; SHA256_LENGTH / 8];
-        transmuted = unsafe { std::mem::transmute(nontransmuted) };
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+struct Hex(String);
 
-        for byte in transmuted.iter_mut() {
-            *byte = byte.to_le();
-        }
+pub trait HashUtils: Clone + Sized {
+    const LENGTH: usize;
 
-        U256::from_limbs(transmuted)
-    }
-}
+    fn hash(data: &[u8]) -> Self;
+    fn as_bytes(&self) -> &[u8];
+    fn from_bytes(bytes: &[u8]) -> StacksResult<Self>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Sha256Hash([u8; SHA256_LENGTH]);
-
-impl HashUtils for Sha256Hash {
     fn new(value: impl AsRef<[u8]>) -> Self {
-        Self(Sha256::digest(value).into())
+        Self::hash(value.as_ref())
     }
 
     fn zeroes() -> Self {
-        Self([0; SHA256_LENGTH])
+        Self::from_bytes(vec![0; Self::LENGTH].as_slice()).unwrap()
     }
 
     fn checksum(&self) -> [u8; CHECKSUM_LENGTH] {
-        self.as_ref()[0..CHECKSUM_LENGTH].try_into().unwrap()
+        self.as_bytes()[0..CHECKSUM_LENGTH].try_into().unwrap()
+    }
+
+    fn from_hex<'a>(data: impl AsRef<str>) -> StacksResult<Self> {
+        Ok(Self::from_bytes(&hex::decode(data.as_ref().as_bytes())?)?)
+    }
+
+    fn to_hex(&self) -> String {
+        hex::encode(self.as_bytes())
     }
 }
 
-impl AsRef<[u8]> for Sha256Hash {
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(try_from = "Hex")]
+#[serde(into = "Hex")]
+pub struct Hasher<T>(T)
+where
+    T: HashUtils;
+
+impl<T> HashUtils for Hasher<T>
+where
+    T: HashUtils,
+{
+    const LENGTH: usize = T::LENGTH;
+
+    fn hash(data: &[u8]) -> Self {
+        Self(T::hash(data))
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        T::as_bytes(&self.0)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> StacksResult<Self> {
+        Ok(Self(T::from_bytes(bytes)?))
+    }
+}
+
+impl<T> AsRef<[u8]> for Hasher<T>
+where
+    T: HashUtils,
+{
     fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl<T> TryFrom<&[u8]> for Hasher<T>
+where
+    T: HashUtils,
+{
+    type Error = StacksError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_bytes(value)
+    }
+}
+
+impl<T> Default for Hasher<T>
+where
+    T: HashUtils,
+{
+    fn default() -> Self {
+        Self::zeroes()
+    }
+}
+
+impl<T> Into<Hex> for Hasher<T>
+where
+    T: HashUtils,
+{
+    fn into(self) -> Hex {
+        Hex(hex::encode(self.as_bytes()))
+    }
+}
+
+impl<T> TryFrom<Hex> for Hasher<T>
+where
+    T: HashUtils,
+{
+    type Error = StacksError;
+
+    fn try_from(value: Hex) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(&hex::decode(value.0)?)?)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(try_from = "Hex")]
+#[serde(into = "Hex")]
+pub struct Sha256Hasher([u8; SHA256_LENGTH]);
+
+impl HashUtils for Sha256Hasher {
+    const LENGTH: usize = SHA256_LENGTH;
+
+    fn hash(data: &[u8]) -> Self {
+        Self(Sha256::digest(data).into())
+    }
+
+    fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+
+    fn from_bytes(bytes: &[u8]) -> StacksResult<Self> {
+        Ok(Self(bytes.try_into()?))
+    }
+}
+
+impl Into<Hex> for Sha256Hasher {
+    fn into(self) -> Hex {
+        Hex(hex::encode(self.as_bytes()))
+    }
+}
+
+impl TryFrom<Hex> for Sha256Hasher {
+    type Error = StacksError;
+
+    fn try_from(value: Hex) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(&hex::decode(value.0)?)?)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DoubleSha256Hash(Sha256Hash);
+pub struct DoubleSha256Hasher(Sha256Hasher);
 
-impl HashUtils for DoubleSha256Hash {
-    fn new(value: impl AsRef<[u8]>) -> Self {
-        Self(Sha256Hash::new(Sha256Hash::new(value).as_ref()))
+impl HashUtils for DoubleSha256Hasher {
+    const LENGTH: usize = SHA256_LENGTH;
+
+    fn hash(data: &[u8]) -> Self {
+        Self(Sha256Hasher::hash(Sha256Hasher::hash(data).as_bytes()))
     }
 
-    fn zeroes() -> Self {
-        Self(Sha256Hash([0; SHA256_LENGTH]))
+    fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
     }
 
-    fn checksum(&self) -> [u8; CHECKSUM_LENGTH] {
-        self.0.checksum()
+    fn from_bytes(bytes: &[u8]) -> StacksResult<Self> {
+        Ok(Self(Sha256Hasher::from_bytes(bytes)?))
+    }
+}
+
+impl Into<Hex> for DoubleSha256Hasher {
+    fn into(self) -> Hex {
+        Hex(hex::encode(self.as_bytes()))
     }
 }
 
-impl AsRef<[u8]> for DoubleSha256Hash {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
+impl TryFrom<Hex> for DoubleSha256Hasher {
+    type Error = StacksError;
+
+    fn try_from(value: Hex) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(&hex::decode(value.0)?)?)
     }
 }
+
+pub type Sha256Hash = Hasher<Sha256Hasher>;
+pub type DoubleSha256Hash = Hasher<DoubleSha256Hasher>;
 
 #[cfg(test)]
 mod tests {
+    use crate::uint::Uint256;
+
     use super::*;
 
     #[test]
@@ -79,7 +196,7 @@ mod tests {
         let expected_hash_hex = "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c";
 
         assert_eq!(
-            hex::encode(Sha256Hash::new(plaintext.as_bytes())),
+            hex::encode(Sha256Hash::hash(plaintext.as_bytes())),
             expected_hash_hex
         );
     }
@@ -90,7 +207,7 @@ mod tests {
         let expected_checksum_hex = "64ec88ca";
 
         assert_eq!(
-            hex::encode(Sha256Hash::new(plaintext.as_bytes()).checksum()),
+            hex::encode(Sha256Hash::hash(plaintext.as_bytes()).checksum()),
             expected_checksum_hex
         );
     }
@@ -101,7 +218,7 @@ mod tests {
         let expected_hash_hex = "f6dc724d119649460e47ce719139e521e082be8a9755c5bece181de046ee65fe";
 
         assert_eq!(
-            hex::encode(DoubleSha256Hash::new(plaintext.as_bytes()).as_ref()),
+            hex::encode(DoubleSha256Hash::hash(plaintext.as_bytes()).as_bytes()),
             expected_hash_hex
         );
     }
@@ -112,24 +229,24 @@ mod tests {
         let expected_checksum_hex = "f6dc724d";
 
         assert_eq!(
-            hex::encode(DoubleSha256Hash::new(plaintext.as_bytes()).checksum()),
+            hex::encode(DoubleSha256Hash::hash(plaintext.as_bytes()).checksum()),
             expected_checksum_hex
         );
     }
 
     #[test]
     fn should_convert_to_uint_correctly() {
-        let expected_num =
-            U256::from(0xDEADBEEFDEADBEEF as u64) << 64 | U256::from(0x0102030405060708 as u64);
+        let expected_num = Uint256::from(0xDEADBEEFDEADBEEF as u64) << 64
+            | Uint256::from(0x0102030405060708 as u64);
         let num_bytes =
             hex::decode("0807060504030201efbeaddeefbeadde00000000000000000000000000000000")
                 .unwrap();
 
-        let hash = Sha256Hash(num_bytes.try_into().unwrap());
+        let hash = Sha256Hasher(num_bytes.try_into().unwrap());
 
         assert_eq!(
             expected_num,
-            U256::from_le_bytes::<SHA256_LENGTH>(hash.as_ref().try_into().unwrap())
+            Uint256::from_le_bytes(hash.as_bytes()).unwrap()
         );
     }
 }

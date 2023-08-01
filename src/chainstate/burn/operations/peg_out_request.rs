@@ -18,8 +18,9 @@ use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_core::hash::sha256::HashUtils;
+use stacks_core::hash::sha256::Sha256Hash;
 
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::BurnchainTransaction;
@@ -123,8 +124,8 @@ impl PegOutRequestOp {
         let mut msg = self.amount.to_be_bytes().to_vec();
         msg.extend_from_slice(script_pubkey.as_bytes());
 
-        let msg_hash = Sha256Sum::from_data(&msg);
-        let pub_key = StacksPublicKey::recover_to_pubkey(msg_hash.as_bytes(), &self.signature)
+        let msg_hash = Sha256Hash::new(&msg);
+        let pub_key = StacksPublicKey::recover_to_pubkey(msg_hash.as_ref(), &self.signature)
             .map_err(RecoverError::PubKeyRecoveryFailed)?;
 
         let hash_bits =
@@ -456,9 +457,9 @@ mod tests {
         let mut msg = amount.to_be_bytes().to_vec();
         msg.extend_from_slice(&script_pubkey);
 
-        let msg_hash = Sha256Sum::from_data(&msg);
+        let msg_hash = Sha256Hash::new(&msg);
 
-        let signature = private_key.sign(msg_hash.as_bytes()).unwrap();
+        let signature = private_key.sign(msg_hash.as_ref()).unwrap();
         data.extend_from_slice(&amount.to_be_bytes());
         data.extend_from_slice(signature.as_bytes());
 
@@ -510,7 +511,7 @@ mod tests {
         let mut msg = amount.to_be_bytes().to_vec();
         msg.extend_from_slice(&script_pubkey);
 
-        let msg_hash = Sha256Sum::from_data(&msg);
+        let msg_hash = Sha256Hash::new(&msg);
 
         let signature = MessageSignature(test::random_bytes(&mut rng));
         data.extend_from_slice(&amount.to_be_bytes());

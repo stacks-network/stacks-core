@@ -202,7 +202,7 @@ use stacks::types::chainstate::{
 use stacks::types::StacksEpochId;
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
+use stacks::util::hash::{to_hex, Hash160};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
@@ -210,6 +210,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
+use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
@@ -3717,7 +3718,7 @@ impl PeerThread {
                     .burnchain
                     .process_exit_at_block_height
                     .clone(),
-                genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
+                genesis_chainstate_hash: Sha256Hash::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(event_dispatcher),
                 cost_estimator: Some(cost_estimator.as_ref()),
@@ -3829,9 +3830,7 @@ impl StacksNode {
                 match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
                     Ok(sk) => break sk,
                     Err(_) => {
-                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                            .as_bytes()
-                            .to_vec()
+                        re_hashed_seed = Sha256Hash::hash(&re_hashed_seed[..]).as_bytes().to_vec()
                     }
                 }
             };

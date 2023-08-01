@@ -4,11 +4,12 @@ use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
 };
 use stacks::types::chainstate::StacksAddress;
-use stacks::util::hash::{Hash160, Sha256Sum};
+use stacks::util::hash::Hash160;
 use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
 use super::operations::BurnchainOpSigner;
 
@@ -29,9 +30,7 @@ impl Keychain {
                     break;
                 }
                 Err(_) => {
-                    re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                        .as_bytes()
-                        .to_vec()
+                    re_hashed_seed = Sha256Hash::hash(&re_hashed_seed[..]).as_bytes().to_vec()
                 }
             }
         }
@@ -57,7 +56,7 @@ impl Keychain {
         let mut seed = {
             let mut secret_state = self.secret_state.clone();
             secret_state.extend_from_slice(&block_height.to_be_bytes());
-            Sha256Sum::from_data(&secret_state)
+            Sha256Hash::hash(&secret_state)
         };
 
         // Not every 256-bit number is a valid Ed25519 secret key.
@@ -65,7 +64,7 @@ impl Keychain {
         let sk = loop {
             match VRFPrivateKey::from_bytes(seed.as_bytes()) {
                 Some(sk) => break sk,
-                None => seed = Sha256Sum::from_data(seed.as_bytes()),
+                None => seed = Sha256Hash::hash(seed.as_bytes()),
             }
         };
         let pk = VRFPublicKey::from_private(&sk);
@@ -83,10 +82,10 @@ impl Keychain {
             let mut secret_state = self.secret_state.clone();
             secret_state.extend_from_slice(&block_height.to_be_bytes());
             secret_state.extend_from_slice(salt);
-            Sha256Sum::from_data(&secret_state)
+            Sha256Hash::hash(&secret_state)
         };
 
-        let sk_bytes = Keychain::make_secret_key_bytes(&seed.0);
+        let sk_bytes = Keychain::make_secret_key_bytes(seed.as_bytes());
         let sk = StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::make_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!");
         let pk = StacksPublicKey::from_private(&sk);
 

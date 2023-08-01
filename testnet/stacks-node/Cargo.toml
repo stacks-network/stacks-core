@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2021"
 resolver = "2"
-rust-version = "1.61" 
+rust-version = "1.61"
 
 [dependencies]
 lazy_static = "1.4.0"
@@ -27,6 +27,7 @@ clarity = { package = "clarity", path = "../../clarity/." }
 stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
 chrono = "0.4.19"
 regex = "1"
+stacks-core = { path = "../../stacks-core/" }
 
 [dev-dependencies]
 ring = "0.16.19"

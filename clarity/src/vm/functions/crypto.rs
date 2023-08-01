@@ -20,6 +20,7 @@ use stacks_common::address::{
 };
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::{CallableType, NativeHandle};
@@ -62,8 +63,30 @@ macro_rules! native_hash_func {
     };
 }
 
+macro_rules! native_hash_func_new {
+    ($name:ident, $module:ty) => {
+        pub fn $name(input: Value) -> Result<Value> {
+            let bytes = match input {
+                Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
+                _ => Err(CheckErrors::UnionTypeValueError(
+                    vec![
+                        TypeSignature::IntType,
+                        TypeSignature::UIntType,
+                        TypeSignature::max_buffer(),
+                    ],
+                    input,
+                )),
+            }?;
+            let hash = <$module>::new(&bytes);
+            Value::buff_from(hash.as_ref().to_vec())
+        }
+    };
+}
+
 native_hash_func!(native_hash160, hash::Hash160);
-native_hash_func!(native_sha256, hash::Sha256Sum);
+native_hash_func_new!(native_sha256, Sha256Hash);
 native_hash_func!(native_sha512, hash::Sha512Sum);
 native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
 native_hash_func!(native_keccak256, hash::Keccak256Hash);

@@ -17,7 +17,6 @@
 use std::io::{Read, Write};
 
 use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::DoubleSha256;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
@@ -307,7 +306,7 @@ pub mod tests {
                 })
             },
             OpFixture {
-                // invalid VRF public key 
+                // invalid VRF public key
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100ddbbaf029174a9bd1588fc0b34094e9f48fec9c89704eb12a3ee70dd5ca4142e02202eab7cbf985da23e890766331f7e0009268d1db75da8b583a953528e6a099499012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 opstr: "".to_string(),
                 result: None,

@@ -420,6 +420,7 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "stacks-core",
  "stdext",
  "stx-genesis",
  "time 0.2.27",
@@ -530,6 +531,7 @@ dependencies = [
  "sha2-asm 0.5.5",
  "slog",
  "stacks-common",
+ "stacks-core",
  "time 0.2.27",
 ]
 
@@ -2651,6 +2653,7 @@ dependencies = [
  "hex",
  "ripemd",
  "ruint",
+ "serde",
  "sha2 0.10.7",
  "thiserror",
 ]
@@ -2680,6 +2683,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "stacks-core",
  "stx-genesis",
  "tokio",
  "toml",

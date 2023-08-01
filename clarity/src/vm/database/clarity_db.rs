@@ -26,7 +26,7 @@ use stacks_common::consts::{
 };
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::Address;
-use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;

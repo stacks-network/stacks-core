@@ -16,8 +16,8 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
 use stacks::vm::costs::ExecutionCost;
+use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -52,7 +52,7 @@ impl MocknetController {
 
     fn build_next_block_header(current_block: &BlockSnapshot) -> BurnchainBlockHeader {
         let curr_hash = &current_block.burn_header_hash.to_bytes()[..];
-        let next_hash = Sha256Sum::from_data(&curr_hash);
+        let next_hash = Sha256Hash::hash(&curr_hash);
 
         let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
             current_block.block_height + 1,

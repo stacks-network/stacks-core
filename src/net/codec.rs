@@ -27,7 +27,6 @@ use sha2::Digest;
 use sha2::Sha512_256;
 use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::DoubleSha256;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::MerkleHashFunc;
 use stacks_common::util::log;

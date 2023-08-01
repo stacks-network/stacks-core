@@ -51,13 +51,13 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::codec::{read_next, write_next};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use stacks_core::hash::sha256::Sha256Hash;
 use url;
 
 use self::dns::*;
@@ -91,7 +91,6 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
-use crate::util::hash::Sha256Sum;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
@@ -110,7 +109,7 @@ pub mod atlas;
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
-///     * rate limiting messages  
+///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
 /// Also has functionality to sign, verify, and ensure well-formedness of messages.
@@ -118,7 +117,7 @@ pub mod codec;
 pub mod connection;
 pub mod db;
 /// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.  
+/// which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -1069,7 +1068,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
-    pub genesis_chainstate_hash: Sha256Sum,
+    pub genesis_chainstate_hash: Sha256Hash,
     pub unanchored_tip: Option<StacksBlockId>,
     pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,

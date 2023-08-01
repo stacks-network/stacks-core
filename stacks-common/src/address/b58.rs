@@ -17,7 +17,10 @@
 use std::{error, fmt, str};
 
 use crate::address::Error;
-use stacks_core::hash::sha256::{DoubleSha256Hash, HashUtils};
+use stacks_core::{
+    hash::sha256::{DoubleSha256Hash, HashUtils},
+    uint::Uint256,
+};
 
 static BASE58_CHARS: &'static [u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -194,7 +197,8 @@ pub fn from_check(data: &str) -> Result<Vec<u8>, Error> {
         return Err(Error::TooShort(ret.len()));
     }
     let ck_start = ret.len() - 4;
-    let expected = DoubleSha256Hash::new(&ret[..ck_start]).into_le().low_u32();
+    let uint: Uint256 = DoubleSha256Hash::new(&ret[..ck_start]).into();
+    let expected = uint.low_u32();
 
     let mut actual_buff = [0; 4];
     actual_buff.copy_from_slice(&ret[ck_start..(ck_start + 4)]);

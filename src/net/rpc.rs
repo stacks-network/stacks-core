@@ -54,6 +54,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_core::hash::sha256::Sha256Hash;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use crate::burnchains::affirmation::AffirmationMap;
@@ -130,7 +131,7 @@ use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
-    util::hash::Sha256Sum, version_string,
+    version_string,
 };
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
@@ -138,7 +139,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<u64>,
-    pub genesis_chainstate_hash: Sha256Sum,
+    pub genesis_chainstate_hash: Sha256Hash,
     pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
     pub cost_estimator: Option<&'a dyn CostEstimator>,
     pub fee_estimator: Option<&'a dyn FeeEstimator>,
@@ -214,7 +215,7 @@ impl RPCPeerInfoData {
         network: &PeerNetwork,
         chainstate: &StacksChainState,
         exit_at_block_height: Option<u64>,
-        genesis_chainstate_hash: &Sha256Sum,
+        genesis_chainstate_hash: &Sha256Hash,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
@@ -3694,6 +3695,7 @@ mod test {
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::pipe::*;
+    use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -4355,7 +4357,7 @@ mod test {
                     &peer_server.network,
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     None,
-                    &Sha256Sum::zero(),
+                    &Sha256Hash::zeroes(),
                 );
 
                 *peer_server_info.borrow_mut() = Some(peer_info);

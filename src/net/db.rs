@@ -28,9 +28,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use stacks_common::util;
-use stacks_common::util::hash::{
-    bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
-};
+use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::log;
 use stacks_common::util::macros::is_big_endian;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
@@ -940,7 +938,7 @@ impl PeerDB {
         peer_addr: &PeerAddress,
         peer_port: u16,
     ) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", 
+        tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
                     &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port])
             .map_err(db_error::SqliteError)?;
 

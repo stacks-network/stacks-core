@@ -1,8 +1,11 @@
 use std::{
     cmp::Ordering,
     fmt,
+    mem::transmute,
     ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub},
 };
+
+use crate::hash::sha256::{DoubleSha256Hash, HashUtils, SHA256_LENGTH};
 
 /// A trait which allows numbers to act as fixed-size bit arrays
 trait BitArray {
@@ -548,6 +551,19 @@ impl<const N: usize> From<u128> for Uint<N> {
         ret[1] = (value >> 64) as u64;
 
         Self(ret)
+    }
+}
+
+impl From<DoubleSha256Hash> for Uint256 {
+    fn from(value: DoubleSha256Hash) -> Self {
+        let buffer: [u8; SHA256_LENGTH] = value.as_bytes().try_into().unwrap();
+
+        let mut ret: [u64; 4] = unsafe { transmute(buffer) };
+        for x in (&mut ret).iter_mut() {
+            *x = x.to_le();
+        }
+
+        Uint256::from_u64_array(ret)
     }
 }
 

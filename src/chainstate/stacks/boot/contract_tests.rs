@@ -26,7 +26,7 @@ use clarity::vm::version::ClarityVersion;
 use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
