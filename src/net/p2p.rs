@@ -289,7 +289,7 @@ pub struct PeerNetwork {
     have_data_to_download: bool,
 
     // neighbor walk state
-    pub walk: Option<NeighborWalk<PeerDBNeighborWalk>>,
+    pub walk: Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>>,
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_attempts: u64,
@@ -594,6 +594,11 @@ impl PeerNetwork {
     /// Get a DB implementation for the neighbor walk
     pub fn get_neighbor_walk_db(&self) -> PeerDBNeighborWalk {
         PeerDBNeighborWalk::new()
+    }
+
+    /// Get a comms link to this network
+    pub fn get_neighbor_comms(&self) -> PeerNetworkComms {
+        PeerNetworkComms::new()
     }
 
     /// Get a connection to the PeerDB
@@ -2117,7 +2122,7 @@ impl PeerNetwork {
         // (yet)
         match self.walk {
             Some(ref walk) => {
-                for event_id in walk.events.iter() {
+                for event_id in walk.get_pinned_connections() {
                     safe.insert(*event_id);
                 }
             }
