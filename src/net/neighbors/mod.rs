@@ -58,7 +58,10 @@ pub mod db;
 pub mod neighbor;
 pub mod walk;
 
-pub use comms::{NeighborSet, NeighborSetMessageIterator, NeighborSetRequest, ToNeighborKey};
+pub use comms::{
+    NeighborComms, NeighborCommsMessageIterator, NeighborCommsRequest, PeerNetworkComms,
+    ToNeighborKey,
+};
 pub use db::{NeighborReplacements, NeighborWalkDB, PeerDBNeighborWalk};
 pub use walk::{NeighborPingback, NeighborWalk, NeighborWalkResult};
 
@@ -133,7 +136,10 @@ impl PeerNetwork {
     ///
     /// Returns the new neighbor walk on success.
     /// Returns None if we could not instantiate a walk for some reason.
-    fn new_neighbor_walk(&mut self, ibd: bool) -> Option<NeighborWalk<PeerDBNeighborWalk>> {
+    fn new_neighbor_walk(
+        &mut self,
+        ibd: bool,
+    ) -> Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>> {
         // alternate between starting walks from inbound and outbound neighbors.
         // fall back to pingbacks-only walks if no options exist.
         debug!(
@@ -144,17 +150,27 @@ impl PeerNetwork {
         // always ensure we're connected to always-allowed outbound peers
         let walk_res = if ibd {
             // always connect to bootstrap peers if in IBD
-            NeighborWalk::instantiate_walk_to_always_allowed(self.get_neighbor_walk_db(), self, ibd)
+            NeighborWalk::instantiate_walk_to_always_allowed(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+                ibd,
+            )
         } else {
             // if not in IBD, then we're not required to use the always-allowed neighbors
             // all the time (since they may be offline, and we have all the blocks anyway).
             // Alternate between picking random neighbors, and picking always-allowed
             // neighbors.
             if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
+                NeighborWalk::instantiate_walk(
+                    self.get_neighbor_walk_db(),
+                    self.get_neighbor_comms(),
+                    self,
+                )
             } else {
                 NeighborWalk::instantiate_walk_to_always_allowed(
                     self.get_neighbor_walk_db(),
+                    self.get_neighbor_comms(),
                     self,
                     ibd,
                 )
@@ -168,17 +184,26 @@ impl PeerNetwork {
                 // failed to create a walk, so either connect to any known neighbor or connect
                 // to an inbound peer.
                 if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                    NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
+                    NeighborWalk::instantiate_walk(
+                        self.get_neighbor_walk_db(),
+                        self.get_neighbor_comms(),
+                        self,
+                    )
                 } else {
                     if self.connection_opts.disable_inbound_walks {
                         debug!(
                             "{:?}: disabled inbound neighbor walks for testing",
                             &self.local_peer
                         );
-                        NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
+                        NeighborWalk::instantiate_walk(
+                            self.get_neighbor_walk_db(),
+                            self.get_neighbor_comms(),
+                            self,
+                        )
                     } else {
                         NeighborWalk::instantiate_walk_from_inbound(
                             self.get_neighbor_walk_db(),
+                            self.get_neighbor_comms(),
                             self,
                         )
                     }
@@ -196,6 +221,7 @@ impl PeerNetwork {
             Err(Error::NoSuchNeighbor) => {
                 match NeighborWalk::instantiate_walk_from_pingback(
                     self.get_neighbor_walk_db(),
+                    self.get_neighbor_comms(),
                     self,
                 ) {
                     Ok(x) => x,
