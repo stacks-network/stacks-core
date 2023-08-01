@@ -111,24 +111,6 @@ impl_array_newtype!(Keccak256Hash, u8, 32);
 impl_array_hexstring_fmt!(Keccak256Hash);
 impl_byte_array_newtype!(Keccak256Hash, u8, 32);
 
-// #[derive(Serialize, Deserialize)]
-// pub struct Sha256Sum(
-//     #[serde(
-//         serialize_with = "Hash32::json_serialize",
-//         deserialize_with = "Hash32::json_deserialize"
-//     )]
-//     pub [u8; 32],
-// );
-// impl_array_newtype!(Sha256Sum, u8, 32);
-// impl_array_hexstring_fmt!(Sha256Sum);
-// impl_byte_array_newtype!(Sha256Sum, u8, 32);
-
-// impl Default for Sha256Sum {
-//     fn default() -> Self {
-//         Sha256Sum::zero()
-//     }
-// }
-
 #[derive(Serialize, Deserialize)]
 pub struct Sha512Sum(
     #[serde(
@@ -152,19 +134,6 @@ pub struct Sha512Trunc256Sum(
 impl_array_newtype!(Sha512Trunc256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha512Trunc256Sum);
 impl_byte_array_newtype!(Sha512Trunc256Sum, u8, 32);
-
-// #[derive(Serialize, Deserialize)]
-// pub struct DoubleSha256(
-//     #[serde(
-//         serialize_with = "Hash32::json_serialize",
-//         deserialize_with = "Hash32::json_deserialize"
-//     )]
-//     pub [u8; 32],
-// );
-// impl_array_newtype!(DoubleSha256, u8, 32);
-// impl_array_hexstring_fmt!(DoubleSha256);
-// impl_byte_array_newtype!(DoubleSha256, u8, 32);
-// pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
