@@ -9,7 +9,7 @@ use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
 use super::operations::BurnchainOpSigner;
 
@@ -30,7 +30,7 @@ impl Keychain {
                     break;
                 }
                 Err(_) => {
-                    re_hashed_seed = Sha256Hash::hash(&re_hashed_seed[..]).as_bytes().to_vec()
+                    re_hashed_seed = Sha256Hasher::hash(&re_hashed_seed[..]).as_bytes().to_vec()
                 }
             }
         }
@@ -56,7 +56,7 @@ impl Keychain {
         let mut seed = {
             let mut secret_state = self.secret_state.clone();
             secret_state.extend_from_slice(&block_height.to_be_bytes());
-            Sha256Hash::hash(&secret_state)
+            Sha256Hasher::hash(&secret_state)
         };
 
         // Not every 256-bit number is a valid Ed25519 secret key.
@@ -64,7 +64,7 @@ impl Keychain {
         let sk = loop {
             match VRFPrivateKey::from_bytes(seed.as_bytes()) {
                 Some(sk) => break sk,
-                None => seed = Sha256Hash::hash(seed.as_bytes()),
+                None => seed = Sha256Hasher::hash(seed.as_bytes()),
             }
         };
         let pk = VRFPublicKey::from_private(&sk);
@@ -82,7 +82,7 @@ impl Keychain {
             let mut secret_state = self.secret_state.clone();
             secret_state.extend_from_slice(&block_height.to_be_bytes());
             secret_state.extend_from_slice(salt);
-            Sha256Hash::hash(&secret_state)
+            Sha256Hasher::hash(&secret_state)
         };
 
         let sk_bytes = Keychain::make_secret_key_bytes(seed.as_bytes());
@@ -201,7 +201,7 @@ mod tests {
     use stacks::types::chainstate::StacksAddress;
     use stacks::util::hash::Hash160;
     use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
-    use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+    use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
     use super::Keychain;
     use crate::operations::BurnchainOpSigner;
@@ -213,7 +213,7 @@ mod tests {
         secret_keys: Vec<StacksPrivateKey>,
         threshold: u16,
         hash_mode: AddressHashMode,
-        pub hashed_secret_state: Sha256Hash,
+        pub hashed_secret_state: Sha256Hasher,
         microblocks_secret_keys: Vec<StacksPrivateKey>,
         vrf_secret_keys: Vec<VRFPrivateKey>,
         vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
@@ -233,7 +233,7 @@ mod tests {
                     (threshold & 0xff) as u8,
                     hash_mode as u8,
                 ]);
-                Sha256Hash::hash(&buf[..])
+                Sha256Hasher::hash(&buf[..])
             };
 
             Self {
@@ -253,7 +253,7 @@ mod tests {
                 match StacksPrivateKey::from_slice(&re_hashed_seed[..]) {
                     Ok(sk) => break sk,
                     Err(_) => {
-                        re_hashed_seed = Sha256Hash::hash(&re_hashed_seed[..]).as_bytes().to_vec()
+                        re_hashed_seed = Sha256Hasher::hash(&re_hashed_seed[..]).as_bytes().to_vec()
                     }
                 }
             };
@@ -268,7 +268,7 @@ mod tests {
             let mut seed = {
                 let mut secret_state = self.hashed_secret_state.as_bytes().to_vec();
                 secret_state.extend_from_slice(&block_height.to_be_bytes());
-                Sha256Hash::hash(&secret_state)
+                Sha256Hasher::hash(&secret_state)
             };
 
             // Not every 256-bit number is a valid Ed25519 secret key.
@@ -276,7 +276,7 @@ mod tests {
             let sk = loop {
                 match VRFPrivateKey::from_bytes(seed.as_bytes()) {
                     Some(sk) => break sk,
-                    None => seed = Sha256Hash::hash(seed.as_bytes()),
+                    None => seed = Sha256Hasher::hash(seed.as_bytes()),
                 }
             };
             let pk = VRFPublicKey::from_private(&sk);
@@ -296,14 +296,14 @@ mod tests {
 
             secret_state.extend_from_slice(&burn_block_height.to_be_bytes());
 
-            let mut seed = Sha256Hash::hash(&secret_state);
+            let mut seed = Sha256Hasher::hash(&secret_state);
 
             // Not every 256-bit number is a valid secp256k1 secret key.
             // As such, we continuously generate seeds through re-hashing until one works.
             let mut sk = loop {
                 match StacksPrivateKey::from_slice(&seed.as_bytes()[..]) {
                     Ok(sk) => break sk,
-                    Err(_) => seed = Sha256Hash::hash(seed.as_bytes()),
+                    Err(_) => seed = Sha256Hasher::hash(seed.as_bytes()),
                 }
             };
             sk.set_compress_public(true);

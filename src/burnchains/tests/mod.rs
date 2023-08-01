@@ -26,8 +26,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
 use stacks_common::util::vrf::*;
-use stacks_core::hash::sha256::Sha256Hash;
-use stacks_core::hash::sha256::{DoubleSha256Hash, HashUtils};
+use stacks_core::hash::sha256::Sha256Hasher;
+use stacks_core::hash::sha256::{DoubleSha256Hasher, Hashing};
 
 use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -63,7 +63,7 @@ impl Txid {
         bytes.extend_from_slice(&vtxindex.to_be_bytes());
         bytes.extend_from_slice(burn_header_hash.as_bytes());
         bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256Hash::new(bytes);
+        let h = DoubleSha256Hasher::new(bytes);
         let mut hb = [0u8; 32];
         hb.copy_from_slice(h.as_ref());
 
@@ -184,11 +184,11 @@ impl TestMiner {
                 (self.num_sigs & 0xff) as u8,
                 self.hash_mode as u8,
             ]);
-            let h = Sha256Hash::new(&buf[..]);
+            let h = Sha256Hasher::new(&buf[..]);
             VRFPrivateKey::from_bytes(h.as_ref()).unwrap()
         } else {
             // next key is just the hash of the last
-            let h = Sha256Hash::new(self.vrf_keys[self.vrf_keys.len() - 1].as_bytes());
+            let h = Sha256Hasher::new(self.vrf_keys[self.vrf_keys.len() - 1].as_bytes());
             VRFPrivateKey::from_bytes(h.as_ref()).unwrap()
         };
 
@@ -210,11 +210,11 @@ impl TestMiner {
                 (self.num_sigs & 0xff) as u8,
                 self.hash_mode as u8,
             ]);
-            let h = Sha256Hash::new(&buf[..]);
+            let h = Sha256Hasher::new(&buf[..]);
             StacksPrivateKey::from_slice(h.as_ref()).unwrap()
         } else {
             // next key is the hash of the last
-            let h = Sha256Hash::new(
+            let h = Sha256Hasher::new(
                 &self.microblock_privks[self.microblock_privks.len() - 1].to_bytes(),
             );
             StacksPrivateKey::from_slice(h.as_ref()).unwrap()
@@ -326,7 +326,7 @@ impl TestMinerFactory {
     }
 
     pub fn next_private_key(&mut self) -> StacksPrivateKey {
-        let h = Sha256Hash::new(&self.key_seed);
+        let h = Sha256Hasher::new(&self.key_seed);
         self.key_seed.copy_from_slice(h.as_ref());
 
         StacksPrivateKey::from_slice(h.as_ref()).unwrap()

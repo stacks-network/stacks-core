@@ -36,7 +36,7 @@ use stacks::vm::{
 };
 use stacks::{burnchains::Address, vm::ClarityVersion};
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -1862,7 +1862,7 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
 fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
     let mut seed = {
         let secret_state = seed.as_bytes().to_vec();
-        Sha256Hash::hash(&secret_state)
+        Sha256Hasher::hash(&secret_state)
     };
 
     let mut ret = vec![];
@@ -1870,7 +1870,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
         if let Ok(sk) = StacksPrivateKey::from_slice(seed.as_bytes()) {
             ret.push(sk);
         }
-        seed = Sha256Hash::hash(seed.as_bytes());
+        seed = Sha256Hasher::hash(seed.as_bytes());
     }
     ret
 }

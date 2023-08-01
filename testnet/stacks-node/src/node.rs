@@ -54,7 +54,7 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
-use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;
@@ -173,7 +173,7 @@ fn spawn_peer(
     pox_consts: PoxConstants,
     event_dispatcher: EventDispatcher,
     exit_at_block_height: Option<u64>,
-    genesis_chainstate_hash: Sha256Hash,
+    genesis_chainstate_hash: Sha256Hasher,
     poll_timeout: u64,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     config: Config,
@@ -508,7 +508,7 @@ impl Node {
                 match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
                     Ok(sk) => break sk,
                     Err(_) => {
-                        re_hashed_seed = Sha256Hash::hash(&re_hashed_seed[..]).as_bytes().to_vec()
+                        re_hashed_seed = Sha256Hasher::hash(&re_hashed_seed[..]).as_bytes().to_vec()
                     }
                 }
             };
@@ -578,7 +578,7 @@ impl Node {
             burnchain.pox_constants,
             event_dispatcher,
             exit_at_block_height,
-            Sha256Hash::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
+            Sha256Hasher::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             attachments_rx,
             self.config.clone(),

@@ -57,7 +57,7 @@ use stacks_common::util::log;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use stacks_core::hash::sha256::Sha256Hash;
+use stacks_core::hash::sha256::Sha256Hasher;
 use url;
 
 use self::dns::*;
@@ -1068,7 +1068,7 @@ pub struct RPCPeerInfoData {
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
-    pub genesis_chainstate_hash: Sha256Hash,
+    pub genesis_chainstate_hash: Sha256Hasher,
     pub unanchored_tip: Option<StacksBlockId>,
     pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,

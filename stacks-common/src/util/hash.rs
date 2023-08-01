@@ -28,7 +28,7 @@ use crate::util::HexError;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
-use stacks_core::hash::sha256::{DoubleSha256Hash, HashUtils, Sha256Hash};
+use stacks_core::hash::sha256::{DoubleSha256Hasher, Hashing, Sha256Hasher};
 
 use crate::util::uint::Uint256;
 
@@ -238,7 +238,7 @@ impl MerkleHashFunc for Hash160 {
     }
 }
 
-impl MerkleHashFunc for Sha256Hash {
+impl MerkleHashFunc for Sha256Hasher {
     fn empty() -> Self
     where
         Self: Sized,
@@ -263,7 +263,7 @@ impl MerkleHashFunc for Sha256Hash {
     }
 }
 
-impl MerkleHashFunc for DoubleSha256Hash {
+impl MerkleHashFunc for DoubleSha256Hasher {
     fn empty() -> Self
     where
         Self: Sized,
@@ -690,19 +690,19 @@ pub fn bytes_to_hex(s: &[u8]) -> String {
 
 #[cfg(test)]
 mod test {
-    use stacks_core::hash::sha256::HashUtils;
+    use stacks_core::hash::sha256::Hashing;
 
     use super::bin_bytes;
     use super::hex_bytes;
     use super::to_bin;
-    use super::DoubleSha256Hash;
+    use super::DoubleSha256Hasher;
     use super::MerkleHashFunc;
     use super::MerklePath;
     use super::MerkleTree;
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
-        res: Option<MerkleTree<DoubleSha256Hash>>,
+        res: Option<MerkleTree<DoubleSha256Hasher>>,
     }
 
     #[test]
@@ -719,11 +719,11 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap())
+                            DoubleSha256Hasher::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap())
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("0486bee7283eb9a1251cf134e60635ea797ab54e5986b27c13ac83f03119d680").unwrap())
+                            DoubleSha256Hasher::new(&hex_bytes("0486bee7283eb9a1251cf134e60635ea797ab54e5986b27c13ac83f03119d680").unwrap())
                         ]
                     ]
                 })
@@ -736,11 +736,11 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
                         ],
                     ],
                 })
@@ -754,17 +754,17 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("ae7c314ff379af325a26f408b6f883add2542a44f5c39313f545a42c25bad17c").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("ae7c314ff379af325a26f408b6f883add2542a44f5c39313f545a42c25bad17c").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("978d9d2ea33ce554e38fa49141f80e2cba770cdacc8d0da6605b4bbd31f50b3b").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("978d9d2ea33ce554e38fa49141f80e2cba770cdacc8d0da6605b4bbd31f50b3b").unwrap()),
                         ]
                     ]
                 })
@@ -780,25 +780,25 @@ mod test {
                 res: Some(MerkleTree {
                     nodes: vec![
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("9b1ab546065ba19b028bcac528162af25931c785e60d635db9038defbf022a4c").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("44cf874abb7d10b323d5f6bf5bd4a5f25e3fe3d27fc74d59d7c258f4e5ed35c4").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("b7d2c0a06fc0bffb86fca086fe9ae87561bb4191b770d947f1f042387904405f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("a2737fd98f23cf619c3c1e7b85484ec864491c29aa8f5422c3e9e73c3213a79d").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("9b1ab546065ba19b028bcac528162af25931c785e60d635db9038defbf022a4c").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("473effa680e4e10f28121cb8f8d34f2dbf6c8b89b2a3e59629180b1ea3d08849").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("cb985eb38b2184a9ebc0df8ea7b54579ffc25bc6a127e51a3e701b2ac0db73cc").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("5fb4b0c841e2d00964f6ddc2bc7c0eb75b3af02223b3900132744dfa8c22433f").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("cb985eb38b2184a9ebc0df8ea7b54579ffc25bc6a127e51a3e701b2ac0db73cc").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("2236b6e4c9f72a5d43ada53445afa045872663c1e674f8e7c2068e8377b224a6").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("5f040e3625c217bba84f89a61c70cb954c848e035db28c0568a13c691f73fb73").unwrap()),
-                            DoubleSha256Hash::new(&hex_bytes("9f8e10332f968166b526c6eea230d7f31d4f8f6cd2eb6d84b0c34320dc976b8b").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("5f040e3625c217bba84f89a61c70cb954c848e035db28c0568a13c691f73fb73").unwrap()),
+                            DoubleSha256Hasher::new(&hex_bytes("9f8e10332f968166b526c6eea230d7f31d4f8f6cd2eb6d84b0c34320dc976b8b").unwrap()),
                         ],
                         vec![
-                            DoubleSha256Hash::new(&hex_bytes("6695db0423ffd46dc936a35b454223c4ff663ceeaffbc30a970cf33c861e50a2").unwrap())
+                            DoubleSha256Hasher::new(&hex_bytes("6695db0423ffd46dc936a35b454223c4ff663ceeaffbc30a970cf33c861e50a2").unwrap())
                         ]
                     ]
                 })
@@ -815,7 +815,7 @@ mod test {
                 if nodes.len() > 0 {
                     assert_eq!(tree.root(), nodes[nodes.len() - 1][0]);
                 } else {
-                    assert_eq!(tree.root(), DoubleSha256Hash::zeroes());
+                    assert_eq!(tree.root(), DoubleSha256Hasher::zeroes());
                 }
 
                 for d in fixture.data {

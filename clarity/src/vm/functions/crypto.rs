@@ -20,7 +20,7 @@ use stacks_common::address::{
 };
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::{CallableType, NativeHandle};
@@ -86,7 +86,7 @@ macro_rules! native_hash_func_new {
 }
 
 native_hash_func!(native_hash160, hash::Hash160);
-native_hash_func_new!(native_sha256, Sha256Hash);
+native_hash_func_new!(native_sha256, Sha256Hasher);
 native_hash_func!(native_sha512, hash::Sha512Sum);
 native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
 native_hash_func!(native_keccak256, hash::Keccak256Hash);

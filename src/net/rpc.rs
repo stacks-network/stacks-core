@@ -54,7 +54,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_core::hash::sha256::Sha256Hash;
+use stacks_core::hash::sha256::Sha256Hasher;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use crate::burnchains::affirmation::AffirmationMap;
@@ -139,7 +139,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<u64>,
-    pub genesis_chainstate_hash: Sha256Hash,
+    pub genesis_chainstate_hash: Sha256Hasher,
     pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
     pub cost_estimator: Option<&'a dyn CostEstimator>,
     pub fee_estimator: Option<&'a dyn FeeEstimator>,
@@ -215,7 +215,7 @@ impl RPCPeerInfoData {
         network: &PeerNetwork,
         chainstate: &StacksChainState,
         exit_at_block_height: Option<u64>,
-        genesis_chainstate_hash: &Sha256Hash,
+        genesis_chainstate_hash: &Sha256Hasher,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
@@ -3695,7 +3695,7 @@ mod test {
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::pipe::*;
-    use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
+    use stacks_core::hash::sha256::{Hashing, Sha256Hasher};
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -4357,7 +4357,7 @@ mod test {
                     &peer_server.network,
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
                     None,
-                    &Sha256Hash::zeroes(),
+                    &Sha256Hasher::zeroes(),
                 );
 
                 *peer_server_info.borrow_mut() = Some(peer_info);

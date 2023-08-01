@@ -5,7 +5,7 @@ use std::{
     ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub},
 };
 
-use crate::hash::sha256::{DoubleSha256Hash, HashUtils, SHA256_LENGTH};
+use crate::hash::sha256::{DoubleSha256Hasher, Hashing, SHA256_LENGTH};
 
 /// A trait which allows numbers to act as fixed-size bit arrays
 trait BitArray {
@@ -554,8 +554,8 @@ impl<const N: usize> From<u128> for Uint<N> {
     }
 }
 
-impl From<DoubleSha256Hash> for Uint256 {
-    fn from(value: DoubleSha256Hash) -> Self {
+impl From<DoubleSha256Hasher> for Uint256 {
+    fn from(value: DoubleSha256Hasher) -> Self {
         let buffer: [u8; SHA256_LENGTH] = value.as_bytes().try_into().unwrap();
 
         let mut ret: [u64; 4] = unsafe { transmute(buffer) };

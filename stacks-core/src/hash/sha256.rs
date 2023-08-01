@@ -10,7 +10,7 @@ pub(crate) const CHECKSUM_LENGTH: usize = 4;
 #[serde(transparent)]
 struct Hex(String);
 
-pub trait HashUtils: Clone + Sized {
+pub trait Hashing: Clone + Sized {
     const LENGTH: usize;
 
     fn hash(data: &[u8]) -> Self;
@@ -43,11 +43,11 @@ pub trait HashUtils: Clone + Sized {
 #[serde(into = "Hex")]
 pub struct Hasher<T>(T)
 where
-    T: HashUtils;
+    T: Hashing;
 
-impl<T> HashUtils for Hasher<T>
+impl<T> Hashing for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     const LENGTH: usize = T::LENGTH;
 
@@ -66,7 +66,7 @@ where
 
 impl<T> AsRef<[u8]> for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
@@ -75,7 +75,7 @@ where
 
 impl<T> TryFrom<&[u8]> for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     type Error = StacksError;
 
@@ -86,7 +86,7 @@ where
 
 impl<T> Default for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     fn default() -> Self {
         Self::zeroes()
@@ -95,7 +95,7 @@ where
 
 impl<T> Into<Hex> for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     fn into(self) -> Hex {
         Hex(hex::encode(self.as_bytes()))
@@ -104,7 +104,7 @@ where
 
 impl<T> TryFrom<Hex> for Hasher<T>
 where
-    T: HashUtils,
+    T: Hashing,
 {
     type Error = StacksError;
 
@@ -116,9 +116,9 @@ where
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(try_from = "Hex")]
 #[serde(into = "Hex")]
-pub struct Sha256Hasher([u8; SHA256_LENGTH]);
+pub struct Sha256Hashing([u8; SHA256_LENGTH]);
 
-impl HashUtils for Sha256Hasher {
+impl Hashing for Sha256Hashing {
     const LENGTH: usize = SHA256_LENGTH;
 
     fn hash(data: &[u8]) -> Self {
@@ -134,13 +134,13 @@ impl HashUtils for Sha256Hasher {
     }
 }
 
-impl Into<Hex> for Sha256Hasher {
+impl Into<Hex> for Sha256Hashing {
     fn into(self) -> Hex {
         Hex(hex::encode(self.as_bytes()))
     }
 }
 
-impl TryFrom<Hex> for Sha256Hasher {
+impl TryFrom<Hex> for Sha256Hashing {
     type Error = StacksError;
 
     fn try_from(value: Hex) -> Result<Self, Self::Error> {
@@ -149,13 +149,13 @@ impl TryFrom<Hex> for Sha256Hasher {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DoubleSha256Hasher(Sha256Hasher);
+pub struct DoubleSha256Hashing(Sha256Hashing);
 
-impl HashUtils for DoubleSha256Hasher {
+impl Hashing for DoubleSha256Hashing {
     const LENGTH: usize = SHA256_LENGTH;
 
     fn hash(data: &[u8]) -> Self {
-        Self(Sha256Hasher::hash(Sha256Hasher::hash(data).as_bytes()))
+        Self(Sha256Hashing::hash(Sha256Hashing::hash(data).as_bytes()))
     }
 
     fn as_bytes(&self) -> &[u8] {
@@ -163,17 +163,17 @@ impl HashUtils for DoubleSha256Hasher {
     }
 
     fn from_bytes(bytes: &[u8]) -> StacksResult<Self> {
-        Ok(Self(Sha256Hasher::from_bytes(bytes)?))
+        Ok(Self(Sha256Hashing::from_bytes(bytes)?))
     }
 }
 
-impl Into<Hex> for DoubleSha256Hasher {
+impl Into<Hex> for DoubleSha256Hashing {
     fn into(self) -> Hex {
         Hex(hex::encode(self.as_bytes()))
     }
 }
 
-impl TryFrom<Hex> for DoubleSha256Hasher {
+impl TryFrom<Hex> for DoubleSha256Hashing {
     type Error = StacksError;
 
     fn try_from(value: Hex) -> Result<Self, Self::Error> {
@@ -181,8 +181,8 @@ impl TryFrom<Hex> for DoubleSha256Hasher {
     }
 }
 
-pub type Sha256Hash = Hasher<Sha256Hasher>;
-pub type DoubleSha256Hash = Hasher<DoubleSha256Hasher>;
+pub type Sha256Hasher = Hasher<Sha256Hashing>;
+pub type DoubleSha256Hasher = Hasher<DoubleSha256Hashing>;
 
 #[cfg(test)]
 mod tests {
@@ -196,7 +196,7 @@ mod tests {
         let expected_hash_hex = "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c";
 
         assert_eq!(
-            hex::encode(Sha256Hash::hash(plaintext.as_bytes())),
+            hex::encode(Sha256Hasher::hash(plaintext.as_bytes())),
             expected_hash_hex
         );
     }
@@ -207,7 +207,7 @@ mod tests {
         let expected_checksum_hex = "64ec88ca";
 
         assert_eq!(
-            hex::encode(Sha256Hash::hash(plaintext.as_bytes()).checksum()),
+            hex::encode(Sha256Hasher::hash(plaintext.as_bytes()).checksum()),
             expected_checksum_hex
         );
     }
@@ -218,7 +218,7 @@ mod tests {
         let expected_hash_hex = "f6dc724d119649460e47ce719139e521e082be8a9755c5bece181de046ee65fe";
 
         assert_eq!(
-            hex::encode(DoubleSha256Hash::hash(plaintext.as_bytes()).as_bytes()),
+            hex::encode(DoubleSha256Hasher::hash(plaintext.as_bytes()).as_bytes()),
             expected_hash_hex
         );
     }
@@ -229,7 +229,7 @@ mod tests {
         let expected_checksum_hex = "f6dc724d";
 
         assert_eq!(
-            hex::encode(DoubleSha256Hash::hash(plaintext.as_bytes()).checksum()),
+            hex::encode(DoubleSha256Hasher::hash(plaintext.as_bytes()).checksum()),
             expected_checksum_hex
         );
     }
@@ -242,7 +242,7 @@ mod tests {
             hex::decode("0807060504030201efbeaddeefbeadde00000000000000000000000000000000")
                 .unwrap();
 
-        let hash = Sha256Hasher(num_bytes.try_into().unwrap());
+        let hash = Sha256Hashing(num_bytes.try_into().unwrap());
 
         assert_eq!(
             expected_num,

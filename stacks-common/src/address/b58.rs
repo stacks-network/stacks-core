@@ -18,7 +18,7 @@ use std::{error, fmt, str};
 
 use crate::address::Error;
 use stacks_core::{
-    hash::sha256::{DoubleSha256Hash, HashUtils},
+    hash::sha256::{DoubleSha256Hasher, Hashing},
     uint::Uint256,
 };
 
@@ -197,7 +197,7 @@ pub fn from_check(data: &str) -> Result<Vec<u8>, Error> {
         return Err(Error::TooShort(ret.len()));
     }
     let ck_start = ret.len() - 4;
-    let uint: Uint256 = DoubleSha256Hash::new(&ret[..ck_start]).into();
+    let uint: Uint256 = DoubleSha256Hasher::new(&ret[..ck_start]).into();
     let expected = uint.low_u32();
 
     let mut actual_buff = [0; 4];
@@ -279,14 +279,14 @@ pub fn encode_slice(data: &[u8]) -> String {
 /// Obtain a string with the base58check encoding of a slice
 /// (Tack the first 4 256-digits of the object's Bitcoin hash onto the end.)
 pub fn check_encode_slice(data: &[u8]) -> String {
-    let checksum = DoubleSha256Hash::new(&data);
+    let checksum = DoubleSha256Hasher::new(&data);
     encode_iter(data.iter().cloned().chain(checksum.checksum()))
 }
 
 /// Obtain a string with the base58check encoding of a slice
 /// (Tack the first 4 256-digits of the object's Bitcoin hash onto the end.)
 pub fn check_encode_slice_to_fmt(fmt: &mut fmt::Formatter, data: &[u8]) -> fmt::Result {
-    let checksum = DoubleSha256Hash::new(&data);
+    let checksum = DoubleSha256Hasher::new(&data);
     let iter = data.iter().cloned().chain(checksum.checksum());
     encode_iter_to_fmt(fmt, iter)
 }
