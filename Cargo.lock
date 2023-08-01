@@ -2125,22 +2125,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruint"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77e1574d439643c8962edf612a888e7cc5581bcdf36cb64e6bc88466b03b2daa"
-dependencies = [
- "ruint-macro",
- "thiserror",
-]
-
-[[package]]
-name = "ruint-macro"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e666a5496a0b2186dbcd0ff6106e29e093c15591bde62c20d3842007c6978a09"
-
-[[package]]
 name = "rusqlite"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2652,7 +2636,6 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "ripemd",
- "ruint",
  "serde",
  "sha2 0.10.7",
  "thiserror",
