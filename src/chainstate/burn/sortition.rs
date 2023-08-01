@@ -20,9 +20,6 @@ use rusqlite::Connection;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
 
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
@@ -447,6 +444,7 @@ mod test {
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::vrf::VRFPrivateKey;
     use stacks_common::util::vrf::VRFPublicKey;
+    use stacks_core::uint::Uint256;
 
     use super::*;
     use crate::burnchains::tests::*;
@@ -552,8 +550,8 @@ mod test {
         let empty_burn_point = BurnSamplePoint {
             burns: 0,
             median_burn: 0,
-            range_start: Uint256::from_u64(0),
-            range_end: Uint256([
+            range_start: Uint256::from(0u64),
+            range_end: Uint256::from_u64_array([
                 0xFFFFFFFFFFFFFFFF,
                 0xFFFFFFFFFFFFFFFF,
                 0xFFFFFFFFFFFFFFFF,

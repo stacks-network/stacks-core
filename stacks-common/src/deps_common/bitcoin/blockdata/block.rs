@@ -20,6 +20,8 @@
 //! these blocks and the blockchain.
 //!
 
+use stacks_core::uint::Uint256;
+
 use crate::deps_common::bitcoin::blockdata::constants::max_target;
 use crate::deps_common::bitcoin::blockdata::transaction::Transaction;
 use crate::deps_common::bitcoin::network::constants::Network;
@@ -29,7 +31,6 @@ use crate::deps_common::bitcoin::util;
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::deps_common::bitcoin::util::Error;
 use crate::deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
-use crate::util::uint::Uint256;
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -91,7 +92,7 @@ impl BlockHeader {
         if mant > 0x7FFFFF {
             Default::default()
         } else {
-            Uint256::from_u64(mant as u64) << (expt as usize)
+            Uint256::from(mant as u64) << (expt as usize)
         }
     }
 

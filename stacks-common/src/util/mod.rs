@@ -23,7 +23,6 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
-pub mod uint;
 pub mod vrf;
 
 use std::error;

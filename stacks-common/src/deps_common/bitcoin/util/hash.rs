@@ -28,12 +28,12 @@ use ripemd::Ripemd160;
 use serde;
 use sha2::Digest;
 use sha2::Sha256;
+use stacks_core::uint::Uint256;
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{
     self, BitcoinHash, RawEncoder, SimpleEncoder,
 };
-use crate::util::uint::Uint256;
 use crate::util::HexError;
 
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
@@ -185,7 +185,7 @@ impl Sha256dHash {
         for x in (&mut ret).iter_mut() {
             *x = x.to_le();
         }
-        Uint256(ret)
+        Uint256::from_u64_array(ret)
     }
 
     /// Converts a hash to a big-endian Uint256
@@ -197,7 +197,7 @@ impl Sha256dHash {
         for x in (&mut ret).iter_mut() {
             *x = x.to_be();
         }
-        Uint256(ret)
+        Uint256::from_u64_array(ret)
     }
 
     // Human-readable hex output
@@ -452,7 +452,6 @@ mod tests {
     use super::*;
     use crate::deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
-    use crate::util::uint::Uint256;
 
     #[test]
     fn test_sha256d() {
@@ -550,6 +549,6 @@ mod tests {
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0,
         ]);
-        assert_eq!(one.into_le(), Uint256::from_u64(1));
+        assert_eq!(one.into_le(), Uint256::from(1u64));
     }
 }

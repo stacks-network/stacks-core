@@ -26,9 +26,7 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
+
 use stacks_common::util::vrf::VRFPrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 

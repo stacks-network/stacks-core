@@ -2138,7 +2138,6 @@ pub mod test {
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
-    use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
 
     use super::*;

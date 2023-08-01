@@ -38,7 +38,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::log;
-use stacks_common::util::uint::Uint256;
+use stacks_core::uint::Uint256;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
@@ -378,7 +378,7 @@ impl SpvClient {
 
     /// Calculate the total work over a given interval of headers.
     fn get_interval_work(interval_headers: &[LoneBlockHeader]) -> Uint256 {
-        let mut work = Uint256::from_u64(0);
+        let mut work = Uint256::from(0u64);
         for hdr in interval_headers.iter() {
             work = work + hdr.header.work();
         }
@@ -412,7 +412,7 @@ impl SpvClient {
             )
             .optional()
             .map_err(db_error::SqliteError)?;
-        Ok(work_hex.map(|x| Uint256::from_hex_be(&x).expect("FATAL: work is not a uint256")))
+        Ok(work_hex.map(|x| Uint256::from_be_hex(&x).expect("FATAL: work is not a uint256")))
     }
 
     /// Store an interval's running total work.
@@ -430,7 +430,7 @@ impl SpvClient {
         }
 
         let tx = self.tx_begin()?;
-        let args: &[&dyn ToSql] = &[&u64_to_sql(interval)?, &work.to_hex_be()];
+        let args: &[&dyn ToSql] = &[&u64_to_sql(interval)?, &work.to_be_hex()];
         tx.execute(
             "INSERT OR REPLACE INTO chain_work (interval,work) VALUES (?1,?2)",
             args,
@@ -450,7 +450,7 @@ impl SpvClient {
             self.find_interval_work(highest_interval - 1)?
                 .expect("FATAL: no work score for highest known interval")
         } else {
-            Uint256::from_u64(0)
+            Uint256::from(0u64)
         };
 
         let last_interval = self.get_headers_height()? / BLOCK_DIFFICULTY_CHUNK_SIZE + 1;
@@ -499,7 +499,7 @@ impl SpvClient {
     pub fn get_chain_work(&self) -> Result<Uint256, btc_error> {
         let highest_full_interval = self.find_highest_work_score_interval()?;
         let highest_interval_work = if highest_full_interval == 0 {
-            Uint256::from_u64(0)
+            Uint256::from(0u64)
         } else {
             self.find_interval_work(highest_full_interval)?
                 .expect("FATAL: have interval but no work")
@@ -752,7 +752,7 @@ impl SpvClient {
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {
-        let sql = "INSERT OR REPLACE INTO headers 
+        let sql = "INSERT OR REPLACE INTO headers
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args: &[&dyn ToSql] = &[
@@ -1023,7 +1023,7 @@ impl SpvClient {
                 // contiguous?
                 let last = block_headers.len() - 1;
                 if block_headers[last].header.bitcoin_hash() != child_header.header.prev_blockhash {
-                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
+                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})",
                           end_height, &child_header, child_header.header.bitcoin_hash(), &block_headers[last], &block_headers[last].header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }
@@ -1068,7 +1068,7 @@ impl SpvClient {
         first_header: &LoneBlockHeader,
         last_header: &LoneBlockHeader,
     ) -> (u32, Uint256) {
-        let max_target = Uint256([
+        let max_target = Uint256::from_u64_array([
             0x0000000000000000,
             0x0000000000000000,
             0x0000000000000000,
@@ -1087,7 +1087,7 @@ impl SpvClient {
 
         let last_target = last_header.header.target();
         let new_target =
-            (last_target * Uint256::from_u64(actual_timespan)) / Uint256::from_u64(target_timespan);
+            (last_target * Uint256::from(actual_timespan)) / Uint256::from(target_timespan);
         let target = cmp::min(new_target, max_target);
 
         let bits = BlockHeader::compact_target_from_u256(&target);
@@ -1121,7 +1121,7 @@ impl SpvClient {
         if self.network_id == BitcoinNetworkType::Regtest {
             return Ok(Some((
                 0x207fffff,
-                Uint256([
+                Uint256::from_u64_array([
                     0x0000000000000000,
                     0x0000000000000000,
                     0x0000000000000000,
@@ -1130,7 +1130,7 @@ impl SpvClient {
             )));
         }
 
-        let max_target = Uint256([
+        let max_target = Uint256::from_u64_array([
             0x0000000000000000,
             0x0000000000000000,
             0x0000000000000000,

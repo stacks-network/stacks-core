@@ -2405,7 +2405,7 @@ mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
-    use stacks_common::util::uint::*;
+    use stacks_core::uint::Uint256;
 
     use super::*;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -2558,11 +2558,11 @@ mod test {
         for i in prev_snapshot.block_height..chain_view.burn_block_height + 1 {
             let mut next_snapshot = prev_snapshot.clone();
 
-            let big_i = Uint256::from_u64(i as u64);
+            let big_i = Uint256::from(i as u64);
             let mut big_i_bytes_32 = [0u8; 32];
             let mut big_i_bytes_20 = [0u8; 20];
-            big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
-            big_i_bytes_20.copy_from_slice(&big_i.to_u8_slice()[0..20]);
+            big_i_bytes_32.copy_from_slice(&big_i.to_le_bytes());
+            big_i_bytes_20.copy_from_slice(&big_i.to_le_bytes()[0..20]);
 
             next_snapshot.block_height += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();

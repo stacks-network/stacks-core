@@ -16,6 +16,8 @@ pub enum StacksError {
     InvalidSliceLength(#[from] TryFromSliceError),
     #[error("Could not encode or decode hex: {0}")]
     BadHex(#[from] hex::FromHexError),
+    #[error("Could not create Uint from {0} bytes")]
+    InvalidUintBytes(usize),
 }
 
 pub type StacksResult<T> = Result<T, StacksError>;

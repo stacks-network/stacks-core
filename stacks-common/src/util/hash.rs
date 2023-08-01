@@ -30,8 +30,6 @@ use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
 use stacks_core::hash::sha256::{DoubleSha256Hasher, Hashing, Sha256Hasher};
 
-use crate::util::uint::Uint256;
-
 use crate::types::StacksPublicKeyBuffer;
 
 use serde::de::Deserialize;
@@ -315,67 +313,6 @@ impl Keccak256Hash {
         Keccak256Hash(Keccak256::digest(data).try_into().unwrap())
     }
 }
-
-// impl Sha256Sum {
-//     pub fn from_data(data: &[u8]) -> Sha256Sum {
-//         Sha256Sum(Sha256::digest(data).try_into().unwrap())
-//     }
-//     pub fn zero() -> Sha256Sum {
-//         Sha256Sum([0u8; 32])
-//     }
-// }
-
-// impl DoubleSha256 {
-//     pub fn from_data(data: &[u8]) -> DoubleSha256 {
-//         let hashed = Sha256::digest(Sha256::digest(data));
-//         DoubleSha256(hashed.try_into().unwrap())
-//     }
-
-//     /// Converts a hash to a little-endian Uint256
-//     #[inline]
-//     pub fn into_le(self) -> Uint256 {
-//         let DoubleSha256(data) = self;
-//         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-//         for x in (&mut ret).iter_mut() {
-//             *x = x.to_le();
-//         }
-//         Uint256(ret)
-//     }
-
-//     /// Converts a hash to a big-endian Uint256
-//     #[inline]
-//     pub fn into_be(self) -> Uint256 {
-//         let DoubleSha256(mut data) = self;
-//         data.reverse();
-//         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-//         for x in (&mut ret).iter_mut() {
-//             *x = x.to_be();
-//         }
-//         Uint256(ret)
-//     }
-
-//     /// Human-readable hex output
-//     pub fn le_hex_string(&self) -> String {
-//         let &DoubleSha256(data) = self;
-//         let mut ret = String::with_capacity(64);
-//         for item in data.iter().take(32) {
-//             ret.push(from_digit((*item / 0x10) as u32, 16).unwrap());
-//             ret.push(from_digit((*item & 0x0f) as u32, 16).unwrap());
-//         }
-//         ret
-//     }
-
-//     /// Human-readable hex output
-//     pub fn be_hex_string(&self) -> String {
-//         let &DoubleSha256(data) = self;
-//         let mut ret = String::with_capacity(64);
-//         for i in (0..32).rev() {
-//             ret.push(from_digit((data[i] / 0x10) as u32, 16).unwrap());
-//             ret.push(from_digit((data[i] & 0x0f) as u32, 16).unwrap());
-//         }
-//         ret
-//     }
-// }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MerkleTree<H: MerkleHashFunc> {

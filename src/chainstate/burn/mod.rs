@@ -31,8 +31,8 @@ use stacks_common::util::hash::Hash32;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::log;
-use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
+use stacks_core::uint::Uint256;
 
 use crate::burnchains::Address;
 use crate::burnchains::PublicKey;
@@ -184,7 +184,7 @@ impl SortitionHash {
 
             tmp[i] = b;
         }
-        Uint256(tmp)
+        Uint256::from_u64_array(tmp)
     }
 }
 

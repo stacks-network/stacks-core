@@ -21,10 +21,9 @@ use std::convert::TryInto;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
+
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_core::uint::{Uint256, Uint512};
 
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
@@ -292,8 +291,8 @@ impl BurnSamplePoint {
                 BurnSamplePoint {
                     burns,
                     median_burn,
-                    range_start: Uint256::zero(), // To be filled in
-                    range_end: Uint256::zero(),   // To be filled in
+                    range_start: Uint256::MIN, // To be filled in
+                    range_end: Uint256::MIN,   // To be filled in
                     candidate,
                     user_burns: vec![],
                 }
@@ -317,7 +316,7 @@ impl BurnSamplePoint {
                 }
             }
 
-            let mut range_total = Uint256::zero();
+            let mut range_total = Uint256::MIN;
             let mut signer_seen = false;
             for burn in burn_sample.iter() {
                 if burn.candidate.apparent_sender == *signer {
@@ -349,32 +348,32 @@ impl BurnSamplePoint {
         }
         if burn_sample.len() == 1 {
             // sample that covers the whole range
-            burn_sample[0].range_start = Uint256::zero();
-            burn_sample[0].range_end = Uint256::max();
+            burn_sample[0].range_start = Uint256::MIN;
+            burn_sample[0].range_end = Uint256::MAX;
             return;
         }
 
         // total burns for valid blocks?
         // NOTE: this can't overflow -- there's no way we get that many (u64) burns
         let total_burns_u128 = BurnSamplePoint::get_total_burns(&burn_sample).unwrap() as u128;
-        let total_burns = Uint512::from_u128(total_burns_u128);
+        let total_burns = Uint512::from(total_burns_u128);
 
         // determine range start/end for each sample.
         // Use fixed-point math on an unsigned 512-bit number --
         //   * the upper 256 bits are the integer
         //   * the lower 256 bits are the fraction
         // These range fields correspond to ranges in the 32-byte hash space
-        let mut burn_acc = Uint512::from_u128(burn_sample[0].burns);
+        let mut burn_acc = Uint512::from(burn_sample[0].burns);
 
-        burn_sample[0].range_start = Uint256::zero();
+        burn_sample[0].range_start = Uint256::MIN;
         burn_sample[0].range_end =
-            ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
+            ((Uint512::from_uint(Uint256::MAX) * burn_acc) / total_burns).to_uint_lossy();
         for i in 1..burn_sample.len() {
             burn_sample[i].range_start = burn_sample[i - 1].range_end;
 
-            burn_acc = burn_acc + Uint512::from_u128(burn_sample[i].burns);
+            burn_acc = burn_acc + Uint512::from(burn_sample[i].burns);
             burn_sample[i].range_end =
-                ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
+                ((Uint512::from_uint(Uint256::MAX) * burn_acc) / total_burns).to_uint_lossy();
         }
 
         for _i in 0..burn_sample.len() {
@@ -413,10 +412,9 @@ mod tests {
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::hash::Hash160;
     use stacks_common::util::log;
-    use stacks_common::util::uint::BitArray;
-    use stacks_common::util::uint::Uint256;
-    use stacks_common::util::uint::Uint512;
+
     use stacks_common::util::vrf::*;
+    use stacks_core::uint::Uint256;
 
     use super::BurnSamplePoint;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -1274,8 +1272,8 @@ mod tests {
                 res: vec![BurnSamplePoint {
                     burns: block_commit_1.burn_fee.into(),
                     median_burn: block_commit_1.burn_fee.into(),
-                    range_start: Uint256::zero(),
-                    range_end: Uint256::max(),
+                    range_start: Uint256::MIN,
+                    range_end: Uint256::MAX,
                     candidate: block_commit_1.clone(),
                     user_burns: vec![],
                 }],
@@ -1289,8 +1287,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1303,13 +1301,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1324,8 +1322,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1338,13 +1336,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1359,8 +1357,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1373,13 +1371,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1398,8 +1396,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1412,13 +1410,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1438,8 +1436,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1452,13 +1450,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1480,8 +1478,8 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1494,13 +1492,13 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_2.clone(),
                         user_burns: vec![],
                     },
@@ -1529,8 +1527,8 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
-                        range_start: Uint256::zero(),
-                        range_end: Uint256([
+                        range_start: Uint256::MIN,
+                        range_end: Uint256::from_u64_array([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
                             0x70989faf596c8b65,
@@ -1542,13 +1540,13 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
                             0x70989faf596c8b65,
                             0x41a3ed94d3cb0a84,
                         ]),
-                        range_end: Uint256([
+                        range_end: Uint256::from_u64_array([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,
                             0xe1313f5eb2d916ca,
@@ -1560,13 +1558,13 @@ mod tests {
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
                         median_burn: block_commit_3.burn_fee.into(),
-                        range_start: Uint256([
+                        range_start: Uint256::from_u64_array([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,
                             0xe1313f5eb2d916ca,
                             0x8347db29a7961508,
                         ]),
-                        range_end: Uint256::max(),
+                        range_end: Uint256::MAX,
                         candidate: block_commit_3.clone(),
                         user_burns: vec![],
                     },

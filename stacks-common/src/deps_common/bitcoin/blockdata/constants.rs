@@ -21,6 +21,8 @@
 
 use std::default::Default;
 
+use stacks_core::uint::Uint256;
+
 use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
 use crate::deps_common::bitcoin::blockdata::opcodes;
 use crate::deps_common::bitcoin::blockdata::script;
@@ -28,7 +30,6 @@ use crate::deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction,
 use crate::deps_common::bitcoin::network::constants::Network;
 use crate::deps_common::bitcoin::util::hash::MerkleRoot;
 use crate::util::hash::hex_bytes;
-use crate::util::uint::Uint256;
 
 /// The maximum allowable sequence number
 pub static MAX_SEQUENCE: u32 = 0xFFFFFFFF;
@@ -43,7 +44,7 @@ pub static DIFFCHANGE_TIMESPAN: u32 = 14 * 24 * 3600;
 
 /// In Bitcoind this is insanely described as ~((u256)0 >> 32)
 pub fn max_target(_: Network) -> Uint256 {
-    Uint256::from_u64(0xFFFF) << 208
+    Uint256::from(0xFFFFu64) << 208
 }
 
 /// The maximum value allowed in an output (useful for sanity checking,

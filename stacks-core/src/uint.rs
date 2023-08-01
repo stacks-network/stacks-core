@@ -5,41 +5,26 @@ use std::{
     ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub},
 };
 
-use crate::hash::sha256::{DoubleSha256Hasher, Hashing, SHA256_LENGTH};
+use serde::{Deserialize, Serialize};
 
-/// A trait which allows numbers to act as fixed-size bit arrays
-trait BitArray {
-    /// Is bit set?
-    fn bit(&self, idx: usize) -> bool;
-
-    /// Returns an array which is just the bits from start to end
-    fn bit_slice(&self, start: usize, end: usize) -> Self;
-
-    /// Bitwise and with `n` ones
-    fn mask(&self, n: usize) -> Self;
-
-    /// Trailing zeros
-    fn trailing_zeros(&self) -> usize;
-
-    /// Create all-zeros value
-    fn zero() -> Self;
-
-    /// Create value represeting one
-    fn one() -> Self;
-
-    /// Create value representing max
-    fn max() -> Self;
-}
+use crate::{
+    hash::sha256::{DoubleSha256Hasher, Hashing, SHA256_LENGTH},
+    StacksError, StacksResult,
+};
 
 /**
 A structure that represents large integers and provides basic arithmetic.
 It accepts a const generic `N` which controls the number of u64s used to represent the number.
 */
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(try_from = "Vec<u64>")]
+#[serde(into = "Vec<u64>")]
+#[repr(C)]
 pub struct Uint<const N: usize>([u64; N]);
 
 impl<const N: usize> Uint<N> {
     pub const MAX: Self = Self([0xffffffffffffffff; N]);
+    pub const MIN: Self = Self([0; N]);
 
     pub fn from_u64_array(data: [u64; N]) -> Self {
         Self(data)
@@ -94,18 +79,11 @@ impl<const N: usize> Uint<N> {
     pub fn to_le_bytes(&self) -> Vec<u8> {
         let mut buffer = vec![0; N * 8];
 
-        for i in 0..N {
-            let bytes = self.0[i].to_le_bytes();
-            for j in 0..bytes.len() {
-                buffer[i * 8 + j] = bytes[j];
-            }
-        }
-
-        // self.0
-        //     .iter()
-        //     .flat_map(|part| part.to_le_bytes())
-        //     .enumerate()
-        //     .for_each(|(i, byte)| buffer[i] = byte);
+        self.0
+            .iter()
+            .flat_map(|part| part.to_le_bytes())
+            .enumerate()
+            .for_each(|(i, byte)| buffer[i] = byte);
 
         buffer
     }
@@ -125,15 +103,15 @@ impl<const N: usize> Uint<N> {
     }
 
     /// Build from a little-endian hex string (padding expected)
-    pub fn from_le_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+    pub fn from_le_bytes(bytes: impl AsRef<[u8]>) -> StacksResult<Self> {
         let bytes = bytes.as_ref();
 
         if bytes.len() % 8 != 0 {
-            return None;
+            return Err(StacksError::InvalidUintBytes(bytes.len()));
         }
 
         if bytes.len() / 8 != N {
-            return None;
+            return Err(StacksError::InvalidUintBytes(bytes.len()));
         }
 
         let mut ret = [0u64; N];
@@ -146,19 +124,19 @@ impl<const N: usize> Uint<N> {
             ret[i] = next;
         }
 
-        Some(Self(ret))
+        Ok(Self(ret))
     }
 
     /// Build from a big-endian hex string (padding expected)
-    pub fn from_be_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+    pub fn from_be_bytes(bytes: impl AsRef<[u8]>) -> StacksResult<Self> {
         let bytes = bytes.as_ref();
 
         if bytes.len() % 8 != 0 {
-            return None;
+            return Err(StacksError::InvalidUintBytes(bytes.len()));
         }
 
         if bytes.len() / 8 != N {
-            return None;
+            return Err(StacksError::InvalidUintBytes(bytes.len()));
         }
 
         let mut ret = [0u64; N];
@@ -171,7 +149,23 @@ impl<const N: usize> Uint<N> {
             ret[(bytes.len() / 8) - 1 - i] = next;
         }
 
-        Some(Self(ret))
+        Ok(Self(ret))
+    }
+
+    pub fn to_le_hex(&self) -> String {
+        hex::encode(self.to_le_bytes())
+    }
+
+    pub fn to_be_hex(&self) -> String {
+        hex::encode(self.to_be_bytes())
+    }
+
+    pub fn from_le_hex(data: impl AsRef<str>) -> StacksResult<Self> {
+        Self::from_le_bytes(hex::decode(data.as_ref())?)
+    }
+
+    pub fn from_be_hex(data: impl AsRef<str>) -> StacksResult<Self> {
+        Self::from_be_bytes(hex::decode(data.as_ref())?)
     }
 
     pub fn increment(&mut self) {
@@ -185,11 +179,24 @@ impl<const N: usize> Uint<N> {
         }
     }
 
-    pub fn from_uint<const M: usize>(source: &Uint<M>) -> Self {
+    pub fn from_uint<const M: usize>(source: impl AsRef<Uint<M>>) -> Self {
         assert!(M < N, "Cannot convert larger Uint to smaller");
+
+        let source = source.as_ref();
 
         let mut dest = [0u64; N];
         for i in 0..M {
+            dest[i] = source.0[i];
+        }
+
+        Uint(dest)
+    }
+
+    pub fn from_uint_lossy<const M: usize>(source: impl AsRef<Uint<M>>) -> Self {
+        let source = source.as_ref();
+
+        let mut dest = [0u64; N];
+        for i in 0..M.min(N) {
             dest[i] = source.0[i];
         }
 
@@ -205,6 +212,22 @@ impl<const N: usize> Uint<N> {
         }
 
         Uint(dest)
+    }
+
+    pub fn to_uint_lossy<const M: usize>(&self) -> Uint<M> {
+        let mut dest = [0u64; M];
+        for i in 0..M.min(N) {
+            dest[i] = self.0[i];
+        }
+
+        Uint(dest)
+    }
+
+    fn one() -> Self {
+        let mut ret = [0; N];
+        ret[0] = 1;
+
+        Uint(ret)
     }
 }
 
@@ -239,7 +262,7 @@ impl<const N: usize> Sub<Uint<N>> for Uint<N> {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
-        self + !other + BitArray::one()
+        self + !other + Self::one()
     }
 }
 
@@ -247,7 +270,7 @@ impl<const N: usize> Mul<Uint<N>> for Uint<N> {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
-        let mut me = Self::zero();
+        let mut me = Self::MIN;
 
         for i in 0..(2 * N) {
             let to_mul = (other >> (32 * i)).low_u32();
@@ -324,64 +347,9 @@ impl<const N: usize> PartialOrd for Uint<N> {
     }
 }
 
-impl<const N: usize> BitArray for Uint<N> {
-    fn bit(&self, index: usize) -> bool {
-        let &Uint(ref arr) = self;
-
-        arr[index / 64] & (1 << (index % 64)) != 0
-    }
-
-    fn bit_slice(&self, start: usize, end: usize) -> Self {
-        (*self >> start).mask(end - start)
-    }
-
-    fn mask(&self, n: usize) -> Self {
-        let &Uint(ref arr) = self;
-
-        let mut ret = [0; N];
-        for i in 0..N {
-            if n >= 0x40 * (i + 1) {
-                ret[i] = arr[i];
-            } else {
-                ret[i] = arr[i] & ((1 << (n - 0x40 * i)) - 1);
-                break;
-            }
-        }
-
-        Uint(ret)
-    }
-
-    fn trailing_zeros(&self) -> usize {
-        let &Uint(ref arr) = self;
-
-        for i in 0..(N - 1) {
-            if arr[i] > 0 {
-                return (0x40 * i) + arr[i].trailing_zeros() as usize;
-            }
-        }
-
-        (0x40 * (N - 1)) + arr[N - 1].trailing_zeros() as usize
-    }
-
-    fn zero() -> Self {
-        Uint([0; N])
-    }
-
-    fn one() -> Self {
-        let mut ret = [0; N];
-        ret[0] = 1;
-
-        Uint(ret)
-    }
-
-    fn max() -> Self {
-        Uint([0xffffffffffffffff; N])
-    }
-}
-
 impl<const N: usize> Default for Uint<N> {
     fn default() -> Self {
-        BitArray::zero()
+        Self::MIN
     }
 }
 
@@ -496,6 +464,12 @@ impl<const N: usize> Shr<usize> for Uint<N> {
     }
 }
 
+impl<const N: usize> AsRef<Uint<N>> for Uint<N> {
+    fn as_ref(&self) -> &Uint<N> {
+        &self
+    }
+}
+
 impl<const N: usize> fmt::Debug for Uint<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let &Uint(ref data) = self;
@@ -567,12 +541,54 @@ impl From<DoubleSha256Hasher> for Uint256 {
     }
 }
 
+impl<const N: usize> TryFrom<Vec<u64>> for Uint<N> {
+    type Error = StacksError;
+
+    fn try_from(value: Vec<u64>) -> Result<Self, Self::Error> {
+        Ok(Self(value.as_slice().try_into()?))
+    }
+}
+
+impl<const N: usize> Into<Vec<u64>> for Uint<N> {
+    fn into(self) -> Vec<u64> {
+        self.0.to_vec()
+    }
+}
+
 pub type Uint256 = Uint<4>;
 pub type Uint512 = Uint<8>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl<const N: usize> Uint<N> {
+        fn bit(&self, index: usize) -> bool {
+            let &Uint(ref arr) = self;
+
+            arr[index / 64] & (1 << (index % 64)) != 0
+        }
+
+        fn bit_slice(&self, start: usize, end: usize) -> Self {
+            (*self >> start).mask(end - start)
+        }
+
+        fn mask(&self, n: usize) -> Self {
+            let &Uint(ref arr) = self;
+
+            let mut ret = [0; N];
+            for i in 0..N {
+                if n >= 0x40 * (i + 1) {
+                    ret[i] = arr[i];
+                } else {
+                    ret[i] = arr[i] & ((1 << (n - 0x40 * i)) - 1);
+                    break;
+                }
+            }
+
+            Uint(ret)
+        }
+    }
 
     #[test]
     fn should_convert_from_u32() {

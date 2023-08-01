@@ -23,7 +23,7 @@ use std::{fmt, fs, path::PathBuf};
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
-use stacks_common::util::uint::{Uint256, Uint512};
+use stacks_core::uint::{Uint256, Uint512};
 
 use crate::burnchains::BurnchainSigner;
 use crate::util_lib::db::sqlite_open;
@@ -330,9 +330,9 @@ pub fn increment_contract_calls_processed() {
 fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f64 {
     let precision_points = precision_points.min(15);
     let base = 10;
-    let multiplier = Uint512::from_u128(100 * u128::pow(base, precision_points));
-    let intermediate_result = ((Uint512::from_uint256(&value) * multiplier)
-        / Uint512::from_uint256(&Uint256::max()))
+    let multiplier = Uint512::from(100 * u128::pow(base, precision_points));
+    let intermediate_result = ((Uint512::from_uint(&value) * multiplier)
+        / Uint512::from_uint(Uint256::MAX))
     .low_u64() as i64;
     let divisor = i64::pow(base as i64, precision_points);
 
@@ -355,29 +355,31 @@ macro_rules! assert_approx_eq {
 
 #[test]
 pub fn test_convert_uint256_to_f64() {
-    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(10))
-        / Uint512::from_u64(100))
-    .to_uint256();
+    let original = Uint256::from_uint_lossy(
+        (Uint512::from_uint(Uint256::MAX) * Uint512::from(10u64)) / Uint512::from(100u64),
+    );
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10 as f64);
 
-    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122))
-        / Uint512::from_u64(1000))
-    .to_uint256();
+    let original = Uint256::from_uint_lossy(
+        (Uint512::from_uint(Uint256::MAX) * Uint512::from(122u64)) / Uint512::from(1000u64),
+    );
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.2);
 
-    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122345))
-        / Uint512::from_u64(1000000))
-    .to_uint256();
+    let original = Uint256::from_uint_lossy(
+        (Uint512::from_uint(Uint256::MAX) * Uint512::from(122345u64)) / Uint512::from(1000000u64),
+    );
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.2345);
 
-    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(12234567))
-        / Uint512::from_u64(100000000))
-    .to_uint256();
+    let original = Uint256::from_uint_lossy(
+        (Uint512::from_uint(Uint256::MAX) * Uint512::from(12234567u64))
+            / Uint512::from(100000000u64),
+    );
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 12.234567);
 
-    let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(12234567))
-        / Uint512::from_u64(100000000))
-    .to_uint256();
+    let original = Uint256::from_uint_lossy(
+        (Uint512::from_uint(Uint256::MAX) * Uint512::from(12234567u64))
+            / Uint512::from(100000000u64),
+    );
     assert_approx_eq!(convert_uint256_to_f64_percentage(original, 1000), 12.234567);
 }
 

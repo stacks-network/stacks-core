@@ -1194,7 +1194,7 @@ mod test {
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::uint::Uint256;
+    use stacks_core::uint::Uint256;
 
     use super::*;
     use crate::burnchains::bitcoin::Error as btc_error;
@@ -3083,7 +3083,7 @@ mod test {
             SpvClient::new(db_path, 0, None, BitcoinNetworkType::Mainnet, false, false).unwrap();
         for (interval, work_str) in chain_work.iter() {
             let calculated_work = spv_client.find_interval_work(*interval).unwrap().unwrap();
-            let expected_work = Uint256::from_hex_be(work_str).unwrap();
+            let expected_work = Uint256::from_be_hex(work_str).unwrap();
             assert_eq!(calculated_work, expected_work);
         }
     }
