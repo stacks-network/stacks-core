@@ -22,7 +22,6 @@ use stacks::core::PEER_VERSION_EPOCH_2_1;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, VRFSeed};
-use stacks::util::hash::Sha256Sum;
 use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::StacksAddressExtensions;
@@ -37,6 +36,7 @@ use stacks::vm::{
 };
 use stacks::{burnchains::Address, vm::ClarityVersion};
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_core::hash::sha256::{HashUtils, Sha256Hash};
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -1862,7 +1862,7 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
 fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
     let mut seed = {
         let secret_state = seed.as_bytes().to_vec();
-        Sha256Sum::from_data(&secret_state)
+        Sha256Hash::hash(&secret_state)
     };
 
     let mut ret = vec![];
@@ -1870,7 +1870,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
         if let Ok(sk) = StacksPrivateKey::from_slice(seed.as_bytes()) {
             ret.push(sk);
         }
-        seed = Sha256Sum::from_data(seed.as_bytes());
+        seed = Sha256Hash::hash(seed.as_bytes());
     }
     ret
 }

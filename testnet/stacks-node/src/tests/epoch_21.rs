@@ -38,8 +38,9 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_core::hash::sha256::HashUtils;
+use stacks_core::hash::sha256::Sha256Hash;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::config::Config;
@@ -1141,7 +1142,7 @@ fn transition_adds_get_pox_addr_recipients() {
             }
             _ => {
                 // p2wsh or p2tr
-                to_hex(&Sha256Sum::from_data(&pubk.to_bytes_compressed()).0)
+                Sha256Hash::hash(&pubk.to_bytes_compressed()).to_hex()
             }
         };
         let pox_addr_tuple = execute(
