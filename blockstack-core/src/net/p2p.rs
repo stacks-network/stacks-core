@@ -4952,7 +4952,7 @@ impl PeerNetwork {
                 &self.local_peer, sn.block_height
             );
             let new_chain_view =
-                SortitionDB::get_burnchain_view(&sortdb.conn(), &self.burnchain, &sn)?;
+                SortitionDB::get_burnchain_view(&sortdb.index_conn(), &self.burnchain, &sn)?;
 
             let new_chain_view_stable_consensus_hash = {
                 let ic = sortdb.index_conn();
@@ -5528,6 +5528,7 @@ mod test {
             burn_stable_block_height: 12339,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         burnchain_view.make_test_data();
 
