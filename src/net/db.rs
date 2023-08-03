@@ -2421,8 +2421,8 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &changed_stackerdbs).unwrap();
             tx.commit().unwrap();
 
-            // peer already present
-            assert_eq!(res, false);
+            // peer already present, and we were able to update
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2447,8 +2447,8 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            // peer already present
-            assert_eq!(res, false);
+            // peer already present, and we were able to update
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2479,8 +2479,8 @@ mod test {
                 let res = PeerDB::try_insert_peer(&tx, &neighbor, &replace_stackerdbs).unwrap();
                 tx.commit().unwrap();
 
-                // peer already present
-                assert_eq!(res, false);
+                // peer already present and we were able to update
+                assert_eq!(res, true);
             }
 
             let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
