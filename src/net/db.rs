@@ -1027,14 +1027,14 @@ impl PeerDB {
         Ok(allow_rows)
     }
 
-    /// Insert or replace stacker DBs for a peer, given its slot
+    /// Insert or replace stacker DB contract IDs for a peer, given its slot
     pub fn insert_or_replace_stacker_dbs(
         tx: &Transaction,
         slot: u32,
         smart_contracts: &[ContractId],
     ) -> Result<(), db_error> {
         for cid in smart_contracts {
-            test_debug!("Add Stacker DB to slot {}: {}", slot, cid);
+            test_debug!("Add Stacker DB contract to slot {}: {}", slot, cid);
             let args: &[&dyn ToSql] = &[&cid.to_string(), &slot];
             tx.execute("INSERT OR REPLACE INTO stackerdb_peers (smart_contract_id,peer_slot) VALUES (?1,?2)", args)
                 .map_err(db_error::SqliteError)?;
@@ -1042,7 +1042,7 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Drop all stacker DBs for a peer, given its slot
+    /// Drop all stacker DB contract IDs for a peer, given its slot
     pub fn drop_stacker_dbs(tx: &Transaction, slot: u32) -> Result<(), db_error> {
         tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", &[&slot])
             .map_err(db_error::SqliteError)?;
@@ -1093,7 +1093,7 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Remove a peer from the peer database, as well as its stacker DBs
+    /// Remove a peer from the peer database, as well as its stacker DB contracts
     pub fn drop_peer(
         tx: &Transaction,
         network_id: u32,
@@ -1816,6 +1816,7 @@ mod test {
     use clarity::vm::types::StacksAddressExtensions;
     use clarity::vm::types::StandardPrincipalData;
 
+    /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
     #[test]
     fn test_local_peer() {
         let mut db =
@@ -1866,6 +1867,8 @@ mod test {
         assert_eq!(local_peer.stacker_dbs, stackerdbs);
     }
 
+    /// Test PeerDB::insert_or_replace_peer() to verify that PeerDB::get_peer() will fetch the
+    /// latest peer's state.  Tests mutation of peer rows as well.
     #[test]
     fn test_peer_insert_and_retrieval() {
         let neighbor = Neighbor {
@@ -1948,6 +1951,8 @@ mod test {
         }
     }
 
+    /// Verify that PeerDB::insert_or_replace_peer() will maintain each peer's stacker DB contract
+    /// IDs. New peers' contract IDs get added, and dropped peers' contract IDs get removed.
     #[test]
     fn test_insert_or_replace_stacker_dbs() {
         let mut db = PeerDB::connect_memory(
@@ -2078,6 +2083,8 @@ mod test {
         assert_eq!(fetched_stackerdbs, vec![]);
     }
 
+    /// Test PeerDB::try_insert_peer() with no stacker DB contracts.  Simply verifies storage and
+    /// retrieval works.
     #[test]
     fn test_try_insert_peer() {
         let neighbor = Neighbor {
@@ -2143,6 +2150,8 @@ mod test {
         }
     }
 
+    /// Test PeerDB::try_insert_peer() with different lists of stacker DB contract IDs.
+    /// Verify that the peer's contract IDs are updated on each call to try_insert_peer()
     #[test]
     fn test_try_insert_peer_with_stackerdbs() {
         let neighbor = Neighbor {
@@ -2318,6 +2327,8 @@ mod test {
         assert_eq!(deleted_stackerdbs.len(), 0);
     }
 
+    /// Test PeerDB::find_stacker_db_replicas().  Verifies that we can find a list of neighbors
+    /// that serve a particular stacker DB, given their contract IDs
     #[test]
     fn test_find_stacker_db_replicas() {
         let neighbor = Neighbor {
@@ -2549,6 +2560,8 @@ mod test {
         assert_eq!(replicas.len(), 0);
     }
 
+    /// Tests DB instantiation with initial neighbors. Verifies that initial neighbors are present in the
+    /// DB, and can be loaded with PeerDB::get_initial_neighbors()
     #[test]
     fn test_initial_neighbors() {
         let mut initial_neighbors = vec![];
@@ -2650,6 +2663,8 @@ mod test {
         }
     }
 
+    /// Tests DB instantiation with initial neighbors, and verifies that initial neighbors can be
+    /// queried by epoch -- only peers with the current or newer epoch will be fetched.
     #[test]
     fn test_get_neighbors_in_current_epoch() {
         let mut initial_neighbors = vec![];
@@ -2770,6 +2785,7 @@ mod test {
         assert_eq!(n20.len(), 0);
     }
 
+    /// Verifies that PeerDB::asn4_lookup() correctly classifies IPv4 address into their AS numbers
     #[test]
     fn asn4_insert_lookup() {
         let asn4_table = vec![
@@ -2860,6 +2876,8 @@ mod test {
         assert_eq!(asn_missing_opt, None);
     }
 
+    /// Verifies that PeerDB::set_deny_peer() and PeerDB::set_allow_peer() will mark peers'
+    /// `denied` and `allowed` columns appropriately.
     #[test]
     fn test_peer_preemptive_deny_allow() {
         let mut db = PeerDB::connect_memory(
@@ -2891,6 +2909,8 @@ mod test {
         assert_eq!(peer_allowed.allowed, 20000000);
     }
 
+    /// Verifies that PeerDB::add_cidr_prefix(), PeerDB::get_denied_cidrs(), and
+    /// PeerDB::get_allowed_cidrs() correctly store and load CIDR prefixes
     #[test]
     fn test_peer_cidr_lists() {
         let mut db = PeerDB::connect_memory(
@@ -2916,6 +2936,8 @@ mod test {
         assert_eq!(allow_cidrs, vec![(PeerAddress([0x2; 16]), 96)]);
     }
 
+    /// Verifies that an IPv4 peer will be treated as denied if its IPv4 CIDR prefix is denied.
+    /// Tests PeerDB::is_address_denied()
     #[test]
     fn test_peer_is_denied() {
         let mut db = PeerDB::connect_memory(
@@ -3000,6 +3022,9 @@ mod test {
         .unwrap());
     }
 
+    /// Verifies that an IPv4 address can be denied and later allowed by a change in denied/allowed CIDR prefixes.
+    /// Tests that a peer will go from having a positive denied value to a negative denied value
+    /// when its CIDR prefix is explicitly allowed.
     #[test]
     fn test_peer_deny_allow_cidr() {
         let neighbor_1 = Neighbor {
@@ -3145,6 +3170,10 @@ mod test {
         assert_eq!(n2.denied, 67890);
     }
 
+    /// Tests that PeerDB::refresh_allowed() and PeerDB::refresh_denied() re-apply CIDR allow/deny
+    /// rules to the DB.  Peers that match an allowed CIDR prefix remain allowed (or, if not
+    /// allowed, are marked as allowed), and peers that match a denied CIDR prefix remain denied
+    /// (or are marked as denied if the new prefixes require it).
     #[test]
     fn test_peer_refresh_cidr() {
         let neighbor_1 = Neighbor {
@@ -3265,6 +3294,8 @@ mod test {
         assert_eq!(n2.allowed, 0);
     }
 
+    /// Test PeerDB::connect() with different private keys.  Verify that LocalPeer reflects the
+    /// latest key.
     #[test]
     fn test_connect_new_key() {
         let key1 = Secp256k1PrivateKey::new();
@@ -3332,6 +3363,7 @@ mod test {
         assert_eq!(local_peer.private_key, key2);
     }
 
+    /// Test DB instantiation -- it must work.
     #[test]
     fn test_db_instantiation() {
         let key1 = Secp256k1PrivateKey::new();

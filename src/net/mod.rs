@@ -2037,7 +2037,7 @@ impl NeighborKey {
 }
 
 /// Entry in the neighbor set
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Neighbor {
     pub addr: NeighborKey,
 
@@ -2054,6 +2054,14 @@ pub struct Neighbor {
 
     pub in_degree: u32,  // number of peers who list this peer as a neighbor
     pub out_degree: u32, // number of neighbors this peer has
+}
+
+impl PartialEq for Neighbor {
+    /// Neighbor equality is based on having the same address and public key.
+    /// Everything else can change at runtime
+    fn eq(&self, other: &Neighbor) -> bool {
+        self.addr == other.addr && self.public_key == other.public_key
+    }
 }
 
 impl Neighbor {
