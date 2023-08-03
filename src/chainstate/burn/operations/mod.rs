@@ -229,6 +229,7 @@ pub struct PreStxOp {
     /// the output address
     /// (must be a legacy Bitcoin address)
     pub output: StacksAddress,
+    pub memo: Vec<u8>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -574,6 +575,7 @@ impl BlockstackOperationType {
             "pre_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
+                "memo": memo_serialize(&op.memo),
                 "output": stacks_addr_serialize(&op.output),
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,

@@ -49,6 +49,7 @@ use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+#[cfg(test)]
 use stacks::vm::types::PrincipalData;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
@@ -60,6 +61,7 @@ use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+#[cfg(test)]
 use stacks_common::types::chainstate::StacksAddress;
 
 use super::super::operations::BurnchainOpSigner;

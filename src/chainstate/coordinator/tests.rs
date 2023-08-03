@@ -2802,6 +2802,7 @@ fn test_pox_btc_ops() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3075,6 +3076,7 @@ fn test_stx_transfer_btc_ops() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3082,6 +3084,7 @@ fn test_stx_transfer_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: recipient.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -3723,6 +3726,7 @@ fn test_delegate_stx_btc_ops() {
             // add a pre-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: first_del.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 4,
                 block_height: 0,
@@ -3730,6 +3734,7 @@ fn test_delegate_stx_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: first_del.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3737,6 +3742,7 @@ fn test_delegate_stx_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: second_del.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -4716,6 +4722,7 @@ fn test_epoch_verify_active_pox_contract() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -4723,6 +4730,7 @@ fn test_epoch_verify_active_pox_contract() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker_2.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -4730,6 +4738,7 @@ fn test_epoch_verify_active_pox_contract() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker_2.clone(),
+                memo: vec![],
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
