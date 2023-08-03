@@ -361,6 +361,7 @@ pub struct ConnectionOptions {
     pub max_block_push_bandwidth: u64,
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
+    pub max_stackerdb_push_bandwidth: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
@@ -450,6 +451,7 @@ impl std::default::Default for ConnectionOptions {
             max_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
             public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
