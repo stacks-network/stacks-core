@@ -121,6 +121,37 @@ lazy_static! {
         "Number of transactions in the last block."
     )).unwrap();
 
+    pub static ref LAST_MINED_BLOCK_READ_COUNT: Gauge = register_gauge!(opts!(
+        "stacks_node_last_mined_block_read_count",
+        "`execution_cost_read_count` for the last mined block produced."
+    )).unwrap();
+
+    pub static ref LAST_MINED_BLOCK_WRITE_COUNT: Gauge = register_gauge!(opts!(
+        "stacks_node_last_mined_block_write_count",
+        "`execution_cost_write_count` for the last mined block produced."
+    )).unwrap();
+
+    pub static ref LAST_MINED_BLOCK_READ_LENGTH: Gauge = register_gauge!(opts!(
+        "stacks_node_last_mined_block_read_length",
+        "`execution_cost_read_length` for the last mined block produced."
+    )).unwrap();
+
+    pub static ref LAST_MINED_BLOCK_WRITE_LENGTH: Gauge = register_gauge!(opts!(
+        "stacks_node_last_mined_block_write_length",
+        "`execution_cost_write_length` for the last mined block produced."
+    )).unwrap();
+
+    pub static ref LAST_MINED_BLOCK_RUNTIME: Gauge = register_gauge!(opts!(
+        "stacks_node_last_mined_block_runtime",
+        "`execution_cost_runtime` for the last mined block produced."
+    )).unwrap();
+
+    pub static ref LAST_MINED_BLOCK_TRANSACTION_COUNT: IntGauge = register_int_gauge!(opts!(
+        "stacks_node_last_mined_block_transaction_count",
+        "Number of transactions in the last mined block."
+    )).unwrap();
+
+
     pub static ref ACTIVE_MINERS_COUNT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_active_miners_total",
         "Total number of active miners"

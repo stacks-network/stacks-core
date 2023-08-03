@@ -46,8 +46,6 @@ use crate::clarity_vm::database::MemoryBackingStore;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::clarity::TransactionConnection;
 
-use crate::vm::tests::with_memory_environment;
-
 use clarity::vm::version::ClarityVersion;
 
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
@@ -55,19 +53,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
 use crate::util_lib::boot::boot_code_id;
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
-fn clarity_version_template(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
+use clarity::vm::tests::test_clarity_versions;
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
@@ -110,8 +96,11 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
                 (token-credit! .tokens u4))";
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    if epoch < StacksEpochId::Epoch2_05 {
+        return;
+    }
     let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, MarfedKV::temporary());
     let p1 = PrincipalData::from(
         PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
@@ -438,7 +427,7 @@ where
     f(&mut owned_env, version)
 }
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 fn test_simple_naming_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     with_versioned_memory_environment(inner_test_simple_naming_system, version, false);
 }
@@ -672,7 +661,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
  *   `(define-data-var var-x ...)` uses more than 1048576 bytes of memory.
  *      this is mainly due to using hex encoding in the sqlite storage.
  */
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 pub fn rollback_log_memory_test(
     #[case] clarity_version: ClarityVersion,
     #[case] epoch_id: StacksEpochId,
@@ -744,7 +733,7 @@ pub fn rollback_log_memory_test(
     }
 }
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
@@ -819,7 +808,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
     }
 }
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 pub fn argument_memory_test(
     #[case] clarity_version: ClarityVersion,
     #[case] epoch_id: StacksEpochId,
@@ -897,7 +886,7 @@ pub fn argument_memory_test(
     }
 }
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
@@ -1017,7 +1006,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
     }
 }
 
-#[apply(clarity_version_template)]
+#[apply(test_clarity_versions)]
 pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);

@@ -47,6 +47,7 @@ use crate::net::db::PeerDB;
 use crate::net::db::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::relay::*;
+use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
 use crate::net::GetPoxInv;
@@ -88,10 +89,10 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS: usize = 32;
 pub const HEALTH_POINT_LIFETIME: u64 = 12 * 3600; // 12 hours
 
-/// The max number of data points to gather for block/microblock/transaction push messages from a neighbor
-pub const NUM_BLOCK_POINTS: usize = 32;
+/// The max number of data points to gather for block/microblock/transaction/stackerdb push messages from a neighbor
+pub const NUM_BANDWIDTH_POINTS: usize = 32;
 /// The number of seconds a block data point is valid for the purpose of computing stats
-pub const BLOCK_POINT_LIFETIME: u64 = 600;
+pub const BANDWIDTH_POINT_LIFETIME: u64 = 600;
 
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
 
@@ -138,9 +139,14 @@ pub struct NeighborStats {
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
-    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
-    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
-    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    /// (timestamp, num bytes)
+    pub block_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>,
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -164,10 +170,14 @@ impl NeighborStats {
             block_push_rx_counts: VecDeque::new(),
             microblocks_push_rx_counts: VecDeque::new(),
             transaction_push_rx_counts: VecDeque::new(),
+            stackerdb_push_rx_counts: VecDeque::new(),
             relayed_messages: HashMap::new(),
         }
     }
 
+    /// Add a neighbor health point for this peer.
+    /// This updates the recent list of instances where this peer either successfully replied to a
+    /// message, or failed to do so (indicated by `success`).
     pub fn add_healthpoint(&mut self, success: bool) -> () {
         let hp = NeighborHealthPoint {
             success: success,
@@ -179,27 +189,47 @@ impl NeighborStats {
         }
     }
 
+    /// Record that we recently received a block of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by block pushes.
     pub fn add_block_push(&mut self, message_size: u64) -> () {
         self.block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
-        while self.block_push_rx_counts.len() > NUM_BLOCK_POINTS {
+        while self.block_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
             self.block_push_rx_counts.pop_front();
         }
     }
 
+    /// Record that we recently received a microblock of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by microblock pushes.
     pub fn add_microblocks_push(&mut self, message_size: u64) -> () {
         self.microblocks_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
-        while self.microblocks_push_rx_counts.len() > NUM_BLOCK_POINTS {
+        while self.microblocks_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
             self.microblocks_push_rx_counts.pop_front();
         }
     }
 
+    /// Record that we recently received a transaction of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by transaction pushes.
     pub fn add_transaction_push(&mut self, message_size: u64) -> () {
         self.transaction_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
-        while self.transaction_push_rx_counts.len() > NUM_BLOCK_POINTS {
+        while self.transaction_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
             self.transaction_push_rx_counts.pop_front();
+        }
+    }
+
+    /// Record that we recently received a stackerdb chunk push of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by stackerdb chunk pushes.
+    pub fn add_stackerdb_push(&mut self, message_size: u64) -> () {
+        self.stackerdb_push_rx_counts
+            .push_back((get_epoch_time_secs(), message_size));
+        while self.stackerdb_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
+            self.stackerdb_push_rx_counts.pop_front();
         }
     }
 
@@ -269,17 +299,22 @@ impl NeighborStats {
 
     /// Get a peer's total block-push bandwidth usage.
     pub fn get_block_push_bandwidth(&self) -> f64 {
-        NeighborStats::get_bandwidth(&self.block_push_rx_counts, BLOCK_POINT_LIFETIME)
+        NeighborStats::get_bandwidth(&self.block_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
     }
 
     /// Get a peer's total microblock-push bandwidth usage.
     pub fn get_microblocks_push_bandwidth(&self) -> f64 {
-        NeighborStats::get_bandwidth(&self.microblocks_push_rx_counts, BLOCK_POINT_LIFETIME)
+        NeighborStats::get_bandwidth(&self.microblocks_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
     }
 
     /// Get a peer's total transaction-push bandwidth usage
     pub fn get_transaction_push_bandwidth(&self) -> f64 {
-        NeighborStats::get_bandwidth(&self.transaction_push_rx_counts, BLOCK_POINT_LIFETIME)
+        NeighborStats::get_bandwidth(&self.transaction_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
+    }
+
+    /// Get a peer's total stackerdb-push bandwidth usage
+    pub fn get_stackerdb_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(&self.stackerdb_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
     }
 
     /// Determine how many of a particular message this peer has received
@@ -290,40 +325,65 @@ impl NeighborStats {
 
 /// P2P ongoing conversation with another Stacks peer
 pub struct ConversationP2P {
+    /// Instantiation timestamp in seconds since the epoch
     pub instantiated: u64,
 
+    /// network ID of the local end of this conversation
     pub network_id: u32,
+    /// peer version of the local end of this conversation
     pub version: u32,
+    /// Underlying inbox/outbox for protocol communication
     pub connection: ConnectionP2P,
+    /// opaque ID of the socket
     pub conn_id: usize,
 
-    pub burnchain: Burnchain, // copy of our burnchain config
-    pub heartbeat: u32,       // how often do we send heartbeats?
+    /// copy of our burnchain config
+    pub burnchain: Burnchain,
+    /// how often do we send heartbeats?
+    pub heartbeat: u32,
 
+    /// network ID of the remote end of this conversation
     pub peer_network_id: u32,
+    /// peer version of the remote end of this conversation
     pub peer_version: u32,
+    /// reported services of the remote end of this conversation
     pub peer_services: u16,
-    pub peer_addrbytes: PeerAddress,      // from socketaddr
-    pub peer_port: u16,                   // from socketaddr
-    pub handshake_addrbytes: PeerAddress, // from handshake
-    pub handshake_port: u16,              // from handshake
-    pub peer_heartbeat: u32,              // how often do we need to ping the remote peer?
-    pub peer_expire_block_height: u64,    // when does the peer's key expire?
+    /// from socketaddr
+    pub peer_addrbytes: PeerAddress,
+    /// from socketaddr
+    pub peer_port: u16,
+    /// from handshake
+    pub handshake_addrbytes: PeerAddress,
+    /// from handshake
+    pub handshake_port: u16,
+    /// how often do we need to ping the remote peer?
+    pub peer_heartbeat: u32,
+    /// when does the peer's key expire?
+    pub peer_expire_block_height: u64,
 
-    pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
+    /// where does this peer's data live?  Set to a 0-length string if not known.
+    pub data_url: UrlString,
 
-    // highest burnchain block height and burnchain block hash this peer has seen
+    /// what this peer believes is the height of the burnchain
     pub burnchain_tip_height: u64,
+    /// what this peer believes is the hash of the burnchain tip
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
+    /// what this peer believes is the stable height of the burnchain (i.e. after a chain-specific
+    /// number of confirmations)
     pub burnchain_stable_tip_height: u64,
+    /// the hash of the burnchain block at height `burnchain_stable_tip_height`
     pub burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash,
 
+    /// Statistics about this peer from this conversation
     pub stats: NeighborStats,
 
-    // outbound replies
+    /// which stacker DBs this peer replicates
+    pub db_smart_contracts: Vec<ContractId>,
+
+    /// outbound replies
     pub reply_handles: VecDeque<ReplyHandleP2P>,
 
-    // system epochs
+    /// system epochs
     epochs: Vec<StacksEpoch>,
 }
 
@@ -524,6 +584,8 @@ impl ConversationP2P {
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
 
+            db_smart_contracts: vec![],
+
             epochs: epochs,
         }
     }
@@ -547,21 +609,6 @@ impl ConversationP2P {
             network_id: self.peer_network_id,
             addrbytes: self.handshake_addrbytes.clone(),
             port: self.handshake_port,
-        }
-    }
-
-    pub fn best_effort_neighbor_key(&self) -> NeighborKey {
-        if self.handshake_port > 0 && self.peer_version > 0 {
-            // got a handshake response already
-            self.to_handshake_neighbor_key()
-        } else {
-            // assume we know nothing from this neighbor
-            NeighborKey {
-                peer_version: self.version,
-                network_id: self.network_id,
-                addrbytes: self.peer_addrbytes.clone(),
-                port: self.peer_port,
-            }
         }
     }
 
@@ -630,11 +677,26 @@ impl ConversationP2P {
         self.burnchain_stable_tip_burn_header_hash.clone()
     }
 
-    /// Does this remote neighbor support the mempool query interface?  It will if it has both
+    /// Does the given services bitfield mempool query interface?  It will if it has both
     /// RELAY and RPC bits set.
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
+    }
+
+    /// Does the given services bitfield support stacker DBs?  It will if it has the STACKERDB bit set
+    pub fn supports_stackerdb(peer_services: u16) -> bool {
+        (peer_services & (ServiceFlags::STACKERDB as u16)) != 0
+    }
+
+    /// Does this remote neighbor support a particular StackerDB?
+    pub fn replicates_stackerdb(&self, db: &ContractId) -> bool {
+        for cid in self.db_smart_contracts.iter() {
+            if cid == db {
+                return true;
+            }
+        }
+        false
     }
 
     /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
@@ -1085,6 +1147,20 @@ impl ConversationP2P {
         Ok(updated)
     }
 
+    /// Update connection state from stacker DB handshake data.
+    /// Just synchronizes the announced smart contracts for which this node replicates data.
+    pub fn update_from_stacker_db_handshake_data(
+        &mut self,
+        stacker_db_data: &StackerDBHandshakeData,
+    ) {
+        self.db_smart_contracts = stacker_db_data.smart_contracts.clone();
+    }
+
+    /// Forget about this peer's stacker DB replication state
+    pub fn clear_stacker_db_handshake_data(&mut self) {
+        self.db_smart_contracts.clear();
+    }
+
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
@@ -1194,11 +1270,28 @@ impl ConversationP2P {
         }
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
+        let stacks_message = if ConversationP2P::supports_stackerdb(local_peer.services)
+            && ConversationP2P::supports_stackerdb(self.peer_services)
+        {
+            StacksMessageType::StackerDBHandshakeAccept(
+                accept_data,
+                StackerDBHandshakeData {
+                    rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
+                    // placeholder sbtc address for now
+                    smart_contracts: vec![
+                        ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                    ],
+                },
+            )
+        } else {
+            StacksMessageType::HandshakeAccept(accept_data)
+        };
+
         let accept = StacksMessage::from_chain_view(
             self.version,
             self.network_id,
             chain_view,
-            StacksMessageType::HandshakeAccept(accept_data),
+            stacks_message,
         );
 
         // update stats
@@ -1215,8 +1308,10 @@ impl ConversationP2P {
     /// Called from the p2p network thread.
     fn handle_handshake_accept(
         &mut self,
+        burnchain_view: &BurnchainView,
         preamble: &Preamble,
         handshake_accept: &HandshakeAcceptData,
+        stackerdb_accept: Option<&StackerDBHandshakeData>,
     ) -> Result<(), net_error> {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat =
@@ -1229,6 +1324,28 @@ impl ConversationP2P {
             } else {
                 handshake_accept.heartbeat_interval
             };
+
+        if let Some(stackerdb_accept) = stackerdb_accept {
+            test_debug!(
+                "{} =?= {}",
+                &stackerdb_accept.rc_consensus_hash,
+                &burnchain_view.rc_consensus_hash
+            );
+            if stackerdb_accept.rc_consensus_hash == burnchain_view.rc_consensus_hash {
+                // remote peer is in the same reward cycle as us.
+                self.update_from_stacker_db_handshake_data(stackerdb_accept);
+            } else {
+                // remote peer's burnchain view has diverged, so assume no longer replicating (we
+                // can't talk to it anyway).  This can happen once per reward cycle for a few
+                // minutes as nodes begin the next reward cycle, but it's harmless -- at worst, it
+                // just means that no stacker DB replication happens between this peer and
+                // localhost during this time.
+                self.clear_stacker_db_handshake_data();
+            }
+        } else {
+            // no longer replicating
+            self.clear_stacker_db_handshake_data();
+        }
 
         self.stats.last_handshake_time = get_epoch_time_secs();
 
@@ -1671,7 +1788,7 @@ impl ConversationP2P {
         relayers: &[RelayData],
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
-            debug!(
+            warn!(
                 "Invalid relayers -- message from {:?} contains a cycle",
                 self.to_neighbor_key()
             );
@@ -1679,7 +1796,7 @@ impl ConversationP2P {
         }
 
         if !ConversationP2P::check_relayers_remote(local_peer, relayers) {
-            debug!(
+            warn!(
                 "Invalid relayers -- message originates from us ({})",
                 local_peer.to_neighbor_addr()
             );
@@ -1706,7 +1823,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
+            warn!("Drop pushed blocks -- invalid relayers {:?}", &relayers);
             self.stats.msgs_err += 1;
             return Err(net_error::InvalidMessage);
         }
@@ -1743,7 +1860,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!(
+            warn!(
                 "Drop pushed microblocks -- invalid relayers {:?}",
                 &relayers
             );
@@ -1778,7 +1895,7 @@ impl ConversationP2P {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
         if !self.process_relayers(local_peer, preamble, &relayers) {
-            debug!(
+            warn!(
                 "Drop pushed transaction -- invalid relayers {:?}",
                 &relayers
             );
@@ -1794,6 +1911,42 @@ impl ConversationP2P {
                 > (self.connection.options.max_transaction_push_bandwidth as f64)
         {
             debug!("Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
+            return self
+                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+        Ok(None)
+    }
+
+    /// Validate a pushed stackerdb chunk.
+    /// Update bandwidth accounting, but forward the stackerdb chunk along.
+    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    fn validate_stackerdb_push(
+        &mut self,
+        local_peer: &LocalPeer,
+        chain_view: &BurnchainView,
+        preamble: &Preamble,
+        relayers: Vec<RelayData>,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
+
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            warn!(
+                "Drop pushed stackerdb chunk -- invalid relayers {:?}",
+                &relayers
+            );
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats
+            .add_stackerdb_push((preamble.payload_len as u64) - 1);
+
+        if self.connection.options.max_stackerdb_push_bandwidth > 0
+            && self.stats.get_stackerdb_push_bandwidth()
+                > (self.connection.options.max_stackerdb_push_bandwidth as f64)
+        {
+            debug!("Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -1877,6 +2030,22 @@ impl ConversationP2P {
                 // not handled here, but do some accounting -- we can't receive too many
                 // unconfirmed transactions per second
                 match self.validate_transaction_push(
+                    local_peer,
+                    chain_view,
+                    &msg.preamble,
+                    msg.relayers.clone(),
+                )? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg));
+                    }
+                }
+            }
+            StacksMessageType::StackerDBChunk(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // stackerdb chunks per second
+                match self.validate_stackerdb_push(
                     local_peer,
                     chain_view,
                     &msg.preamble,
@@ -2060,7 +2229,12 @@ impl ConversationP2P {
             }
             StacksMessageType::HandshakeAccept(ref data) => {
                 test_debug!("{:?}: Got HandshakeAccept", &self);
-                self.handle_handshake_accept(&msg.preamble, data)
+                self.handle_handshake_accept(burnchain_view, &msg.preamble, data, None)
+                    .and_then(|_| Ok(None))
+            }
+            StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                test_debug!("{:?}: Got StackerDBHandshakeAccept", &self);
+                self.handle_handshake_accept(burnchain_view, &msg.preamble, data, Some(db_data))
                     .and_then(|_| Ok(None))
             }
             StacksMessageType::Ping(_) => {
@@ -2131,10 +2305,26 @@ impl ConversationP2P {
             StacksMessageType::HandshakeAccept(ref data) => {
                 if solicited {
                     test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
-                    self.handle_handshake_accept(&msg.preamble, data)
+                    self.handle_handshake_accept(burnchain_view, &msg.preamble, data, None)
                         .and_then(|_| Ok(None))
                 } else {
                     test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
+
+                    // don't update stats or state, and don't pass back
+                    consume = true;
+                    Ok(None)
+                }
+            }
+            StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                if solicited {
+                    test_debug!("{:?}: Got unauthenticated StackerDBHandshakeAccept", &self);
+                    self.handle_handshake_accept(burnchain_view, &msg.preamble, data, Some(db_data))
+                        .and_then(|_| Ok(None))
+                } else {
+                    test_debug!(
+                        "{:?}: Unsolicited unauthenticated StackerDBHandshakeAccept",
+                        &self
+                    );
 
                     // don't update stats or state, and don't pass back
                     consume = true;
@@ -2426,11 +2616,17 @@ mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
+    use stacks_common::util::sleep_ms;
     use stacks_common::util::uint::*;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 
     use super::*;
+
+    const DEFAULT_SERVICES: u16 = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+    const STACKERDB_SERVICES: u16 = (ServiceFlags::RELAY as u16)
+        | (ServiceFlags::RPC as u16)
+        | (ServiceFlags::STACKERDB as u16);
 
     fn make_test_chain_dbs(
         testname: &str,
@@ -2440,6 +2636,7 @@ mod test {
         data_url: UrlString,
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
+        services: u16,
     ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
         match fs::metadata(&test_path) {
@@ -2455,7 +2652,7 @@ mod test {
         let peerdb_path = format!("{}/peers.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
-        let peerdb = PeerDB::connect(
+        let mut peerdb = PeerDB::connect(
             &peerdb_path,
             true,
             network_id,
@@ -2479,6 +2676,10 @@ mod test {
             true,
         )
         .unwrap();
+
+        let mut tx = peerdb.tx_begin().unwrap();
+        PeerDB::set_local_services(&mut tx, services).unwrap();
+        tx.commit().unwrap();
 
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
@@ -2646,7 +2847,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn convo_handshake_accept() {
         with_timeout(100, || {
             let conn_opts = ConnectionOptions::default();
@@ -2662,6 +2862,7 @@ mod test {
                 burn_stable_block_height: 12341,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
 
@@ -2673,6 +2874,7 @@ mod test {
                 "http://peer1.com".into(),
                 &vec![],
                 &vec![],
+                DEFAULT_SERVICES,
             );
             let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_accept_2",
@@ -2682,6 +2884,7 @@ mod test {
                 "http://peer2.com".into(),
                 &vec![],
                 &vec![],
+                DEFAULT_SERVICES,
             );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -2814,6 +3017,293 @@ mod test {
         })
     }
 
+    /// Inner function for testing various kinds of stackerdb/non-stackerdb peer interactions
+    fn inner_convo_handshake_accept_stackerdb(
+        peer_1_services: u16,
+        peer_1_rc_consensus_hash: ConsensusHash,
+        peer_2_services: u16,
+        peer_2_rc_consensus_hash: ConsensusHash,
+    ) {
+        with_timeout(100, move || {
+            let conn_opts = ConnectionOptions::default();
+
+            let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+            let burnchain = testing_burnchain_config();
+
+            let mut chain_view_1 = BurnchainView {
+                burn_block_height: 12348,
+                burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+                burn_stable_block_height: 12341,
+                burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: peer_1_rc_consensus_hash.clone(),
+            };
+            chain_view_1.make_test_data();
+
+            let mut chain_view_2 = chain_view_1.clone();
+            chain_view_2.rc_consensus_hash = peer_2_rc_consensus_hash.clone();
+
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+                &format!(
+                    "convo_handshake_accept_1-{}-{}-{}-{}",
+                    peer_1_services,
+                    peer_2_services,
+                    &peer_1_rc_consensus_hash,
+                    &peer_2_rc_consensus_hash
+                ),
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                peer_1_services,
+            );
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+                &format!(
+                    "convo_handshake_accept_2-{}-{}-{}-{}",
+                    peer_1_services,
+                    peer_2_services,
+                    &peer_2_rc_consensus_hash,
+                    &peer_2_rc_consensus_hash
+                ),
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+                peer_2_services,
+            );
+
+            db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view_1);
+            db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view_2);
+
+            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+            let mut convo_1 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+            let mut convo_2 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_1,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+
+            // no peer public keys known yet
+            assert!(convo_1.connection.get_public_key().is_none());
+            assert!(convo_2.connection.get_public_key().is_none());
+
+            // convo_1 sends a handshake to convo_2
+            let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+            let handshake_1 = convo_1
+                .sign_message(
+                    &chain_view_1,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Handshake(handshake_data_1.clone()),
+                )
+                .unwrap();
+            let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
+            // it along to the chat caller (us)
+            test_debug!("send handshake");
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(
+                    &local_peer_2,
+                    &mut peerdb_2,
+                    &sortdb_2,
+                    &pox_id_2,
+                    &mut chainstate_2,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view_2,
+                )
+                .unwrap();
+
+            // convo_1 has a handshakeaccept
+            test_debug!("send handshake-accept");
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(
+                    &local_peer_1,
+                    &mut peerdb_1,
+                    &sortdb_1,
+                    &pox_id_1,
+                    &mut chainstate_1,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view_1,
+                )
+                .unwrap();
+
+            let reply_1 = rh_1.recv(0).unwrap();
+
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);
+
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+            if (peer_1_services & (ServiceFlags::STACKERDB as u16) != 0)
+                && (peer_2_services & (ServiceFlags::STACKERDB as u16) != 0)
+            {
+                // received a valid StackerDBHandshakeAccept from peer 2?
+                match reply_1.payload {
+                    StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
+                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                        assert_eq!(data.handshake.port, local_peer_2.port);
+                        assert_eq!(data.handshake.services, local_peer_2.services);
+                        assert_eq!(
+                            data.handshake.node_public_key,
+                            StacksPublicKeyBuffer::from_public_key(
+                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+                            )
+                        );
+                        assert_eq!(
+                            data.handshake.expire_block_height,
+                            local_peer_2.private_key_expire
+                        );
+                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+
+                        // remote peer always replies with its supported smart contracts
+                        assert_eq!(
+                            db_data.smart_contracts,
+                            vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
+                        );
+
+                        if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
+                            assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
+
+                            // peers learn each others' smart contract DBs
+                            eprintln!(
+                                "{:?}, {:?}",
+                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                            );
+                            assert_eq!(convo_1.db_smart_contracts.len(), 1);
+                            assert!(convo_1.replicates_stackerdb(
+                                &ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                            ));
+                        } else {
+                            assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
+
+                            // peers ignore each others' smart contract DBs
+                            eprintln!(
+                                "{:?}, {:?}",
+                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                            );
+                            assert_eq!(convo_1.db_smart_contracts.len(), 0);
+                            assert!(!convo_1.replicates_stackerdb(
+                                &ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                            ));
+                        }
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                };
+            } else {
+                // received a valid HandshakeAccept from peer 2?
+                match reply_1.payload {
+                    StacksMessageType::HandshakeAccept(ref data) => {
+                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                        assert_eq!(data.handshake.port, local_peer_2.port);
+                        assert_eq!(data.handshake.services, local_peer_2.services);
+                        assert_eq!(
+                            data.handshake.node_public_key,
+                            StacksPublicKeyBuffer::from_public_key(
+                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+                            )
+                        );
+                        assert_eq!(
+                            data.handshake.expire_block_height,
+                            local_peer_2.private_key_expire
+                        );
+                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            // convo_2 got updated with convo_1's peer info, but no heartbeat info
+            assert_eq!(convo_2.peer_heartbeat, 3600);
+            assert_eq!(
+                convo_2.connection.get_public_key().unwrap(),
+                Secp256k1PublicKey::from_private(&local_peer_1.private_key)
+            );
+            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+
+            // convo_1 got updated with convo_2's peer info, as well as heartbeat
+            assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
+            assert_eq!(
+                convo_1.connection.get_public_key().unwrap(),
+                Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+            );
+            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+
+            assert_eq!(convo_1.peer_services, peer_2_services);
+            assert_eq!(convo_2.peer_services, peer_1_services);
+        })
+    }
+
+    #[test]
+    /// Two stackerdb peers handshake
+    fn convo_handshake_accept_stackerdb() {
+        inner_convo_handshake_accept_stackerdb(
+            STACKERDB_SERVICES,
+            ConsensusHash([0x33; 20]),
+            STACKERDB_SERVICES,
+            ConsensusHash([0x33; 20]),
+        );
+    }
+
+    #[test]
+    /// A stackerdb peer handshakes with a legacy peer
+    fn convo_handshake_accept_stackerdb_legacy() {
+        inner_convo_handshake_accept_stackerdb(
+            STACKERDB_SERVICES,
+            ConsensusHash([0x44; 20]),
+            DEFAULT_SERVICES,
+            ConsensusHash([0x44; 20]),
+        );
+    }
+
+    #[test]
+    /// Two stackerdb peers handshake, but with different reward cycle consensus hashes
+    fn convo_handshake_accept_stackerdb_bad_consensus_hash() {
+        inner_convo_handshake_accept_stackerdb(
+            STACKERDB_SERVICES,
+            ConsensusHash([0x33; 20]),
+            STACKERDB_SERVICES,
+            ConsensusHash([0x44; 20]),
+        );
+    }
+
     #[test]
     fn convo_handshake_reject() {
         let conn_opts = ConnectionOptions::default();
@@ -2833,6 +3323,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -2844,6 +3335,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_reject_2",
@@ -2853,6 +3345,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -2964,6 +3457,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -2980,6 +3474,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_badsignature_2",
@@ -2989,6 +3484,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -3080,6 +3576,366 @@ mod test {
     }
 
     #[test]
+    fn convo_handshake_badpeeraddress() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_badpeeraddress_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_badpeeraddress_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // no peer public keys known yet
+        assert!(convo_1.connection.get_public_key().is_none());
+        assert!(convo_2.connection.get_public_key().is_none());
+
+        // teach each convo about each other's public keys
+        convo_1
+            .connection
+            .set_public_key(Some(Secp256k1PublicKey::from_private(
+                &local_peer_2.private_key,
+            )));
+        convo_2
+            .connection
+            .set_public_key(Some(Secp256k1PublicKey::from_private(
+                &local_peer_1.private_key,
+            )));
+
+        assert!(convo_1.connection.get_public_key().is_some());
+        assert!(convo_2.connection.get_public_key().is_some());
+
+        convo_1.stats.outbound = false;
+        convo_2.stats.outbound = true;
+
+        convo_2.peer_port = 8080;
+
+        // convo_1 sends a handshake from a different address than reported
+        let mut handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+        handshake_data_1.port = 8082;
+        let handshake_1 = convo_1
+            .sign_message(
+                &chain_view,
+                &local_peer_1.private_key,
+                StacksMessageType::Handshake(handshake_data_1.clone()),
+            )
+            .unwrap();
+
+        let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+        // convo_2 receives it and processes it, and rejects it
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2
+            .chat(
+                &local_peer_2,
+                &mut peerdb_2,
+                &sortdb_2,
+                &pox_id_2,
+                &mut chainstate_2,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        // convo_1 gets a handshake-reject and consumes it
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1
+            .chat(
+                &local_peer_1,
+                &mut peerdb_1,
+                &sortdb_1,
+                &pox_id_1,
+                &mut chainstate_1,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        // the waiting reply aborts on disconnect
+        let reply_1 = rh_1.recv(0).unwrap();
+
+        // received a valid HandshakeReject from peer 2
+        match reply_1.payload {
+            StacksMessageType::HandshakeReject => {}
+            _ => {
+                assert!(false);
+            }
+        };
+
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 0);
+    }
+
+    #[test]
+    fn convo_handshake_update_key() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_update_key_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_update_key_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+
+        let mut local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // no peer public keys known yet
+        assert!(convo_1.connection.get_public_key().is_none());
+        assert!(convo_2.connection.get_public_key().is_none());
+
+        // convo_1 sends a handshake to convo_2
+        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+        let handshake_1 = convo_1
+            .sign_message(
+                &chain_view,
+                &local_peer_1.private_key,
+                StacksMessageType::Handshake(handshake_data_1.clone()),
+            )
+            .unwrap();
+
+        let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+        // convo_2 receives it
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2
+            .chat(
+                &local_peer_2,
+                &mut peerdb_2,
+                &sortdb_2,
+                &pox_id_2,
+                &mut chainstate_2,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        // convo_1 has a handshakaccept
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1
+            .chat(
+                &local_peer_1,
+                &mut peerdb_1,
+                &sortdb_1,
+                &pox_id_1,
+                &mut chainstate_1,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        let reply_1 = rh_1.recv(0).unwrap();
+
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 1);
+
+        // received a valid HandshakeAccept from peer 2
+        match reply_1.payload {
+            StacksMessageType::HandshakeAccept(..) => {}
+            _ => {
+                assert!(false);
+            }
+        };
+
+        // peers learned each other's keys
+        assert_eq!(
+            convo_1.connection.get_public_key().as_ref().unwrap(),
+            &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+        );
+        assert_eq!(
+            convo_2.connection.get_public_key().as_ref().unwrap(),
+            &Secp256k1PublicKey::from_private(&local_peer_1.private_key)
+        );
+
+        let old_peer_1_privkey = local_peer_1.private_key.clone();
+        let old_peer_1_pubkey = Secp256k1PublicKey::from_private(&old_peer_1_privkey);
+
+        // peer 1 updates their private key
+        local_peer_1.private_key = Secp256k1PrivateKey::new();
+
+        // peer 1 re-handshakes
+        // convo_1 sends a handshake to convo_2
+        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
+        let handshake_1 = convo_1
+            .sign_message(
+                &chain_view,
+                &old_peer_1_privkey,
+                StacksMessageType::Handshake(handshake_data_1.clone()),
+            )
+            .unwrap();
+
+        let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+        // convo_2 receives it
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2
+            .chat(
+                &local_peer_2,
+                &mut peerdb_2,
+                &sortdb_2,
+                &pox_id_2,
+                &mut chainstate_2,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        // convo_1 has a handshakaccept
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1
+            .chat(
+                &local_peer_1,
+                &mut peerdb_1,
+                &sortdb_1,
+                &pox_id_1,
+                &mut chainstate_1,
+                &mut BlockHeaderCache::new(),
+                &chain_view,
+            )
+            .unwrap();
+
+        let reply_1 = rh_1.recv(0).unwrap();
+
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 1);
+
+        // new keys were learned
+        assert_eq!(
+            convo_1.connection.get_public_key().as_ref().unwrap(),
+            &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
+        );
+        assert_eq!(
+            convo_2.connection.get_public_key().as_ref().unwrap(),
+            &Secp256k1PublicKey::from_private(&local_peer_1.private_key)
+        );
+
+        assert!(convo_1.connection.get_public_key().as_ref().unwrap() != &old_peer_1_pubkey);
+        assert!(convo_2.connection.get_public_key().as_ref().unwrap() != &old_peer_1_pubkey);
+    }
+
+    #[test]
     fn convo_handshake_self() {
         let conn_opts = ConnectionOptions::default();
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -3098,6 +3954,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3114,6 +3971,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_self_2",
@@ -3123,6 +3981,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -3233,6 +4092,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3249,6 +4109,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_ping_2",
@@ -3258,6 +4119,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -3400,6 +4262,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3416,6 +4279,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_ping_loop_2",
@@ -3425,6 +4289,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -3545,7 +4410,8 @@ mod test {
 
             // received a valid HandshakeAccept from peer 2
             match reply_handshake_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
+                StacksMessageType::HandshakeAccept(ref data)
+                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
                     assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
                     assert_eq!(data.handshake.port, local_peer_2.port);
                     assert_eq!(data.handshake.services, local_peer_2.services);
@@ -3617,6 +4483,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -3633,6 +4500,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_nack_unsolicited_2",
@@ -3642,6 +4510,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -3740,6 +4609,173 @@ mod test {
     }
 
     #[test]
+    fn convo_ignore_unsolicited_handshake() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_ignore_unsolicited_handshake_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_ignore_unsolicited_handshake_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // no peer public keys known yet
+        assert!(convo_1.connection.get_public_key().is_none());
+        assert!(convo_2.connection.get_public_key().is_none());
+
+        // convo_1 sends unauthenticated control-plane messages to convo_2
+        let unauthed_messages = {
+            let accept_data_1 = HandshakeAcceptData::new(&local_peer_1, 1000000000);
+            let accept_1 = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::HandshakeAccept(accept_data_1.clone()),
+                )
+                .unwrap();
+
+            let stackerdb_accept_data_1 = StacksMessageType::StackerDBHandshakeAccept(
+                accept_data_1.clone(),
+                StackerDBHandshakeData {
+                    rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
+                    // placeholder sbtc address for now
+                    smart_contracts: vec![
+                        ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                    ],
+                },
+            );
+
+            let stackerdb_accept_1 = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    stackerdb_accept_data_1,
+                )
+                .unwrap();
+
+            vec![accept_1, stackerdb_accept_1]
+        };
+
+        for unauthed_msg in unauthed_messages.into_iter() {
+            let mut rh_1 = convo_1.send_signed_request(unauthed_msg, 1000000).unwrap();
+
+            convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+            let unhandled_2 = convo_2
+                .chat(
+                    &local_peer_2,
+                    &mut peerdb_2,
+                    &sortdb_2,
+                    &pox_id_2,
+                    &mut chainstate_2,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view,
+                )
+                .unwrap();
+
+            convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+            let unhandled_1 = convo_1
+                .chat(
+                    &local_peer_1,
+                    &mut peerdb_1,
+                    &sortdb_1,
+                    &pox_id_1,
+                    &mut chainstate_1,
+                    &mut BlockHeaderCache::new(),
+                    &chain_view,
+                )
+                .unwrap();
+
+            // connection should break off since nodes ignore unsolicited messages
+            match rh_1.recv(1).unwrap_err() {
+                net_error::ConnectionBroken => {}
+                e => {
+                    panic!(
+                        "Unexpected error from consuming unsolicited message: {:?}",
+                        &e
+                    );
+                }
+            }
+
+            // convo_2 gives back nothing
+            assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 0);
+
+            // convo_2 did NOT get updated with convo_1's peer info
+            assert_eq!(convo_2.peer_heartbeat, 0);
+            assert!(convo_2.connection.get_public_key().is_none());
+
+            // convo_1 did NOT get updated
+            assert_eq!(convo_1.peer_heartbeat, 0);
+            assert!(convo_2.connection.get_public_key().is_none());
+        }
+    }
+
+    #[test]
     fn convo_handshake_getblocksinv() {
         with_timeout(100, || {
             let conn_opts = ConnectionOptions::default();
@@ -3760,6 +4796,7 @@ mod test {
                 burn_stable_block_height: 12331 - 7, // burnchain.reward_cycle_to_block_height(burnchain.block_height_to_reward_cycle(12341 - 8).unwrap() - 1),
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
+                rc_consensus_hash: ConsensusHash([0x33; 20]),
             };
             chain_view.make_test_data();
 
@@ -3771,6 +4808,7 @@ mod test {
                 "http://peer1.com".into(),
                 &vec![],
                 &vec![],
+                DEFAULT_SERVICES,
             );
             let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_getblocksinv_2",
@@ -3780,6 +4818,7 @@ mod test {
                 "http://peer2.com".into(),
                 &vec![],
                 &vec![],
+                DEFAULT_SERVICES,
             );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -4059,6 +5098,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4075,6 +5115,7 @@ mod test {
             "http://peer1.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
         let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_natpunch_2",
@@ -4084,6 +5125,7 @@ mod test {
             "http://peer2.com".into(),
             &vec![],
             &vec![],
+            DEFAULT_SERVICES,
         );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
@@ -4193,6 +5235,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4464,6 +5507,7 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
         chain_view.make_test_data();
 
@@ -4562,6 +5606,948 @@ mod test {
             assert_eq!(stats.num_bytes, (msg.preamble.payload_len - 1) as u64);
         }
     }
-}
 
-// TODO: test bandwidth limits
+    #[test]
+    fn test_neighbor_stats_healthpoint() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_health_score(), 0.5);
+
+        for _ in 0..NUM_HEALTH_POINTS - 1 {
+            stats.add_healthpoint(true);
+            assert_eq!(stats.get_health_score(), 0.5);
+        }
+
+        stats.add_healthpoint(true);
+        assert_eq!(stats.get_health_score(), 1.0);
+
+        for _ in 0..(NUM_HEALTH_POINTS / 2) {
+            stats.add_healthpoint(false);
+        }
+
+        assert_eq!(stats.get_health_score(), 0.5);
+
+        for _ in 0..(NUM_HEALTH_POINTS / 2) {
+            stats.add_healthpoint(false);
+        }
+
+        assert_eq!(stats.get_health_score(), 0.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_block_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_block_push_bandwidth(), 0.0);
+
+        stats.add_block_push(100);
+        assert_eq!(stats.get_block_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_block_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_block_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_block_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_block_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_transaction_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_transaction_push_bandwidth(), 0.0);
+
+        stats.add_transaction_push(100);
+        assert_eq!(stats.get_transaction_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_transaction_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_transaction_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_transaction_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_transaction_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_microblocks_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_microblocks_push_bandwidth(), 0.0);
+
+        stats.add_microblocks_push(100);
+        assert_eq!(stats.get_microblocks_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_microblocks_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_microblocks_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_microblocks_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_microblocks_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_stackerdb_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_stackerdb_push_bandwidth(), 0.0);
+
+        stats.add_stackerdb_push(100);
+        assert_eq!(stats.get_stackerdb_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_stackerdb_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_stackerdb_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_stackerdb_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_stackerdb_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_sign_relay_forward_message() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "sign_relay_forward_message_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let relayers = vec![RelayData {
+            peer: NeighborAddress {
+                addrbytes: PeerAddress([0u8; 16]),
+                port: 123,
+                public_key_hash: Hash160([0u8; 20]),
+            },
+            seq: 123,
+        }];
+        let msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        let mut expected_relayers = relayers.clone();
+        expected_relayers.push(RelayData {
+            peer: local_peer_1.to_neighbor_addr(),
+            seq: 0,
+        });
+
+        assert_eq!(msg.relayers, expected_relayers);
+
+        // can't insert a loop
+        let fail = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                expected_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap_err();
+
+        match fail {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("FATAL: unexpected error {:?}", &e);
+            }
+        }
+
+        // can't forward with a loop either
+        let fail = convo_1
+            .sign_and_forward(
+                &local_peer_1,
+                &chain_view,
+                expected_relayers.clone(),
+                payload,
+            )
+            .unwrap_err();
+
+        match fail {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("FATAL: unexpected error {:?}", &e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sign_and_forward() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "sign_and_forward_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // should succeed
+        convo_1
+            .sign_and_forward(&local_peer_1, &chain_view, vec![], payload.clone())
+            .unwrap();
+    }
+
+    #[test]
+    fn test_validate_block_push() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.max_block_push_bandwidth = 100;
+
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "validate_block_push_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // bad message -- got bad relayers (cycle)
+        let bad_relayers = vec![
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([0u8; 16]),
+                    port: 123,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([1u8; 16]),
+                    port: 456,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 456,
+            },
+        ];
+
+        let mut bad_msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                bad_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        bad_msg.preamble.payload_len = 10;
+
+        let err_before = convo_1.stats.msgs_err;
+        match convo_1
+            .validate_blocks_push(
+                &local_peer_1,
+                &chain_view,
+                &bad_msg.preamble,
+                bad_msg.relayers.clone(),
+            )
+            .unwrap_err()
+        {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("Wrong error: {:?}", &e);
+            }
+        }
+        assert_eq!(convo_1.stats.msgs_err, err_before + 1);
+
+        // mock a second local peer with a different private key
+        let mut local_peer_2 = local_peer_1.clone();
+        local_peer_2.private_key = Secp256k1PrivateKey::new();
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let mut msg = convo_1
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .unwrap();
+
+        let err_before = convo_1.stats.msgs_err;
+
+        // succeeds because it's the first sample
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_blocks_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+
+        // fails because the second sample says we're over bandwidth
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_blocks_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_some());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
+    fn test_validate_transaction_push() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.max_transaction_push_bandwidth = 100;
+
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "validate_transaction_push_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // bad message -- got bad relayers (cycle)
+        let bad_relayers = vec![
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([0u8; 16]),
+                    port: 123,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([1u8; 16]),
+                    port: 456,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 456,
+            },
+        ];
+
+        let mut bad_msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                bad_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        bad_msg.preamble.payload_len = 10;
+
+        let err_before = convo_1.stats.msgs_err;
+        match convo_1
+            .validate_transaction_push(
+                &local_peer_1,
+                &chain_view,
+                &bad_msg.preamble,
+                bad_msg.relayers.clone(),
+            )
+            .unwrap_err()
+        {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("Wrong error: {:?}", &e);
+            }
+        }
+        assert_eq!(convo_1.stats.msgs_err, err_before + 1);
+
+        // mock a second local peer with a different private key
+        let mut local_peer_2 = local_peer_1.clone();
+        local_peer_2.private_key = Secp256k1PrivateKey::new();
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let mut msg = convo_1
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .unwrap();
+
+        let err_before = convo_1.stats.msgs_err;
+
+        // succeeds because it's the first sample
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_transaction_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+
+        // fails because the second sample says we're over bandwidth
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_transaction_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_some());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
+    fn test_validate_microblocks_push() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.max_microblocks_push_bandwidth = 100;
+
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "validate_microblocks_push_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // bad message -- got bad relayers (cycle)
+        let bad_relayers = vec![
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([0u8; 16]),
+                    port: 123,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([1u8; 16]),
+                    port: 456,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 456,
+            },
+        ];
+
+        let mut bad_msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                bad_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        bad_msg.preamble.payload_len = 10;
+
+        let err_before = convo_1.stats.msgs_err;
+        match convo_1
+            .validate_microblocks_push(
+                &local_peer_1,
+                &chain_view,
+                &bad_msg.preamble,
+                bad_msg.relayers.clone(),
+            )
+            .unwrap_err()
+        {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("Wrong error: {:?}", &e);
+            }
+        }
+        assert_eq!(convo_1.stats.msgs_err, err_before + 1);
+
+        // mock a second local peer with a different private key
+        let mut local_peer_2 = local_peer_1.clone();
+        local_peer_2.private_key = Secp256k1PrivateKey::new();
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let mut msg = convo_1
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .unwrap();
+
+        let err_before = convo_1.stats.msgs_err;
+
+        // succeeds because it's the first sample
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_microblocks_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+
+        // fails because the second sample says we're over bandwidth
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_microblocks_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_some());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
+    fn test_validate_stackerdb_push() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.max_stackerdb_push_bandwidth = 100;
+
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, _) = make_test_chain_dbs(
+            "validate_stackerdb_push_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // bad message -- got bad relayers (cycle)
+        let bad_relayers = vec![
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([0u8; 16]),
+                    port: 123,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([1u8; 16]),
+                    port: 456,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 456,
+            },
+        ];
+
+        let mut bad_msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                bad_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        bad_msg.preamble.payload_len = 10;
+
+        let err_before = convo_1.stats.msgs_err;
+        match convo_1
+            .validate_stackerdb_push(
+                &local_peer_1,
+                &chain_view,
+                &bad_msg.preamble,
+                bad_msg.relayers.clone(),
+            )
+            .unwrap_err()
+        {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("Wrong error: {:?}", &e);
+            }
+        }
+        assert_eq!(convo_1.stats.msgs_err, err_before + 1);
+
+        // mock a second local peer with a different private key
+        let mut local_peer_2 = local_peer_1.clone();
+        local_peer_2.private_key = Secp256k1PrivateKey::new();
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let mut msg = convo_1
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .unwrap();
+
+        let err_before = convo_1.stats.msgs_err;
+
+        // succeeds because it's the first sample
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_stackerdb_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+
+        // fails because the second sample says we're over bandwidth
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_stackerdb_push(
+                &local_peer_1,
+                &chain_view,
+                &msg.preamble,
+                msg.relayers.clone()
+            )
+            .unwrap()
+            .is_some());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+}

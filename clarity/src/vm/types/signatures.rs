@@ -1941,22 +1941,7 @@ mod test {
     #[cfg(test)]
     use rstest_reuse::{self, *};
 
-    #[template]
-    #[rstest]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch23)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch23)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch24)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch24)]
-    fn test_clarity_versions_signatures(
-        #[case] version: ClarityVersion,
-        #[case] epoch: StacksEpochId,
-    ) {
-    }
+    use crate::vm::tests::test_clarity_versions;
 
     fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrors {
         use crate::vm::ast::parse;
@@ -1970,14 +1955,14 @@ mod test {
         TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap_err()
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn type_of_list_of_buffs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
         let type_descr = TypeSignature::from_string("(list 2 (string-ascii 5))", version, epoch);
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn type_signature_way_too_big(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         // first_tuple.type_size ~= 131
         // second_tuple.type_size = k * (130+130)
@@ -1998,7 +1983,7 @@ mod test {
         );
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn test_construction(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let bad_type_descriptions = [
             ("(tuple)", EmptyTuplesNotAllowed),

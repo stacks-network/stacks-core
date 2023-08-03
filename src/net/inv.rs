@@ -3871,6 +3871,7 @@ mod test {
             burn_stable_block_height: 12340,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
         };
 
         burnchain_view.make_test_data();
