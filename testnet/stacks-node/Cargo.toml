@@ -13,7 +13,7 @@ rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
-stacks = { package = "blockstack-core", path = "../../blockstack-core" }
+stacks = { package = "stackslib", path = "../../stackslib" }
 stx-genesis = { path = "../../stx-genesis"}
 toml = "0.5.6"
 async-h1 = "2.3.2"
@@ -35,7 +35,7 @@ tokio = "1.15"
 reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
-stacks = { package = "blockstack-core", path = "../../blockstack-core", features = ["default", "testing"] }
+stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"

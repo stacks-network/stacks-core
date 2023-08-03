@@ -1,6 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
-    ".",
+    "stackslib",
+    "stacks-common",
     "pox-locking",
     "clarity",
     "stx-genesis",
