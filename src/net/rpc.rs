@@ -86,8 +86,9 @@ use crate::net::{
     infer_initial_burnchain_block_download, BlocksDatum, GetHealthResponse, NeighborKey,
 };
 use crate::net::{
-    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ConstantValResponse, ContractSrcResponse,
-    DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ConstantValResponse,
+    ContractSrcResponse, DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    MapEntryResponse,
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
