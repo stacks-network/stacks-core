@@ -467,12 +467,19 @@ impl Neighbor {
         Ok(())
     }
 
-    pub fn from_handshake(
+    /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
+    /// PeerDB with information in the handshake.
+    /// * If we already know about this neighbor, then all previously-calculated state and local
+    /// configuration state will be loaded as well.  This includes things like the calculated
+    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
+    /// * If we do not know about this neighbor, then the above state will not be loaded.
+    /// Returns (the neighbor, whether or not the neighbor was known)
+    pub fn load_and_update(
         conn: &DBConn,
         peer_version: u32,
         network_id: u32,
         handshake_data: &HandshakeData,
-    ) -> Result<Neighbor, net_error> {
+    ) -> Result<(Neighbor, bool), net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
         let pubk = handshake_data
             .node_public_key
@@ -482,15 +489,15 @@ impl Neighbor {
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
 
-        let mut neighbor = match peer_opt {
+        let (mut neighbor, present) = match peer_opt {
             Some(neighbor) => {
                 let mut ret = neighbor;
                 ret.addr = addr.clone();
-                ret
+                (ret, true)
             }
             None => {
                 let ret = Neighbor::empty(&addr, &pubk, handshake_data.expire_block_height);
-                ret
+                (ret, false)
             }
         };
 
@@ -510,7 +517,7 @@ impl Neighbor {
         }
 
         neighbor.handshake_update(conn, &handshake_data)?;
-        Ok(neighbor)
+        Ok((neighbor, present))
     }
 
     pub fn from_conversation(
@@ -1250,7 +1257,7 @@ impl ConversationP2P {
         if updated {
             // save the new key
             let mut tx = peerdb.tx_begin().map_err(net_error::DBError)?;
-            let mut neighbor = Neighbor::from_handshake(
+            let (mut neighbor, _) = Neighbor::load_and_update(
                 &mut tx,
                 message.preamble.peer_version,
                 message.preamble.network_id,
