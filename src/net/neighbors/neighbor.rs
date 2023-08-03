@@ -82,8 +82,9 @@ impl Neighbor {
 
     /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another
     /// peer.  Returns a neighbor in the peer DB if it matches the neighbor address and has a fresh public key
-    /// (where "fresh" means "the public key hash matches the neighbor address")
-    pub fn from_neighbor_address(
+    /// (where "fresh" means "the public key hash matches the neighbor address")  If the neighbor
+    /// is not present in the peer DB, then None will be returned.
+    pub fn load_by_address(
         conn: &DBConn,
         network_id: u32,
         block_height: u64,

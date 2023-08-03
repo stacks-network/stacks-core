@@ -2734,40 +2734,41 @@ where
             }
 
             // done?
-            finished = finished
-                && if use_finished_check {
-                    finished_check(&peers)
-                } else {
-                    let mut done = true;
-                    let all_neighbors =
-                        PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-                    peer_counts += all_neighbors.len();
+            let now_finished = if use_finished_check {
+                finished_check(&peers)
+            } else {
+                let mut done = true;
+                let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+                peer_counts += all_neighbors.len();
+                test_debug!("Peer {} ({}) has {} neighbors", i, &nk, all_neighbors.len());
 
-                    if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
-                        test_debug!(
-                            "waiting for {:?} to fill up its frontier: {} < {}",
-                            &nk,
-                            all_neighbors.len(),
-                            PEER_COUNT - 1
-                        );
-                        done = false;
-                    } else {
-                        test_debug!(
-                            "not waiting for {:?} to fill up its frontier: {} >= {}",
-                            &nk,
-                            all_neighbors.len(),
-                            PEER_COUNT - 1
-                        );
-                    }
-                    done
-                };
+                if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
+                    test_debug!(
+                        "waiting for {:?} to fill up its frontier: {} < {}",
+                        &nk,
+                        all_neighbors.len(),
+                        PEER_COUNT - 1
+                    );
+                    done = false;
+                } else {
+                    test_debug!(
+                        "not waiting for {:?} to fill up its frontier: {} >= {}",
+                        &nk,
+                        all_neighbors.len(),
+                        PEER_COUNT - 1
+                    );
+                }
+                done
+            };
+
+            finished = finished && now_finished;
         }
 
         count += 1;
 
         test_debug!(
             "Network convergence rate: {}%",
-            (100.0 * (peer_counts as f64)) / ((PEER_COUNT * PEER_COUNT) as f64)
+            (100.0 * (peer_counts as f64)) / ((PEER_COUNT * PEER_COUNT) as f64),
         );
 
         if finished {

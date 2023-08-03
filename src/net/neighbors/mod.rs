@@ -58,7 +58,10 @@ pub mod db;
 pub mod neighbor;
 pub mod walk;
 
-pub use comms::{NeighborSet, NeighborSetMessageIterator, NeighborSetRequest, ToNeighborKey};
+pub use comms::{
+    NeighborComms, NeighborCommsMessageIterator, NeighborCommsRequest, PeerNetworkComms,
+    ToNeighborKey,
+};
 pub use db::{NeighborReplacements, NeighborWalkDB, PeerDBNeighborWalk};
 pub use walk::{NeighborPingback, NeighborWalk, NeighborWalkResult};
 
@@ -128,12 +131,103 @@ pub const NEIGHBOR_WALK_INTERVAL: u64 = 0;
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 
 impl PeerNetwork {
+    /// Begin an outbound walk or a pingback walk, depending on whether or not we have pingback
+    /// state.
+    /// If we do, then do a pingback walk with 50% probability.  Otherwise do an outbound walk.
+    /// If we don't, then always do an outbound walk.
+    fn new_outbound_or_pingback_walk(
+        &self,
+    ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
+        if self.get_walk_pingbacks().len() == 0 {
+            // unconditionally do an outbound walk
+            return NeighborWalk::instantiate_walk(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+            );
+        }
+
+        // Either do an outbound walk, or do a pingback walk.
+        // If one fails, then try the other
+        let do_outbound = thread_rng().gen::<bool>();
+        if do_outbound {
+            match NeighborWalk::instantiate_walk(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+            ) {
+                Ok(w) => {
+                    return Ok(w);
+                }
+                Err(e) => {
+                    info!(
+                        "{:?}: failed to begin outbound walk ({:?}); trying pingback walk",
+                        &self.local_peer, &e
+                    );
+                    return NeighborWalk::instantiate_walk_from_pingback(
+                        self.get_neighbor_walk_db(),
+                        self.get_neighbor_comms(),
+                        self,
+                    );
+                }
+            }
+        } else {
+            match NeighborWalk::instantiate_walk_from_pingback(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+            ) {
+                Ok(w) => {
+                    return Ok(w);
+                }
+                Err(e) => {
+                    info!(
+                        "{:?}: failed to begin pingback walk ({:?}); trying outbound walk",
+                        &self.local_peer, &e
+                    );
+                    return NeighborWalk::instantiate_walk(
+                        self.get_neighbor_walk_db(),
+                        self.get_neighbor_comms(),
+                        self,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Begin an inbound walk, if supported by the connection opts.
+    /// Errors out if inbound walks are disabled.
+    fn new_maybe_inbound_walk(
+        &self,
+    ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
+        // not IBD. Time to try an inbound neighbor
+        if self.connection_opts.disable_inbound_walks {
+            debug!(
+                "{:?}: disabled inbound neighbor walks for testing",
+                &self.local_peer
+            );
+            return NeighborWalk::instantiate_walk(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+            );
+        }
+        return NeighborWalk::instantiate_walk_from_inbound(
+            self.get_neighbor_walk_db(),
+            self.get_neighbor_comms(),
+            self,
+        );
+    }
+
     /// Instantiate a neighbor walk, and update internal bookkeeping about how many times and how
     /// often we've done this (so we can intelligently alter walk strategies).
     ///
     /// Returns the new neighbor walk on success.
     /// Returns None if we could not instantiate a walk for some reason.
-    fn new_neighbor_walk(&mut self, ibd: bool) -> Option<NeighborWalk<PeerDBNeighborWalk>> {
+    fn new_neighbor_walk(
+        &mut self,
+        ibd: bool,
+    ) -> Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>> {
         // alternate between starting walks from inbound and outbound neighbors.
         // fall back to pingbacks-only walks if no options exist.
         debug!(
@@ -144,44 +238,33 @@ impl PeerNetwork {
         // always ensure we're connected to always-allowed outbound peers
         let walk_res = if ibd {
             // always connect to bootstrap peers if in IBD
-            NeighborWalk::instantiate_walk_to_always_allowed(self.get_neighbor_walk_db(), self, ibd)
+            NeighborWalk::instantiate_walk_to_always_allowed(
+                self.get_neighbor_walk_db(),
+                self.get_neighbor_comms(),
+                self,
+                ibd,
+            )
+        } else if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
+            // not IBD. Time to try an inbound neighbor
+            self.new_maybe_inbound_walk()
         } else {
-            // if not in IBD, then we're not required to use the always-allowed neighbors
-            // all the time (since they may be offline, and we have all the blocks anyway).
-            // Alternate between picking random neighbors, and picking always-allowed
-            // neighbors.
-            if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
-            } else {
-                NeighborWalk::instantiate_walk_to_always_allowed(
-                    self.get_neighbor_walk_db(),
-                    self,
-                    ibd,
-                )
-            }
+            // not IBD, and not time to try an inbound neighbor.
+            // Either do an outbound walk, or do a pingback walk.
+            // If one fails, then try the other.
+            self.new_outbound_or_pingback_walk()
         };
 
         // recover if we error out in creating a walk by trying a different strategy
         let walk_res = match walk_res {
             Ok(x) => Ok(x),
             Err(net_error::NotFoundError) => {
-                // failed to create a walk, so either connect to any known neighbor or connect
-                // to an inbound peer.
+                // initial strategy failed, so try the other strategy
                 if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-                    NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
+                    // tried inbound walk (it failed), so try outbound or pingback
+                    self.new_outbound_or_pingback_walk()
                 } else {
-                    if self.connection_opts.disable_inbound_walks {
-                        debug!(
-                            "{:?}: disabled inbound neighbor walks for testing",
-                            &self.local_peer
-                        );
-                        NeighborWalk::instantiate_walk(self.get_neighbor_walk_db(), self)
-                    } else {
-                        NeighborWalk::instantiate_walk_from_inbound(
-                            self.get_neighbor_walk_db(),
-                            self,
-                        )
-                    }
+                    // tried outbound or pingback walk (it failed), so try inbound
+                    self.new_maybe_inbound_walk()
                 }
             }
             Err(e) => Err(e),
@@ -196,6 +279,7 @@ impl PeerNetwork {
             Err(Error::NoSuchNeighbor) => {
                 match NeighborWalk::instantiate_walk_from_pingback(
                     self.get_neighbor_walk_db(),
+                    self.get_neighbor_comms(),
                     self,
                 ) {
                     Ok(x) => x,
@@ -333,7 +417,7 @@ impl PeerNetwork {
             return (true, None);
         };
 
-        let walk_result_opt = match walk.run(self) {
+        let (done, walk_result_opt) = match walk.run(self) {
             Ok(Some(ws)) => {
                 // walk ran to completion
                 self.walk_count += 1;
@@ -345,14 +429,13 @@ impl PeerNetwork {
                 );
 
                 self.print_walk_diagnostics();
-                Some(ws)
+                (true, Some(ws))
             }
             Ok(None) => {
                 // walk is not done yet, but we did make some progress
                 self.walk_total_step_count += 1;
                 self.walk_retries = 0;
-                self.walk = Some(walk);
-                return (false, None);
+                (false, None)
             }
             Err(net_error::StepTimeout) => {
                 // walk step took to long. Needs a reset
@@ -399,6 +482,6 @@ impl PeerNetwork {
         }
 
         self.walk = Some(walk);
-        (false, walk_result_opt)
+        (done, walk_result_opt)
     }
 }

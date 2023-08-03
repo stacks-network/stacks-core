@@ -134,7 +134,6 @@ pub trait NeighborWalkDB {
     fn add_or_schedule_replace_neighbor(
         &self,
         network: &mut PeerNetwork,
-        naddr: &NeighborAddress,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -233,8 +232,30 @@ impl PeerDBNeighborWalk {
         Self {}
     }
 
+    /// Given a neighbor we tried to insert into the peer database, find one of the existing
+    /// neighbors it collided with.  Return its slot in the peer db.
+    fn find_replaced_neighbor_slot(
+        conn: &DBConn,
+        nk: &NeighborKey,
+    ) -> Result<Option<u32>, net_error> {
+        let mut slots = PeerDB::peer_slots(conn, nk.network_id, &nk.addrbytes, nk.port)
+            .map_err(net_error::DBError)?;
+
+        if slots.len() == 0 {
+            // not present
+            return Ok(None);
+        }
+
+        let mut rng = thread_rng();
+        slots.shuffle(&mut rng);
+        Ok(Some(slots[0]))
+    }
+}
+
+impl NeighborWalkDB for PeerDBNeighborWalk {
     /// implements get_fresh_random_neighbors
-    fn inner_get_fresh_random_neighbors(
+    fn get_fresh_random_neighbors(
+        &self,
         network: &PeerNetwork,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
@@ -263,7 +284,8 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements lookup_stale_neighbors
-    fn inner_lookup_stale_neighbors(
+    fn lookup_stale_neighbors(
+        &self,
         network: &PeerNetwork,
         addrs: &Vec<NeighborAddress>,
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
@@ -273,8 +295,7 @@ impl PeerDBNeighborWalk {
         let mut to_resolve = vec![];
         let mut resolved: HashMap<NeighborAddress, Neighbor> = HashMap::new();
         for naddr in addrs {
-            let neighbor_opt =
-                Neighbor::from_neighbor_address(dbconn, network_id, block_height, naddr)?;
+            let neighbor_opt = Neighbor::load_by_address(dbconn, network_id, block_height, naddr)?;
 
             if let Some(neighbor) = neighbor_opt {
                 // already know about this neighbor, so look at its last contact time
@@ -315,75 +336,42 @@ impl PeerDBNeighborWalk {
         Ok((resolved, to_resolve))
     }
 
-    /// Given a neighbor we tried to insert into the peer database, find one of the existing
-    /// neighbors it collided with.  Return its slot in the peer db.
-    fn find_replaced_neighbor_slot(
-        conn: &DBConn,
-        nk: &NeighborKey,
-    ) -> Result<Option<u32>, net_error> {
-        let mut slots = PeerDB::peer_slots(conn, nk.network_id, &nk.addrbytes, nk.port)
-            .map_err(net_error::DBError)?;
-
-        if slots.len() == 0 {
-            // not present
-            return Ok(None);
-        }
-
-        let mut rng = thread_rng();
-        slots.shuffle(&mut rng);
-
-        for slot in slots {
-            let peer_opt =
-                PeerDB::get_peer_at(conn, nk.network_id, slot).map_err(net_error::DBError)?;
-
-            match peer_opt {
-                None => {
-                    continue;
-                }
-                Some(_) => {
-                    return Ok(Some(slot));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
     /// implements add_or_schedule_replace_neighbor
-    fn inner_add_or_schedule_replace_neighbor(
+    fn add_or_schedule_replace_neighbor(
+        &self,
         network: &mut PeerNetwork,
-        naddr: &NeighborAddress,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
         replacements: &mut NeighborReplacements,
     ) -> Result<(bool, Neighbor), net_error> {
-        let block_height = network.get_chain_view().burn_block_height;
-        let mut tx = network.peerdb_tx_begin()?;
-        let mut neighbor_from_handshake = Neighbor::from_handshake(
-            &mut tx,
-            preamble.peer_version,
-            preamble.network_id,
-            handshake,
-        )?;
+        let local_peer_str = format!("{:?}", network.get_local_peer());
+        let tx = network.peerdb_tx_begin()?;
+        let (mut neighbor_from_handshake, was_present) =
+            Neighbor::load_and_update(&tx, preamble.peer_version, preamble.network_id, handshake)?;
 
-        if Neighbor::from_neighbor_address(&mut tx, preamble.network_id, block_height, naddr)?
-            .is_some()
-        {
-            test_debug!("already know about {:?}", naddr);
+        if was_present {
+            test_debug!(
+                "{}: already know about neighbor {:?}",
+                &local_peer_str,
+                &neighbor_from_handshake.addr
+            );
             neighbor_from_handshake
-                .save_update(&mut tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
+                .save_update(&tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
             tx.commit()?;
 
             // seen this neighbor before
             return Ok((false, neighbor_from_handshake));
         }
 
-        debug!("new neighbor {:?}", &neighbor_from_handshake.addr);
+        debug!(
+            "{}: new neighbor {:?}",
+            &local_peer_str, &neighbor_from_handshake.addr
+        );
 
         // didn't know about this neighbor yet. Try to add it.
         let added =
-            neighbor_from_handshake.save(&mut tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
+            neighbor_from_handshake.save(&tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
 
         if added {
             // neighbor was new, and we had space to add it.
@@ -394,17 +382,13 @@ impl PeerDBNeighborWalk {
         // neighbor was new, but we don't have space to insert it.
         // find and record a neighbor it would replace.
         let replaced_neighbor_slot_opt =
-            Self::find_replaced_neighbor_slot(&mut tx, &neighbor_from_handshake.addr)?;
+            Self::find_replaced_neighbor_slot(&tx, &neighbor_from_handshake.addr)?;
         if let Some(slot) = replaced_neighbor_slot_opt {
-            // if this peer isn't allowed or denied, then consider
-            // replacing.  Otherwise, keep the local configuration's preference.
-            if !neighbor_from_handshake.is_denied() && !neighbor_from_handshake.is_allowed() {
-                replacements.add_neighbor(
-                    NeighborAddress::from_neighbor(&neighbor_from_handshake),
-                    neighbor_from_handshake.clone(),
-                    slot,
-                );
-            }
+            replacements.add_neighbor(
+                NeighborAddress::from_neighbor(&neighbor_from_handshake),
+                neighbor_from_handshake.clone(),
+                slot,
+            );
         }
 
         tx.commit()?;
@@ -414,7 +398,8 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements get_initial_walk_neighbors
-    fn inner_get_initial_walk_neighbors(
+    fn get_initial_walk_neighbors(
+        &self,
         network: &PeerNetwork,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error> {
@@ -435,7 +420,8 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements check_neighbor_denied
-    fn inner_check_neighbor_denied(
+    fn check_neighbor_denied(
+        &self,
         network: &PeerNetwork,
         nk: &NeighborKey,
     ) -> Result<(), net_error> {
@@ -457,7 +443,8 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements replace_neighbors
-    fn inner_replace_neighbors(
+    fn replace_neighbors(
+        &self,
         network: &mut PeerNetwork,
         replacements: &NeighborReplacements,
         result: &mut NeighborWalkResult,
@@ -465,7 +452,7 @@ impl PeerDBNeighborWalk {
         let network_id = network.bound_neighbor_key().network_id;
         let local_peer_str = format!("{:?}", network.get_local_peer());
 
-        let mut tx = network.peerdb_tx_begin()?;
+        let tx = network.peerdb_tx_begin()?;
         for (replaceable_naddr, slot) in replacements.iter_slots() {
             let replacement = match replacements.get_neighbor(replaceable_naddr) {
                 Some(n) => n,
@@ -474,22 +461,22 @@ impl PeerDBNeighborWalk {
                 }
             };
 
-            let replaced_opt = PeerDB::get_peer_at(&mut tx, network_id, *slot)?;
+            let replaced_opt = PeerDB::get_peer_at(&tx, network_id, *slot)?;
             if let Some(replaced) = replaced_opt {
-                if PeerDB::is_address_denied(&mut tx, &replacement.addr.addrbytes)? {
+                if PeerDB::is_address_denied(&tx, &replacement.addr.addrbytes)? {
                     debug!(
                         "{:?}: Will not replace {:?} with {:?} -- is denied",
                         local_peer_str, &replaced.addr, &replacement.addr
                     );
-                } else {
-                    debug!(
-                        "{:?}: Replace {:?} with {:?}",
-                        local_peer_str, &replaced.addr, &replacement.addr
-                    );
-
-                    PeerDB::insert_or_replace_peer(&mut tx, &replacement, *slot)?;
-                    result.add_replaced(replaced.addr.clone());
+                    continue;
                 }
+                debug!(
+                    "{:?}: Replace {:?} with {:?}",
+                    local_peer_str, &replaced.addr, &replacement.addr
+                );
+
+                PeerDB::insert_or_replace_peer(&tx, &replacement, *slot)?;
+                result.add_replaced(replaced.addr.clone());
             }
         }
         tx.commit()?;
@@ -497,41 +484,44 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements neighbor_from_handshake
-    fn inner_neighbor_from_handshake(
+    fn neighbor_from_handshake(
+        &self,
         network: &PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error> {
-        Neighbor::from_handshake(
+        Neighbor::load_and_update(
             &network.peerdb_conn(),
             preamble.peer_version,
             preamble.network_id,
             &data.handshake,
         )
+        .map(|(neighbor, _)| neighbor)
     }
 
     /// implements save_neighbor_from_handshake
-    fn inner_save_neighbor_from_handshake(
+    fn save_neighbor_from_handshake(
+        &self,
         network: &mut PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
     ) -> Result<Neighbor, net_error> {
-        let mut tx = network.peerdb_tx_begin()?;
-        let mut neighbor_from_handshake = Neighbor::from_handshake(
-            &mut tx,
+        let tx = network.peerdb_tx_begin()?;
+        let (mut neighbor_from_handshake, _) = Neighbor::load_and_update(
+            &tx,
             preamble.peer_version,
             preamble.network_id,
             &data.handshake,
         )?;
-        neighbor_from_handshake
-            .save_update(&mut tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
+        neighbor_from_handshake.save_update(&tx, db_data.map(|x| x.smart_contracts.as_slice()))?;
         tx.commit()?;
         Ok(neighbor_from_handshake)
     }
 
     /// implements update_neighbor
-    fn inner_update_neighbor(
+    fn update_neighbor(
+        &self,
         network: &mut PeerNetwork,
         mut cur_neighbor: Neighbor,
         new_data: Option<&HandshakeAcceptData>,
@@ -551,102 +541,7 @@ impl PeerDBNeighborWalk {
     }
 
     /// implements get_asn_count
-    fn inner_get_asn_count(network: &PeerNetwork, asn: u32) -> u64 {
-        PeerDB::asn_count(network.peerdb_conn(), asn).unwrap_or(1)
-    }
-}
-
-impl NeighborWalkDB for PeerDBNeighborWalk {
-    fn get_fresh_random_neighbors(
-        &self,
-        network: &PeerNetwork,
-        num_neighbors: u64,
-    ) -> Result<Vec<Neighbor>, net_error> {
-        Self::inner_get_fresh_random_neighbors(network, num_neighbors)
-    }
-
-    fn get_initial_walk_neighbors(
-        &self,
-        network: &PeerNetwork,
-        ibd: bool,
-    ) -> Result<Vec<Neighbor>, net_error> {
-        Self::inner_get_initial_walk_neighbors(network, ibd)
-    }
-
-    fn lookup_stale_neighbors(
-        &self,
-        network: &PeerNetwork,
-        addrs: &Vec<NeighborAddress>,
-    ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
-        Self::inner_lookup_stale_neighbors(network, addrs)
-    }
-
-    fn add_or_schedule_replace_neighbor(
-        &self,
-        network: &mut PeerNetwork,
-        naddr: &NeighborAddress,
-        preamble: &Preamble,
-        handshake: &HandshakeData,
-        db_data: Option<&StackerDBHandshakeData>,
-        replacements: &mut NeighborReplacements,
-    ) -> Result<(bool, Neighbor), net_error> {
-        Self::inner_add_or_schedule_replace_neighbor(
-            network,
-            naddr,
-            preamble,
-            handshake,
-            db_data,
-            replacements,
-        )
-    }
-
-    fn check_neighbor_denied(
-        &self,
-        network: &PeerNetwork,
-        nk: &NeighborKey,
-    ) -> Result<(), net_error> {
-        Self::inner_check_neighbor_denied(network, nk)
-    }
-
-    fn replace_neighbors(
-        &self,
-        network: &mut PeerNetwork,
-        replacements: &NeighborReplacements,
-        result: &mut NeighborWalkResult,
-    ) -> Result<(), net_error> {
-        Self::inner_replace_neighbors(network, replacements, result)
-    }
-
-    fn neighbor_from_handshake(
-        &self,
-        network: &PeerNetwork,
-        preamble: &Preamble,
-        data: &HandshakeAcceptData,
-    ) -> Result<Neighbor, net_error> {
-        Self::inner_neighbor_from_handshake(network, preamble, data)
-    }
-
-    fn save_neighbor_from_handshake(
-        &self,
-        network: &mut PeerNetwork,
-        preamble: &Preamble,
-        data: &HandshakeAcceptData,
-        db_data: Option<&StackerDBHandshakeData>,
-    ) -> Result<Neighbor, net_error> {
-        Self::inner_save_neighbor_from_handshake(network, preamble, data, db_data)
-    }
-
-    fn update_neighbor(
-        &self,
-        network: &mut PeerNetwork,
-        cur_neighbor: Neighbor,
-        new_data: Option<&HandshakeAcceptData>,
-        new_db_data: Option<&StackerDBHandshakeData>,
-    ) -> Result<Neighbor, net_error> {
-        Self::inner_update_neighbor(network, cur_neighbor, new_data, new_db_data)
-    }
-
     fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64 {
-        Self::inner_get_asn_count(network, asn)
+        PeerDB::asn_count(network.peerdb_conn(), asn).unwrap_or(1)
     }
 }
