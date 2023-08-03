@@ -2030,8 +2030,7 @@ impl PartialEq for Neighbor {
     /// Neighbor equality is based on having the same address and public key.
     /// Everything else can change at runtime
     fn eq(&self, other: &Neighbor) -> bool {
-        self.addr == other.addr
-            && self.public_key == other.public_key
+        self.addr == other.addr && self.public_key == other.public_key
     }
 }
 
