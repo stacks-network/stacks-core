@@ -19,6 +19,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   data potentially OR the node is not caught up to its peers). This endpoint can be 
   accessed at `v2/health`.
 - New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
+- Message definitions and codecs for Stacker DB, a replicated off-chain DB
+  hosted by subscribed Stacks nodes and controlled by smart contracts
 
 ### Fixed
 
@@ -26,12 +28,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   a result of `(err none)` if the top-level code of the smart contract contained
   runtime error and include details about the error in the `vm_error` field of
   the receipt. Fixes issues #3154, #3328.
-
 - Added config setting `burnchain.wallet_name` which addresses blank wallets no 
   longer being created by default in recent bitcoin versions. Fixes issue #3596
-
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
-
 - The node now gracefully shuts down even if it is in the middle of a handshake with 
   bitcoind. Fixes issue #3734.
 
