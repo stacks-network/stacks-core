@@ -1136,7 +1136,7 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
-                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    handshake_timeout: opts.handshake_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
