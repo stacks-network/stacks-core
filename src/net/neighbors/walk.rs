@@ -600,6 +600,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // if cur_neighbor is _us_, then grab a different neighbor and try again.
         // Note that we compare the Hash160s here because `::from_node_public_key()` will return
         // the same data regardless of whether or not the public key argument is compressed.
+        // `cur_neighbor.public_key` is always compressed.
         if Hash160::from_node_public_key(&self.cur_neighbor.public_key)
             == Hash160::from_node_public_key(&Secp256k1PublicKey::from_private(
                 &network.get_local_peer().private_key,
