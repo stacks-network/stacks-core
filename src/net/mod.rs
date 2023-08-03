@@ -2028,7 +2028,9 @@ pub struct Neighbor {
 
 impl Neighbor {
     pub fn is_allowed(&self) -> bool {
-        self.allowed < 0 || (self.allowed as u64) > get_epoch_time_secs()
+        let now = get_epoch_time_secs();
+        (self.allowed < 0 || (self.allowed as u64) > now)
+            && !(self.denied < 0 || (self.denied as u64) > now)
     }
 
     pub fn is_always_allowed(&self) -> bool {
@@ -2036,7 +2038,9 @@ impl Neighbor {
     }
 
     pub fn is_denied(&self) -> bool {
-        self.denied < 0 || (self.denied as u64) > get_epoch_time_secs()
+        let now = get_epoch_time_secs();
+        !(self.allowed < 0 || (self.allowed as u64) > now)
+            && (self.denied < 0 || (self.denied as u64) > now)
     }
 }
 
