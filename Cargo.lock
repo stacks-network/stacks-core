@@ -378,50 +378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blockstack-core"
-version = "0.0.1"
-dependencies = [
- "assert-json-diff",
- "chrono",
- "clarity",
- "criterion",
- "curve25519-dalek",
- "ed25519-dalek",
- "integer-sqrt",
- "lazy_static",
- "libc",
- "mio 0.6.23",
- "nix",
- "percent-encoding",
- "pox-locking",
- "prometheus",
- "rand 0.7.3",
- "rand_chacha 0.2.2",
- "regex",
- "ripemd",
- "rstest 0.17.0",
- "rstest_reuse 0.5.0",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2 0.10.6",
- "sha3",
- "siphasher",
- "slog",
- "slog-json",
- "slog-term",
- "stacks-common",
- "stdext",
- "stx-genesis",
- "time 0.2.27",
- "url",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2700,7 +2656,6 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
- "blockstack-core",
  "chrono",
  "clarity",
  "http-types",
@@ -2717,10 +2672,55 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "stackslib",
  "stx-genesis",
  "tokio",
  "toml",
  "warp",
+]
+
+[[package]]
+name = "stackslib"
+version = "0.0.1"
+dependencies = [
+ "assert-json-diff",
+ "chrono",
+ "clarity",
+ "criterion",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "integer-sqrt",
+ "lazy_static",
+ "libc",
+ "mio 0.6.23",
+ "nix",
+ "percent-encoding",
+ "pox-locking",
+ "prometheus",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "regex",
+ "ripemd",
+ "rstest 0.17.0",
+ "rstest_reuse 0.5.0",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.10.6",
+ "sha3",
+ "siphasher",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "stacks-common",
+ "stdext",
+ "stx-genesis",
+ "time 0.2.27",
+ "url",
+ "winapi 0.3.9",
 ]
 
 [[package]]
