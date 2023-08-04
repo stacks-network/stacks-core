@@ -33,33 +33,33 @@
 /// to be temporary, we assume that all StackerDB instances will receive the latest state in finite time.
 /// Beyond this, it makes no guarantees about how quickly a write will materialize on a given replica.
 ///
-/// The StackerDB schema is chunk-oriented.  Each StackerDB contains a fixed number of fixed-size
-/// chunks.  A `write` to a StackerDB is the act of replacing one chunk's data with new data, and a
-/// `read` on a StackerDB is the act of loading one chunk from the node's local replica.  Reading
-/// and writing a single chunk on one node is atomic.  StackerDB replication proceeds in a
+/// The StackerDB schema is chunk-oriented.  Each StackerDB contains a fixed number of bound-size
+/// _slots_, each of which contain one _chunk_.  Slots are array-indexed, and a slot may have zero
+/// or one chunk.
+///
+/// A `write` to a StackerDB is the act of replacing one slot's chunk with new data, and a
+/// `read` on a StackerDB is the act of loading one slot's chunk from the node's local replica.  Reading
+/// and writing a single slot on one node is atomic.  StackerDB replication proceeds in a
 /// store-and-forward manner -- newly-discovered chunks are stored to the node's local replica and
 /// broadcast to a subset of neighbors who also replicate the given StackerDB.
 ///
-/// Each chunk has an associated Lamport clock, and an associated public key hash used to
-/// authenticate writes.  The Lamport clock is used to identify the latest version of a chunk --
-/// a node will replace an existing but stale copy of a chunk with a newly-downloaded chunk if its
-/// Lamport clock has a strictly higher value.  The chunk's metadata -- its ID, Lamport clock, and
-/// data hash -- must be signed by the chunk's public key hash's associated private key in order to
+/// Each slot has an associated Lamport clock, and an associated public key hash used to
+/// authenticate writes.  The Lamport clock is used to identify the latest version of a slot's
+/// chunk -- a node will replace an existing but stale copy of a chunk with a new chunk if its
+/// Lamport clock has a strictly higher value.  The slot's metadata -- its ID, Lamport clock, and
+/// data hash -- must be signed by the slot's public key hash's associated private key in order to
 /// be stored.  The chunks themselves are ordered byte sequences with no mandatory internal
 /// structure.
 ///
-/// StackerDB state is ephemeral.  Its contents are dropped at the start of every reward cycle.
-/// Endpoints must re-replicate data to the StackerDB if they wish to keep it online.  In doing so,
-/// the set of StackerDBs is self-administrating -- a node will only store state for active
-/// StackerDBs.
+/// StackerDB state is ephemeral.  Chunk eviction is controlled by the smart contract.  At every
+/// Bitcoin block, the node queries the smart contract for a list of slots to clear.
 ///
 /// ## Control Plane
 ///
-/// The smart contract to which a StackerDB is bound controls how many chunks the DB has, who can
-/// write to which chunks (identified by public key hash), how big a chunk is, and how often a
-/// chunk can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
-/// in order to configure the database.  The act of re-configuring the database
-/// is also the act of dropping and reinstantiating it.
+/// The smart contract to which a StackerDB is bound controls how many slots the DB has, who can
+/// write to which slots (identified by public key hash), how big a slot is, and how often a
+/// slot can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
+/// in order to configure the database.
 ///
 /// Applications that employ StackerDBs would deploy one or more smart contracts that list out
 /// which users can store data to the StackerDB replica, and how much space they get.
@@ -75,16 +75,16 @@
 /// stores the list of smart contracts in its `PeerDB` as part of the network frontier state.  In
 /// doing so, nodes eventually learn of all of the StackerDBs replicated by all other nodes.  To
 /// bound the size of this state, the protocol mandates that a node can only replicate up to 256
-/// StackerDBs.  The handshake-handling code happens in src::net::handle_handshake().
+/// StackerDBs.  The handshake-handling code happens in net::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
 /// that claim to have copies.  This set, called the "DB neighbors", is distinct from the set
 /// of neighbors the node uses to replicate blocks and transactions.  It then connects
 /// to these nodes with a `Handshake` / `StackerDBHandshakeAccept` exchange (if the neighbor walk
-/// has not done so already), and proceeds to query each DB's chunk inventories.
+/// has not done so already), and proceeds to query each DB's inventories.
 ///
-/// The chunk inventory is simply a vector of all of the remote peers' chunks' versions.
-/// Once the node has received all chunk inventories from its neighbors, it schedules them for
+/// The DB inventory is simply a vector of all of the remote peers' slots' versions.
+/// Once the node has received all DB inventories from its neighbors, it schedules them for
 /// download by prioritizing them by newest-first, and then by rarest-first, in order to ensure
 /// that the latest, least-replicated data is downloaded first.
 ///
@@ -146,10 +146,10 @@ pub struct StackerDBConfig {
     /// maximum chunk size
     pub chunk_size: u64,
     /// number of chunks in this DB.  Cannot be bigger than STACERDB_INV_MAX.
-    pub num_chunks: u64,
-    /// minimum wall-clock time between writes to the same chunk.
+    pub num_slots: u64,
+    /// minimum wall-clock time between writes to the same slot.
     pub write_freq: u64,
-    /// maximum number of times a chunk may be written to during a reward cycle.
+    /// maximum number of times a slot may be written to during a reward cycle.
     pub max_writes: u32,
     /// hint for some initial peers that have replicas of this DB
     pub hint_peers: Vec<NeighborKey>,
@@ -166,7 +166,7 @@ impl StackerDBConfig {
             max_writes: u32::MAX,
             hint_peers: vec![],
             num_neighbors: 8,
-            num_chunks: STACKERDB_INV_MAX.into(),
+            num_slots: STACKERDB_INV_MAX.into(),
         }
     }
 }
@@ -187,16 +187,14 @@ pub struct StackerDBTx<'a> {
     config: StackerDBConfig,
 }
 
-/// Chunk metadata from the DB.
+/// Slot metadata from the DB.
 /// This is derived state from a StackerDBChunkData message.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ChunkMetadata {
-    /// Reward cycle identifier
-    pub rc_consensus_hash: ConsensusHash,
+pub struct SlotMetadata {
     /// Chunk identifier (unique for each DB instance)
-    pub chunk_id: u32,
+    pub slot_id: u32,
     /// Chunk version (a lamport clock)
-    pub chunk_version: u32,
+    pub slot_version: u32,
     /// data hash
     pub data_hash: Sha512Trunc256Sum,
     /// signature over the above
