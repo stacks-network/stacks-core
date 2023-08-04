@@ -23,7 +23,7 @@ use std::path::Path;
 
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{
-    ChunkMetadata, StackerDB, StackerDBConfig, StackerDBTx, STACKERDB_INV_MAX,
+    SlotMetadata, StackerDB, StackerDBConfig, StackerDBTx, STACKERDB_INV_MAX,
 };
 use crate::net::Error as net_error;
 use crate::net::{
@@ -54,21 +54,21 @@ const STACKER_DB_SCHEMA: &'static [&'static str] = &[
     "#,
     r#"
     CREATE TABLE databases(
-        -- table name
-        table_name TEXT NOT NULL,
-        smart_contract_id TEXT NOT NULL,
-        PRIMARY KEY(table_name)
+        -- smart contract for this stackerdb
+        stackerdb_id INTEGER NOT NULL,
+        smart_contract_id TEXT UNIQUE NOT NULL,
+        PRIMARY KEY(stackerdb_id)
     );
     "#,
-];
-
-const CHUNKS_DB_TABLE_BODY: &'static str = r#"
-    (
-        -- reward cycle in which this chunk exists.
-        -- this is a consensus hash of the start of a reward cycle
-        rc_consensus_hash TEXT NOT NULL,
-        -- chunk ID
-        chunk_id INTEGER NOT NULL,
+    r#"
+    CREATE INDEX on_database_contract_names ON databases(smart_contract_id);
+    "#,
+    r#"
+    CREATE TABLE chunks(
+        -- associated stacker DB
+        stackerdb_id INTEGER NOT NULL,
+        -- slot ID
+        slot_id INTEGER NOT NULL,
         -- lamport clock of the chunk.
         version INTEGER NOT NULL,
         -- hash of the data to be stored
@@ -84,28 +84,28 @@ const CHUNKS_DB_TABLE_BODY: &'static str = r#"
         -- UNIX timestamp when the chunk was written.
         write_time INTEGER NOT NULL,
         
-        PRIMARY KEY(rc_consensus_hash,chunk_id)
+        PRIMARY KEY(stackerdb_id,slot_id),
+        FOREIGN KEY(stackerdb_id) REFERENCES databases(stackerdb_id) ON DELETE CASCADE
     );
-    "#;
-
-const CHUNKS_DB_INDEX_BODIES: &'static [(&'static str, &'static str)] =
-    &[("chunk_versions", "(rc_consensus_hash,chunk_id,version)")];
+    "#,
+    r#"
+    CREATE INDEX on_stacker_db_slots ON chunks(stackerdb_id,slot_id,version);
+    "#,
+];
 
 pub const NO_VERSION: i64 = 0;
 
 /// Private struct for loading the data we need to validate an incoming chunk
-pub struct ChunkValidation {
+pub struct SlotValidation {
     pub stacker: StacksAddress,
     pub version: u32,
     pub write_time: u64,
 }
 
-impl FromRow<ChunkMetadata> for ChunkMetadata {
-    fn from_row<'a>(row: &'a Row) -> Result<ChunkMetadata, db_error> {
-        let rc_consensus_hash: ConsensusHash =
-            ConsensusHash::from_column(row, "rc_consensus_hash")?;
-        let chunk_id: u32 = row.get_unwrap("chunk_id");
-        let chunk_version: u32 = row.get_unwrap("version");
+impl FromRow<SlotMetadata> for SlotMetadata {
+    fn from_row<'a>(row: &'a Row) -> Result<SlotMetadata, db_error> {
+        let slot_id: u32 = row.get_unwrap("slot_id");
+        let slot_version: u32 = row.get_unwrap("version");
         let data_hash_str: String = row.get_unwrap("data_hash");
         let data_hash =
             Sha512Trunc256Sum::from_hex(&data_hash_str).map_err(|_| db_error::ParseError)?;
@@ -113,18 +113,17 @@ impl FromRow<ChunkMetadata> for ChunkMetadata {
         let signature =
             MessageSignature::from_hex(&message_sig_str).map_err(|_| db_error::ParseError)?;
 
-        Ok(ChunkMetadata {
-            rc_consensus_hash,
-            chunk_id,
-            chunk_version,
+        Ok(SlotMetadata {
+            slot_id,
+            slot_version,
             data_hash,
             signature,
         })
     }
 }
 
-impl FromRow<ChunkValidation> for ChunkValidation {
-    fn from_row<'a>(row: &'a Row) -> Result<ChunkValidation, db_error> {
+impl FromRow<SlotValidation> for SlotValidation {
+    fn from_row<'a>(row: &'a Row) -> Result<SlotValidation, db_error> {
         let stacker = StacksAddress::from_column(row, "stacker")?;
         let version: u32 = row.get_unwrap("version");
         let write_time_i64: i64 = row.get_unwrap("write_time");
@@ -133,7 +132,7 @@ impl FromRow<ChunkValidation> for ChunkValidation {
         }
         let write_time = write_time_i64 as u64;
 
-        Ok(ChunkValidation {
+        Ok(SlotValidation {
             stacker,
             version,
             write_time,
@@ -143,57 +142,53 @@ impl FromRow<ChunkValidation> for ChunkValidation {
 
 impl FromRow<StackerDBChunkData> for StackerDBChunkData {
     fn from_row<'a>(row: &'a Row) -> Result<StackerDBChunkData, db_error> {
-        let chunk_id: u32 = row.get_unwrap("chunk_id");
-        let chunk_version: u32 = row.get_unwrap("version");
+        let slot_id: u32 = row.get_unwrap("slot_id");
+        let slot_version: u32 = row.get_unwrap("version");
         let data: Vec<u8> = row.get_unwrap("data");
         let message_sig_str: String = row.get_unwrap("signature");
         let sig = MessageSignature::from_hex(&message_sig_str).map_err(|_| db_error::ParseError)?;
 
         Ok(StackerDBChunkData {
-            chunk_id,
-            chunk_version,
+            slot_id,
+            slot_version,
             sig,
             data,
         })
     }
 }
 
-/// Convert a smart contract name to a table name
-pub fn stackerdb_table(addr: &ContractId) -> String {
-    let normalized_name = format!("{}", &addr)
-        .replace("-", "\\x2d")
-        .replace("_", "\\x5f")
-        .replace(".", "_");
-
-    format!("stackerdb_{}", normalized_name)
+/// Get the local numeric ID of a stacker DB.
+/// Returns Err(NoSuchStackerDB(..)) if it doesn't exist
+fn inner_get_stackerdb_id(conn: &DBConn, smart_contract: &ContractId) -> Result<i64, net_error> {
+    let sql = "SELECT rowid FROM databases WHERE smart_contract_id = ?1";
+    let args: &[&dyn ToSql] = &[&smart_contract.to_string()];
+    Ok(query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))?)
 }
 
 /// Load up chunk metadata from the database, given the primary key.
 /// Inner method body for related methods in both the DB instance and the transaction instance.
-fn inner_get_chunk_metadata(
+fn inner_get_slot_metadata(
     conn: &DBConn,
     smart_contract: &ContractId,
-    rc_consensus_hash: &ConsensusHash,
-    chunk_id: u32,
-) -> Result<Option<ChunkMetadata>, net_error> {
-    let sql = format!("SELECT chunk_id,rc_consensus_hash,version,data_hash,signature FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2", stackerdb_table(smart_contract));
-    let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
+    slot_id: u32,
+) -> Result<Option<SlotMetadata>, net_error> {
+    let stackerdb_id = inner_get_stackerdb_id(conn, smart_contract)?;
+    let sql = "SELECT slot_id,version,data_hash,signature FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+    let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
     query_row(conn, &sql, args).map_err(|e| e.into())
 }
 
 /// Load up validation information from the database, given the primary key
 /// Inner method body for related methods in both the DB instance and the transaction instance.
-fn inner_get_chunk_validation(
+fn inner_get_slot_validation(
     conn: &DBConn,
     smart_contract: &ContractId,
-    rc_consensus_hash: &ConsensusHash,
-    chunk_id: u32,
-) -> Result<Option<ChunkValidation>, net_error> {
-    let sql = format!(
-        "SELECT stacker,write_time,version FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
-        stackerdb_table(smart_contract)
-    );
-    let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
+    slot_id: u32,
+) -> Result<Option<SlotValidation>, net_error> {
+    let stackerdb_id = inner_get_stackerdb_id(conn, smart_contract)?;
+    let sql =
+        "SELECT stacker,write_time,version FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+    let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
     query_row(conn, &sql, args).map_err(|e| e.into())
 }
 
@@ -206,90 +201,60 @@ impl<'a> StackerDBTx<'a> {
         &self.sql_tx
     }
 
-    /// Create a stacker DB table and its indexes.
+    /// Delete a stacker DB table and its contents.
     /// Idempotent.
-    pub fn create_stackerdb(&self, smart_contract: &ContractId) -> Result<(), net_error> {
-        let qry = format!(
-            "CREATE TABLE IF NOT EXISTS {}{}",
-            stackerdb_table(smart_contract),
-            CHUNKS_DB_TABLE_BODY
-        );
-        let mut stmt = self.sql_tx.prepare(&qry)?;
-        stmt.execute(NO_PARAMS)?;
-
-        for (index_name, index_body) in CHUNKS_DB_INDEX_BODIES.iter() {
-            let qry = format!(
-                "CREATE INDEX IF NOT EXISTS index_{}_{} ON {}{}",
-                stackerdb_table(smart_contract),
-                index_name,
-                stackerdb_table(smart_contract),
-                index_body
-            );
-            let mut stmt = self.sql_tx.prepare(&qry)?;
-            stmt.execute(NO_PARAMS)?;
-        }
-
-        let qry = "REPLACE INTO databases (table_name,smart_contract_id) VALUES (?1,?2)";
-        let args: &[&dyn ToSql] = &[&stackerdb_table(smart_contract), &smart_contract];
-        let mut stmt = self.sql_tx.prepare(&qry)?;
+    pub fn delete_stackerdb(&self, smart_contract_id: &ContractId) -> Result<(), net_error> {
+        let qry = "DELETE FROM databases WHERE smart_contract_id = ?1";
+        let args: &[&dyn ToSql] = &[&smart_contract_id.to_string()];
+        let mut stmt = self.sql_tx.prepare(qry)?;
         stmt.execute(args)?;
-
-        Ok(())
-    }
-
-    /// Delete a stacker DB table and its indexes.
-    /// Idempotent.
-    pub fn delete_stackerdb(&self, smart_contract: &ContractId) -> Result<(), net_error> {
-        let qry = "DELETE FROM databases WHERE table_name = ?1";
-        let mut stmt = self.sql_tx.prepare(&qry)?;
-        stmt.execute(&[&stackerdb_table(smart_contract)])?;
-
-        let qry = format!("DROP TABLE IF EXISTS {}", stackerdb_table(smart_contract));
-        let mut stmt = self.sql_tx.prepare(&qry)?;
-        stmt.execute(NO_PARAMS)?;
-
-        for (index_name, _) in CHUNKS_DB_INDEX_BODIES.iter() {
-            let qry = format!(
-                "DROP INDEX IF EXISTS index_{}_{}",
-                stackerdb_table(smart_contract),
-                index_name
-            );
-            let mut stmt = self.sql_tx.prepare(&qry)?;
-            stmt.execute(NO_PARAMS)?;
-        }
-
         Ok(())
     }
 
     /// List all stacker DB smart contracts we have available
-    pub fn get_stackerdbs(&self) -> Result<Vec<ContractId>, net_error> {
-        let sql = "SELECT smart_contract_id FROM databases ORDER BY table_name";
+    pub fn get_stackerdb_contract_ids(&self) -> Result<Vec<ContractId>, net_error> {
+        let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
         query_rows(&self.conn(), sql, NO_PARAMS).map_err(|e| e.into())
+    }
+
+    /// Get the Stacker DB ID for a smart contract
+    pub fn get_stackerdb_id(&self, smart_contract: &ContractId) -> Result<i64, net_error> {
+        inner_get_stackerdb_id(&self.conn(), smart_contract)
     }
 
     /// Set up a database's storage slots.
     /// The slots must be in a deterministic order, since they are used to determine the chunk ID
     /// (and thus the key used to authenticate them)
-    pub fn prepare_stackerdb_slots(
+    pub fn create_stackerdb(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
         slots: &[(StacksAddress, u64)],
     ) -> Result<(), net_error> {
         if slots.len() > (STACKERDB_INV_MAX as usize) {
             return Err(net_error::ArrayTooLong);
         }
 
-        let qry = format!("REPLACE INTO {} (rc_consensus_hash,stacker,chunk_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", stackerdb_table(smart_contract));
+        if self.get_stackerdb_id(smart_contract).is_ok() {
+            return Err(net_error::StackerDBExists(smart_contract.clone()));
+        }
+
+        let qry = "INSERT OR REPLACE INTO databases (smart_contract_id) VALUES (?1)";
         let mut stmt = self.sql_tx.prepare(&qry)?;
-        let mut chunk_id = 0u32;
+        let args: &[&dyn ToSql] = &[&smart_contract.to_string()];
+        stmt.execute(args)?;
+
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+
+        let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,stacker,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+        let mut stmt = self.sql_tx.prepare(&qry)?;
+        let mut slot_id = 0u32;
 
         for (principal, slot_count) in slots.iter() {
             for _ in 0..*slot_count {
                 let args: &[&dyn ToSql] = &[
-                    rc_consensus_hash,
+                    &stackerdb_id,
                     &principal.to_string(),
-                    &chunk_id,
+                    &slot_id,
                     &NO_VERSION,
                     &0,
                     &vec![],
@@ -298,48 +263,42 @@ impl<'a> StackerDBTx<'a> {
                 ];
                 stmt.execute(args)?;
 
-                chunk_id += 1;
+                slot_id += 1;
             }
         }
 
         Ok(())
     }
 
-    /// Clear a database's slots and its data
-    pub fn clear_stackerdb_slots(
-        &self,
-        smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-    ) -> Result<(), net_error> {
-        let qry = format!(
-            "DELETE FROM {} WHERE rc_consensus_hash = ?1",
-            stackerdb_table(smart_contract)
-        );
-        let mut stmt = self.sql_tx.prepare(&qry)?;
+    /// Clear a database's slots and its data.
+    /// Idempotent.
+    /// Fails if the DB doesn't exist
+    pub fn clear_stackerdb_slots(&self, smart_contract: &ContractId) -> Result<(), net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
 
-        let args: &[&dyn ToSql] = &[rc_consensus_hash];
+        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
+        let args: &[&dyn ToSql] = &[&stackerdb_id];
+        let mut stmt = self.sql_tx.prepare(&qry)?;
         stmt.execute(args)?;
         Ok(())
     }
 
-    /// Get the chunk metadata
-    pub fn get_chunk_metadata(
+    /// Get the slot metadata
+    pub fn get_slot_metadata(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-    ) -> Result<Option<ChunkMetadata>, net_error> {
-        inner_get_chunk_metadata(self.conn(), smart_contract, rc_consensus_hash, chunk_id)
+        slot_id: u32,
+    ) -> Result<Option<SlotMetadata>, net_error> {
+        inner_get_slot_metadata(self.conn(), smart_contract, slot_id)
     }
 
     /// Get a chunk's validation data
-    pub fn get_chunk_validation(
+    pub fn get_slot_validation(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-    ) -> Result<Option<ChunkValidation>, net_error> {
-        inner_get_chunk_validation(self.conn(), smart_contract, rc_consensus_hash, chunk_id)
+        slot_id: u32,
+    ) -> Result<Option<SlotValidation>, net_error> {
+        inner_get_slot_validation(self.conn(), smart_contract, slot_id)
     }
 
     /// Insert a chunk into the DB.
@@ -348,20 +307,21 @@ impl<'a> StackerDBTx<'a> {
     fn insert_chunk(
         &self,
         smart_contract: &ContractId,
-        chunk_desc: &ChunkMetadata,
+        slot_desc: &SlotMetadata,
         chunk: &[u8],
     ) -> Result<(), net_error> {
-        let sql = format!("UPDATE {} SET version = ?1, data_hash = ?2, signature = ?3, data = ?4, write_time = ?5 WHERE rc_consensus_hash = ?6 AND chunk_id = ?7", stackerdb_table(smart_contract));
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let sql = "UPDATE chunks SET version = ?1, data_hash = ?2, signature = ?3, data = ?4, write_time = ?5 WHERE stackerdb_id = ?6 AND slot_id = ?7";
         let mut stmt = self.sql_tx.prepare(&sql)?;
 
         let args: &[&dyn ToSql] = &[
-            &chunk_desc.chunk_version,
+            &slot_desc.slot_version,
             &Sha512Trunc256Sum::from_data(chunk),
-            &chunk_desc.signature,
+            &slot_desc.signature,
             &chunk,
             &u64_to_sql(get_epoch_time_secs())?,
-            &chunk_desc.rc_consensus_hash,
-            &chunk_desc.chunk_id,
+            &stackerdb_id,
+            &slot_desc.slot_id,
         ];
 
         stmt.execute(args)?;
@@ -373,44 +333,40 @@ impl<'a> StackerDBTx<'a> {
     pub fn try_replace_chunk(
         &self,
         smart_contract: &ContractId,
-        chunk_desc: &ChunkMetadata,
+        slot_desc: &SlotMetadata,
         chunk: &[u8],
     ) -> Result<(), net_error> {
-        let chunk_validation = self
-            .get_chunk_validation(
-                smart_contract,
-                &chunk_desc.rc_consensus_hash,
-                chunk_desc.chunk_id,
-            )?
-            .ok_or(net_error::NoSuchChunk(
+        let slot_validation = self
+            .get_slot_validation(smart_contract, slot_desc.slot_id)?
+            .ok_or(net_error::NoSuchSlot(
                 smart_contract.clone(),
-                chunk_desc.chunk_id,
+                slot_desc.slot_id,
             ))?;
 
-        if !chunk_desc.verify(&chunk_validation.stacker)? {
-            return Err(net_error::BadChunkSigner(
-                chunk_validation.stacker,
-                chunk_desc.chunk_id,
+        if !slot_desc.verify(&slot_validation.stacker)? {
+            return Err(net_error::BadSlotSigner(
+                slot_validation.stacker,
+                slot_desc.slot_id,
             ));
         }
-        if chunk_desc.chunk_version <= chunk_validation.version {
+        if slot_desc.slot_version <= slot_validation.version {
             return Err(net_error::StaleChunk(
-                chunk_validation.version,
-                chunk_desc.chunk_version,
+                slot_validation.version,
+                slot_desc.slot_version,
             ));
         }
-        if chunk_desc.chunk_version > self.config.max_writes {
-            return Err(net_error::TooManyChunkWrites(
+        if slot_desc.slot_version > self.config.max_writes {
+            return Err(net_error::TooManySlotWrites(
                 self.config.max_writes,
-                chunk_validation.version,
+                slot_validation.version,
             ));
         }
-        if chunk_validation.write_time + self.config.write_freq >= get_epoch_time_secs() {
-            return Err(net_error::TooFrequentChunkWrites(
-                chunk_validation.write_time + self.config.write_freq,
+        if slot_validation.write_time + self.config.write_freq >= get_epoch_time_secs() {
+            return Err(net_error::TooFrequentSlotWrites(
+                slot_validation.write_time + self.config.write_freq,
             ));
         }
-        self.insert_chunk(smart_contract, chunk_desc, chunk)
+        self.insert_chunk(smart_contract, slot_desc, chunk)
     }
 }
 
@@ -489,87 +445,81 @@ impl StackerDB {
         Ok(StackerDBTx { sql_tx, config })
     }
 
+    /// Get the Stacker DB ID for a smart contract
+    pub fn get_stackerdb_id(&self, smart_contract: &ContractId) -> Result<i64, net_error> {
+        inner_get_stackerdb_id(&self.conn, smart_contract)
+    }
+
     /// List all stacker DB smart contracts we have available
-    pub fn get_stackerdbs(&self) -> Result<Vec<ContractId>, net_error> {
-        let sql = "SELECT smart_contract_id FROM databases ORDER BY table_name";
+    pub fn get_stackerdb_contract_ids(&self) -> Result<Vec<ContractId>, net_error> {
+        let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
         query_rows(&self.conn, sql, NO_PARAMS).map_err(|e| e.into())
     }
 
-    /// Get the principal who signs a particular chunk in a particular stacker DB
-    pub fn get_chunk_signer(
+    /// Get the principal who signs a particular slot in a particular stacker DB.
+    /// Returns Ok(Some(addr)) if this slot exists in the DB
+    /// Returns Ok(None) if the slot does not exist
+    /// Returns Err(..) if the DB doesn't exist of some other DB error happens
+    pub fn get_slot_signer(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
+        slot_id: u32,
     ) -> Result<Option<StacksAddress>, net_error> {
-        let sql = &format!(
-            "SELECT stacker FROM {} WHERE rc_consensus_hash = ?1 AND chunk_id = ?2",
-            stackerdb_table(smart_contract)
-        );
-        let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let sql = "SELECT stacker FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
         query_row(&self.conn, &sql, args).map_err(|e| e.into())
     }
 
-    /// Get the chunk metadata
-    pub fn get_chunk_metadata(
+    /// Get the slot metadata
+    pub fn get_slot_metadata(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-    ) -> Result<Option<ChunkMetadata>, net_error> {
-        inner_get_chunk_metadata(&self.conn, smart_contract, rc_consensus_hash, chunk_id)
+        slot_id: u32,
+    ) -> Result<Option<SlotMetadata>, net_error> {
+        inner_get_slot_metadata(&self.conn, smart_contract, slot_id)
     }
 
-    /// Get a chunk's validation data
-    pub fn get_chunk_validation(
+    /// Get a slot's validation data
+    pub fn get_slot_validation(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-    ) -> Result<Option<ChunkValidation>, net_error> {
-        inner_get_chunk_validation(&self.conn, smart_contract, rc_consensus_hash, chunk_id)
+        slot_id: u32,
+    ) -> Result<Option<SlotValidation>, net_error> {
+        inner_get_slot_validation(&self.conn, smart_contract, slot_id)
     }
 
-    /// Get the list of chunk ID versions for a given DB instance at a given reward cycle
-    pub fn get_chunk_versions(
-        &self,
-        smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<u32>, net_error> {
-        let sql = format!(
-            "SELECT version FROM {} WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
-            stackerdb_table(smart_contract)
-        );
-        let args: &[&dyn ToSql] = &[rc_consensus_hash];
+    /// Get the list of slot ID versions for a given DB instance at a given reward cycle
+    pub fn get_slot_versions(&self, smart_contract: &ContractId) -> Result<Vec<u32>, net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let sql = "SELECT version FROM chunks WHERE stackerdb_id = ?1 ORDER BY slot_id";
+        let args: &[&dyn ToSql] = &[&stackerdb_id];
         query_rows(&self.conn, &sql, args).map_err(|e| e.into())
     }
 
-    /// Get the list of chunk ID write timestamps for a given DB instance at a given reward cycle
-    pub fn get_chunk_write_timestamps(
+    /// Get the list of slot write timestamps for a given DB instance at a given reward cycle
+    pub fn get_slot_write_timestamps(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<u64>, net_error> {
-        let sql = format!(
-            "SELECT write_time FROM {} WHERE rc_consensus_hash = ?1 ORDER BY chunk_id",
-            stackerdb_table(smart_contract)
-        );
-        let args: &[&dyn ToSql] = &[rc_consensus_hash];
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let sql = "SELECT write_time FROM chunks WHERE stackerdb_id = ?1 ORDER BY slot_id";
+        let args: &[&dyn ToSql] = &[&stackerdb_id];
         query_rows(&self.conn, &sql, args).map_err(|e| e.into())
     }
 
     /// Get the latest chunk out of the database.
+    /// Returns Ok(Some(data)) if the chunk exists
+    /// Returns Ok(None) if the chunk does not exist
+    /// Returns Err(..) if the DB does not exist, or some other DB error occurs
     pub fn get_latest_chunk(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-    ) -> Result<Vec<u8>, net_error> {
-        let qry = format!(
-            "SELECT data FROM {} where rc_consensus_hash = ?1 AND chunk_id = ?2",
-            stackerdb_table(smart_contract)
-        );
-        let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id];
+        slot_id: u32,
+    ) -> Result<Option<Vec<u8>>, net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "SELECT data FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
 
         let mut stmt = self
             .conn
@@ -583,7 +533,7 @@ impl StackerDB {
             data = Some(row.get_unwrap(0));
             break;
         }
-        Ok(data.unwrap_or(vec![]))
+        Ok(data)
     }
 
     /// Get a versioned chunk out of this database.  If the version is not present, then None will
@@ -591,12 +541,12 @@ impl StackerDB {
     pub fn get_chunk(
         &self,
         smart_contract: &ContractId,
-        rc_consensus_hash: &ConsensusHash,
-        chunk_id: u32,
-        chunk_version: u32,
+        slot_id: u32,
+        slot_version: u32,
     ) -> Result<Option<StackerDBChunkData>, net_error> {
-        let qry = format!("SELECT chunk_id,version,signature,data FROM {} where rc_consensus_hash = ?1 AND chunk_id = ?2 AND version = ?3", stackerdb_table(smart_contract));
-        let args: &[&dyn ToSql] = &[rc_consensus_hash, &chunk_id, &chunk_version];
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "SELECT slot_id,version,signature,data FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2 AND version = ?3";
+        let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id, &slot_version];
         query_row(&self.conn, &qry, args).map_err(|e| e.into())
     }
 }
