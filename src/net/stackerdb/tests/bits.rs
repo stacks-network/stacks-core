@@ -16,7 +16,7 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{ChunkMetadata, StackerDB};
+use crate::net::stackerdb::{SlotMetadata, StackerDB};
 use crate::net::StackerDBChunkData;
 
 use clarity::vm::ContractName;
@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksPrivateKey, StacksPu
 use stacks_common::types::PrivateKey;
 
 #[test]
-fn test_stackerdb_chunk_metadata_sign_verify() {
+fn test_stackerdb_slot_metadata_sign_verify() {
     let pk = StacksPrivateKey::new();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -46,22 +46,33 @@ fn test_stackerdb_chunk_metadata_sign_verify() {
     };
 
     let chunk_data = StackerDBChunkData {
-        chunk_id: 0,
-        chunk_version: 1,
+        slot_id: 0,
+        slot_version: 1,
         sig: MessageSignature::empty(),
         data: vec![0x1; 128],
     };
 
-    let mut chunk_metadata = chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20]));
-    chunk_metadata.sign(&pk).unwrap();
+    let mut slot_metadata = chunk_data.get_slot_metadata();
+    slot_metadata.sign(&pk).unwrap();
 
-    assert!(chunk_metadata.verify(&addr).unwrap());
+    assert!(slot_metadata.verify(&addr).unwrap());
 
     // fails with wrong address
-    assert!(!chunk_metadata.verify(&bad_addr).unwrap());
+    assert!(!slot_metadata.verify(&bad_addr).unwrap());
 
-    // fails with wrong reward cycle consensus hash
-    let mut bad_chunk_metadata = chunk_data.get_chunk_metadata(ConsensusHash([0x02; 20]));
-    bad_chunk_metadata.sign(&pk).unwrap();
-    assert!(bad_chunk_metadata.verify(&addr).unwrap());
+    // fails with corrupted data
+    let mut bad_slot_metadata = chunk_data.get_slot_metadata();
+    bad_slot_metadata.sign(&pk).unwrap();
+    bad_slot_metadata.slot_id += 1;
+    assert!(!bad_slot_metadata.verify(&addr).unwrap());
+
+    let mut bad_slot_metadata = chunk_data.get_slot_metadata();
+    bad_slot_metadata.sign(&pk).unwrap();
+    bad_slot_metadata.slot_version += 1;
+    assert!(!bad_slot_metadata.verify(&addr).unwrap());
+
+    let mut bad_slot_metadata = chunk_data.get_slot_metadata();
+    bad_slot_metadata.sign(&pk).unwrap();
+    bad_slot_metadata.data_hash = Sha512Trunc256Sum([0x20; 32]);
+    assert!(!bad_slot_metadata.verify(&addr).unwrap());
 }
