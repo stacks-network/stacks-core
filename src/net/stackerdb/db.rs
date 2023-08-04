@@ -23,7 +23,7 @@ use std::path::Path;
 
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{
-    SlotMetadata, StackerDB, StackerDBConfig, StackerDBTx, STACKERDB_INV_MAX,
+    SlotMetadata, StackerDBConfig, StackerDBSet, StackerDBTx, STACKERDB_INV_MAX,
 };
 use crate::net::Error as net_error;
 use crate::net::{
@@ -165,7 +165,8 @@ fn inner_get_stackerdb_id(conn: &DBConn, smart_contract: &ContractId) -> Result<
     Ok(query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))?)
 }
 
-/// Load up chunk metadata from the database, given the primary key.
+/// Load up chunk metadata from the database, keyed by the chunk's database's smart contract and
+/// its identifier.
 /// Inner method body for related methods in both the DB instance and the transaction instance.
 fn inner_get_slot_metadata(
     conn: &DBConn,
@@ -178,7 +179,8 @@ fn inner_get_slot_metadata(
     query_row(conn, &sql, args).map_err(|e| e.into())
 }
 
-/// Load up validation information from the database, given the primary key
+/// Load up validation information from the database, keyed by the chunk's database's smart
+/// contract and its identifier.
 /// Inner method body for related methods in both the DB instance and the transaction instance.
 fn inner_get_slot_validation(
     conn: &DBConn,
@@ -370,9 +372,9 @@ impl<'a> StackerDBTx<'a> {
     }
 }
 
-impl StackerDB {
+impl StackerDBSet {
     /// Instantiate the DB
-    fn instantiate(path: &str, readwrite: bool) -> Result<StackerDB, net_error> {
+    fn instantiate(path: &str, readwrite: bool) -> Result<StackerDBSet, net_error> {
         let mut create_flag = false;
 
         let open_flags = if path != ":memory:" {
@@ -411,7 +413,7 @@ impl StackerDB {
         };
 
         let conn = sqlite_open(path, open_flags, true)?;
-        let mut db = StackerDB { conn };
+        let mut db = StackerDBSet { conn };
 
         if create_flag {
             let db_tx = db.tx_begin(StackerDBConfig::noop())?;
@@ -426,12 +428,12 @@ impl StackerDB {
 
     /// Connect to a stacker DB, creating it if it doesn't exist and if readwrite is true.
     /// Readwrite is enforced by the underling sqlite connection.
-    pub fn connect(path: &str, readwrite: bool) -> Result<StackerDB, net_error> {
+    pub fn connect(path: &str, readwrite: bool) -> Result<StackerDBSet, net_error> {
         Self::instantiate(path, readwrite)
     }
 
     #[cfg(test)]
-    pub fn connect_memory() -> StackerDB {
+    pub fn connect_memory() -> StackerDBSet {
         Self::instantiate(":memory:", true).unwrap()
     }
 

@@ -17,7 +17,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDB, StackerDBConfig};
+use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBSet};
 
 use crate::net::ContractId;
 use crate::net::ContractIdExtension;
@@ -53,7 +53,7 @@ fn test_stackerdb_connect() {
     let path = "/tmp/stacks-node-tests/test_stackerdb_connect.sqlite";
     setup_test_path(path);
 
-    let _ = StackerDB::connect(path, true).unwrap();
+    let _ = StackerDBSet::connect(path, true).unwrap();
 }
 
 /// Test that we can create, enumerate, and drop StackerDB tables.
@@ -62,7 +62,7 @@ fn test_stackerdb_create_list_delete() {
     let path = "/tmp/stacks-node-tests/test_stackerdb_create_list_delete.sqlite";
     setup_test_path(path);
 
-    let mut db = StackerDB::connect(path, true).unwrap();
+    let mut db = StackerDBSet::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
     let slots = [(
@@ -307,7 +307,7 @@ fn test_stackerdb_prepare_clear_slots() {
         ContractName::try_from("db1").unwrap(),
     );
 
-    let mut db = StackerDB::connect(path, true).unwrap();
+    let mut db = StackerDBSet::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
     tx.create_stackerdb(
@@ -417,7 +417,7 @@ fn test_stackerdb_insert_query_chunks() {
         ContractName::try_from("db1").unwrap(),
     );
 
-    let mut db = StackerDB::connect(path, true).unwrap();
+    let mut db = StackerDBSet::connect(path, true).unwrap();
 
     let mut db_config = StackerDBConfig::noop();
     db_config.max_writes = 3;

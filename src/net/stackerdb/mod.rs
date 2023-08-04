@@ -19,7 +19,7 @@
 /// A StackerDB is a best-effort replicated database controlled by a smart contract, which Stacks
 /// node operators can opt-in to hosting.  Unlike a smart contract's data space, a StackerDB's
 /// data is not consensus-critical -- nodes do not need to read its state to validate the
-/// blockchain.  Instead, developers use StackerDBs to host and replicate auxiliary smart contract
+/// blockchain.  Instead, developers use StackerDBSet to host and replicate auxiliary smart contract
 /// data for the purposes of some (off-chain) application in a best-effort manner.  In doing so,
 /// Stacks-powered applications are able to leverage the Stacks peer-to-peer node network to host
 /// and disseminate their data without incuring the cost and performance penalties of bundling it
@@ -61,51 +61,52 @@
 /// slot can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
 /// in order to configure the database.
 ///
-/// Applications that employ StackerDBs would deploy one or more smart contracts that list out
+/// Applications that employ StackerDBSet would deploy one or more smart contracts that list out
 /// which users can store data to the StackerDB replica, and how much space they get.
 ///
 /// ## Replication Protocol
 ///
 /// StackerDB replication proceeds in a three-part protocol: discovery, inventory query, and
 /// chunk exchange.  The discovery protocol leverages the Stacks node's neighbor-walk algorithm to
-/// discover which StackerDBs other nodes claim to replicate.  On receipt of a `Handshake` message,
+/// discover which StackerDBSet other nodes claim to replicate.  On receipt of a `Handshake` message,
 /// a StackerDB-aware node replies with a `StackerDBHandshakeAccept` message which encodes both the
-/// contents of a `HandshakeAccept` message as well as a list of local StackerDBs (identified by
+/// contents of a `HandshakeAccept` message as well as a list of local StackerDBSet (identified by
 /// their smart contracts' addresses).  Upon receipt of a `StackerDBHandshakeAccept`, the node
 /// stores the list of smart contracts in its `PeerDB` as part of the network frontier state.  In
-/// doing so, nodes eventually learn of all of the StackerDBs replicated by all other nodes.  To
+/// doing so, nodes eventually learn of all of the StackerDBSet replicated by all other nodes.  To
 /// bound the size of this state, the protocol mandates that a node can only replicate up to 256
-/// StackerDBs.  The handshake-handling code happens in net::handle_handshake().
+/// StackerDBSet.  The handshake-handling code happens in net::chat::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
 /// that claim to have copies.  This set, called the "DB neighbors", is distinct from the set
 /// of neighbors the node uses to replicate blocks and transactions.  It then connects
 /// to these nodes with a `Handshake` / `StackerDBHandshakeAccept` exchange (if the neighbor walk
-/// has not done so already), and proceeds to query each DB's inventories.
+/// has not done so already), and proceeds to query each DB's inventories by sending them
+/// `StackerDBGetChunkInData` messages.
 ///
-/// The DB inventory is simply a vector of all of the remote peers' slots' versions.
+/// The DB inventory (`StackerDBChunkInvData`) is simply a vector of all of the remote peers' slots' versions.
 /// Once the node has received all DB inventories from its neighbors, it schedules them for
 /// download by prioritizing them by newest-first, and then by rarest-first, in order to ensure
 /// that the latest, least-replicated data is downloaded first.
 ///
 /// Once the node has computed its download schedule, it queries its DB neighbors for chunks with
-/// the given versions.  Upon receipt of a chunk, the node verifies the signature on the chunk's
-/// metadata, verifies that the chunk data hashes to the metadata's indicated data hash, and stores
-/// the chunk.  It will then select neighbors to which to broadcast this chunk, inferring from the
+/// the given versions (via `StackerDBGetChunkData`).  Upon receipt of a chunk, the node verifies the signature on the chunk's
+/// metadata (via `SlotMetadata`), verifies that the chunk data hashes to the metadata's indicated data hash, and stores
+/// the chunk (via `StackerDBSet` and `StackerDBTx`).  It will then select neighbors to which to broadcast this chunk, inferring from the
 /// download schedule which DB neighbors have yet to process this particular version of the chunk.
 ///
 /// ## Comparison to other Stacks storage
 ///
-/// StackerDBs differ from AtlasDBs in that data chunks are not authenticated by the blockchain,
+/// StackerDBSet differ from AtlasDBs in that data chunks are not authenticated by the blockchain,
 /// but instead are authenticated by public key hashes made available from a smart contract.  As
 /// such, a node can begin replicating a StackerDB whenever its operator wants -- it does not need
 /// to re-synchronize blockchain state to get the list of chunk hashes.  Furthermore, StackerDB
 /// state can be written to as fast as the smart contract permits -- there is no need to wait for a
 /// corresponding transaction to confirm.
 ///
-/// StackerDBs differ from Gaia in that Stacks nodes are the principal means of storing data.  Any
+/// StackerDBSet differ from Gaia in that Stacks nodes are the principal means of storing data.  Any
 /// reachable Stacks node can fulfill requests for chunks.  It is up to the StackerDB maintainer to
-/// convince node operators to replicate StackerDBs on their behalf.  In addition, StackerDB state
+/// convince node operators to replicate StackerDBSet on their behalf.  In addition, StackerDB state
 /// is ephemeral -- its longevity in the system depends on application endpoints re-replicating the
 /// state periodically (whereas Gaia stores data for as long as the back-end storage provider's SLA
 /// indicates).
@@ -171,17 +172,14 @@ impl StackerDBConfig {
     }
 }
 
-/// This is a replicated database that stores fixed-length opaque blobs of data from a
-/// smart-contract-specified list of principals.  For example, in sBTC, each Stacker gets one slot
-/// per reward cycle clinched.
+/// This is the set of replicated chunks in all stacker DBs that this node subscribes to.
 ///
-/// Users can store whatever they like in their blobs.  For example, in sBTC this is signature
-/// generation data.
-pub struct StackerDB {
+/// Callers can query chunks from individual stacker DBs by supplying the smart contract address.
+pub struct StackerDBSet {
     conn: DBConn,
 }
 
-/// A transaction against the Stacker DB
+/// A transaction against one or more stacker DBs (really, against StackerDBSet)
 pub struct StackerDBTx<'a> {
     sql_tx: DBTx<'a>,
     config: StackerDBConfig,
@@ -191,9 +189,9 @@ pub struct StackerDBTx<'a> {
 /// This is derived state from a StackerDBChunkData message.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SlotMetadata {
-    /// Chunk identifier (unique for each DB instance)
+    /// Slot identifier (unique for each DB instance)
     pub slot_id: u32,
-    /// Chunk version (a lamport clock)
+    /// Slot version (a lamport clock)
     pub slot_version: u32,
     /// data hash
     pub data_hash: Sha512Trunc256Sum,
