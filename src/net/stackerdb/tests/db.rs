@@ -15,12 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fs;
+use std::path::Path;
 
-use crate::net::stackerdb::{
-    db::stackerdb_table, db::ChunkValidation, ChunkMetadata, StackerDB, StackerDBConfig,
-};
+use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDB, StackerDBConfig};
 
 use crate::net::ContractId;
+use crate::net::ContractIdExtension;
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;
 
@@ -37,92 +37,118 @@ use stacks_common::address::{
 };
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
-/// Test that we can instantiate a stacker DB instance
-#[test]
-fn test_stackerdb_connect() {
-    let path = "/tmp/test_stackerdb_connect.sqlite";
+fn setup_test_path(path: &str) {
+    let dirname = Path::new(path).parent().unwrap().to_str().unwrap();
+    if fs::metadata(&dirname).is_err() {
+        fs::create_dir_all(&dirname).unwrap();
+    }
     if fs::metadata(path).is_ok() {
         fs::remove_file(path).unwrap();
     }
-
-    let _ = StackerDB::connect(path, true).unwrap();
 }
 
-/// Test that we can normalize stackerdb names
+/// Test that we can instantiate a stacker DB instance
 #[test]
-fn test_stackerdb_table_name() {
-    let test_cid = ContractId::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        },
-        ContractName::try_from("db1-db2_db3").unwrap(),
-    );
-    assert_eq!(
-        stackerdb_table(&test_cid),
-        "stackerdb_S1G2081040G2081040G2081040G208105NK8PE5_db1\\x2ddb2\\x5fdb3"
-    );
+fn test_stackerdb_connect() {
+    let path = "/tmp/stacks-node-tests/test_stackerdb_connect.sqlite";
+    setup_test_path(path);
+
+    let _ = StackerDB::connect(path, true).unwrap();
 }
 
 /// Test that we can create, enumerate, and drop StackerDB tables.
 #[test]
 fn test_stackerdb_create_list_delete() {
-    let path = "/tmp/test_stackerdb_create_list_delete.sqlite";
-    if fs::metadata(path).is_ok() {
-        fs::remove_file(path).unwrap();
-    }
+    let path = "/tmp/stacks-node-tests/test_stackerdb_create_list_delete.sqlite";
+    setup_test_path(path);
 
     let mut db = StackerDB::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
-    tx.create_stackerdb(&ContractId::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        },
-        ContractName::try_from("db1").unwrap(),
-    ))
-    .unwrap();
-    tx.create_stackerdb(&ContractId::new(
+    let slots = [(
         StacksAddress {
             version: 0x02,
             bytes: Hash160([0x02; 20]),
         },
-        ContractName::try_from("db2").unwrap(),
-    ))
+        1,
+    )];
+
+    // databases with one chunk
+    tx.create_stackerdb(
+        &ContractId::from_parts(
+            StacksAddress {
+                version: 0x01,
+                bytes: Hash160([0x01; 20]),
+            },
+            ContractName::try_from("db1").unwrap(),
+        ),
+        &[(
+            StacksAddress {
+                version: 0x01,
+                bytes: Hash160([0x01; 20]),
+            },
+            1,
+        )],
+    )
     .unwrap();
-    tx.create_stackerdb(&ContractId::new(
-        StacksAddress {
-            version: 0x03,
-            bytes: Hash160([0x03; 20]),
-        },
-        ContractName::try_from("db3").unwrap(),
-    ))
+    tx.create_stackerdb(
+        &ContractId::from_parts(
+            StacksAddress {
+                version: 0x02,
+                bytes: Hash160([0x02; 20]),
+            },
+            ContractName::try_from("db2").unwrap(),
+        ),
+        &[(
+            StacksAddress {
+                version: 0x02,
+                bytes: Hash160([0x02; 20]),
+            },
+            1,
+        )],
+    )
+    .unwrap();
+    tx.create_stackerdb(
+        &ContractId::from_parts(
+            StacksAddress {
+                version: 0x03,
+                bytes: Hash160([0x03; 20]),
+            },
+            ContractName::try_from("db3").unwrap(),
+        ),
+        &[(
+            StacksAddress {
+                version: 0x03,
+                bytes: Hash160([0x03; 20]),
+            },
+            1,
+        )],
+    )
     .unwrap();
 
     tx.commit().unwrap();
 
-    let mut dbs = db.get_stackerdbs().unwrap();
+    let mut dbs = db.get_stackerdb_contract_ids().unwrap();
     dbs.sort();
 
     assert_eq!(
         dbs,
         vec![
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x01,
                     bytes: Hash160([0x01; 20])
                 },
                 ContractName::try_from("db1").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
                 },
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
@@ -132,39 +158,47 @@ fn test_stackerdb_create_list_delete() {
         ]
     );
 
-    // adding the same DB is idempotent
+    // adding the same DB errors out
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.create_stackerdb(&ContractId::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        },
-        ContractName::try_from("db1").unwrap(),
-    ))
-    .unwrap();
+    if let net_error::StackerDBExists(..) = tx
+        .create_stackerdb(
+            &ContractId::from_parts(
+                StacksAddress {
+                    version: 0x01,
+                    bytes: Hash160([0x01; 20]),
+                },
+                ContractName::try_from("db1").unwrap(),
+            ),
+            &[],
+        )
+        .unwrap_err()
+    {
+    } else {
+        panic!("Did not error on creating the same stacker DB twice");
+    }
     tx.commit().unwrap();
 
-    let mut dbs = db.get_stackerdbs().unwrap();
+    let mut dbs = db.get_stackerdb_contract_ids().unwrap();
     dbs.sort();
 
     assert_eq!(
         dbs,
         vec![
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x01,
                     bytes: Hash160([0x01; 20])
                 },
                 ContractName::try_from("db1").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
                 },
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
@@ -173,10 +207,15 @@ fn test_stackerdb_create_list_delete() {
             ),
         ]
     );
+
+    // each DB's single chunk exists
+    for sc in dbs.iter() {
+        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+    }
 
     // remove a db
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.delete_stackerdb(&ContractId::new(
+    tx.delete_stackerdb(&ContractId::from_parts(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
@@ -186,20 +225,20 @@ fn test_stackerdb_create_list_delete() {
     .unwrap();
     tx.commit().unwrap();
 
-    let mut dbs = db.get_stackerdbs().unwrap();
+    let mut dbs = db.get_stackerdb_contract_ids().unwrap();
     dbs.sort();
 
     assert_eq!(
         dbs,
         vec![
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
                 },
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
@@ -208,10 +247,15 @@ fn test_stackerdb_create_list_delete() {
             ),
         ]
     );
+
+    // only existing DBs still have chunks
+    for sc in dbs.iter() {
+        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+    }
 
     // deletion is idempotent
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.delete_stackerdb(&ContractId::new(
+    tx.delete_stackerdb(&ContractId::from_parts(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
@@ -221,20 +265,20 @@ fn test_stackerdb_create_list_delete() {
     .unwrap();
     tx.commit().unwrap();
 
-    let mut dbs = db.get_stackerdbs().unwrap();
+    let mut dbs = db.get_stackerdb_contract_ids().unwrap();
     dbs.sort();
 
     assert_eq!(
         dbs,
         vec![
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
                 },
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::new(
+            ContractId::from_parts(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
@@ -243,17 +287,19 @@ fn test_stackerdb_create_list_delete() {
             ),
         ]
     );
+    // only existing DBs still have chunks
+    for sc in dbs.iter() {
+        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+    }
 }
 
 /// Test that we can set up a StackerDB with a given config, and clear it.
 #[test]
 fn test_stackerdb_prepare_clear_slots() {
     let path = "/tmp/test_stackerdb_prepare_clear_slots.sqlite";
-    if fs::metadata(path).is_ok() {
-        fs::remove_file(path).unwrap();
-    }
+    setup_test_path(path);
 
-    let sc = ContractId::new(
+    let sc = ContractId::from_parts(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
@@ -264,10 +310,8 @@ fn test_stackerdb_prepare_clear_slots() {
     let mut db = StackerDB::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
-    tx.create_stackerdb(&sc).unwrap();
-    tx.prepare_stackerdb_slots(
+    tx.create_stackerdb(
         &sc,
-        &ConsensusHash([0x01; 20]),
         &[
             (
                 StacksAddress {
@@ -297,38 +341,32 @@ fn test_stackerdb_prepare_clear_slots() {
     tx.commit().unwrap();
 
     // slots must all be inserted in the right places and quantities
-    for chunk_id in 0..(2 + 3 + 4) {
-        let chunk_metadata = db
-            .get_chunk_metadata(&sc, &ConsensusHash([0x01; 20]), chunk_id)
-            .unwrap()
-            .unwrap();
-        let chunk_validation = db
-            .get_chunk_validation(&sc, &ConsensusHash([0x01; 20]), chunk_id)
-            .unwrap()
-            .unwrap();
+    for slot_id in 0..(2 + 3 + 4) {
+        let slot_metadata = db.get_slot_metadata(&sc, slot_id).unwrap().unwrap();
+        let slot_validation = db.get_slot_validation(&sc, slot_id).unwrap().unwrap();
 
-        if chunk_id < 2 {
+        if slot_id < 2 {
             // belongs to 0x02
             assert_eq!(
-                chunk_validation.stacker,
+                slot_validation.stacker,
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
                 }
             );
-        } else if chunk_id >= 2 && chunk_id < 2 + 3 {
+        } else if slot_id >= 2 && slot_id < 2 + 3 {
             // belongs to 0x03
             assert_eq!(
-                chunk_validation.stacker,
+                slot_validation.stacker,
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
                 }
             );
-        } else if chunk_id >= 2 + 3 && chunk_id < 2 + 3 + 4 {
+        } else if slot_id >= 2 + 3 && slot_id < 2 + 3 + 4 {
             // belongs to 0x03
             assert_eq!(
-                chunk_validation.stacker,
+                slot_validation.stacker,
                 StacksAddress {
                     version: 0x04,
                     bytes: Hash160([0x04; 20])
@@ -338,32 +376,26 @@ fn test_stackerdb_prepare_clear_slots() {
             unreachable!()
         }
 
-        assert_eq!(chunk_metadata.rc_consensus_hash, ConsensusHash([0x01; 20]));
-        assert_eq!(chunk_metadata.chunk_id, chunk_id);
-        assert_eq!(chunk_metadata.chunk_version, 0);
-        assert_eq!(chunk_metadata.data_hash, Sha512Trunc256Sum([0x00; 32]));
-        assert_eq!(chunk_metadata.signature, MessageSignature::empty());
+        assert_eq!(slot_metadata.slot_id, slot_id);
+        assert_eq!(slot_metadata.slot_version, 0);
+        assert_eq!(slot_metadata.data_hash, Sha512Trunc256Sum([0x00; 32]));
+        assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
-        assert_eq!(chunk_validation.version, 0);
-        assert_eq!(chunk_validation.write_time, 0);
+        assert_eq!(slot_validation.version, 0);
+        assert_eq!(slot_validation.write_time, 0);
     }
 
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.clear_stackerdb_slots(&sc, &ConsensusHash([0x01; 20]))
-        .unwrap();
+    tx.clear_stackerdb_slots(&sc).unwrap();
     tx.commit().unwrap();
 
     // no more slots
-    for chunk_id in 0..(2 + 3 + 4) {
-        let chunk_metadata = db
-            .get_chunk_metadata(&sc, &ConsensusHash([0x01; 20]), chunk_id)
-            .unwrap();
-        assert!(chunk_metadata.is_none());
+    for slot_id in 0..(2 + 3 + 4) {
+        let slot_metadata = db.get_slot_metadata(&sc, slot_id).unwrap();
+        assert!(slot_metadata.is_none());
 
-        let chunk_validation = db
-            .get_chunk_validation(&sc, &ConsensusHash([0x01; 20]), chunk_id)
-            .unwrap();
-        assert!(chunk_validation.is_none());
+        let slot_validation = db.get_slot_validation(&sc, slot_id).unwrap();
+        assert!(slot_validation.is_none());
     }
 }
 
@@ -375,11 +407,9 @@ fn test_stackerdb_prepare_clear_slots() {
 #[test]
 fn test_stackerdb_insert_query_chunks() {
     let path = "/tmp/test_stackerdb_insert_query_chunks.sqlite";
-    if fs::metadata(path).is_ok() {
-        fs::remove_file(path).unwrap();
-    }
+    setup_test_path(path);
 
-    let sc = ContractId::new(
+    let sc = ContractId::from_parts(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
@@ -395,8 +425,6 @@ fn test_stackerdb_insert_query_chunks() {
 
     let tx = db.tx_begin(db_config.clone()).unwrap();
 
-    tx.create_stackerdb(&sc).unwrap();
-
     let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let addrs: Vec<_> = pks
         .iter()
@@ -411,9 +439,8 @@ fn test_stackerdb_insert_query_chunks() {
         })
         .collect();
 
-    tx.prepare_stackerdb_slots(
+    tx.create_stackerdb(
         &sc,
-        &ConsensusHash([0x01; 20]),
         &addrs
             .clone()
             .into_iter()
@@ -425,48 +452,34 @@ fn test_stackerdb_insert_query_chunks() {
     // store some data
     for (i, pk) in pks.iter().enumerate() {
         let mut chunk_data = StackerDBChunkData {
-            chunk_id: i as u32,
-            chunk_version: 1,
+            slot_id: i as u32,
+            slot_version: 1,
             sig: MessageSignature::empty(),
             data: vec![i as u8; 128],
         };
 
-        chunk_data.sign(ConsensusHash([0x01; 20]), &pk).unwrap();
+        chunk_data.sign(&pk).unwrap();
 
-        let chunk_metadata = tx
-            .get_chunk_metadata(&sc, &ConsensusHash([0x01; 20]), i as u32)
-            .unwrap()
-            .unwrap();
-        assert_eq!(chunk_metadata.rc_consensus_hash, ConsensusHash([0x01; 20]));
-        assert_eq!(chunk_metadata.chunk_id, i as u32);
-        assert_eq!(chunk_metadata.chunk_version, 0);
-        assert_eq!(chunk_metadata.data_hash, Sha512Trunc256Sum([0x00; 32]));
-        assert_eq!(chunk_metadata.signature, MessageSignature::empty());
+        let slot_metadata = tx.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert_eq!(slot_metadata.slot_id, i as u32);
+        assert_eq!(slot_metadata.slot_version, 0);
+        assert_eq!(slot_metadata.data_hash, Sha512Trunc256Sum([0x00; 32]));
+        assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
         // should succeed
-        tx.try_replace_chunk(
-            &sc,
-            &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-            &chunk_data.data,
-        )
-        .unwrap();
-
-        let chunk_metadata = tx
-            .get_chunk_metadata(&sc, &ConsensusHash([0x01; 20]), i as u32)
-            .unwrap()
+        tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
             .unwrap();
-        assert_eq!(chunk_metadata.rc_consensus_hash, ConsensusHash([0x01; 20]));
-        assert_eq!(chunk_metadata.chunk_id, i as u32);
-        assert_eq!(chunk_metadata.chunk_version, chunk_data.chunk_version);
-        assert_eq!(chunk_metadata.data_hash, chunk_data.data_hash());
-        assert_eq!(chunk_metadata.signature, chunk_data.sig);
+
+        let slot_metadata = tx.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert_eq!(slot_metadata.slot_id, i as u32);
+        assert_eq!(slot_metadata.slot_version, chunk_data.slot_version);
+        assert_eq!(slot_metadata.data_hash, chunk_data.data_hash());
+        assert_eq!(slot_metadata.signature, chunk_data.sig);
 
         // should fail -- stale version
-        if let Err(net_error::StaleChunk(db_version, given_version)) = tx.try_replace_chunk(
-            &sc,
-            &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-            &chunk_data.data,
-        ) {
+        if let Err(net_error::StaleChunk(db_version, given_version)) =
+            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        {
             assert_eq!(db_version, 1);
             assert_eq!(given_version, 1);
         } else {
@@ -474,51 +487,41 @@ fn test_stackerdb_insert_query_chunks() {
         }
 
         // should fail -- too many writes version
-        chunk_data.chunk_version = db_config.max_writes + 1;
-        chunk_data.sign(ConsensusHash([0x01; 20]), &pk).unwrap();
-        if let Err(net_error::TooManyChunkWrites(db_max, cur_version)) = tx.try_replace_chunk(
-            &sc,
-            &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-            &chunk_data.data,
-        ) {
+        chunk_data.slot_version = db_config.max_writes + 1;
+        chunk_data.sign(&pk).unwrap();
+        if let Err(net_error::TooManySlotWrites(db_max, cur_version)) =
+            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        {
             assert_eq!(db_max, db_config.max_writes);
             assert_eq!(cur_version, 1);
         } else {
-            panic!("Did not get TooManyChunkWrites");
+            panic!("Did not get TooManySlotWrites");
         }
 
         // should fail -- bad signature
-        chunk_data.chunk_version = 2;
-        if let Err(net_error::BadChunkSigner(stacker, chunk_id)) = tx.try_replace_chunk(
-            &sc,
-            &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-            &chunk_data.data,
-        ) {
+        chunk_data.slot_version = 2;
+        if let Err(net_error::BadSlotSigner(stacker, slot_id)) =
+            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        {
             assert_eq!(stacker, addrs[i]);
-            assert_eq!(chunk_id, i as u32);
+            assert_eq!(slot_id, i as u32);
         } else {
             eprintln!(
                 "{}",
-                tx.try_replace_chunk(
-                    &sc,
-                    &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-                    &chunk_data.data
-                )
-                .unwrap_err()
+                tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+                    .unwrap_err()
             );
-            panic!("Did not get BadChunkSigner");
+            panic!("Did not get BadSlotSigner");
         }
 
         // should fail -- throttled
-        chunk_data.sign(ConsensusHash([0x01; 20]), &pk).unwrap();
-        if let Err(net_error::TooFrequentChunkWrites(..)) = tx.try_replace_chunk(
-            &sc,
-            &chunk_data.get_chunk_metadata(ConsensusHash([0x01; 20])),
-            &chunk_data.data,
-        ) {
-            chunk_data.chunk_version -= 1;
+        chunk_data.sign(&pk).unwrap();
+        if let Err(net_error::TooFrequentSlotWrites(..)) =
+            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        {
+            chunk_data.slot_version -= 1;
         } else {
-            panic!("Did not get TooFrequentChunkWrites");
+            panic!("Did not get TooFrequentSlotWrites");
         }
     }
 
@@ -526,54 +529,35 @@ fn test_stackerdb_insert_query_chunks() {
 
     // test queries against the data
     for (i, addr) in addrs.iter().enumerate() {
-        let signer = db
-            .get_chunk_signer(&sc, &ConsensusHash([0x01; 20]), i as u32)
-            .unwrap()
-            .unwrap();
+        let signer = db.get_slot_signer(&sc, i as u32).unwrap().unwrap();
         assert_eq!(signer, *addr);
 
-        let chunk = db
-            .get_latest_chunk(&sc, &ConsensusHash([0x01; 20]), i as u32)
-            .unwrap();
+        let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
         assert_eq!(chunk, vec![i as u8; 128]);
 
         // correct version
-        let chunk = db
-            .get_chunk(&sc, &ConsensusHash([0x01; 20]), i as u32, 1)
-            .unwrap()
-            .unwrap();
+        let chunk = db.get_chunk(&sc, i as u32, 1).unwrap().unwrap();
         assert_eq!(chunk.data, vec![i as u8; 128]);
-        assert_eq!(chunk.chunk_version, 1);
-        assert_eq!(chunk.chunk_id, i as u32);
-        assert!(chunk.verify(ConsensusHash([0x01; 20]), &addr).unwrap());
+        assert_eq!(chunk.slot_version, 1);
+        assert_eq!(chunk.slot_id, i as u32);
+        assert!(chunk.verify(&addr).unwrap());
 
         // incorrect version
-        let chunk = db
-            .get_chunk(&sc, &ConsensusHash([0x01; 20]), i as u32, 0)
-            .unwrap();
+        let chunk = db.get_chunk(&sc, i as u32, 0).unwrap();
         assert!(chunk.is_none());
 
         // incorrect version
-        let chunk = db
-            .get_chunk(&sc, &ConsensusHash([0x01; 20]), i as u32, 2)
-            .unwrap();
+        let chunk = db.get_chunk(&sc, i as u32, 2).unwrap();
         assert!(chunk.is_none());
 
-        let chunk_metadata = db
-            .get_chunk_metadata(&sc, &ConsensusHash([0x01; 20]), i as u32)
-            .unwrap()
-            .unwrap();
-        assert!(chunk_metadata.verify(&addr).unwrap());
+        let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert!(slot_metadata.verify(&addr).unwrap());
     }
 
-    let versions = db
-        .get_chunk_versions(&sc, &ConsensusHash([0x01; 20]))
-        .unwrap();
+    let versions = db.get_slot_versions(&sc).unwrap();
     assert_eq!(versions, vec![1; 10]);
 
-    let timestamps = db
-        .get_chunk_write_timestamps(&sc, &ConsensusHash([0x01; 20]))
-        .unwrap();
+    let timestamps = db.get_slot_write_timestamps(&sc).unwrap();
     for ts in timestamps {
         assert!(ts > 0);
     }
