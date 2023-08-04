@@ -2141,9 +2141,58 @@ mod test {
         .unwrap();
         assert_eq!(neighbor_opt, Some(neighbor.clone()));
 
+        // idempotent
         {
             let tx = db.tx_begin().unwrap();
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
+            tx.commit().unwrap();
+
+            assert_eq!(res, true);
+        }
+
+        // put a peer in all the slots
+        let mut new_neighbor = neighbor.clone();
+        new_neighbor.addr.port += 1;
+        let slots = PeerDB::peer_slots(
+            db.conn(),
+            neighbor.addr.network_id,
+            &neighbor.addr.addrbytes,
+            neighbor.addr.port,
+        )
+        .unwrap();
+        for slot in slots {
+            let tx = db.tx_begin().unwrap();
+            PeerDB::insert_or_replace_peer(&tx, &neighbor, slot).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // succeeds because it's the same peer
+        {
+            let tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
+            tx.commit().unwrap();
+
+            assert_eq!(res, true);
+        }
+
+        // put neighbor at new_neighbor's slots
+        let slots = PeerDB::peer_slots(
+            db.conn(),
+            new_neighbor.addr.network_id,
+            &new_neighbor.addr.addrbytes,
+            new_neighbor.addr.port,
+        )
+        .unwrap();
+        for slot in slots {
+            let tx = db.tx_begin().unwrap();
+            PeerDB::insert_or_replace_peer(&tx, &neighbor, slot).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // fails because it's a different peer
+        {
+            let tx = db.tx_begin().unwrap();
+            let res = PeerDB::try_insert_peer(&tx, &new_neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
             assert_eq!(res, false);
@@ -2243,7 +2292,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, false);
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2257,7 +2306,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, false);
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2277,7 +2326,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, false);
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2299,7 +2348,7 @@ mod test {
                 tx.commit().unwrap();
 
                 // peer already present
-                assert_eq!(res, false);
+                assert_eq!(res, true);
             }
 
             let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2421,8 +2470,8 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &changed_stackerdbs).unwrap();
             tx.commit().unwrap();
 
-            // peer already present
-            assert_eq!(res, false);
+            // peer already present, and we were able to update
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2447,8 +2496,8 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            // peer already present
-            assert_eq!(res, false);
+            // peer already present, and we were able to update
+            assert_eq!(res, true);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2479,8 +2528,8 @@ mod test {
                 let res = PeerDB::try_insert_peer(&tx, &neighbor, &replace_stackerdbs).unwrap();
                 tx.commit().unwrap();
 
-                // peer already present
-                assert_eq!(res, false);
+                // peer already present and we were able to update
+                assert_eq!(res, true);
             }
 
             let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
