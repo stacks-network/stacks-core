@@ -14,9 +14,6 @@ resolver = "2"
 edition = "2021"
 rust-version = "1.61"
 
-[profile.release]
-debug = true
-
 [lib]
 name = "blockstack_lib"
 path = "src/lib.rs"
@@ -109,17 +106,6 @@ developer-mode = []
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 testing = []
-
-# Use a bit more than default optimization for
-#  dev builds to speed up test execution
-[profile.dev]
-opt-level = 1
-
-# Use release-level optimization for dependencies
-# This slows down "first" builds on development environments,
-#  but won't impact subsequent builds.
-[profile.dev.package."*"]
-opt-level = 3
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

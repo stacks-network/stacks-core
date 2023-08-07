@@ -55,9 +55,6 @@ developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
 
-[profile.dev.package.regex]
-opt-level = 2
-
 [target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
 sha2-asm = "0.5.3"
 
