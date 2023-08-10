@@ -141,10 +141,10 @@ pub mod rpc;
 pub mod server;
 pub mod stackerdb;
 
-use crate::net::stackerdb::StackerDB;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::stackerdb::StackerDBSync;
 use crate::net::stackerdb::StackerDBSyncResult;
+use crate::net::stackerdb::StackerDBs;
 
 #[cfg(test)]
 pub mod tests;
@@ -1026,6 +1026,8 @@ pub struct StackerDBChunkInvData {
     /// version vector of chunks available.
     /// The max-length is a protocol constant.
     pub slot_versions: Vec<u32>,
+    /// number of outbound replicas the sender is connected to
+    pub num_outbound_replicas: u32,
 }
 
 /// Request for a stacker DB chunk.
@@ -1052,6 +1054,17 @@ pub struct StackerDBChunkData {
     pub sig: MessageSignature,
     /// the chunk data
     pub data: Vec<u8>,
+}
+
+/// Stacker DB chunk push
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackerDBPushChunkData {
+    /// smart contract being used to determine chunk quantity and order
+    pub contract_id: ContractId,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+    /// the pushed chunk
+    pub chunk_data: StackerDBChunkData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1088,6 +1101,7 @@ pub enum StacksMessageType {
     StackerDBChunkInv(StackerDBChunkInvData),
     StackerDBGetChunk(StackerDBGetChunkData),
     StackerDBChunk(StackerDBChunkData),
+    StackerDBPushChunk(StackerDBPushChunkData),
 }
 
 /// Peer address variants
@@ -1859,6 +1873,7 @@ pub enum StacksMessageID {
     StackerDBChunkInv = 22,
     StackerDBGetChunk = 23,
     StackerDBChunk = 24,
+    StackerDBPushChunk = 25,
     // reserved
     Reserved = 255,
 }
@@ -2877,11 +2892,12 @@ pub mod test {
             peerdb: &PeerDB,
             stacker_dbs: &[ContractId],
             stacker_db_configs: &[Option<StackerDBConfig>],
-        ) -> Vec<StackerDBSync> {
+        ) -> Vec<StackerDBSync<PeerNetworkComms>> {
             let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
             let mut stacker_db_syncs = vec![];
+            let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             for (i, contract_id) in stacker_dbs.iter().enumerate() {
-                let db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
+                let mut db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
                     if let Some(db_config) = config_opt.as_ref() {
                         db_config.clone()
                     } else {
@@ -2891,9 +2907,26 @@ pub mod test {
                     StackerDBConfig::noop()
                 };
 
-                let stacker_db_sync =
-                    StackerDBSync::new(&peerdb, contract_id.clone(), &db_config, &stackerdb_path)
-                        .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                let initial_peers = PeerDB::find_stacker_db_replicas(
+                    peerdb.conn(),
+                    local_peer.network_id,
+                    &contract_id,
+                    10000000,
+                )
+                .unwrap()
+                .into_iter()
+                .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
+                .collect();
+
+                db_config.hint_peers = initial_peers;
+                let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+                let stacker_db_sync = StackerDBSync::new(
+                    contract_id.clone(),
+                    &db_config,
+                    PeerNetworkComms::new(),
+                    stacker_dbs,
+                )
+                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
                 stacker_db_syncs.push(stacker_db_sync);
             }
             stacker_db_syncs
@@ -3117,8 +3150,8 @@ pub mod test {
                     .unwrap()
             };
             let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
-            let relayer_stacker_db = StackerDB::connect(&stackerdb_path, true).unwrap();
-            let p2p_stacker_db = StackerDB::connect(&stackerdb_path, true).unwrap();
+            let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+            let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
             let stacker_dbs = Self::init_stacker_dbs(
                 &test_path,
                 &peerdb,
@@ -3129,7 +3162,7 @@ pub mod test {
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
-                p2p_stacker_db,
+                p2p_stacker_dbs,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
@@ -3141,7 +3174,7 @@ pub mod test {
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
-            let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_db);
+            let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_dbs);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
@@ -3238,8 +3271,6 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
-
-            // let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             let ret = self.network.run(
                 &indexer,
