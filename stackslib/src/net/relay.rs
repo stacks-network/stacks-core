@@ -47,7 +47,7 @@ use crate::net::http::*;
 use crate::net::p2p::*;
 use crate::net::poll::*;
 use crate::net::rpc::*;
-use crate::net::stackerdb::{StackerDB, StackerDBConfig, StackerDBSyncResult};
+use crate::net::stackerdb::{StackerDBConfig, StackerDBSyncResult, StackerDBs};
 use crate::net::Error as net_error;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
@@ -79,7 +79,7 @@ pub struct Relayer {
     /// Connection to the p2p thread
     p2p: NetworkHandle,
     /// StackerDB connection
-    stacker_db: StackerDB,
+    stacker_dbs: StackerDBs,
 }
 
 #[derive(Debug)]
@@ -453,16 +453,16 @@ impl RelayerStats {
 }
 
 impl Relayer {
-    pub fn new(handle: NetworkHandle, stacker_db: StackerDB) -> Relayer {
+    pub fn new(handle: NetworkHandle, stacker_dbs: StackerDBs) -> Relayer {
         Relayer {
             p2p: handle,
-            stacker_db,
+            stacker_dbs,
         }
     }
 
-    pub fn from_p2p(network: &mut PeerNetwork, stacker_db: StackerDB) -> Relayer {
+    pub fn from_p2p(network: &mut PeerNetwork, stacker_dbs: StackerDBs) -> Relayer {
         let handle = network.new_handle(1024);
-        Relayer::new(handle, stacker_db)
+        Relayer::new(handle, stacker_dbs)
     }
 
     /// Given blocks pushed to us, verify that they correspond to expected block data.
@@ -1706,9 +1706,8 @@ impl Relayer {
 
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
     pub fn process_stacker_db_chunks(
-        stackerdb: &mut StackerDB,
+        stackerdbs: &mut StackerDBs,
         stackerdb_configs: &HashMap<ContractId, StackerDBConfig>,
-        rc_consensus_hash: &ConsensusHash,
         sync_results: &[StackerDBSyncResult],
     ) -> Result<(), Error> {
         // sort stacker results by contract, so as to minimize the number of transactions.
@@ -1724,7 +1723,7 @@ impl Relayer {
 
         for (sc, sync_results) in sync_results_map.iter() {
             if let Some(config) = stackerdb_configs.get(sc) {
-                let tx = stackerdb.tx_begin(config.clone())?;
+                let tx = stackerdbs.tx_begin(config.clone())?;
                 for sync_result in sync_results {
                     debug!(
                         "Will store {} chunks for {}",
@@ -1732,18 +1731,18 @@ impl Relayer {
                         sc
                     );
                     for chunk in sync_result.chunks_to_store.iter() {
-                        let md = chunk.get_chunk_metadata(rc_consensus_hash.clone());
+                        let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(sc, &md, &chunk.data) {
                             warn!(
-                                "Failed to store chunk {}.{} ({} bytes) for {}: {:?}",
-                                &md.chunk_id,
-                                md.chunk_version,
+                                "Failed to store chunk for slot {}.{} ({} bytes) for {}: {:?}",
+                                &md.slot_id,
+                                md.slot_version,
                                 chunk.data.len(),
                                 sc,
                                 &e
                             );
                         } else {
-                            debug!("Stored chunk {}/{}.{}", sc, md.chunk_id, md.chunk_version);
+                            debug!("Stored chunk {}/{}.{}", sc, md.slot_id, md.slot_version);
                         }
                     }
                 }
@@ -1754,6 +1753,37 @@ impl Relayer {
         }
 
         Ok(())
+    }
+
+    /// Process StackerDB chunks pushed to us.
+    /// extract all StackerDBPushChunk messages from `unhandled_messages`
+    pub fn process_pushed_stacker_db_chunks(
+        stackerdbs: &mut StackerDBs,
+        stackerdb_configs: &HashMap<ContractId, StackerDBConfig>,
+        unhandled_messages: &mut HashMap<NeighborKey, Vec<StacksMessage>>,
+    ) -> Result<(), Error> {
+        // synthesize StackerDBSyncResults from each chunk
+        let mut sync_results = vec![];
+        let nks: Vec<NeighborKey> = unhandled_messages.keys().map(|nk| nk.clone()).collect();
+        for nk in nks.into_iter() {
+            let mut msgs = unhandled_messages
+                .remove(&nk)
+                .expect("BUG: hashmap key not mapped");
+
+            msgs.retain(|msg| {
+                if let StacksMessageType::StackerDBPushChunk(data) = &msg.payload {
+                    let sync_result = StackerDBSyncResult::from_pushed_chunk(data.clone());
+                    sync_results.push(sync_result);
+                    true
+                } else {
+                    false
+                }
+            });
+
+            unhandled_messages.insert(nk.clone(), msgs);
+        }
+
+        Relayer::process_stacker_db_chunks(stackerdbs, stackerdb_configs, &sync_results)
     }
 
     /// Given a network result, consume and store all data.
@@ -1904,12 +1934,18 @@ impl Relayer {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 
-        // store stacker DB chunks
+        // store downloaded stacker DB chunks
         Relayer::process_stacker_db_chunks(
-            &mut self.stacker_db,
+            &mut self.stacker_dbs,
             &network_result.stacker_db_configs,
-            &network_result.rc_consensus_hash,
             &network_result.stacker_db_sync_results,
+        )?;
+
+        // store pushed stacker DB chunks
+        Relayer::process_pushed_stacker_db_chunks(
+            &mut self.stacker_dbs,
+            &network_result.stacker_db_configs,
+            &mut network_result.unhandled_messages,
         )?;
 
         let receipts = ProcessedNetReceipts {
@@ -2006,7 +2042,7 @@ impl PeerNetwork {
 
             let num_blocks = to_send.len();
             let payload = BlocksAvailableData { available: to_send };
-            let message = match self.sign_for_peer(recipient, msg_builder(payload)) {
+            let message = match self.sign_for_neighbor(recipient, msg_builder(payload)) {
                 Ok(m) => m,
                 Err(e) => {
                     warn!(
@@ -2041,7 +2077,7 @@ impl PeerNetwork {
         let payload = BlocksData {
             blocks: vec![BlocksDatum(consensus_hash, block)],
         };
-        let message = match self.sign_for_peer(recipient, StacksMessageType::Blocks(payload)) {
+        let message = match self.sign_for_neighbor(recipient, StacksMessageType::Blocks(payload)) {
             Ok(m) => m,
             Err(e) => {
                 warn!(
@@ -2080,16 +2116,17 @@ impl PeerNetwork {
             index_anchor_block: index_block_hash,
             microblocks: microblocks,
         };
-        let message = match self.sign_for_peer(recipient, StacksMessageType::Microblocks(payload)) {
-            Ok(m) => m,
-            Err(e) => {
-                warn!(
-                    "{:?}: Failed to sign for {:?}: {:?}",
-                    &self.local_peer, recipient, &e
-                );
-                return;
-            }
-        };
+        let message =
+            match self.sign_for_neighbor(recipient, StacksMessageType::Microblocks(payload)) {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!(
+                        "{:?}: Failed to sign for {:?}: {:?}",
+                        &self.local_peer, recipient, &e
+                    );
+                    return;
+                }
+            };
 
         debug!(
             "{:?}: Push microblocks for {} to {:?}",
