@@ -4233,11 +4233,11 @@ mod test {
         assert!(convo_2.connection.get_public_key().is_none());
 
         // convo_1 sends a handshake to itself (not allowed)
-        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_2);
+        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
         let handshake_1 = convo_1
             .sign_message(
                 &chain_view,
-                &local_peer_2.private_key,
+                &local_peer_1.private_key,
                 StacksMessageType::Handshake(handshake_data_1.clone()),
             )
             .unwrap();
@@ -4258,9 +4258,6 @@ mod test {
         // get back handshake reject
         let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
-
         // received a valid HandshakeReject from peer 2
         match reply_1.payload {
             StacksMessageType::HandshakeReject => {}
@@ -4268,6 +4265,9 @@ mod test {
                 assert!(false);
             }
         };
+
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 0);
 
         // neither peer updated their info on one another
         assert!(convo_1.connection.get_public_key().is_none());
