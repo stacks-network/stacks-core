@@ -16,7 +16,7 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{db::ChunkValidation, ChunkMetadata, StackerDB, StackerDBConfig};
+use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
 
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;
@@ -43,6 +43,7 @@ use rand::RngCore;
 use crate::net::relay::Relayer;
 use crate::net::test::TestPeer;
 use crate::net::test::TestPeerConfig;
+use crate::net::ContractIdExtension;
 
 use crate::net::ContractId;
 
@@ -66,7 +67,7 @@ impl StackerDBConfig {
             max_writes: u32::MAX,
             hint_peers: vec![],
             num_neighbors: NUM_NEIGHBORS,
-            num_chunks: 1,
+            num_slots: 1,
         }
     }
 
@@ -78,7 +79,7 @@ impl StackerDBConfig {
             max_writes: u32::MAX,
             hint_peers: vec![],
             num_neighbors: NUM_NEIGHBORS,
-            num_chunks: 10,
+            num_slots: 10,
         }
     }
 }
@@ -95,7 +96,7 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
-    config.stacker_dbs.push(ContractId::new(addr, name));
+    config.stacker_dbs.push(ContractId::from_parts(addr, name));
     config.stacker_db_configs.push(Some(stackerdb_config));
 
     config.stacker_dbs.len() - 1
@@ -105,19 +106,19 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 /// `idx` refers to the `idx`th stacker DB in the node config struct.
 fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
     let contract_id = &peer.config.stacker_dbs[idx];
-    let rc_consensus_hash = &peer.network.chain_view.rc_consensus_hash;
+    let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
 
     let noop = StackerDBConfig::noop();
     let stackerdb_config = peer.config.stacker_db_configs[idx]
         .as_ref()
         .unwrap_or(&noop);
-    let num_chunks = stackerdb_config.num_chunks;
+    let num_slots = stackerdb_config.num_slots;
     let chunk_size = stackerdb_config.chunk_size;
 
     let mut k: u64 = 0;
     let mut pks = vec![];
     let mut slots = vec![];
-    for i in 0..num_chunks {
+    for i in 0..num_slots {
         // deterministically generate private keys
         let pk = loop {
             let h = Sha512Trunc256Sum::from_data(&k.to_be_bytes());
@@ -139,26 +140,22 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
 
     let tx = peer
         .network
-        .stacker_db
+        .stackerdbs
         .tx_begin(stackerdb_config.clone())
         .unwrap();
 
-    tx.create_stackerdb(contract_id).unwrap();
-    tx.prepare_stackerdb_slots(contract_id, &rc_consensus_hash, &slots)
-        .unwrap();
+    tx.create_stackerdb(contract_id, &slots).unwrap();
 
     if fill {
-        for i in 0..num_chunks {
+        for i in 0..num_slots {
             // deterministically generate chunk data
             let mut inner_data = vec![0x00; chunk_size as usize];
             thread_rng().fill(&mut inner_data[..]);
 
             let mut chunk_data = StackerDBChunkData::new(i as u32, 1, inner_data);
-            chunk_data
-                .sign(rc_consensus_hash.clone(), &pks[i as usize])
-                .unwrap();
+            chunk_data.sign(&pks[i as usize]).unwrap();
 
-            let chunk_md = chunk_data.get_chunk_metadata(rc_consensus_hash.clone());
+            let chunk_md = chunk_data.get_slot_metadata();
             tx.try_replace_chunk(contract_id, &chunk_md, &chunk_data.data)
                 .unwrap();
         }
@@ -168,25 +165,26 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
 }
 
 /// Load up the entire stacker DB, including its metadata
-fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(ChunkMetadata, Vec<u8>)> {
-    let num_chunks = peer.config.stacker_db_configs[idx]
+fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
+    let num_slots = peer.config.stacker_db_configs[idx]
         .as_ref()
         .unwrap_or(&StackerDBConfig::noop())
-        .num_chunks;
-    let rc_consensus_hash = &peer.network.chain_view.rc_consensus_hash;
+        .num_slots;
+    let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
     let mut ret = vec![];
-    for i in 0..num_chunks {
+    for i in 0..num_slots {
         let chunk_metadata = peer
             .network
-            .stacker_db
-            .get_chunk_metadata(&peer.config.stacker_dbs[idx], rc_consensus_hash, i as u32)
+            .stackerdbs
+            .get_slot_metadata(&peer.config.stacker_dbs[idx], i as u32)
             .unwrap()
             .unwrap();
         let chunk = peer
             .network
-            .stacker_db
-            .get_latest_chunk(&peer.config.stacker_dbs[idx], rc_consensus_hash, i as u32)
-            .unwrap();
+            .stackerdbs
+            .get_latest_chunk(&peer.config.stacker_dbs[idx], i as u32)
+            .unwrap()
+            .unwrap_or(vec![]);
         ret.push((chunk_metadata, chunk));
     }
     ret
@@ -224,15 +222,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
         assert_eq!(peer_1_db_chunks.len(), 1);
-        assert_eq!(peer_1_db_chunks[0].0.chunk_id, 0);
-        assert_eq!(peer_1_db_chunks[0].0.chunk_version, 1);
+        assert_eq!(peer_1_db_chunks[0].0.slot_id, 0);
+        assert_eq!(peer_1_db_chunks[0].0.slot_version, 1);
         assert!(peer_1_db_chunks[0].1.len() > 0);
 
         // verify that peer 2 did NOT get the data
         let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
         assert_eq!(peer_2_db_chunks.len(), 1);
-        assert_eq!(peer_2_db_chunks[0].0.chunk_id, 0);
-        assert_eq!(peer_2_db_chunks[0].0.chunk_version, 0);
+        assert_eq!(peer_2_db_chunks[0].0.slot_id, 0);
+        assert_eq!(peer_2_db_chunks[0].0.slot_version, 0);
         assert!(peer_2_db_chunks[0].1.len() == 0);
 
         let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
@@ -244,22 +242,32 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
             let res_1 = peer_1.step();
             let res_2 = peer_2.step();
 
-            if let Ok(res) = res_1 {
+            if let Ok(mut res) = res_1 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_1.network.stacker_db,
+                    &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &peer_1.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    &mut res.unhandled_messages,
                 )
                 .unwrap();
             }
 
-            if let Ok(res) = res_2 {
+            if let Ok(mut res) = res_2 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_2.network.stacker_db,
+                    &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &peer_2.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    &mut res.unhandled_messages,
                 )
                 .unwrap();
             }
@@ -279,7 +287,16 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 
 #[test]
 fn test_stackerdb_replica_2_neighbors_10_chunks() {
-    with_timeout(600, || {
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(false);
+}
+
+#[test]
+fn test_stackerdb_replica_2_neighbors_10_push_chunks() {
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(true);
+}
+
+fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool) {
+    with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 4);
         let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 6);
@@ -290,6 +307,11 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
         // short-lived walks...
         peer_1_config.connection_opts.walk_max_duration = 10;
         peer_2_config.connection_opts.walk_max_duration = 10;
+
+        if push_only {
+            peer_1_config.connection_opts.disable_stackerdb_get_chunks = true;
+            peer_2_config.connection_opts.disable_stackerdb_get_chunks = true;
+        }
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -310,8 +332,8 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
         assert_eq!(peer_1_db_chunks.len(), 10);
         for i in 0..10 {
-            assert_eq!(peer_1_db_chunks[i].0.chunk_id, i as u32);
-            assert_eq!(peer_1_db_chunks[i].0.chunk_version, 1);
+            assert_eq!(peer_1_db_chunks[i].0.slot_id, i as u32);
+            assert_eq!(peer_1_db_chunks[i].0.slot_version, 1);
             assert!(peer_1_db_chunks[i].1.len() > 0);
         }
 
@@ -319,8 +341,8 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
         let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
         assert_eq!(peer_2_db_chunks.len(), 10);
         for i in 0..10 {
-            assert_eq!(peer_2_db_chunks[i].0.chunk_id, i as u32);
-            assert_eq!(peer_2_db_chunks[i].0.chunk_version, 0);
+            assert_eq!(peer_2_db_chunks[i].0.slot_id, i as u32);
+            assert_eq!(peer_2_db_chunks[i].0.slot_version, 0);
             assert!(peer_2_db_chunks[i].1.len() == 0);
         }
 
@@ -333,22 +355,32 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
             let res_1 = peer_1.step();
             let res_2 = peer_2.step();
 
-            if let Ok(res) = res_1 {
+            if let Ok(mut res) = res_1 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_1.network.stacker_db,
+                    &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &peer_1.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_1.network.stackerdbs,
+                    &peer_1_db_configs,
+                    &mut res.unhandled_messages,
                 )
                 .unwrap();
             }
 
-            if let Ok(res) = res_2 {
+            if let Ok(mut res) = res_2 {
                 Relayer::process_stacker_db_chunks(
-                    &mut peer_2.network.stacker_db,
+                    &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &peer_2.network.chain_view.rc_consensus_hash,
                     &res.stacker_db_sync_results,
+                )
+                .unwrap();
+                Relayer::process_pushed_stacker_db_chunks(
+                    &mut peer_2.network.stackerdbs,
+                    &peer_2_db_configs,
+                    &mut res.unhandled_messages,
                 )
                 .unwrap();
             }
@@ -360,20 +392,26 @@ fn test_stackerdb_replica_2_neighbors_10_chunks() {
                 break;
             }
             i += 1;
+
+            debug!("StackerDB sync step {}", i);
         }
 
         debug!("Completed stacker DB sync in {} step(s)", i);
-
-        // we were efficient
-        for (_, sync_state) in peer_2.network.stacker_db_syncs.as_ref().unwrap().iter() {
-            assert!(sync_state.total_stored >= 10);
-        }
     })
 }
 
 #[test]
 fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
-    with_timeout(600, || {
+    inner_test_stackerdb_replica_10_neighbors_line_10_chunks(false);
+}
+
+#[test]
+fn test_stackerdb_replica_10_neighbors_line_push_10_chunks() {
+    inner_test_stackerdb_replica_10_neighbors_line_10_chunks(true);
+}
+
+fn inner_test_stackerdb_replica_10_neighbors_line_10_chunks(push_only: bool) {
+    with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let num_peers: usize = 10;
         let mut peer_configs = vec![];
@@ -385,6 +423,10 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
             let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 8 + (2 * i as u16));
 
             peer_config.allowed = -1;
+
+            if push_only {
+                peer_config.connection_opts.disable_stackerdb_get_chunks = true;
+            }
 
             // short-lived walks...
             peer_config.connection_opts.walk_max_duration = 10;
@@ -413,8 +455,8 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
                 assert_eq!(peer_db_chunks.len(), 10);
                 for j in 0..10 {
-                    assert_eq!(peer_db_chunks[j].0.chunk_id, j as u32);
-                    assert_eq!(peer_db_chunks[j].0.chunk_version, 1);
+                    assert_eq!(peer_db_chunks[j].0.slot_id, j as u32);
+                    assert_eq!(peer_db_chunks[j].0.slot_version, 1);
                     assert!(peer_db_chunks[j].1.len() > 0);
                 }
             } else {
@@ -425,8 +467,8 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
                 assert_eq!(peer_db_chunks.len(), 10);
                 for j in 0..10 {
-                    assert_eq!(peer_db_chunks[j].0.chunk_id, j as u32);
-                    assert_eq!(peer_db_chunks[j].0.chunk_version, 0);
+                    assert_eq!(peer_db_chunks[j].0.slot_id, j as u32);
+                    assert_eq!(peer_db_chunks[j].0.slot_version, 0);
                     assert!(peer_db_chunks[j].1.len() == 0);
                 }
             }
@@ -443,13 +485,19 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
             // run peer network state-machines
             for i in 0..num_peers {
                 let res = peers[i].step();
-                if let Ok(res) = res {
-                    let rc_consensus_hash = peers[i].network.chain_view.rc_consensus_hash.clone();
+                if let Ok(mut res) = res {
+                    let rc_consensus_hash =
+                        peers[i].network.get_chain_view().rc_consensus_hash.clone();
                     Relayer::process_stacker_db_chunks(
-                        &mut peers[i].network.stacker_db,
+                        &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
-                        &rc_consensus_hash,
                         &res.stacker_db_sync_results,
+                    )
+                    .unwrap();
+                    Relayer::process_pushed_stacker_db_chunks(
+                        &mut peers[i].network.stackerdbs,
+                        &peer_db_configs[i],
+                        &mut res.unhandled_messages,
                     )
                     .unwrap();
                 }
@@ -476,15 +524,6 @@ fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
         }
 
         debug!("Completed stacker DB sync in {} step(s)", step_count);
-
-        // we were efficient
-        for (i, peer) in peers.iter().enumerate() {
-            for (_, sync_state) in peer.network.stacker_db_syncs.as_ref().unwrap().iter() {
-                if i != 0 {
-                    assert!(sync_state.total_stored >= 10);
-                }
-            }
-        }
     })
 }
 
@@ -541,8 +580,8 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
                     let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i][j]);
                     assert_eq!(peer_db_chunks.len(), 10);
                     for k in 0..10 {
-                        assert_eq!(peer_db_chunks[k].0.chunk_id, k as u32);
-                        assert_eq!(peer_db_chunks[k].0.chunk_version, 1);
+                        assert_eq!(peer_db_chunks[k].0.slot_id, k as u32);
+                        assert_eq!(peer_db_chunks[k].0.slot_version, 1);
                         assert!(peer_db_chunks[k].1.len() > 0);
                     }
                 }
@@ -555,8 +594,8 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
                     let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i][j]);
                     assert_eq!(peer_db_chunks.len(), 10);
                     for k in 0..10 {
-                        assert_eq!(peer_db_chunks[k].0.chunk_id, k as u32);
-                        assert_eq!(peer_db_chunks[k].0.chunk_version, 0);
+                        assert_eq!(peer_db_chunks[k].0.slot_id, k as u32);
+                        assert_eq!(peer_db_chunks[k].0.slot_version, 0);
                         assert!(peer_db_chunks[k].1.len() == 0);
                     }
                 }
@@ -574,13 +613,19 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
             // run peer network state-machines
             for i in 0..num_peers {
                 let res = peers[i].step();
-                if let Ok(res) = res {
-                    let rc_consensus_hash = peers[i].network.chain_view.rc_consensus_hash.clone();
+                if let Ok(mut res) = res {
+                    let rc_consensus_hash =
+                        peers[i].network.get_chain_view().rc_consensus_hash.clone();
                     Relayer::process_stacker_db_chunks(
-                        &mut peers[i].network.stacker_db,
+                        &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
-                        &rc_consensus_hash,
                         &res.stacker_db_sync_results,
+                    )
+                    .unwrap();
+                    Relayer::process_pushed_stacker_db_chunks(
+                        &mut peers[i].network.stackerdbs,
+                        &peer_db_configs[i],
+                        &mut res.unhandled_messages,
                     )
                     .unwrap();
                 }
