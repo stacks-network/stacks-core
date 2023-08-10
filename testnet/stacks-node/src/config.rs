@@ -30,6 +30,7 @@ use stacks::cost_estimates::metrics::ProportionalDotProduct;
 use stacks::cost_estimates::CostEstimator;
 use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
+use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::get_epoch_time_ms;
@@ -55,6 +56,7 @@ pub struct ConfigFile {
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
+    pub atlas: Option<AtlasConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -206,7 +208,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -250,13 +252,8 @@ impl ConfigFile {
             ..BurnchainConfigFile::default()
         };
 
-        let bootstrap_nodes = [
-            "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459d36b@seed-0.mainnet.stacks.co:20444",
-            "02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444",
-            "03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"].join(",");
-
         let node = NodeConfigFile {
-            bootstrap_node: Some(bootstrap_nodes),
+            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -365,6 +362,7 @@ pub struct Config {
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
+    pub atlas: AtlasConfig,
 }
 
 lazy_static! {
@@ -411,6 +409,34 @@ impl Config {
                 burnchain.pox_constants.v1_unlock_height, v1_unlock_height
             );
             burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
+        }
+
+        if let Some(epochs) = &self.burnchain.epochs {
+            // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
+            {
+                // Override v2_unlock_height to the start_height of epoch2.2
+                debug!(
+                    "Override v2_unlock_height from {} to {}",
+                    burnchain.pox_constants.v2_unlock_height,
+                    epoch.start_height + 1
+                );
+                burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
+            }
+
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch24)
+            {
+                // Override pox_3_activation_height to the start_height of epoch2.4
+                debug!(
+                    "Override pox_3_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_3_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -512,6 +538,12 @@ impl Config {
                 Ok(StacksEpochId::Epoch2_05)
             } else if epoch_name == EPOCH_CONFIG_2_1_0 {
                 Ok(StacksEpochId::Epoch21)
+            } else if epoch_name == EPOCH_CONFIG_2_2_0 {
+                Ok(StacksEpochId::Epoch22)
+            } else if epoch_name == EPOCH_CONFIG_2_3_0 {
+                Ok(StacksEpochId::Epoch23)
+            } else if epoch_name == EPOCH_CONFIG_2_4_0 {
+                Ok(StacksEpochId::Epoch24)
             } else {
                 Err(format!("Unknown epoch name specified: {}", epoch_name))
             }?;
@@ -534,6 +566,9 @@ impl Config {
             StacksEpochId::Epoch20,
             StacksEpochId::Epoch2_05,
             StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -670,6 +705,9 @@ impl Config {
                     // chainstate fault_injection activation for hide_blocks.
                     // you can't set this in the config file.
                     fault_injection_hide_blocks: false,
+                    chain_liveness_poll_time_secs: node
+                        .chain_liveness_poll_time_secs
+                        .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -871,6 +909,9 @@ impl Config {
                 candidate_retry_cache_size: miner
                     .candidate_retry_cache_size
                     .unwrap_or(miner_default_config.candidate_retry_cache_size),
+                unprocessed_block_deadline_secs: miner
+                    .unprocessed_block_deadline_secs
+                    .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
             },
             None => miner_default_config,
         };
@@ -1095,7 +1136,7 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
-                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    handshake_timeout: opts.handshake_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
@@ -1109,6 +1150,16 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
+        let mainnet = burnchain.mode == "mainnet";
+        let atlas = match config_file.atlas {
+            Some(f) => f.into_config(mainnet),
+            None => AtlasConfig::new(mainnet),
+        };
+
+        atlas
+            .validate()
+            .map_err(|e| format!("Atlas config error: {e}"))?;
+
         Ok(Config {
             node,
             burnchain,
@@ -1117,6 +1168,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
+            atlas,
         })
     }
 
@@ -1274,6 +1326,7 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
+        let mainnet = burnchain.mode == "mainnet";
 
         Config {
             burnchain,
@@ -1283,6 +1336,7 @@ impl std::default::Default for Config {
             connection_options,
             estimation,
             miner: MinerConfig::default(),
+            atlas: AtlasConfig::new(mainnet),
         }
     }
 }
@@ -1401,6 +1455,9 @@ pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
 pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
 pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
 pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
+pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
+pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
+pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
@@ -1461,6 +1518,9 @@ pub struct NodeConfig {
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1735,9 +1795,10 @@ impl NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: true,
+            always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
+            chain_liveness_poll_time_secs: 300,
         }
     }
 
@@ -1850,6 +1911,7 @@ pub struct MinerConfig {
     pub wait_for_block_download: bool,
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
+    pub unprocessed_block_deadline_secs: u64,
 }
 
 impl MinerConfig {
@@ -1865,6 +1927,7 @@ impl MinerConfig {
             wait_for_block_download: true,
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
+            unprocessed_block_deadline_secs: 30,
         }
     }
 }
@@ -1939,9 +2002,12 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
     pub require_affirmed_anchor_blocks: Option<bool>,
+    /// At most, how often should the chain-liveness thread
+    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    pub chain_liveness_poll_time_secs: Option<u64>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -1950,20 +2016,6 @@ pub struct FeeEstimationConfigFile {
     pub log_error: Option<bool>,
     pub fee_rate_fuzzer_fraction: Option<f64>,
     pub fee_rate_window_size: Option<u64>,
-}
-
-impl Default for FeeEstimationConfigFile {
-    fn default() -> Self {
-        Self {
-            cost_estimator: None,
-            fee_estimator: None,
-            cost_metric: None,
-            disabled: None,
-            log_error: None,
-            fee_rate_fuzzer_fraction: None,
-            fee_rate_window_size: None,
-        }
-    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -1977,6 +2029,35 @@ pub struct MinerConfigFile {
     pub segwit: Option<bool>,
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
+    pub unprocessed_block_deadline_secs: Option<u64>,
+}
+
+#[derive(Clone, Deserialize, Default, Debug)]
+pub struct AtlasConfigFile {
+    pub attachments_max_size: Option<u32>,
+    pub max_uninstantiated_attachments: Option<u32>,
+    pub uninstantiated_attachments_expire_after: Option<u32>,
+    pub unresolved_attachment_instances_expire_after: Option<u32>,
+}
+
+impl AtlasConfigFile {
+    // Can't inplement `Into` trait because this takes a parameter
+    fn into_config(&self, mainnet: bool) -> AtlasConfig {
+        let mut conf = AtlasConfig::new(mainnet);
+        if let Some(val) = self.attachments_max_size {
+            conf.attachments_max_size = val
+        }
+        if let Some(val) = self.max_uninstantiated_attachments {
+            conf.max_uninstantiated_attachments = val
+        }
+        if let Some(val) = self.uninstantiated_attachments_expire_after {
+            conf.uninstantiated_attachments_expire_after = val
+        }
+        if let Some(val) = self.unresolved_attachment_instances_expire_after {
+            conf.unresolved_attachment_instances_expire_after = val
+        }
+        conf
+    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

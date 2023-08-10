@@ -529,7 +529,10 @@ impl TypeSignature {
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&other),
-            StacksEpochId::Epoch21 => self.admits_type_v2_1(other),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
     }
@@ -722,8 +725,13 @@ impl TypeSignature {
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         match epoch {
-            StacksEpochId::Epoch21 => self.canonicalize_v2_1(),
-            _ => self.clone(),
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+            | StacksEpochId::Epoch22 => self.clone(),
+            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch23 | StacksEpochId::Epoch24 => self.canonicalize_v2_1(),
         }
     }
 
@@ -841,6 +849,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
 }
 
 impl TupleTypeSignature {
+    /// Return the number of fields in this tuple type
     pub fn len(&self) -> u64 {
         self.type_map.len() as u64
     }
@@ -1045,7 +1054,10 @@ impl TypeSignature {
     ) -> Result<TypeSignature> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21 => Self::least_supertype_v2_1(a, b),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
     }
@@ -1064,8 +1076,9 @@ impl TypeSignature {
                     let entry_out = Self::least_supertype_v2_0(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
-                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
-                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
+                Ok(TupleTypeSignature::try_from(type_map_out)
+                    .map(|x| x.into())
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1086,7 +1099,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                   .expect("ERR: least_supertype_v2_0 attempted to construct a too-large supertype of two types"))
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
@@ -1165,8 +1178,9 @@ impl TypeSignature {
                     let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
-                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
-                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+                Ok(TupleTypeSignature::try_from(type_map_out)
+                    .map(|x| x.into())
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1187,7 +1201,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                   .expect("ERR: least_supertype_v2_1 attempted to construct a too-large supertype of two types"))
+                    .map_err(|_| CheckErrors::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
@@ -1927,16 +1941,7 @@ mod test {
     #[cfg(test)]
     use rstest_reuse::{self, *};
 
-    #[template]
-    #[rstest]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-    fn test_clarity_versions_signatures(
-        #[case] version: ClarityVersion,
-        #[case] epoch: StacksEpochId,
-    ) {
-    }
+    use crate::vm::tests::test_clarity_versions;
 
     fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrors {
         use crate::vm::ast::parse;
@@ -1950,14 +1955,14 @@ mod test {
         TypeSignature::parse_type_repr(epoch, expr, &mut ()).unwrap_err()
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn type_of_list_of_buffs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
         let type_descr = TypeSignature::from_string("(list 2 (string-ascii 5))", version, epoch);
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn type_signature_way_too_big(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         // first_tuple.type_size ~= 131
         // second_tuple.type_size = k * (130+130)
@@ -1978,7 +1983,7 @@ mod test {
         );
     }
 
-    #[apply(test_clarity_versions_signatures)]
+    #[apply(test_clarity_versions)]
     fn test_construction(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let bad_type_descriptions = [
             ("(tuple)", EmptyTuplesNotAllowed),

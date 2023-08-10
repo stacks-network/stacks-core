@@ -6,5 +6,5 @@ name = "core-contracts"
 costs_version = 1
 
 [contracts.bns]
-path = "../../src/chainstate/stacks/boot/bns.clar"
+path = "../../stackslib/src/chainstate/stacks/boot/bns.clar"
 depends_on = []

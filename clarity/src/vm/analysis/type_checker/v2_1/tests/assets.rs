@@ -20,18 +20,12 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
-
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
@@ -118,7 +112,7 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
             (nft-burn? names name tx-sender))
          ";
 
-#[apply(test_clarity_versions_assets)]
+#[apply(test_clarity_versions)]
 fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();

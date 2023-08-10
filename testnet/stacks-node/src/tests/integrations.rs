@@ -26,7 +26,6 @@ use stacks::vm::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
         mem_type_check,
     },
-    database::ClaritySerializable,
     types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
@@ -205,6 +204,7 @@ fn integration_test_get_info() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -221,6 +221,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -234,6 +235,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -247,6 +249,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -281,6 +284,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -304,6 +308,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         tx,
@@ -325,6 +330,7 @@ fn integration_test_get_info() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         tx_xfer,
@@ -485,7 +491,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -500,7 +506,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -517,7 +523,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -538,7 +544,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize())
+                    .json(&key.serialize_to_hex())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -666,7 +672,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)
@@ -734,7 +740,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)
@@ -757,7 +763,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(100).serialize()]
+                    arguments: vec![Value::UInt(100).serialize_to_hex()]
                 };
 
                 let res = client.post(&path)
@@ -1095,6 +1101,7 @@ fn contract_stx_transfer() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -1117,6 +1124,7 @@ fn contract_stx_transfer() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
@@ -1132,6 +1140,7 @@ fn contract_stx_transfer() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -1152,6 +1161,7 @@ fn contract_stx_transfer() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         publish_tx,
@@ -1173,6 +1183,7 @@ fn contract_stx_transfer() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         tx,
@@ -1197,6 +1208,7 @@ fn contract_stx_transfer() {
                         .mem_pool
                         .submit(
                             &mut chainstate_copy,
+                            &sortdb,
                             &consensus_hash,
                             &header_hash,
                             &xfer_to_contract,
@@ -1215,6 +1227,7 @@ fn contract_stx_transfer() {
                     .mem_pool
                     .submit(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         &xfer_to_contract,
@@ -1413,6 +1426,7 @@ fn mine_transactions_out_of_order() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let header_hash = chain_tip.block.block_hash();
@@ -1433,6 +1447,7 @@ fn mine_transactions_out_of_order() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
@@ -1447,6 +1462,7 @@ fn mine_transactions_out_of_order() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
@@ -1461,6 +1477,7 @@ fn mine_transactions_out_of_order() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
@@ -1475,6 +1492,7 @@ fn mine_transactions_out_of_order() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
@@ -1564,6 +1582,7 @@ fn mine_contract_twice() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
             if round == 1 {
@@ -1578,6 +1597,7 @@ fn mine_contract_twice() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         publish_tx,
@@ -1649,6 +1669,7 @@ fn bad_contract_tx_rollback() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -1674,6 +1695,7 @@ fn bad_contract_tx_rollback() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
@@ -1692,6 +1714,7 @@ fn bad_contract_tx_rollback() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
@@ -1706,6 +1729,7 @@ fn bad_contract_tx_rollback() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
@@ -1720,6 +1744,7 @@ fn bad_contract_tx_rollback() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         publish_tx,
@@ -1734,6 +1759,7 @@ fn bad_contract_tx_rollback() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         publish_tx,
@@ -1960,6 +1986,7 @@ fn block_limit_runtime_test() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let _contract_identifier = QualifiedContractIdentifier::parse(&format!(
@@ -1985,6 +2012,7 @@ fn block_limit_runtime_test() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         consensus_hash,
                         block_hash,
                         publish_tx,
@@ -2014,6 +2042,7 @@ fn block_limit_runtime_test() {
                         .mem_pool
                         .submit_raw(
                             &mut chainstate_copy,
+                            &sortdb,
                             consensus_hash,
                             block_hash,
                             tx,
@@ -2087,6 +2116,7 @@ fn mempool_errors() {
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
 
             let header_hash = chain_tip.block.block_hash();
             let consensus_hash = chain_tip.metadata.consensus_hash;
@@ -2100,6 +2130,7 @@ fn mempool_errors() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx,

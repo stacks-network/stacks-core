@@ -49,7 +49,7 @@ extern crate rstest;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
-extern crate rstest_reuse;
+pub extern crate rstest_reuse;
 
 #[cfg(feature = "monitoring_prom")]
 #[macro_use]

@@ -14,17 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::tests::test_clarity_versions;
+
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
@@ -60,7 +55,7 @@ fn test_defines() {
     assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
 }
 
-#[apply(test_clarity_versions_defines)]
+#[apply(test_clarity_versions)]
 fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let defun = "(define-private (f (b (optional int))) (* 10 (default-to 0 b)))";
     let tests = [
@@ -193,7 +188,7 @@ fn test_stack_depth() {
     })
 }
 
-#[apply(test_clarity_versions_defines)]
+#[apply(test_clarity_versions)]
 fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = "(define-private (factorial (a int))
           (if (is-eq a 0)

@@ -1,7 +1,6 @@
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
@@ -103,7 +102,6 @@ pub struct Node {
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
     nonce: u64,
-    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     leader_key_registers: HashSet<Txid>,
     block_commits: HashSet<Txid>,
 }
@@ -166,6 +164,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
     )
 }
 
+// This function is called for helium and mocknet.
 fn spawn_peer(
     is_mainnet: bool,
     chain_id: u32,
@@ -179,7 +178,6 @@ fn spawn_peer(
     exit_at_block_height: Option<u64>,
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     config: Config,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -243,15 +241,7 @@ fn spawn_peer(
                 }
             };
 
-            let mut expected_attachments = match attachments_rx.try_recv() {
-                Ok(expected_attachments) => expected_attachments,
-                _ => {
-                    debug!("Atlas: attachment channel is empty");
-                    HashSet::new()
-                }
-            };
-
-            let indexer = make_bitcoin_indexer(&config);
+            let indexer = make_bitcoin_indexer(&config, None);
 
             let net_result = this
                 .run(
@@ -264,7 +254,6 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
-                    &mut expected_attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {
@@ -293,11 +282,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(
-        config: Config,
-        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-    ) -> Self {
+    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             use_test_genesis_chainstate(&config)
         } else {
@@ -391,81 +376,26 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
-            attachments_tx,
             leader_key_registers: HashSet::new(),
             block_commits: HashSet::new(),
         }
     }
 
-    pub fn init_and_sync(
-        config: Config,
-        burnchain_controller: &mut Box<dyn BurnchainController>,
-    ) -> Node {
-        let burnchain_tip = burnchain_controller.get_chain_tip();
-
-        let keychain = Keychain::default(config.node.seed.clone());
-
-        let mut event_dispatcher = EventDispatcher::new();
-
-        for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
-
-        let chainstate_path = config.get_chainstate_path_str();
-        let sortdb_path = config.get_burn_db_file_path();
-
-        let (chain_state, _) = match StacksChainState::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &chainstate_path,
-            Some(config.node.get_marf_opts()),
-        ) {
-            Ok(x) => x,
-            Err(_e) => panic!(),
-        };
-
-        let (attachments_tx, attachments_rx) = sync_channel(1);
-        let mut node = Node {
-            active_registered_key: None,
-            bootstraping_chain: false,
-            chain_state,
-            chain_tip: None,
-            keychain,
-            last_sortitioned_block: None,
-            config,
-            burnchain_tip: None,
-            nonce: 0,
-            event_dispatcher,
-            attachments_tx,
-            leader_key_registers: HashSet::new(),
-            block_commits: HashSet::new(),
-        };
-
-        node.spawn_peer_server(attachments_rx);
-
-        let pox_constants = burnchain_controller.sortdb_ref().pox_constants.clone();
-        loop {
-            let sortdb = SortitionDB::open(&sortdb_path, false, pox_constants.clone())
-                .expect("BUG: failed to open burn database");
-            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip(&sortdb) {
-                if chain_tip.consensus_hash == burnchain_tip.block_snapshot.consensus_hash {
-                    info!("Syncing Stacks blocks - completed");
-                    break;
-                } else {
-                    info!(
-                        "Syncing Stacks blocks - received block #{}",
-                        chain_tip.height
-                    );
-                }
-            } else {
-                info!("Syncing Stacks blocks - unable to progress");
-            }
-            thread::sleep(time::Duration::from_secs(5));
-        }
-        node
+    fn make_atlas_config() -> AtlasConfig {
+        AtlasConfig::new(false)
     }
 
-    pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
+    pub fn make_atlas_db(&self) -> AtlasDB {
+        AtlasDB::connect(
+            Self::make_atlas_config(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .unwrap()
+    }
+
+    // This function is used for helium and mocknet.
+    pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let burnchain = self.config.get_burnchain();
@@ -553,9 +483,7 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = AtlasConfig::default(false);
-        let atlasdb =
-            AtlasDB::connect(atlas_config, &self.config.get_atlas_db_file_path(), true).unwrap();
+        let atlasdb = self.make_atlas_db();
 
         let stackerdb = StackerDB::connect(&self.config.get_stacker_db_file_path(), true).unwrap();
 
@@ -592,7 +520,6 @@ impl Node {
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
-            attachments_rx,
             self.config.clone(),
         )
         .unwrap();
@@ -848,6 +775,7 @@ impl Node {
         consensus_hash: &ConsensusHash,
         microblocks: Vec<StacksMicroblock>,
         db: &mut SortitionDB,
+        atlas_db: &mut AtlasDB,
     ) -> ChainTip {
         let _parent_consensus_hash = {
             // look up parent consensus hash
@@ -905,7 +833,7 @@ impl Node {
             BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
                 .expect("FATAL: failed to connect to burnchain DB");
 
-        let atlas_config = AtlasConfig::default(false);
+        let atlas_config = Self::make_atlas_config();
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
@@ -929,13 +857,19 @@ impl Node {
                                     let attachments_instances =
                                         self.get_attachment_instances(epoch_receipt, &atlas_config);
                                     if !attachments_instances.is_empty() {
-                                        match self.attachments_tx.send(attachments_instances) {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                error!("Error dispatching attachments {}", e);
-                                                panic!();
+                                        for new_attachment in attachments_instances.into_iter() {
+                                            if let Err(e) =
+                                                atlas_db.queue_attachment_instance(&new_attachment)
+                                            {
+                                                warn!(
+                                                    "Atlas: Error writing attachment instance to DB";
+                                                    "err" => ?e,
+                                                    "index_block_hash" => %new_attachment.index_block_hash,
+                                                    "contract_id" => %new_attachment.contract_id,
+                                                    "attachment_index" => %new_attachment.attachment_index,
+                                                );
                                             }
-                                        };
+                                        }
                                     }
                                 }
                                 _ => {}

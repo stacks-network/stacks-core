@@ -428,7 +428,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
+  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
     get:
       summary: Get trait implementation details
       description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
@@ -483,3 +483,50 @@ paths:
           The Stacks chain tip to query from.
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
           If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state). 
+
+  /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
+    post:
+      summary: Get the value of a constant inside a contract
+      tags:
+        - Smart Contracts
+      operationId: get_constant_val
+      description: |
+        Attempt to fetch the value of a constant inside a contract. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The constant is identified with [Constant Name].
+
+        In the response, `data` is the hex serialization of the constant value.
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-constant-val.schema.json
+              example:
+                $ref: ./api/core-node/get-constant-val.example.json
+        400:
+          description: Failed to retrieve constant value from contract
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: constant_name
+          in: path
+          required: true
+          description: Constant name
+          schema:
+            type: string
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
