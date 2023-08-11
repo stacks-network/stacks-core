@@ -420,7 +420,9 @@ fn inner_test_stackerdb_replica_10_neighbors_line_10_chunks(push_only: bool) {
         let mut peer_db_configs = vec![];
 
         for i in 0..num_peers {
-            let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 8 + (2 * i as u16));
+            let mut peer_config = TestPeerConfig::from_port(
+                BASE_PORT + 8 + (2 * i as u16) + (if push_only { 28 } else { 0 }),
+            );
 
             peer_config.allowed = -1;
 
@@ -539,7 +541,7 @@ fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
         let mut peer_db_configs = vec![];
 
         for i in 0..num_peers {
-            let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 28 + (2 * i as u16));
+            let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 56 + (2 * i as u16));
 
             peer_config.allowed = -1;
 
