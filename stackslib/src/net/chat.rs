@@ -5437,7 +5437,7 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "convo_is_preamble_valid";
-        let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
+        let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
                 &burnchain,

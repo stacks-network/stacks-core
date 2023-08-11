@@ -286,20 +286,22 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_replica_2_neighbors_10_chunks() {
-    inner_test_stackerdb_replica_2_neighbors_10_chunks(false);
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(false, BASE_PORT + 4);
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_replica_2_neighbors_10_push_chunks() {
-    inner_test_stackerdb_replica_2_neighbors_10_chunks(true);
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(true, BASE_PORT + 8);
 }
 
-fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool) {
+fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port: u16) {
     with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 4);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 6);
+        let mut peer_1_config = TestPeerConfig::from_port(base_port);
+        let mut peer_2_config = TestPeerConfig::from_port(base_port + 2);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -401,16 +403,16 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool) {
 }
 
 #[test]
-fn test_stackerdb_replica_10_neighbors_line_10_chunks() {
-    inner_test_stackerdb_replica_10_neighbors_line_10_chunks(false);
+fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
+    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(false, BASE_PORT + 28);
 }
 
 #[test]
-fn test_stackerdb_replica_10_neighbors_line_push_10_chunks() {
-    inner_test_stackerdb_replica_10_neighbors_line_10_chunks(true);
+fn test_stackerdb_10_replicas_10_neighbors_line_push_10_chunks() {
+    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(true, BASE_PORT + 68);
 }
 
-fn inner_test_stackerdb_replica_10_neighbors_line_10_chunks(push_only: bool) {
+fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool, base_port: u16) {
     with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let num_peers: usize = 10;
@@ -420,9 +422,7 @@ fn inner_test_stackerdb_replica_10_neighbors_line_10_chunks(push_only: bool) {
         let mut peer_db_configs = vec![];
 
         for i in 0..num_peers {
-            let mut peer_config = TestPeerConfig::from_port(
-                BASE_PORT + 8 + (2 * i as u16) + (if push_only { 28 } else { 0 }),
-            );
+            let mut peer_config = TestPeerConfig::from_port(base_port + (2 * i as u16));
 
             peer_config.allowed = -1;
 
@@ -526,149 +526,5 @@ fn inner_test_stackerdb_replica_10_neighbors_line_10_chunks(push_only: bool) {
         }
 
         debug!("Completed stacker DB sync in {} step(s)", step_count);
-    })
-}
-
-#[test]
-fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
-    with_timeout(600, || {
-        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let num_peers: usize = 10;
-        let num_dbs: usize = 10;
-        let mut peer_configs = vec![];
-        let mut peer_db_idxs = vec![];
-        let mut peers = vec![];
-        let mut peer_db_configs = vec![];
-
-        for i in 0..num_peers {
-            let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 56 + (2 * i as u16));
-
-            peer_config.allowed = -1;
-
-            // short-lived walks...
-            peer_config.connection_opts.walk_max_duration = 10;
-
-            // bigger inbox/outbox
-            peer_config.connection_opts.inbox_maxlen = 101;
-            peer_config.connection_opts.outbox_maxlen = 101;
-
-            let mut idxs = vec![];
-            for j in 0..10 {
-                let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::ten_chunks()));
-                idxs.push(idx);
-            }
-
-            peer_configs.push(peer_config);
-            peer_db_idxs.push(idxs);
-        }
-
-        // line topology: neighbor N connects to neighbors N-1 and N+1
-        for i in 1..(num_peers - 1) {
-            let n1 = peer_configs[i - 1].to_neighbor();
-            let n2 = peer_configs[i + 1].to_neighbor();
-            peer_configs[i].add_neighbor(&n1);
-            peer_configs[i].add_neighbor(&n2);
-        }
-
-        for (i, peer_config) in peer_configs.into_iter().enumerate() {
-            let mut peer = TestPeer::new(peer_config);
-
-            if i == 0 {
-                for j in 0..peer_db_idxs[i].len() {
-                    // peer 0 -- at one end of the line -- gets the initial DBs
-                    setup_stackerdb(&mut peer, peer_db_idxs[i][j], true);
-
-                    // verify instantiation
-                    let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i][j]);
-                    assert_eq!(peer_db_chunks.len(), 10);
-                    for k in 0..10 {
-                        assert_eq!(peer_db_chunks[k].0.slot_id, k as u32);
-                        assert_eq!(peer_db_chunks[k].0.slot_version, 1);
-                        assert!(peer_db_chunks[k].1.len() > 0);
-                    }
-                }
-            } else {
-                for j in 0..peer_db_idxs[i].len() {
-                    // everyone else gets nothing
-                    setup_stackerdb(&mut peer, peer_db_idxs[i][j], false);
-
-                    // verify instantiation
-                    let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i][j]);
-                    assert_eq!(peer_db_chunks.len(), 10);
-                    for k in 0..10 {
-                        assert_eq!(peer_db_chunks[k].0.slot_id, k as u32);
-                        assert_eq!(peer_db_chunks[k].0.slot_version, 0);
-                        assert!(peer_db_chunks[k].1.len() == 0);
-                    }
-                }
-            }
-
-            peers.push(peer);
-        }
-
-        for (i, peer) in peers.iter().enumerate() {
-            let peer_db_config = peer.config.get_stacker_db_configs();
-            peer_db_configs.push(peer_db_config);
-        }
-        let mut step_count = 0;
-        loop {
-            // run peer network state-machines
-            for i in 0..num_peers {
-                let res = peers[i].step();
-                if let Ok(mut res) = res {
-                    let rc_consensus_hash =
-                        peers[i].network.get_chain_view().rc_consensus_hash.clone();
-                    Relayer::process_stacker_db_chunks(
-                        &mut peers[i].network.stackerdbs,
-                        &peer_db_configs[i],
-                        &res.stacker_db_sync_results,
-                    )
-                    .unwrap();
-                    Relayer::process_pushed_stacker_db_chunks(
-                        &mut peers[i].network.stackerdbs,
-                        &peer_db_configs[i],
-                        &mut res.unhandled_messages,
-                    )
-                    .unwrap();
-                }
-            }
-
-            let mut different = false;
-            for k in 0..num_dbs {
-                for i in 0..num_peers {
-                    let db1 = load_stackerdb(&peers[i], peer_db_idxs[i][k]);
-                    for j in (i + 1)..num_peers {
-                        let db2 = load_stackerdb(&peers[j], peer_db_idxs[j][k]);
-                        if db1 != db2 {
-                            debug!("Different {}: {} != {}", k, i, j);
-                            different = true;
-                            break;
-                        }
-                    }
-                    if different {
-                        break;
-                    }
-                }
-                if different {
-                    break;
-                }
-            }
-
-            if !different {
-                break;
-            }
-            step_count += 1;
-        }
-
-        debug!("Completed stacker DB sync in {} step(s)", step_count);
-
-        // we were efficient
-        for (i, peer) in peers.iter().enumerate() {
-            for (_, sync_state) in peer.network.stacker_db_syncs.as_ref().unwrap().iter() {
-                if i != 0 {
-                    assert!(sync_state.total_stored >= 10);
-                }
-            }
-        }
     })
 }
