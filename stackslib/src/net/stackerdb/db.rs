@@ -75,7 +75,7 @@ const STACKER_DB_SCHEMA: &'static [&'static str] = &[
 
         -- the following is NOT covered by the signature
         -- address of the creator of this chunk
-        stacker STRING NOT NULL,
+        signer STRING NOT NULL,
         -- the chunk data itself
         data BLOB NOT NULL,
         -- UNIX timestamp when the chunk was written.
@@ -94,7 +94,7 @@ pub const NO_VERSION: i64 = 0;
 
 /// Private struct for loading the data we need to validate an incoming chunk
 pub struct SlotValidation {
-    pub stacker: StacksAddress,
+    pub signer: StacksAddress,
     pub version: u32,
     pub write_time: u64,
 }
@@ -121,7 +121,7 @@ impl FromRow<SlotMetadata> for SlotMetadata {
 
 impl FromRow<SlotValidation> for SlotValidation {
     fn from_row<'a>(row: &'a Row) -> Result<SlotValidation, db_error> {
-        let stacker = StacksAddress::from_column(row, "stacker")?;
+        let signer = StacksAddress::from_column(row, "signer")?;
         let version: u32 = row.get_unwrap("version");
         let write_time_i64: i64 = row.get_unwrap("write_time");
         if write_time_i64 < 0 {
@@ -130,7 +130,7 @@ impl FromRow<SlotValidation> for SlotValidation {
         let write_time = write_time_i64 as u64;
 
         Ok(SlotValidation {
-            stacker,
+            signer,
             version,
             write_time,
         })
@@ -186,7 +186,7 @@ fn inner_get_slot_validation(
 ) -> Result<Option<SlotValidation>, net_error> {
     let stackerdb_id = inner_get_stackerdb_id(conn, smart_contract)?;
     let sql =
-        "SELECT stacker,write_time,version FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        "SELECT signer,write_time,version FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
     let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
     query_row(conn, &sql, args).map_err(|e| e.into())
 }
@@ -244,7 +244,7 @@ impl<'a> StackerDBTx<'a> {
 
         let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
 
-        let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,stacker,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+        let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,signer,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
         let mut stmt = self.sql_tx.prepare(&qry)?;
         let mut slot_id = 0u32;
 
@@ -278,6 +278,51 @@ impl<'a> StackerDBTx<'a> {
         let args: &[&dyn ToSql] = &[&stackerdb_id];
         let mut stmt = self.sql_tx.prepare(&qry)?;
         stmt.execute(args)?;
+        Ok(())
+    }
+
+    /// Update a database's storage slots, e.g. from new configuration state in its smart contract.
+    /// Chunk data for slots that no longer exist will be dropped.
+    /// Newly-created slots will be instantiated with empty data.
+    /// If the address for a slot changes, then its data will be dropped.
+    pub fn reconfigure_stackerdb(
+        &self,
+        smart_contract: &ContractId,
+        slots: &[(StacksAddress, u64)],
+    ) -> Result<(), net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let mut slot_id = 0u32;
+        for (principal, slot_count) in slots.iter() {
+            for _ in 0..*slot_count {
+                if let Some(existing_validation) =
+                    self.get_slot_validation(smart_contract, slot_id)?
+                {
+                    // this slot already exists.
+                    if existing_validation.signer == *principal {
+                        // no change
+                        slot_id += 1;
+                        continue;
+                    }
+                }
+
+                // new slot, or existing slot with a different signer
+                let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,signer,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+                let mut stmt = self.sql_tx.prepare(&qry)?;
+                let args: &[&dyn ToSql] = &[
+                    &stackerdb_id,
+                    &principal.to_string(),
+                    &slot_id,
+                    &NO_VERSION,
+                    &0,
+                    &vec![],
+                    &Sha512Trunc256Sum([0u8; 32]),
+                    &MessageSignature::empty(),
+                ];
+
+                stmt.execute(args)?;
+                slot_id += 1;
+            }
+        }
         Ok(())
     }
 
@@ -341,9 +386,9 @@ impl<'a> StackerDBTx<'a> {
                 slot_desc.slot_id,
             ))?;
 
-        if !slot_desc.verify(&slot_validation.stacker)? {
+        if !slot_desc.verify(&slot_validation.signer)? {
             return Err(net_error::BadSlotSigner(
-                slot_validation.stacker,
+                slot_validation.signer,
                 slot_desc.slot_id,
             ));
         }
@@ -472,7 +517,7 @@ impl StackerDBs {
         slot_id: u32,
     ) -> Result<Option<StacksAddress>, net_error> {
         let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
-        let sql = "SELECT stacker FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        let sql = "SELECT signer FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
         let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
         query_row(&self.conn, &sql, args).map_err(|e| e.into())
     }
