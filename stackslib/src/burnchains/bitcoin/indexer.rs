@@ -245,7 +245,10 @@ impl BitcoinIndexer {
             true,
             false,
         )
-        .unwrap();
+        .expect(&format!(
+            "Failed to open {:?}",
+            &working_dir_path.to_str().unwrap().to_string()
+        ));
 
         BitcoinIndexer {
             config: BitcoinIndexerConfig::default_regtest(

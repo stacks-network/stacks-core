@@ -52,8 +52,9 @@ use crate::net::StacksP2P;
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
-    NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_MAX_DURATION,
-    WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT, WALK_STATE_TIMEOUT,
+    MAX_NEIGHBOR_AGE, NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS,
+    WALK_MAX_DURATION, WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT,
+    WALK_STATE_TIMEOUT,
 };
 
 use clarity::vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
@@ -339,6 +340,7 @@ pub struct ConnectionOptions {
     pub max_neighbors_of_neighbor: u64,
     pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
+    pub max_neighbor_age: u64,
     pub num_initial_walks: u64,
     pub walk_retry_count: u64,
     pub walk_interval: u64,
@@ -423,6 +425,7 @@ impl std::default::Default for ConnectionOptions {
             max_neighbors_of_neighbor: 10,
             max_http_clients: 10,
             neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, // how long to wait for a neighbor request
+            max_neighbor_age: MAX_NEIGHBOR_AGE,
             num_initial_walks: NUM_INITIAL_WALKS,
             walk_retry_count: WALK_RETRY_COUNT,
             walk_interval: NEIGHBOR_WALK_INTERVAL, // how often to do a neighbor walk.

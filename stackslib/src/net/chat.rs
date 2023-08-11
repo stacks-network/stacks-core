@@ -467,12 +467,19 @@ impl Neighbor {
         Ok(())
     }
 
-    pub fn from_handshake(
+    /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
+    /// PeerDB with information in the handshake.
+    /// * If we already know about this neighbor, then all previously-calculated state and local
+    /// configuration state will be loaded as well.  This includes things like the calculated
+    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
+    /// * If we do not know about this neighbor, then the above state will not be loaded.
+    /// Returns (the neighbor, whether or not the neighbor was known)
+    pub fn load_and_update(
         conn: &DBConn,
         peer_version: u32,
         network_id: u32,
         handshake_data: &HandshakeData,
-    ) -> Result<Neighbor, net_error> {
+    ) -> Result<(Neighbor, bool), net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
         let pubk = handshake_data
             .node_public_key
@@ -482,15 +489,15 @@ impl Neighbor {
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
 
-        let mut neighbor = match peer_opt {
+        let (mut neighbor, present) = match peer_opt {
             Some(neighbor) => {
                 let mut ret = neighbor;
                 ret.addr = addr.clone();
-                ret
+                (ret, true)
             }
             None => {
                 let ret = Neighbor::empty(&addr, &pubk, handshake_data.expire_block_height);
-                ret
+                (ret, false)
             }
         };
 
@@ -510,7 +517,7 @@ impl Neighbor {
         }
 
         neighbor.handshake_update(conn, &handshake_data)?;
-        Ok(neighbor)
+        Ok((neighbor, present))
     }
 
     pub fn from_conversation(
@@ -1250,13 +1257,13 @@ impl ConversationP2P {
         if updated {
             // save the new key
             let mut tx = peerdb.tx_begin().map_err(net_error::DBError)?;
-            let mut neighbor = Neighbor::from_handshake(
+            let (mut neighbor, _) = Neighbor::load_and_update(
                 &mut tx,
                 message.preamble.peer_version,
                 message.preamble.network_id,
                 &handshake_data,
             )?;
-            neighbor.save_update(&mut tx)?;
+            neighbor.save_update(&mut tx, None)?;
             tx.commit()
                 .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
@@ -1277,10 +1284,7 @@ impl ConversationP2P {
                 accept_data,
                 StackerDBHandshakeData {
                     rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
-                    // placeholder sbtc address for now
-                    smart_contracts: vec![
-                        ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
-                    ],
+                    smart_contracts: local_peer.stacker_dbs.clone(),
                 },
             )
         } else {
@@ -1401,11 +1405,12 @@ impl ConversationP2P {
         let epoch = self.get_current_epoch(chain_view.burn_block_height);
 
         // get neighbors at random as long as they're fresh, and as long as they're compatible with
-        // the current system epoch
-        let mut neighbors = PeerDB::get_random_neighbors(
+        // the current system epoch.
+        let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
+            (get_epoch_time_secs() as u64).saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -2664,6 +2669,7 @@ mod test {
             data_url.clone(),
             &asn4_entries,
             Some(&initial_neighbors),
+            &vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
         )
         .unwrap();
         let sortdb = SortitionDB::connect(
@@ -3188,14 +3194,15 @@ mod test {
                         assert_eq!(data.handshake.data_url, "http://peer2.com".into());
                         assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
 
-                        // remote peer always replies with its supported smart contracts
-                        assert_eq!(
-                            db_data.smart_contracts,
-                            vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
-                        );
-
                         if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
                             assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
+
+                            // remote peer always replies with its supported smart contracts
+                            assert_eq!(
+                                db_data.smart_contracts,
+                                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc")
+                                    .unwrap()]
+                            );
 
                             // peers learn each others' smart contract DBs
                             eprintln!(
@@ -5519,6 +5526,7 @@ mod test {
             None,
             get_epoch_time_secs() + 123456,
             UrlString::try_from("http://foo.com").unwrap(),
+            vec![],
         );
         let mut convo = ConversationP2P::new(
             123,

@@ -546,6 +546,7 @@ impl RPCNeighborsInfo {
     pub fn from_p2p(
         network_id: u32,
         network_epoch: u8,
+        max_neighbor_age: u64,
         peers: &PeerMap,
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
@@ -563,10 +564,11 @@ impl RPCNeighborsInfo {
             })
             .collect();
 
-        let neighbor_sample = PeerDB::get_random_neighbors(
+        let neighbor_sample = PeerDB::get_fresh_random_neighbors(
             peerdb.conn(),
             network_id,
             network_epoch,
+            max_neighbor_age,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -912,6 +914,7 @@ impl ConversationHttp {
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
             epoch.network_epoch,
+            network.connection_opts.max_neighbor_age,
             &network.peers,
             &network.chain_view,
             &network.peerdb,

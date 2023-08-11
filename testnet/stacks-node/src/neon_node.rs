@@ -3925,8 +3925,9 @@ impl StacksNode {
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
-            &vec![],
+            &[],
             Some(&initial_neighbors),
+            &[],
         )
         .map_err(|e| {
             eprintln!(

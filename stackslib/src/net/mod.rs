@@ -37,6 +37,8 @@ use rand::thread_rng;
 use rand::RngCore;
 use regex::Regex;
 use rusqlite;
+use rusqlite::types::ToSqlOutput;
+use rusqlite::ToSql;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -138,6 +140,9 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+
+#[cfg(test)]
+pub mod tests;
 
 use crate::net::stackerdb::StackerDBSyncResult;
 
@@ -251,6 +256,8 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// state machine step took too long
+    StepTimeout,
 }
 
 impl From<codec_error> for Error {
@@ -352,6 +359,7 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StepTimeout => write!(f, "State-machine step took too long"),
         }
     }
 }
@@ -413,6 +421,7 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StepTimeout => None,
         }
     }
 }
@@ -1998,7 +2007,7 @@ impl NeighborKey {
 }
 
 /// Entry in the neighbor set
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Neighbor {
     pub addr: NeighborKey,
 
@@ -2017,9 +2026,19 @@ pub struct Neighbor {
     pub out_degree: u32, // number of neighbors this peer has
 }
 
+impl PartialEq for Neighbor {
+    /// Neighbor equality is based on having the same address and public key.
+    /// Everything else can change at runtime
+    fn eq(&self, other: &Neighbor) -> bool {
+        self.addr == other.addr && self.public_key == other.public_key
+    }
+}
+
 impl Neighbor {
     pub fn is_allowed(&self) -> bool {
-        self.allowed < 0 || (self.allowed as u64) > get_epoch_time_secs()
+        let now = get_epoch_time_secs();
+        (self.allowed < 0 || (self.allowed as u64) > now)
+            && !(self.denied < 0 || (self.denied as u64) > now)
     }
 
     pub fn is_always_allowed(&self) -> bool {
@@ -2027,7 +2046,9 @@ impl Neighbor {
     }
 
     pub fn is_denied(&self) -> bool {
-        self.denied < 0 || (self.denied as u64) > get_epoch_time_secs()
+        let now = get_epoch_time_secs();
+        !(self.allowed < 0 || (self.allowed as u64) > now)
+            && (self.denied < 0 || (self.denied as u64) > now)
     }
 }
 
@@ -2589,6 +2610,10 @@ pub mod test {
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
+        /// Which stacker DBs will this peer replicate?
+        pub stacker_dbs: Vec<ContractId>,
+        /// What services should this peer support?
+        pub services: u16,
     }
 
     impl TestPeerConfig {
@@ -2645,6 +2670,10 @@ pub mod test {
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
+                stacker_dbs: vec![],
+                services: (ServiceFlags::RELAY as u16)
+                    | (ServiceFlags::RPC as u16)
+                    | (ServiceFlags::STACKERDB as u16),
             }
         }
 
@@ -2731,6 +2760,7 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
+        pub indexer: Option<BitcoinIndexer>,
         pub coord: ChainsCoordinator<
             'a,
             TestEventObserver,
@@ -2752,6 +2782,10 @@ pub mod test {
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
                 &config.test_name, config.server_port
             )
+        }
+
+        pub fn stackerdb_path(config: &TestPeerConfig) -> String {
+            format!("{}/stacker_db.sqlite", &Self::test_path(config))
         }
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
@@ -2821,6 +2855,7 @@ pub mod test {
                 config.data_url.clone(),
                 &config.asn4_entries,
                 Some(&config.initial_neighbors),
+                &config.stacker_dbs,
             )
             .unwrap();
             {
@@ -2836,6 +2871,7 @@ pub mod test {
                     )
                     .unwrap();
                 }
+                PeerDB::set_local_services(&mut tx, config.services).unwrap();
                 tx.commit().unwrap();
             }
 
@@ -2996,6 +3032,7 @@ pub mod test {
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
+            let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
             TestPeer {
                 config: config,
@@ -3007,6 +3044,7 @@ pub mod test {
                 mempool: Some(mempool),
                 chainstate_path: chainstate_path,
                 coord: coord,
+                indexer: Some(indexer),
             }
         }
 
@@ -3088,8 +3126,7 @@ pub mod test {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
-
-            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+            let indexer = self.indexer.take().unwrap();
 
             let ret = self.network.run(
                 &indexer,
@@ -3106,6 +3143,7 @@ pub mod test {
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
+            self.indexer = Some(indexer);
 
             ret
         }

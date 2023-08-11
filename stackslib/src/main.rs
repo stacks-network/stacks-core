@@ -580,6 +580,7 @@ check if the associated microblocks can be downloaded
             None,
             0,
             UrlString::try_from("abc").unwrap(),
+            vec![],
         );
 
         let header_hashes = {
