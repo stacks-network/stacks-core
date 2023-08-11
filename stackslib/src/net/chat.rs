@@ -5436,19 +5436,19 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let mut peerdb_1 = PeerDB::connect_memory(
-            0x9abcdef0,
-            0,
-            12350,
-            "http://peer1.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
-
-        let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
-
         let test_name_1 = "convo_is_preamble_valid";
+        let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, chainstate_1) =
+            make_test_chain_dbs(
+                test_name_1,
+                &burnchain,
+                0x9abcdef0,
+                12352,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+                DEFAULT_SERVICES,
+            );
+
         let net_1 = db_setup(
             &test_name_1,
             &burnchain,
