@@ -556,7 +556,7 @@ impl ToNeighborKey for NeighborKey {
 impl ToNeighborKey for NeighborAddress {
     fn to_neighbor_key(&self, network: &PeerNetwork) -> NeighborKey {
         // NOTE: PartialEq and Hash for NeighborKey ignore the low bits of peer version
-        // and ignore network ID, and the CovnersationP2P ensures that we never even connect
+        // and ignore network ID, and the ConversationP2P ensures that we never even connect
         // to a node with the wrong network ID or wrong peer version bits anyway, so
         // it's safe to use the local node's copies of this data to construct a
         // NeighborKey for the purposes of later disconnecting from it.
