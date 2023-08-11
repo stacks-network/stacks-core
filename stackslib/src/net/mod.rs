@@ -3170,8 +3170,6 @@ pub mod test {
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
 
-            // let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
-
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
