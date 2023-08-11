@@ -1827,6 +1827,24 @@ impl StacksChainState {
         result.unwrap()
     }
 
+    /// Checked eval-read-only
+    pub fn eval_read_only(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_id_bhh: &StacksBlockId,
+        contract: &QualifiedContractIdentifier,
+        code: &str,
+    ) -> Result<Value, clarity_error> {
+        self.clarity_state.eval_read_only(
+            parent_id_bhh,
+            &HeadersDBConn(self.state_index.sqlite_conn()),
+            burn_dbconn,
+            contract,
+            code,
+            ASTRules::PrecheckSize,
+        )
+    }
+
     pub fn db(&self) -> &DBConn {
         self.state_index.sqlite_conn()
     }
