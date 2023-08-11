@@ -273,6 +273,8 @@ pub enum Error {
     TooManySlotWrites(u32, u32),
     /// too frequent writes to a slot
     TooFrequentSlotWrites(u64),
+    /// Invalid control smart contract for a Stacker DB
+    InvalidStackerDBContract(ContractId),
     /// state machine step took too long
     StepTimeout,
 }
@@ -397,6 +399,13 @@ impl fmt::Display for Error {
             Error::TooFrequentSlotWrites(ref deadline) => {
                 write!(f, "Too frequent slot writes (deadline={})", deadline)
             }
+            Error::InvalidStackerDBContract(ref contract_id) => {
+                write!(
+                    f,
+                    "Invalid StackerDB control smart contract {}",
+                    contract_id
+                )
+            }
             Error::StepTimeout => write!(f, "State-machine step took too long"),
         }
     }
@@ -466,6 +475,7 @@ impl error::Error for Error {
             Error::BadSlotSigner(..) => None,
             Error::TooManySlotWrites(..) => None,
             Error::TooFrequentSlotWrites(..) => None,
+            Error::InvalidStackerDBContract(..) => None,
             Error::StepTimeout => None,
         }
     }
@@ -512,6 +522,12 @@ impl From<rusqlite::Error> for Error {
 impl From<burnchain_error> for Error {
     fn from(e: burnchain_error) -> Self {
         Error::BurnchainError(e)
+    }
+}
+
+impl From<clarity_error> for Error {
+    fn from(e: clarity_error) -> Self {
+        Error::ClarityError(e)
     }
 }
 
@@ -2918,7 +2934,7 @@ pub mod test {
                 .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
                 .collect();
 
-                db_config.hint_peers = initial_peers;
+                db_config.hint_replicas = initial_peers;
                 let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
                 let stacker_db_sync = StackerDBSync::new(
                     contract_id.clone(),
