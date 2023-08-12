@@ -328,7 +328,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
 
             (define-public (stackerdb-get-config)
                 (ok {
-                    chunk-size: u18446744073709551617,
+                    chunk-size: u1048577,
                     write-freq: u4,
                     max-writes: u56,
                     max-neighbors: u7,

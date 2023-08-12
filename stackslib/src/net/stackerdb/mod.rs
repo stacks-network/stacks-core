@@ -150,6 +150,9 @@ use stacks_common::util::get_epoch_time_secs;
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
 
+/// maximum chunk size (1 MB)
+pub const STACKERDB_MAX_CHUNK_SIZE: u32 = 1024 * 1024;
+
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for

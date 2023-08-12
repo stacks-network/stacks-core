@@ -37,7 +37,9 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 
-use crate::net::stackerdb::{StackerDBConfig, StackerDBs, STACKERDB_INV_MAX};
+use crate::net::stackerdb::{
+    StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
+};
 
 use crate::net::ContractId;
 use crate::net::Error as net_error;
@@ -258,9 +260,9 @@ impl StackerDBConfig {
             .expect("FATAL: missing 'chunk-size'")
             .clone()
             .expect_u128();
-        if chunk_size > u64::MAX as u128 {
+        if chunk_size > STACKERDB_MAX_CHUNK_SIZE as u128 {
             debug!(
-                "Contract {} stipulates a chunk size beyond u64::MAX",
+                "Contract {} stipulates a chunk size beyond STACKERDB_MAX_CHUNK_SIZE",
                 contract_id
             );
             return Err(net_error::InvalidStackerDBContract(contract_id.clone()));

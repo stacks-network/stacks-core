@@ -277,6 +277,8 @@ pub enum Error {
     InvalidStackerDBContract(ContractId),
     /// state machine step took too long
     StepTimeout,
+    /// stacker DB chunk is too big
+    StackerDBChunkTooBig(usize),
 }
 
 impl From<codec_error> for Error {
@@ -407,6 +409,9 @@ impl fmt::Display for Error {
                 )
             }
             Error::StepTimeout => write!(f, "State-machine step took too long"),
+            Error::StackerDBChunkTooBig(ref sz) => {
+                write!(f, "StackerDB chunk size is too big ({})", sz)
+            }
         }
     }
 }
@@ -477,6 +482,7 @@ impl error::Error for Error {
             Error::TooFrequentSlotWrites(..) => None,
             Error::InvalidStackerDBContract(..) => None,
             Error::StepTimeout => None,
+            Error::StackerDBChunkTooBig(..) => None,
         }
     }
 }
