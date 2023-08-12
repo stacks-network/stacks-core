@@ -598,7 +598,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns false otherwise
     pub fn connect_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
-            let _data = match message.payload {
+            let data = match message.payload {
                 StacksMessageType::StackerDBHandshakeAccept(_, db_data) => {
                     if network.get_chain_view().rc_consensus_hash != db_data.rc_consensus_hash {
                         // stale or inconsistent view. Do not proceed
@@ -628,11 +628,28 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
             };
 
+            if data
+                .smart_contracts
+                .iter()
+                .find(|db_id| *db_id == &self.smart_contract_id)
+                .is_none()
+            {
+                debug!(
+                    "{:?}: remote peer does not replicate {}",
+                    network.get_local_peer(),
+                    &self.smart_contract_id
+                );
+
+                // disconnect
+                self.comms.add_dead(network, &naddr);
+                continue;
+            }
+
             test_debug!(
                 "{:?}: connect_try_finish: Received StackerDBHandshakeAccept from {:?} for {:?}",
                 network.get_local_peer(),
                 &naddr,
-                &_data
+                &data
             );
 
             // this neighbor is good
