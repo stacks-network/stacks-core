@@ -99,6 +99,9 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 use super::FeeRateEstimateRequestBody;
 
+const MAX_BLOCK_PROPOSAL_LENGTH: u32 = 1024 * 1024 * 15;
+pub const PATH_STR_POST_BLOCK_PROPOSAL: &'static str = "/v2/block_proposal";
+
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
     static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
@@ -164,6 +167,7 @@ lazy_static! {
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
+    static ref PATH_POST_BLOCK_PROPOSAL: Regex = Regex::new(&format!("^{PATH_STR_POST_BLOCK_PROPOSAL}$")).unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -2751,6 +2755,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(ref md, ..) => md,
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
+            HttpRequestType::BlockProposal(ref md, ..) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2783,6 +2788,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
+            HttpRequestType::BlockProposal(ref mut md, ..) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2970,6 +2976,7 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+            HttpRequestType::BlockProposal(..) => self.get_path().to_string(),
         }
     }
 
@@ -3009,6 +3016,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+            HttpRequestType::BlockProposal(..) => PATH_STR_POST_BLOCK_PROPOSAL,
         }
     }
 
@@ -4527,6 +4535,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
+                HttpRequestType::BlockProposal(_, _) => "HTTP(BlockProposal)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",

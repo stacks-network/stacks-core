@@ -1577,6 +1577,11 @@ pub enum TipRequest {
     SpecificTip(StacksBlockId),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedBlockProposal {
+    // TODO
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
@@ -1648,6 +1653,7 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+    BlockProposal(HttpRequestMetadata, SignedBlockProposal),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }

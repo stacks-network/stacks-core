@@ -74,6 +74,7 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
+use crate::net::SignedBlockProposal;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
@@ -1256,6 +1257,21 @@ impl ConversationHttp {
         let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
         let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
         response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_validate_block_proposal<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        signed_proposal: &SignedBlockProposal,
+        //validator_key: Option<&Secp256k1PrivateKey>,
+        //signing_contract: Option<&QualifiedContractIdentifier>,
+        options: &ConnectionOptions,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        Ok(())
     }
 
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
@@ -3020,6 +3036,24 @@ impl ConversationHttp {
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
+                None
+            }
+            HttpRequestType::BlockProposal(_, ref proposal) => {
+                //let validator_key = self.connection.options.subnet_validator.as_ref();
+                //let signing_contract = self.connection.options.subnet_signing_contract.as_ref();
+
+                ConversationHttp::handle_validate_block_proposal(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    chainstate,
+                    sortdb,
+                    &proposal,
+                    //validator_key,
+                    //signing_contract,
+                    &self.connection.options,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?;
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {
