@@ -9,6 +9,10 @@
 
 name: Open Docs PR
 
+defaults:
+  run:
+    shell: bash
+
 env:
   ROBOT_OWNER: kantai-robot
   ROBOT_REPO: docs.blockstack
@@ -20,12 +24,14 @@ env:
 #   - push to master
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - master
 
 jobs:
   dist:
+    if: ${{ false }}
     name: Open Docs PR
     runs-on: ubuntu-latest
     env:
@@ -33,19 +39,22 @@ jobs:
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+
       - name: Build docs
         id: build_docs
         env:
           DOCKER_BUILDKIT: 1
         run: rm -rf docs-output && docker build -o docs-output -f ./.github/actions/docsgen/Dockerfile.docsgen .
+
       - name: Checkout latest docs
         id: git_checkout_docs
-        uses: actions/checkout@v3
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
         with:
           token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           repository: ${{ env.TARGET_REPOSITORY }}
           path: docs
+
       - name: Branch and commit
         id: push
         run: |
@@ -67,10 +76,11 @@ jobs:
             git push robot $ROBOT_BRANCH
             echo "::set-output name=open_pr::1"
           fi
+
       - name: Open PR
         id: open_pr
         if: ${{ steps.push.outputs.open_pr == '1' }}
-        uses: actions/github-script@v6
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
         with:
           github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           script: |

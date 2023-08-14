@@ -1,6 +1,6 @@
-## Github workflow to run bitcoin tests
+## Github workflow to run atlas tests
 
-name: Tests::Bitcoin
+name: Tests::Atlas
 
 on:
   workflow_call:
@@ -15,61 +15,23 @@ env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
 
 concurrency:
-  group: bitcoin-tests-${{ github.workflow }}-${{ github.ref }}
+  group: atlas-tests-${{ github.workflow }}-${{ github.ref }}
   # Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # bitcoin integration tests with code coverage
-  integration-tests:
-    name: Integration Tests
+  # atlas integration tests with code coverage
+  atlas-tests:
+    name: Atlas Test
     runs-on: ubuntu-latest
-    ## run a maximum of 32 concurrent tests from the test matrix
+    ## run a maximum of 2 concurrent tests from the test matrix
     strategy:
       fail-fast: false
-      max-parallel: 32
+      max-parallel: 2
       matrix:
         test-name:
-          - tests::bitcoin_regtest::bitcoind_integration_test
-          - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::antientropy_integration_test
-          - tests::neon_integrations::bad_microblock_pubkey
-          - tests::neon_integrations::bitcoind_forking_test
-          - tests::neon_integrations::bitcoind_integration_test
-          - tests::neon_integrations::block_large_tx_integration_test
-          - tests::neon_integrations::block_limit_hit_integration_test
-          - tests::neon_integrations::cost_voting_integration
-          - tests::neon_integrations::filter_long_runtime_tx_integration_test
-          - tests::neon_integrations::filter_low_fee_tx_integration_test
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
-          - tests::neon_integrations::liquid_ustx_integration
-          - tests::neon_integrations::microblock_fork_poison_integration_test
-          - tests::neon_integrations::microblock_integration_test
-          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
-          - tests::neon_integrations::microblock_limit_hit_integration_test
-          - tests::neon_integrations::miner_submit_twice
-          - tests::neon_integrations::mining_events_integration_test
-          - tests::neon_integrations::pox_integration_test
-          - tests::neon_integrations::push_boot_receipts
-          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
-          - tests::neon_integrations::should_fix_2771
-          - tests::neon_integrations::size_check_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
-          - tests::neon_integrations::stx_delegate_btc_integration_test
-          - tests::neon_integrations::stx_transfer_btc_integration_test
-          - tests::neon_integrations::test_chainwork_first_intervals
-          - tests::neon_integrations::test_chainwork_partial_interval
-          - tests::neon_integrations::test_flash_block_skip_tenure
-          - tests::neon_integrations::test_problematic_blocks_are_not_mined
-          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
-          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
-          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
-          - tests::neon_integrations::test_problematic_txs_are_not_stored
-          - tests::neon_integrations::use_latest_tip_integration_test
-          - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::neon_integrations::atlas_integration_test
+          - tests::neon_integrations::atlas_stress_integration_test
     steps:
       ## Checkout the code
       - name: Checkout the latest code
@@ -136,13 +98,12 @@ jobs:
           ls -al /bin/bitcoind
 
       ## Run test matrix using cached archive file
-      ##   - timeout after 30 minutes
       - name: Run Tests
         id: run_tests
         timeout-minutes: 30
         run: |
           cargo nextest run \
-            --test-threads 1  \
+            --test-threads num-cpus \
             --run-ignored all \
             --retries 2 \
             --final-status-level fail \

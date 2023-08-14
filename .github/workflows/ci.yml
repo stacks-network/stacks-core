@@ -1,180 +1,228 @@
 name: CI
 
-## Only run when:
-##   - manually triggered
-##   - PR's are (re)opened
-##   - push to master (i.e. merge develop -> master)
-
 on:
   push:
     branches:
       - master
-  pull_request:
+      - development
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
   workflow_dispatch:
     inputs:
       tag:
         description: "The tag to create (optional)"
         required: false
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
+    ## might be better to use inclusive v exclusive paths here, ex:
+    # paths:
+    #   - "**.rs"
+    #   - "**.clar"
+  pull_request_review:
+    types:
+      - submitted
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
-  group: ${{ github.head_ref || github.run_id }}
+  # group: ${{ github.head_ref || github.run_id }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+run-name: ${{ inputs.tag }}
+
 jobs:
-  ## rust format: Execute on every run
+  ##
+  ## Jobs to execute everytime workflow runs
+  ##   do not run if the trigger is any of the following:
+  ##   - PR review submitted (not approved)
+  ##   and any of:
+  ##     - PR review comment
+  ##     - PR change is requested
   rustfmt:
+    if: |
+      !(
+        github.event_name == 'pull_request_review' && 
+        github.event.action == 'submitted' && 
+        (
+          github.event.review.state == 'commented' ||
+          github.event.review.state == 'changes_requested'
+        )
+      )
     name: Rust Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
-      - name: Define Rust Toolchain
-        id: define_rust_toolchain
-        run: echo "RUST_TOOLCHAIN=$(cat ./rust-toolchain)" >> $GITHUB_ENV
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+
       - name: Setup Rust Toolchain
         id: setup_rust_toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@f3c84ee10bf5a86e7a5d607d487bf17d57670965 # v1.5.0
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt
-      - name: Rustfmt 
+          cache: false
+
+      - name: Rustfmt
         id: rustfmt
-        uses: actions-rust-lang/rustfmt@v1
+        uses: actions-rust-lang/rustfmt@2d1d4e9f72379428552fa1def0b898733fb8472d # v1.1.0
 
-  ## Release tests: Execute on every run
-  release-tests:
-    name: Release Tests
-    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
-
-  ## Checked for leaked credentials: Execute on every run
-  leaked-cred-test:
-    name: Leaked Credential Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Extract branch name
-        id: extract_branch
-        if: ${{ github.event_name != 'pull_request' }}
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
-      - name: Extract branch name
-        id: extract_branch_pr
-        if: ${{ github.event_name == 'pull_request' }}
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
-      - name: Branch name
-        run: echo running on branch ${{ env.BRANCH_NAME }}
-      - name: Checkout the latest code
-        id: git_checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: TruffleHog Scan
-        id: trufflehog_check
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ env.BRANCH_NAME }}
-          head: HEAD
-
-  ###############################################
-  ## Build Tagged Release
-  ###############################################
-  ## Build source binaries
-  ## Only run if:
-  ##    - Tag is provided
-  ##    - OR
-  ##        - Not the default branch
-  ##        - AND
-  ##        - Not a PR
-  build-source:
-    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    name: Build Binaries
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+  ######################################################################################
+  ## Create a tagged github release
+  ##
+  ## Runs when the following is true:
+  ##  - tag is provided
+  ##  - workflow is building default branch (master)
+  create-release:
+    if: |
+      inputs.tag != '' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: Create Release
     needs:
       - rustfmt
-      - release-tests
-      - leaked-cred-test
-    with:
-      tag: ${{ inputs.tag }}
-      parallel_jobs: 4
-      arch: >-
-        ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
-
-  ## Create github release with binary archives
-  ## Only run if:
-  ##    - Tag is provided
-  ##    - OR
-  ##        - Not the default branch
-  ##        - AND
-  ##        - Not a PR
-  github-release:
-    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    name: Github Release
     uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
-    needs: build-source
     with:
       tag: ${{ inputs.tag }}
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
-    secrets:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    secrets: inherit
 
-  ## Create docker alpine images
-  ## Only run if:
-  ##    - Tag is provided
-  ##    - OR
-  ##      - Not the default branch
-  ##      - AND
-  ##      - Not a PR
-  docker-alpine:
-    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    name: Docker Alpine (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
-    needs: github-release
-    with:
-      tag: ${{ inputs.tag }}
-      docker_platforms: linux/arm64, linux/amd64, linux/amd64/v2, linux/amd64/v3
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  ## Create docker debian images
-  ## Only run if:
-  ##    - Tag is provided
-  ##    - OR
-  ##        - Not the default branch
-  ##        - AND
-  ##        - Not a PR
-  docker-debian:
-    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    name: Docker Debian (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
-    needs: github-release
-    with:
-      tag: ${{ inputs.tag }}
-      docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
-      linux_version: debian
-      build_type: binary
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  ###############################################
-  ## Build Branch/PR
-  ###############################################
-  ## Create docker debian images
-  ## Only run if:
-  ##   - Tag is *not* provided
-  build-branch:
-    if: ${{ inputs.tag == '' }}
-    name: Docker Debian (Source)
+  ## Build and push Debian image built from source
+  ##
+  ## Runs when:
+  ##   - tag is not provided
+  ##   and the following are not true:
+  ##     - PR review submitted (not approved)
+  ##     and any of:
+  ##       - PR review comment
+  ##       - PR change is requested
+  docker-image:
+    if: |
+      inputs.tag == '' &&
+      !(
+        github.event_name == 'pull_request_review' &&
+        github.event.action == 'submitted' &&
+        (
+          github.event.review.state == 'commented' ||
+          github.event.review.state == 'changes_requested'
+        )
+      )
+    name: Docker Image (Source)
     uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
     needs:
       - rustfmt
-      - leaked-cred-test
-    with:
-      docker_platforms: linux/amd64
-      linux_version: debian
-      build_type: source
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+    secrets: inherit
+
+  ## Create a reusable cache for tests
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  ##   or:
+  ##     - no tag provided
+  ##       and any of:
+  ##         - PR is approved (any approval will trigger)
+  ##         - this workflow is called manually
+  ##         - PR is opened
+  ##         - commit to either (development, master) branch
+  create-cache:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' && (
+          (
+            github.event_name == 'pull_request_review' &&
+            github.event.action == 'submitted' &&
+            github.event.review.state == 'approved'
+          ) ||
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'pull_request_target' ||
+          (
+            contains('
+              refs/heads/develoment
+              refs/heads/master
+            ', github.event.pull_request.head.ref) &&
+            github.event_name == 'push'
+          )
+        )
+      )
+    name: Create Test Cache
+    needs:
+      - rustfmt
+    uses: stacks-network/stacks-blockchain/.github/workflows/create_cache.yml@master
+
+  ## Tests to run regularly
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  ##   either or of the following:
+  ##     - tag is not provided
+  ##     - PR is approved
+  stacks-blockchain-tests:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' || (
+          github.event_name == 'pull_request_review' &&
+          github.event.action == 'submitted' &&
+          github.event.review.state == 'approved'
+        )
+      )
+    name: Stacks Blockchain Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  bitcoin-tests:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' || (
+          github.event_name == 'pull_request_review' &&
+          github.event.action == 'submitted' &&
+          github.event.review.state == 'approved'
+        )
+      )
+    name: Bitcoin Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+
+  ## Test to run on a tagged release
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  atlas-tests:
+    if: inputs.tag != ''
+    name: Atlas Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  epoch-tests:
+    if: inputs.tag != ''
+    name: Epoch Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  slow-tests:
+    if: inputs.tag != ''
+    name: Slow Tests
+    needs:
+      - rustfmt
+      # - leaked-cred-test
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master

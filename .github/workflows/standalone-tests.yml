@@ -1,0 +1,122 @@
+## Github workflow to run specified tests on demand
+
+name: Standalone Tests
+
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: "Tests to run (required)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: "Tests to run (required)"
+        required: true
+        type: choice
+        options:
+          - Release Tests
+          - CI Tests
+          - PR Tests
+          - Atlas Tests
+          - Bitcoin Tests
+          - Epoch Tests
+          - Slow Tests
+          - Stacks-Blockchain Tests
+
+## Set the display name to the test being run
+run-name: ${{ inputs.workflow }}
+
+# concurrency:
+#   group: ${{ inputs.workflow }}-tests-${{ github.workflow }}-${{ github.ref }}
+#   # Only cancel in progress if this is for a PR
+#   cancel-in-progress: false
+
+jobs:
+  ## Runs every time
+  ##   - note: this job
+  create-cache:
+    name: Create Test Cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/create_cache.yml@master
+
+  #####################################################
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'CI Tests'
+  ##     - workflow is 'Stacks-Blockchain Tests'
+  stacks-blockchain-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'Stacks-Blockchain Tests'
+      )
+    name: Stacks Blockchain Tests
+    needs:
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'CI Tests'
+  ##     - workflow is 'Bitcoin Tests'
+  bitcoin-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'Bitcoin Tests'
+      )
+    name: Bitcoin Tests
+    needs:
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  #####################################################
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Atlas Tests'
+  atlas-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Atlas Tests' 
+      )
+    name: Atlas Tests
+    needs:
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Epoch Tests'
+  epoch-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Epoch Tests'
+      )
+    name: Epoch Tests
+    needs:
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'Slow Tests'
+  slow-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Slow Tests'
+      )
+    name: Slow Tests
+    needs:
+      - create-cache
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
