@@ -1725,30 +1725,25 @@ impl Relayer {
             if let Some(config) = stackerdb_configs.get(sc) {
                 let tx = stackerdbs.tx_begin(config.clone())?;
                 for sync_result in sync_results {
-                    debug!(
-                        "Will store {} chunks for {}",
-                        &sync_result.chunks_to_store.len(),
-                        sc
-                    );
                     for chunk in sync_result.chunks_to_store.iter() {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(sc, &md, &chunk.data) {
                             warn!(
-                                "Failed to store chunk for slot {}.{} ({} bytes) for {}: {:?}",
-                                &md.slot_id,
-                                md.slot_version,
-                                chunk.data.len(),
-                                sc,
-                                &e
+                                "Failed to store chunk for StackerDB";
+                                "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                "slot_id" => md.slot_id,
+                                "slot_version" => md.slot_version,
+                                "num_bytes" => chunk.data.len(),
+                                "error" => %e
                             );
                         } else {
-                            debug!("Stored chunk {}/{}.{}", sc, md.slot_id, md.slot_version);
+                            debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
                     }
                 }
                 tx.commit()?;
             } else {
-                info!("Got chunks for unconfigured smart contract {}", sc);
+                info!("Got chunks for unconfigured StackerDB replica"; "stackerdb_contract_id" => &format!("{}", &sc));
             }
         }
 
@@ -1764,23 +1759,16 @@ impl Relayer {
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
         let mut sync_results = vec![];
-        let nks: Vec<NeighborKey> = unhandled_messages.keys().map(|nk| nk.clone()).collect();
-        for nk in nks.into_iter() {
-            let mut msgs = unhandled_messages
-                .remove(&nk)
-                .expect("BUG: hashmap key not mapped");
-
+        for (_nk, msgs) in unhandled_messages.iter_mut() {
             msgs.retain(|msg| {
                 if let StacksMessageType::StackerDBPushChunk(data) = &msg.payload {
                     let sync_result = StackerDBSyncResult::from_pushed_chunk(data.clone());
                     sync_results.push(sync_result);
-                    true
-                } else {
                     false
+                } else {
+                    true
                 }
             });
-
-            unhandled_messages.insert(nk.clone(), msgs);
         }
 
         Relayer::process_stacker_db_chunks(stackerdbs, stackerdb_configs, &sync_results)
