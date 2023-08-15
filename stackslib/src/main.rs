@@ -72,6 +72,7 @@ use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
+use blockstack_lib::net::StackerDBChunkData;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::types::chainstate::{
@@ -1071,6 +1072,35 @@ simulating a miner.
             assert_eq!(&value.to_string(), expected_value_display);
         }
 
+        process::exit(0);
+    }
+
+    if argv[1] == "post-stackerdb" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} post-stackerdb slot_id slot_version privkey data",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let slot_id: u32 = argv[2].parse().unwrap();
+        let slot_version: u32 = argv[3].parse().unwrap();
+        let privkey: String = argv[4].clone();
+        let data: String = argv[5].clone();
+
+        let buf = if data == "-" {
+            let mut buffer = vec![];
+            io::stdin().read_to_end(&mut buffer).unwrap();
+            buffer
+        } else {
+            data.as_bytes().to_vec()
+        };
+
+        let mut chunk = StackerDBChunkData::new(slot_id, slot_version, buf);
+        let privk = StacksPrivateKey::from_hex(&privkey).unwrap();
+        chunk.sign(&privk).unwrap();
+
+        println!("{}", &serde_json::to_string(&chunk).unwrap());
         process::exit(0);
     }
 
