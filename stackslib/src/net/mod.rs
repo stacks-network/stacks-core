@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -140,11 +140,14 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+pub mod stream;
 
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::stackerdb::StackerDBSync;
 use crate::net::stackerdb::StackerDBSyncResult;
 use crate::net::stackerdb::StackerDBs;
+
+pub use crate::net::stream::StreamCursor;
 
 #[cfg(test)]
 pub mod tests;
@@ -274,7 +277,7 @@ pub enum Error {
     /// too frequent writes to a slot
     TooFrequentSlotWrites(u64),
     /// Invalid control smart contract for a Stacker DB
-    InvalidStackerDBContract(ContractId),
+    InvalidStackerDBContract(ContractId, String),
     /// state machine step took too long
     StepTimeout,
 }
@@ -399,11 +402,11 @@ impl fmt::Display for Error {
             Error::TooFrequentSlotWrites(ref deadline) => {
                 write!(f, "Too frequent slot writes (deadline={})", deadline)
             }
-            Error::InvalidStackerDBContract(ref contract_id) => {
+            Error::InvalidStackerDBContract(ref contract_id, ref reason) => {
                 write!(
                     f,
-                    "Invalid StackerDB control smart contract {}",
-                    contract_id
+                    "Invalid StackerDB control smart contract {}: {}",
+                    contract_id, reason
                 )
             }
             Error::StepTimeout => write!(f, "State-machine step took too long"),
@@ -1060,7 +1063,7 @@ pub struct StackerDBGetChunkData {
 }
 
 /// Stacker DB chunk reply to a StackerDBGetChunkData
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackerDBChunkData {
     /// slot ID
     pub slot_id: u32,
@@ -1069,7 +1072,26 @@ pub struct StackerDBChunkData {
     /// signature from the stacker over (reward cycle consensus hash, slot id, slot version, chunk sha512/256)
     pub sig: MessageSignature,
     /// the chunk data
+    #[serde(
+        serialize_with = "stackerdb_chunk_hex_serialize",
+        deserialize_with = "stackerdb_chunk_hex_deserialize"
+    )]
     pub data: Vec<u8>,
+}
+
+fn stackerdb_chunk_hex_serialize<S: serde::Serializer>(
+    chunk: &[u8],
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let inst = to_hex(chunk);
+    s.serialize_str(inst.as_str())
+}
+
+fn stackerdb_chunk_hex_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<u8>, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    hex_bytes(&inst_str).map_err(serde::de::Error::custom)
 }
 
 /// Stacker DB chunk push
@@ -1272,6 +1294,9 @@ pub struct RPCPeerInfoData {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stackerdbs: Option<Vec<ContractId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1623,10 +1648,17 @@ pub struct RPCNeighbor {
     pub port: u16,
     pub public_key_hash: Hash160,
     pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stackerdbs: Option<Vec<ContractId>>,
 }
 
 impl RPCNeighbor {
-    pub fn from_neighbor_key_and_pubkh(nk: NeighborKey, pkh: Hash160, auth: bool) -> RPCNeighbor {
+    pub fn from_neighbor_key_and_pubkh(
+        nk: NeighborKey,
+        pkh: Hash160,
+        auth: bool,
+        stackerdbs: Vec<ContractId>,
+    ) -> RPCNeighbor {
         RPCNeighbor {
             network_id: nk.network_id,
             peer_version: nk.peer_version,
@@ -1634,6 +1666,7 @@ impl RPCNeighbor {
             port: nk.port,
             public_key_hash: pkh,
             authenticated: auth,
+            stackerdbs: Some(stackerdbs),
         }
     }
 }
@@ -1725,6 +1758,10 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+    /// StackerDB HTTP queries
+    GetStackerDBMetadata(HttpRequestMetadata, ContractId),
+    GetStackerDBChunk(HttpRequestMetadata, ContractId, u32, Option<u32>),
+    PostStackerDBChunk(HttpRequestMetadata, ContractId, StackerDBChunkData),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1812,6 +1849,15 @@ impl HttpResponseMetadata {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StackerDBChunkAckData {
+    pub accepted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<stackerdb::SlotMetadata>,
+}
+
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
@@ -1843,6 +1889,9 @@ pub enum HttpResponseType {
     MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
+    StackerDBMetadata(HttpResponseMetadata, Vec<stackerdb::SlotMetadata>),
+    StackerDBChunk(HttpResponseMetadata, Vec<u8>),
+    StackerDBChunkAck(HttpResponseMetadata, StackerDBChunkAckData),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -2837,6 +2886,11 @@ pub mod test {
                 }
             }
             ret
+        }
+
+        pub fn add_stacker_db(&mut self, contract_id: ContractId, config: StackerDBConfig) {
+            self.stacker_dbs.push(contract_id);
+            self.stacker_db_configs.push(Some(config));
         }
     }
 
