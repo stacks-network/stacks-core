@@ -458,34 +458,6 @@ impl PeerNetwork {
                     return Ok(false);
                 }
 
-                // validate -- must not be too bursty
-                let slot_validation = match self
-                    .stackerdbs
-                    .get_slot_validation(&chunk_data.contract_id, chunk_data.chunk_data.slot_id)?
-                {
-                    Some(validation) => validation,
-                    None => {
-                        info!(
-                            "StackerDBChunk for {} ID {} has no validation data",
-                            &chunk_data.contract_id, chunk_data.chunk_data.slot_id
-                        );
-                        return Ok(false);
-                    }
-                };
-
-                if slot_validation.write_time + stackerdb_config.write_freq >= get_epoch_time_secs()
-                {
-                    info!(
-                        "Write frequency exceeded for StackerDBChunk for {} ID {} version {} (expect writes after {})",
-                        &chunk_data.contract_id,
-                        chunk_data.chunk_data.slot_id,
-                        chunk_data.chunk_data.slot_version,
-                        slot_validation.write_time + stackerdb_config.write_freq
-                    );
-                    return Ok(false);
-                }
-
-                // great, we can accept this.
                 // patch inventory -- we'll accept this chunk
                 data.slot_versions[chunk_data.chunk_data.slot_id as usize] =
                     chunk_data.chunk_data.slot_version;

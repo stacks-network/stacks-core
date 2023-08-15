@@ -513,16 +513,6 @@ fn test_stackerdb_insert_query_chunks() {
             );
             panic!("Did not get BadSlotSigner");
         }
-
-        // should fail -- throttled
-        chunk_data.sign(&pk).unwrap();
-        if let Err(net_error::TooFrequentSlotWrites(..)) =
-            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
-        {
-            chunk_data.slot_version -= 1;
-        } else {
-            panic!("Did not get TooFrequentSlotWrites");
-        }
     }
 
     tx.commit().unwrap();
