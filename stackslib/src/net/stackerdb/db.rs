@@ -93,6 +93,7 @@ const STACKER_DB_SCHEMA: &'static [&'static str] = &[
 pub const NO_VERSION: i64 = 0;
 
 /// Private struct for loading the data we need to validate an incoming chunk
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SlotValidation {
     pub signer: StacksAddress,
     pub version: u32,
@@ -192,8 +193,8 @@ fn inner_get_slot_validation(
 }
 
 impl<'a> StackerDBTx<'a> {
-    pub fn commit(self) -> Result<(), net_error> {
-        self.sql_tx.commit().map_err(net_error::from)
+    pub fn commit(self) -> Result<(), db_error> {
+        self.sql_tx.commit().map_err(db_error::from)
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -249,6 +250,7 @@ impl<'a> StackerDBTx<'a> {
         let mut slot_id = 0u32;
 
         for (principal, slot_count) in slots.iter() {
+            test_debug!("Create StackerDB slots: ({}, {})", &principal, slot_count);
             for _ in 0..*slot_count {
                 let args: &[&dyn ToSql] = &[
                     &stackerdb_id,
@@ -491,7 +493,7 @@ impl StackerDBs {
     pub fn tx_begin<'a>(
         &'a mut self,
         config: StackerDBConfig,
-    ) -> Result<StackerDBTx<'a>, net_error> {
+    ) -> Result<StackerDBTx<'a>, db_error> {
         let sql_tx = tx_begin_immediate(&mut self.conn)?;
         Ok(StackerDBTx { sql_tx, config })
     }
@@ -529,6 +531,18 @@ impl StackerDBs {
         slot_id: u32,
     ) -> Result<Option<SlotMetadata>, net_error> {
         inner_get_slot_metadata(&self.conn, smart_contract, slot_id)
+    }
+
+    /// Get the slot metadata for the whole DB
+    /// (used for RPC)
+    pub fn get_db_slot_metadata(
+        &self,
+        smart_contract: &ContractId,
+    ) -> Result<Vec<SlotMetadata>, net_error> {
+        let stackerdb_id = inner_get_stackerdb_id(&self.conn, smart_contract)?;
+        let sql = "SELECT slot_id,version,data_hash,signature FROM chunks WHERE stackerdb_id = ?1 ORDER BY slot_id ASC";
+        let args: &[&dyn ToSql] = &[&stackerdb_id];
+        query_rows(&self.conn, &sql, args).map_err(|e| e.into())
     }
 
     /// Get a slot's validation data
