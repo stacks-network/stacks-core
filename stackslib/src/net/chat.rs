@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1181,6 +1181,11 @@ impl ConversationP2P {
         self.db_smart_contracts.clear();
     }
 
+    /// Getter for stacker DB contracts
+    pub fn get_stackerdb_contract_ids(&self) -> &[ContractId] {
+        &self.db_smart_contracts
+    }
+
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
@@ -2062,7 +2067,7 @@ impl ConversationP2P {
     }
 
     /// Validate a pushed stackerdb chunk.
-    /// Update bandwidth accounting, but forward the stackerdb chunk along.
+    /// Update bandwidth accounting, but forward the stackerdb chunk along if we can accept it.
     /// Possibly return a reply handle for a NACK if we throttle the remote sender
     fn validate_stackerdb_push(
         &mut self,
@@ -2096,6 +2101,7 @@ impl ConversationP2P {
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
         }
+
         Ok(None)
     }
 
