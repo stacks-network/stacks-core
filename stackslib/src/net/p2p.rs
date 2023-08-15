@@ -387,7 +387,7 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
-        stacker_db_syncs: Vec<StackerDBSync<PeerNetworkComms>>,
+        stacker_db_syncs: HashMap<ContractId, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
@@ -406,9 +406,11 @@ impl PeerNetwork {
         let first_burn_header_hash = burnchain.first_block_hash.clone();
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
+        let mut stacker_db_configs = HashMap::new();
         let mut stacker_db_sync_map = HashMap::new();
-        for stacker_db_sync in stacker_db_syncs.into_iter() {
-            stacker_db_sync_map.insert(stacker_db_sync.smart_contract_id.clone(), stacker_db_sync);
+        for (contract_id, (stacker_db_config, stacker_db_sync)) in stacker_db_syncs.into_iter() {
+            stacker_db_configs.insert(contract_id.clone(), stacker_db_config);
+            stacker_db_sync_map.insert(contract_id.clone(), stacker_db_sync);
         }
 
         let mut network = PeerNetwork {
@@ -473,7 +475,7 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: HashMap::new(),
+            stacker_db_configs: stacker_db_configs,
             stackerdbs: stackerdbs,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
@@ -5329,10 +5331,10 @@ impl PeerNetwork {
                             "Failed to load StackerDB config for {}: {:?}",
                             &stackerdb_contract_id, &e
                         );
-                        continue;
+                        StackerDBConfig::noop()
                     }
                 };
-                if new_config != stackerdb_config {
+                if new_config != stackerdb_config && new_config.signers.len() > 0 {
                     if let Err(e) =
                         self.create_or_reconfigure_stackerdb(&stackerdb_contract_id, &new_config)
                     {
@@ -5890,7 +5892,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
-            vec![],
+            HashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
