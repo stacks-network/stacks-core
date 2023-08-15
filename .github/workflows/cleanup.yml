@@ -5,9 +5,9 @@ name: Cleanup
 
 on:
   workflow_dispatch:
-  # ## Runs every day at 00:00:00
-  # schedule:
-  #   - cron: '0 0 * * *'
+  ## Runs every day at 00:00:00
+  schedule:
+    - cron: '0 0 * * *'
 
 concurrency:
   group: cleanup-${{ github.workflow }}-${{ github.ref }}
