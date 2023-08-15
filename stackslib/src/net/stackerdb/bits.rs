@@ -35,6 +35,20 @@ use crate::chainstate::stacks::StacksPublicKey;
 use stacks_common::util::secp256k1::MessageSignature;
 
 impl SlotMetadata {
+    /// Make a new unsigned slot metadata
+    pub fn new_unsigned(
+        slot_id: u32,
+        slot_version: u32,
+        data_hash: Sha512Trunc256Sum,
+    ) -> SlotMetadata {
+        SlotMetadata {
+            slot_id,
+            slot_version,
+            data_hash,
+            signature: MessageSignature::empty(),
+        }
+    }
+
     /// Get the digest to sign that authenticates this chunk data and metadata
     fn auth_digest(&self) -> Sha512Trunc256Sum {
         let mut hasher = Sha512_256::new();
