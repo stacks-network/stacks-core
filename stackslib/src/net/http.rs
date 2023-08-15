@@ -4752,7 +4752,7 @@ impl HttpResponseType {
                     md.request_id,
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
-                HttpResponseType::send_bytestream(protocol, md, fd, chunk)?;
+                HttpResponseType::send_text(protocol, md, fd, chunk)?;
             }
             HttpResponseType::StackerDBChunkAck(ref md, ref ack_data) => {
                 HttpResponsePreamble::new_serialized(
