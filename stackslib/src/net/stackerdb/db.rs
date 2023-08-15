@@ -406,11 +406,6 @@ impl<'a> StackerDBTx<'a> {
                 slot_validation.version,
             ));
         }
-        if slot_validation.write_time + self.config.write_freq >= get_epoch_time_secs() {
-            return Err(net_error::TooFrequentSlotWrites(
-                slot_validation.write_time + self.config.write_freq,
-            ));
-        }
         self.insert_chunk(smart_contract, slot_desc, chunk)
     }
 }
