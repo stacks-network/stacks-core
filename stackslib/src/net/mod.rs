@@ -147,6 +147,7 @@ use crate::net::stackerdb::StackerDBSync;
 use crate::net::stackerdb::StackerDBSyncResult;
 use crate::net::stackerdb::StackerDBs;
 
+pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
 pub use crate::net::stream::StreamCursor;
 
 #[cfg(test)]
@@ -1296,7 +1297,7 @@ pub struct RPCPeerInfoData {
     pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stackerdbs: Option<Vec<ContractId>>,
+    pub stackerdbs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2962,9 +2963,9 @@ pub mod test {
             peerdb: &PeerDB,
             stacker_dbs: &[ContractId],
             stacker_db_configs: &[Option<StackerDBConfig>],
-        ) -> Vec<StackerDBSync<PeerNetworkComms>> {
+        ) -> HashMap<ContractId, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)> {
             let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
-            let mut stacker_db_syncs = vec![];
+            let mut stacker_db_syncs = HashMap::new();
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             for (i, contract_id) in stacker_dbs.iter().enumerate() {
                 let mut db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
@@ -2997,7 +2998,8 @@ pub mod test {
                     stacker_dbs,
                 )
                 .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
-                stacker_db_syncs.push(stacker_db_sync);
+
+                stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
             }
             stacker_db_syncs
         }
