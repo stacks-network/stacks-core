@@ -2557,7 +2557,7 @@ impl ConversationHttp {
             let resp = HttpResponseType::NotFound(response_metadata, "No such StackerDB".into());
             return resp.send(http, fd).and_then(|_| Ok(()));
         }
-        if let Err(e) = tx.try_replace_chunk(
+        if let Err(_e) = tx.try_replace_chunk(
             stackerdb_contract_id,
             &stackerdb_chunk.get_slot_metadata(),
             &stackerdb_chunk.data,

@@ -1036,16 +1036,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 &naddr
             );
 
-            if let Some((slot_id, slot_version)) = self.chunk_push_receipts.get(&naddr) {
+            if let Some((slot_id, _)) = self.chunk_push_receipts.get(&naddr) {
                 self.need_resync = self.need_resync
-                    || self.add_pushed_chunk(
-                        network,
-                        naddr,
-                        new_chunk_inv,
-                        *slot_id,
-                        *slot_version,
-                    );
-                self.add_pushed_chunk(naddr, new_chunk_inv, *slot_id);
+                    || self.add_pushed_chunk(network, naddr, new_chunk_inv, *slot_id);
             }
         }
 

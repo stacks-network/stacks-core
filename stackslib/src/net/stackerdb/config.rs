@@ -283,7 +283,7 @@ impl StackerDBConfig {
             .expect_u128();
 
         if chunk_size > STACKERDB_MAX_CHUNK_SIZE as u128 {
-            debug!(
+            let reason = format!(
                 "Contract {} stipulates a chunk size beyond STACKERDB_MAX_CHUNK_SIZE",
                 contract_id
             );
