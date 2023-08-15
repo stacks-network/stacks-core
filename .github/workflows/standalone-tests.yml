@@ -18,7 +18,6 @@ on:
         options:
           - Release Tests
           - CI Tests
-          - PR Tests
           - Atlas Tests
           - Bitcoin Tests
           - Epoch Tests
