@@ -150,6 +150,9 @@ use stacks_common::util::get_epoch_time_secs;
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
 
+/// maximum chunk size (1 MB)
+pub const STACKERDB_MAX_CHUNK_SIZE: u32 = 1024 * 1024;
+
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
@@ -216,7 +219,7 @@ pub struct StackerDBTx<'a> {
 
 /// Slot metadata from the DB.
 /// This is derived state from a StackerDBChunkData message.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SlotMetadata {
     /// Slot identifier (unique for each DB instance)
     pub slot_id: u32,
@@ -284,6 +287,9 @@ pub struct StackerDBSync<NC: NeighborComms> {
     pub total_pushed: u64,
     /// last time the state-transition function ran to completion
     last_run_ts: u64,
+    /// whether or not we should immediately re-fetch chunks because we learned about new chunks
+    /// from our peers when they replied to our chunk-pushes with new inventory state
+    need_resync: bool,
 }
 
 impl StackerDBSyncResult {
@@ -440,7 +446,12 @@ impl PeerNetwork {
     /// the inventory vector is updated with this chunk's data.
     ///
     /// Note that this can happen *during* a StackerDB sync's execution, so be very careful about
-    /// modifying a state machine's contents!
+    /// modifying a state machine's contents!  The only modification possible here is to wakeup
+    /// the state machine in case it's asleep (i.e. blocked on waiting for the next sync round).
+    ///
+    /// The write frequency is not checked for this chunk. This is because the `ConversationP2P` on
+    /// which this chunk arrived will have already bandwidth-throttled the remote peer, and because
+    /// messages can be arbitrarily delayed (and bunched up) by the network anyway.
     ///
     /// Return Ok(true) if we should store the chunk
     /// Return Ok(false) if we should drop it.
@@ -476,34 +487,6 @@ impl PeerNetwork {
                     return Ok(false);
                 }
 
-                // validate -- must not be too bursty
-                let slot_validation = match self
-                    .stackerdbs
-                    .get_slot_validation(&chunk_data.contract_id, chunk_data.chunk_data.slot_id)?
-                {
-                    Some(validation) => validation,
-                    None => {
-                        info!(
-                            "StackerDBChunk for {} ID {} has no validation data",
-                            &chunk_data.contract_id, chunk_data.chunk_data.slot_id
-                        );
-                        return Ok(false);
-                    }
-                };
-
-                if slot_validation.write_time + stackerdb_config.write_freq >= get_epoch_time_secs()
-                {
-                    info!(
-                        "Write frequency exceeded for StackerDBChunk for {} ID {} version {} (expect writes after {})",
-                        &chunk_data.contract_id,
-                        chunk_data.chunk_data.slot_id,
-                        chunk_data.chunk_data.slot_version,
-                        slot_validation.write_time + stackerdb_config.write_freq
-                    );
-                    return Ok(false);
-                }
-
-                // great, we can accept this.
                 // patch inventory -- we'll accept this chunk
                 data.slot_versions[chunk_data.chunk_data.slot_id as usize] =
                     chunk_data.chunk_data.slot_version;
