@@ -710,6 +710,7 @@ impl Config {
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
                     stacker_dbs: node
                         .stacker_dbs
+                        .unwrap_or(vec![])
                         .iter()
                         .filter_map(|contract_id| {
                             QualifiedContractIdentifier::parse(contract_id).ok()
@@ -2016,7 +2017,7 @@ pub struct NodeConfigFile {
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
-    pub stacker_dbs: Vec<String>,
+    pub stacker_dbs: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
