@@ -277,7 +277,12 @@ impl RPCPeerInfoData {
                 anchor_block_hash: network.last_anchor_block_hash.clone(),
                 anchor_block_txid: network.last_anchor_block_txid.clone(),
             }),
-            stackerdbs: Some(stackerdb_contract_ids),
+            stackerdbs: Some(
+                stackerdb_contract_ids
+                    .into_iter()
+                    .map(|cid| format!("{}", cid))
+                    .collect(),
+            ),
         }
     }
 }
@@ -2552,7 +2557,7 @@ impl ConversationHttp {
             let resp = HttpResponseType::NotFound(response_metadata, "No such StackerDB".into());
             return resp.send(http, fd).and_then(|_| Ok(()));
         }
-        if let Err(_e) = tx.try_replace_chunk(
+        if let Err(e) = tx.try_replace_chunk(
             stackerdb_contract_id,
             &stackerdb_chunk.get_slot_metadata(),
             &stackerdb_chunk.data,
