@@ -52,6 +52,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::index::Error as marf_error;
+use crate::chainstate::stacks::miner::BlockProposal;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
@@ -1575,39 +1576,6 @@ pub enum TipRequest {
     UseLatestAnchoredTip,
     UseLatestUnconfirmedTip,
     SpecificTip(StacksBlockId),
-}
-
-/// Represents a block proposed to the `v2/block_proposal` endpoint for validation
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockProposal {
-    /// This is the identifier for the parent L2 block of this
-    /// proposed block.
-    pub parent_block_hash: BlockHeaderHash,
-    pub parent_consensus_hash: ConsensusHash,
-    /// Block
-    pub block: StacksBlock,
-    /// These are all the microblocks that the proposed block
-    /// will confirm.
-    pub microblocks_confirmed: Vec<StacksMicroblock>,
-    /// This refers to the burn block that was the current tip
-    ///  at the time this proposal was constructed. In most cases,
-    ///  if this proposal is accepted, it will be "mined" in the next
-    ///  burn block.
-    pub burn_tip: BurnchainHeaderHash,
-    /// This refers to the burn block that was the current tip
-    ///  at the time this proposal was constructed. In most cases,
-    ///  if this proposal is accepted, it will be "mined" in the next
-    ///  burn block.
-    pub burn_tip_height: u32,
-    /// Mainnet flag
-    pub is_mainnet: bool,
-    /// This is the public key hash which will be used to sign subsequent
-    ///  microblocks.
-    pub microblock_pubkey_hash: Hash160,
-    /// This is the total burn amount up to this block, used in the
-    ///  Stacks header. In subnets, this is just an incrementing
-    ///  value.
-    pub total_burn: u64,
 }
 
 /// All HTTP request paths we support, and the arguments they carry in their paths

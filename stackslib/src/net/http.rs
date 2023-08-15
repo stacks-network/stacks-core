@@ -4113,7 +4113,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(md, ..) => md,
             HttpResponseType::OptionsPreflight(md) => md,
             HttpResponseType::TransactionFeeEstimation(md, _) => md,
-            HttpResponseType::BlockProposalValid{metadata, ..} => metadata,
+            HttpResponseType::BlockProposalValid { metadata, .. } => metadata,
             // errors
             HttpResponseType::BadRequestJSON(md, _) => md,
             HttpResponseType::BadRequest(md, _) => md,
@@ -4124,7 +4124,7 @@ impl HttpResponseType {
             HttpResponseType::ServerError(md, _) => md,
             HttpResponseType::ServiceUnavailable(md, _) => md,
             HttpResponseType::Error(md, ..) => md,
-            HttpResponseType::BlockProposalInvalid{metadata, ..} => metadata,
+            HttpResponseType::BlockProposalInvalid { metadata, .. } => metadata,
         }
     }
 
@@ -4446,18 +4446,22 @@ impl HttpResponseType {
             HttpResponseType::Forbidden(_, msg) => self.error_response(fd, 403, msg)?,
             HttpResponseType::NotFound(_, msg) => self.error_response(fd, 404, msg)?,
             HttpResponseType::ServerError(_, msg) => self.error_response(fd, 500, msg)?,
-            HttpResponseType::ServiceUnavailable(_, msg) => {
-                self.error_response(fd, 503, msg)?
-            }
+            HttpResponseType::ServiceUnavailable(_, msg) => self.error_response(fd, 503, msg)?,
             HttpResponseType::Error(_, error_code, msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
-            HttpResponseType::BlockProposalValid{metadata, signature} => {
+            HttpResponseType::BlockProposalValid {
+                metadata,
+                signature,
+            } => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, metadata)?;
                 let signature_hex = format!("0x{}", to_hex(signature));
                 HttpResponseType::send_json(protocol, metadata, fd, &signature_hex)?;
             }
-            HttpResponseType::BlockProposalInvalid{metadata, error_message} => {
+            HttpResponseType::BlockProposalInvalid {
+                metadata,
+                error_message,
+            } => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     406,
@@ -4530,12 +4534,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetBlock(..) => "HTTP(GetBlock)",
                 HttpRequestType::GetMicroblocksIndexed(..) => "HTTP(GetMicroblocksIndexed)",
                 HttpRequestType::GetMicroblocksConfirmed(..) => "HTTP(GetMicroblocksConfirmed)",
-                HttpRequestType::GetMicroblocksUnconfirmed(..) => {
-                    "HTTP(GetMicroblocksUnconfirmed)"
-                }
-                HttpRequestType::GetTransactionUnconfirmed(..) => {
-                    "HTTP(GetTransactionUnconfirmed)"
-                }
+                HttpRequestType::GetMicroblocksUnconfirmed(..) => "HTTP(GetMicroblocksUnconfirmed)",
+                HttpRequestType::GetTransactionUnconfirmed(..) => "HTTP(GetTransactionUnconfirmed)",
                 HttpRequestType::PostTransaction(..) => "HTTP(PostTransaction)",
                 HttpRequestType::PostBlock(..) => "HTTP(PostBlock)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
@@ -4595,8 +4595,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::ServiceUnavailable(..) => "HTTP(503)",
                 HttpResponseType::Error(..) => "HTTP(other)",
                 HttpResponseType::TransactionFeeEstimation(..) => "HTTP(TransactionFeeEstimation)",
-                HttpResponseType::BlockProposalValid{..} => "HTTP(BlockProposalValid)",
-                HttpResponseType::BlockProposalInvalid{..} => "HTTP(BlockProposalInalid)",
+                HttpResponseType::BlockProposalValid { .. } => "HTTP(BlockProposalValid)",
+                HttpResponseType::BlockProposalInvalid { .. } => "HTTP(BlockProposalInalid)",
             },
         }
     }

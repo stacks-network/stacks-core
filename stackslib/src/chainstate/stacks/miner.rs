@@ -2673,3 +2673,250 @@ impl StacksBlockBuilder {
         Ok((block, consumed, size))
     }
 }
+
+/// Represents a block proposed to the `v2/block_proposal` endpoint for validation
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockProposal {
+    /// This is the identifier for the parent L2 block of this
+    /// proposed block.
+    pub parent_block_hash: BlockHeaderHash,
+    pub parent_consensus_hash: ConsensusHash,
+    /// Block
+    pub block: StacksBlock,
+    /// These are all the microblocks that the proposed block
+    /// will confirm.
+    pub microblocks_confirmed: Vec<StacksMicroblock>,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    pub burn_tip: BurnchainHeaderHash,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    pub burn_tip_height: u32,
+    /// Mainnet flag
+    pub is_mainnet: bool,
+    /// This is the public key hash which will be used to sign subsequent
+    ///  microblocks.
+    pub microblock_pubkey_hash: Hash160,
+    /// This is the total burn amount up to this block, used in the
+    ///  Stacks header. In subnets, this is just an incrementing
+    ///  value.
+    pub total_burn: u64,
+}
+
+impl BlockProposal {
+    /// Sign this proposal with `signing_key`, returning a serialized recoverable
+    /// signature that can be validated by the multiminer contract.
+    /*
+    pub fn sign(
+        &self,
+        signing_key: &Secp256k1PrivateKey,
+        signing_contract: QualifiedContractIdentifier,
+    ) -> [u8; 65] {
+        // when using a 2.0 layer-1, must use a constant
+        // let structured_hash =
+        //     hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
+        //         .expect("Failed to parse hex constant");
+        // when using a 2.1 layer-1, this will need to use the structured data hash
+        let block_hash_buff = Value::buff_from(self.block.block_hash().0.to_vec())
+            .expect("Failed to form Clarity buffer from block hash");
+        let subnet_block_height = Value::UInt(self.block.header.total_work.work.into());
+        let withdrawal_root_buff =
+            Value::buff_from(self.block.header.withdrawal_merkle_root.0.to_vec())
+                .expect("Failed to form Clarity buffer from withdrawal root");
+        let target_tip = Value::buff_from(self.burn_tip.0.to_vec())
+            .expect("Failed to form Clarity buffer from target burnchain tip");
+        let target_height = Value::UInt((self.burn_tip_height - 1).into());
+        let signing_contract = Value::Principal(PrincipalData::Contract(signing_contract));
+
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                ("block".into(), block_hash_buff),
+                ("subnet-block-height".into(), subnet_block_height),
+                ("withdrawal-root".into(), withdrawal_root_buff),
+                ("target-tip".into(), target_tip),
+                ("target-height".into(), target_height),
+                ("multi-contract".into(), signing_contract),
+            ])
+            .expect("Failed to construct data tuple for block proposal"),
+        );
+
+        let data_hash = Sha256Sum::from_data(&data_tuple.serialize_to_vec());
+        let mut hash_input = hex_bytes(SIP18_DATA_PREFIX_HEX).expect("Bad SIP18 data prefix");
+        hash_input.extend_from_slice(&data_hash.0);
+        let structured_hash = Sha256Sum::from_data(&hash_input);
+
+        let msg_signature = signing_key
+            .sign(structured_hash.as_bytes())
+            .expect("Bad message hash");
+        // format the signature vector as Clarity expects
+        let recov_signature = msg_signature
+            .to_secp256k1_recoverable()
+            .expect("Failed to create recoverable signature");
+        let (rec_id, rec_signature_comp) = recov_signature.serialize_compact();
+        let mut signature = [0; 65];
+        signature[..64].copy_from_slice(&rec_signature_comp);
+        signature[64] = u8::try_from(rec_id.to_i32()).unwrap();
+
+        signature
+    }
+    */
+
+    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    ///   returns the assembled block, and the consumed execution budget.
+    pub fn validate(
+        &self,
+        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortitionDBConn,
+    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        let expected_block_hash = self.block.block_hash();
+
+        /*
+        let can_attach = StacksChainState::can_attach(
+            chainstate_handle.db(),
+            &self.parent_block_hash,
+            &self.parent_consensus_hash,
+        )?;
+        if !can_attach {
+            warn!("Rejected proposal";
+                  "reason" => "Block is not attachable",
+                  "parent_block_hash" => %self.parent_block_hash,
+                  "parent_consensus_hash" => %self.parent_consensus_hash);
+            return Err(Error::NoSuchBlockError);
+        }
+        */
+
+        let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
+            chainstate_handle.db(),
+            &self.parent_consensus_hash,
+            &self.parent_block_hash,
+        )?
+        .ok_or_else(|| {
+            warn!("Rejected proposal";
+                      "reason" => "No such parent block",
+                      "parent_block_hash" => %self.parent_block_hash,
+                      "parent_consensus_hash" => %self.parent_consensus_hash);
+            Error::NoSuchBlockError
+        })?;
+
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            parent_stacks_header.consensus_hash.clone(),
+            &self.parent_block_hash,
+            parent_stacks_header.stacks_block_height,
+        );
+
+        debug!("Validate block proposal {expected_block_hash} off of {tip_consensus_hash}/{tip_block_hash} height {tip_height}");
+
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let total_burn = self.total_burn;
+        let proof = parent_stacks_header.anchored_header.proof.clone();
+        let pubkey_hash = self.microblock_pubkey_hash.clone();
+
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            &parent_stacks_header,
+            proof,
+            total_burn,
+            pubkey_hash,
+        )?;
+
+        let ts_start = get_epoch_time_ms();
+
+        // check that no microblocks cross an epoch boundary
+        if !self.microblocks_confirmed.is_empty()
+            && StacksChainState::block_crosses_epoch_boundary(
+                chainstate.db(),
+                &self.parent_consensus_hash,
+                &self.parent_block_hash,
+            )?
+        {
+            warn!("Rejected proposal";
+                  "reason" => "Block confirms microblocks across epoch boundary",
+                  "parent_block_hash" => %self.parent_block_hash,
+                  "parent_consensus_hash" => %self.parent_consensus_hash);
+            return Err(Error::InvalidStacksBlock(
+                "Confirms microblocks across epoch boundary".into(),
+            ));
+        }
+
+        // Setup the MinerEpochInfo that would normally be done by pre_epoch_begin
+        // but we must do so manually because we use the provided parameters in the proposal
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin()?;
+
+        let ast_rules = burn_dbconn.get_ast_rules(self.burn_tip_height);
+        let mut miner_epoch_info = MinerEpochInfo {
+            chainstate_tx,
+            clarity_instance,
+            burn_tip: self.burn_tip,
+            burn_tip_height: self.burn_tip_height,
+            parent_microblocks: self.microblocks_confirmed.clone(),
+            mainnet: self.is_mainnet,
+            ast_rules: ast_rules.clone(),
+        };
+
+        let (mut epoch_tx, _confirmed_mblock_cost) =
+            builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
+
+        for tx in self.block.txs.iter() {
+            if let Err(e) = builder.try_mine_tx(&mut epoch_tx, tx, ast_rules) {
+                warn!(
+                    "Rejected proposal";
+                    "reason" => "Transaction included with invalidating error",
+                    "parent_block_hash" => %tip_block_hash,
+                    "parent_consensus_hash" => %tip_consensus_hash,
+                    "block_hash" => %expected_block_hash,
+                    "txid" => %tx.txid(),
+                    "tx_error" => %e,
+                );
+                return Err(e);
+            }
+        }
+
+        // the prior do_rebuild logic wasn't necessary
+        // a transaction that caused a budget exception is rolled back in process_transaction
+
+        // save the block so we can build microblocks off of it
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
+        let consumed = builder.epoch_finish(epoch_tx);
+
+        let ts_end = get_epoch_time_ms();
+
+        let computed_block_hash = block.block_hash();
+
+        if &computed_block_hash != &expected_block_hash {
+            warn!(
+                "Rejected proposal";
+                "reason" => "Block hash is not as expected",
+                "expected_block_hash" => %expected_block_hash,
+                "computed_block_hash" => %computed_block_hash,
+                "block_hash" => %expected_block_hash,
+            );
+            return Err(Error::InvalidStacksBlock(
+                "Withdrawal root is not as expected".into(),
+            ));
+        }
+
+        info!(
+            "Participant: validated anchored block";
+            "block_hash" => %block.block_hash(),
+            "height" => block.header.total_work.work,
+            "tx_count" => block.txs.len(),
+            "parent_stacks_block_hash" => %block.header.parent_block,
+            "parent_stacks_microblock" => %block.header.parent_microblock,
+            "parent_stacks_microblock_seq" => block.header.parent_microblock_sequence,
+            "block_size" => size,
+            "execution_consumed" => %consumed,
+            "validation_time_ms" => ts_end.saturating_sub(ts_start),
+            "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
+                agg.saturating_add(tx.get_tx_fee())
+            })
+        );
+
+        Ok((block, consumed, size))
+    }
+}

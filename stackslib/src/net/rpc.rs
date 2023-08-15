@@ -41,6 +41,7 @@ use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{
     blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
 };
+use crate::chainstate::stacks::miner::BlockProposal;
 use crate::chainstate::stacks::Error as chain_error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
@@ -74,7 +75,6 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use crate::net::BlockProposal;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
@@ -1273,11 +1273,24 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         // TODO: Validate proposal
         // TODO: Reject if proposal is from invalid sender (allow localhost only?)
-        let response = HttpResponseType::BlockProposalInvalid {
-            metadata: HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height)),
-            error_message: "Not Implemented".to_string(),
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let response = match block_proposal.validate(chainstate, &sortdb.index_conn()) {
+            Ok(_) => {
+                //let signature = block_proposal.sign(validator_key, signing_contract.clone());
+                let signature = [0; 65];
+                HttpResponseType::BlockProposalValid {
+                    metadata: response_metadata,
+                    signature,
+                }
+            }
+            Err(e) => HttpResponseType::BlockProposalInvalid {
+                metadata: response_metadata,
+                error_message: e.to_string(),
+            },
         };
-        response.send(http, fd).map(|_| ())
+        response.send(http, fd)
     }
 
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
