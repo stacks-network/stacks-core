@@ -387,7 +387,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             self.downloaded_chunks.insert(naddr.clone(), vec![data]);
         }
 
-        self.chunk_fetch_priorities.retain(|(chunk, ..)| chunk.slot_id != slot_id);
+        self.chunk_fetch_priorities
+            .retain(|(chunk, ..)| chunk.slot_id != slot_id);
 
         if self.chunk_fetch_priorities.len() > 0 {
             let next_chunk_fetch_priority =
@@ -408,7 +409,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     ) {
         self.chunk_invs.insert(naddr.clone(), new_inv);
 
-        self.chunk_push_priorities.retain(|(chunk, ..)| chunk.chunk_data.slot_id != slot_id);
+        self.chunk_push_priorities
+            .retain(|(chunk, ..)| chunk.chunk_data.slot_id != slot_id);
 
         if self.chunk_push_priorities.len() > 0 {
             let next_chunk_push_priority =
