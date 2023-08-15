@@ -2339,9 +2339,6 @@ impl BitcoinRPCRequest {
     }
 
     pub fn import_public_key(config: &Config, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
-        let rescan = true;
-        let label = "";
-
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
             .to_vec();
@@ -2368,9 +2365,46 @@ impl BitcoinRPCRequest {
                 addr2str(&address),
                 public_key.to_hex()
             );
+
             let payload = BitcoinRPCRequest {
-                method: "importaddress".to_string(),
-                params: vec![addr2str(&address).into(), label.into(), rescan.into()],
+                method: "getdescriptorinfo".to_string(),
+                params: vec![format!("addr({})", &addr2str(&address)).into()],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
+            };
+
+            let result = BitcoinRPCRequest::send(&config, payload)?;
+            let checksum = result
+                .get(&"result".to_string())
+                .map(|res| {
+                    res.as_object().map(|obj| {
+                        obj.get(&"checksum".to_string()).map(|checksum_val| {
+                            checksum_val.as_str().map(|val_str| val_str.to_string())
+                        })
+                    })
+                })
+                .ok_or(RPCError::Bitcoind(format!(
+                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
+                    &addr2str(&address)
+                )))?
+                .ok_or(RPCError::Bitcoind(format!(
+                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
+                    &addr2str(&address)
+                )))?
+                .ok_or(RPCError::Bitcoind(format!(
+                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
+                    &addr2str(&address)
+                )))?
+                .ok_or(RPCError::Bitcoind(format!(
+                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
+                    &addr2str(&address)
+                )))?;
+
+            let payload = BitcoinRPCRequest {
+                method: "importdescriptors".to_string(),
+                params: vec![
+                    json!([{ "desc": format!("addr({})#{}", &addr2str(&address), &checksum), "timestamp": 0, "internal": true }]),
+                ],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
             };
@@ -2422,7 +2456,7 @@ impl BitcoinRPCRequest {
     pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "createwallet".to_string(),
-            params: vec![wallet_name.into()],
+            params: vec![wallet_name.into(), true.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
@@ -2440,6 +2474,7 @@ impl BitcoinRPCRequest {
                 return Err(RPCError::Network(format!("RPC Error: {}", err)));
             }
         };
+
         request.append_header("Content-Type", "application/json");
         request.set_body(body);
 
