@@ -74,7 +74,7 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use crate::net::SignedBlockProposal;
+use crate::net::BlockProposal;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
@@ -1265,13 +1265,19 @@ impl ConversationHttp {
         req: &HttpRequestType,
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-        signed_proposal: &SignedBlockProposal,
+        block_proposal: &BlockProposal,
         //validator_key: Option<&Secp256k1PrivateKey>,
         //signing_contract: Option<&QualifiedContractIdentifier>,
         options: &ConnectionOptions,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        Ok(())
+        // TODO: Validate proposal
+        // TODO: Reject if proposal is from invalid sender (allow localhost only?)
+        let response = HttpResponseType::BlockProposalInvalid {
+            metadata: HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height)),
+            error_message: "Not Implemented".to_string(),
+        };
+        response.send(http, fd).map(|_| ())
     }
 
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
