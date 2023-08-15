@@ -77,7 +77,7 @@ lazy_static! {
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
-                    MAX_HINT_REPLICAS
+                    STACKERDB_INV_MAX
                 )
                 .expect("FATAL: could not construct signer list type")
                 .into(),
@@ -119,37 +119,38 @@ lazy_static! {
 
 impl StackerDBConfig {
     /// Check that a smart contract is consistent with being a StackerDB controller
-    fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> bool {
+    fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> (bool, String) {
         for (name, func_return_type) in REQUIRED_FUNCTIONS.iter() {
             let func = if let Some(f) = analysis.read_only_function_types.get(name) {
                 f
             } else if let Some(f) = analysis.public_function_types.get(name) {
                 f
             } else {
-                test_debug!("Contract is missing function '{}'", name);
-                return false;
+                let reason = format!("Contract is missing function '{}'", name);
+                return (false, reason);
             };
 
             match func {
                 FunctionType::Fixed(FixedFunction { args, returns }) => {
                     if args.len() != 0 {
-                        return false;
+                        let reason = format!("Contract function '{}' has an invalid signature: it must take zero arguments", name);
+                        return (false, reason);
                     }
                     if !func_return_type
                         .admits_type(epoch, &returns)
                         .unwrap_or(false)
                     {
-                        test_debug!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
-                        return false;
+                        let reason = format!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
+                        return (false, reason);
                     }
                 }
                 _ => {
-                    test_debug!("Contract function '{}' is not a fixed function", name);
-                    return false;
+                    let reason = format!("Contract function '{}' is not a fixed function", name);
+                    return (false, reason);
                 }
             }
         }
-        true
+        (true, "".to_string())
     }
 
     /// Evaluate the contract to get its signer slots
@@ -170,11 +171,15 @@ impl StackerDBConfig {
         let slot_list = match result {
             Err(err_val) => {
                 let err_code = err_val.expect_u128();
-                debug!(
+                let reason = format!(
                     "Contract {} failed to run `stackerdb-get-signer-slots`: error u{}",
                     contract_id, &err_code
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
             Ok(ok_val) => ok_val.expect_list(),
         };
@@ -195,28 +200,40 @@ impl StackerDBConfig {
                 .expect_u128();
 
             if num_slots_uint > (STACKERDB_INV_MAX as u128) {
-                debug!(
+                let reason = format!(
                     "Contract {} stipulated more than maximum number of slots for one signer ({})",
                     contract_id, STACKERDB_INV_MAX
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
             let num_slots = num_slots_uint as u64;
             total_num_slots = total_num_slots.saturating_add(num_slots);
 
             if total_num_slots > STACKERDB_INV_MAX.into() {
-                debug!(
+                let reason = format!(
                     "Contract {} stipulated more than the maximum number of slots",
                     contract_id
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
 
             // standard principals only
             let addr = match signer_principal {
                 PrincipalData::Contract(..) => {
-                    debug!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
-                    return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                    let reason = format!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
+                    debug!("{}", &reason);
+                    return Err(net_error::InvalidStackerDBContract(
+                        contract_id.clone(),
+                        reason,
+                    ));
                 }
                 PrincipalData::Standard(StandardPrincipalData(version, bytes)) => StacksAddress {
                     version,
@@ -244,11 +261,15 @@ impl StackerDBConfig {
         let config_tuple = match result {
             Err(err_val) => {
                 let err_code = err_val.expect_u128();
-                debug!(
+                let reason = format!(
                     "Contract {} failed to run `stackerdb-get-config`: err u{}",
                     contract_id, &err_code
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
             Ok(ok_val) => ok_val.expect_tuple(),
         };
@@ -259,11 +280,15 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if chunk_size > u64::MAX as u128 {
-            debug!(
+            let reason = format!(
                 "Contract {} stipulates a chunk size beyond u64::MAX",
                 contract_id
             );
-            return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+            debug!("{}", &reason);
+            return Err(net_error::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
         }
 
         let write_freq = config_tuple
@@ -272,11 +297,15 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if write_freq > u64::MAX as u128 {
-            debug!(
+            let reason = format!(
                 "Contract {} stipulates a write frequency beyond u64::MAX",
                 contract_id
             );
-            return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+            debug!("{}", &reason);
+            return Err(net_error::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
         }
 
         let max_writes = config_tuple
@@ -285,11 +314,15 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if max_writes > u32::MAX as u128 {
-            debug!(
+            let reason = format!(
                 "Contract {} stipulates a max-write bound beyond u32::MAX",
                 contract_id
             );
-            return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+            debug!("{}", &reason);
+            return Err(net_error::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
         }
 
         let max_neighbors = config_tuple
@@ -298,11 +331,15 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if max_neighbors > usize::MAX as u128 {
-            debug!(
+            let reason = format!(
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
                 contract_id
             );
-            return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+            debug!("{}", &reason);
+            return Err(net_error::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
         }
 
         let hint_replicas_list = config_tuple
@@ -334,28 +371,40 @@ impl StackerDBConfig {
             for byte_val in addr_byte_list.into_iter() {
                 let byte = byte_val.expect_u128();
                 if byte > (u8::MAX as u128) {
-                    debug!(
+                    let reason = format!(
                         "Contract {} stipulates an addr byte above u8::MAX",
                         contract_id
                     );
-                    return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                    debug!("{}", &reason);
+                    return Err(net_error::InvalidStackerDBContract(
+                        contract_id.clone(),
+                        reason,
+                    ));
                 }
                 addr_bytes.push(byte as u8);
             }
             if addr_bytes.len() != 16 {
-                debug!(
+                let reason = format!(
                     "Contract {} did not stipulate a full 16-octet IP address",
                     contract_id
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
 
             if port < 1024 || port > ((u16::MAX - 1) as u128) {
-                debug!(
+                let reason = format!(
                     "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
                     contract_id
                 );
-                return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                debug!("{}", &reason);
+                return Err(net_error::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
             }
 
             let mut pubkey_hash_slice = [0u8; 20];
@@ -415,12 +464,17 @@ impl StackerDBConfig {
                         .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface
-                    if !Self::is_contract_valid(&cur_epoch.epoch_id, analysis) {
-                        debug!(
-                            "Contract {} does not conform to StackerDB trait",
-                            contract_id
+                    let (valid, reason) = Self::is_contract_valid(&cur_epoch.epoch_id, analysis);
+                    if !valid {
+                        let reason = format!(
+                            "Contract {} does not conform to StackerDB trait: {}",
+                            contract_id, reason
                         );
-                        return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+                        debug!("{}", &reason);
+                        return Err(net_error::InvalidStackerDBContract(
+                            contract_id.clone(),
+                            reason,
+                        ));
                     }
 
                     Ok(())
@@ -428,13 +482,17 @@ impl StackerDBConfig {
             })?;
 
         if res.is_none() {
-            info!(
+            let reason = format!(
                 "Could not evaluate contract {} at {}",
                 contract_id, &chain_tip_hash
             );
-            return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
+            debug!("{}", &reason);
+            return Err(net_error::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
         } else if let Some(Err(e)) = res {
-            info!(
+            warn!(
                 "Could not use contract {} for StackerDB: {:?}",
                 contract_id, &e
             );
