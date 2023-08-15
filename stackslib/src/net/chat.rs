@@ -2970,7 +2970,7 @@ mod test {
             burnchain.clone(),
             chain_view.clone(),
             ConnectionOptions::default(),
-            vec![],
+            HashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
         );
         network
