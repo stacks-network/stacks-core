@@ -117,7 +117,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         Ok(connected_replicas)
     }
 
-    /// Reset this state machine, and get the final result
+    /// Reset this state machine, and get the StackerDBSyncResult with newly-obtained chunk data
+    /// and newly-learned information about broken and dead peers.
     pub fn reset(
         &mut self,
         network: Option<&PeerNetwork>,
@@ -180,6 +181,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Given the downloaded set of chunk inventories, identify:
     /// * which chunks we need to fetch, because they're newer than ours.
     /// * what order to fetch chunks in, in rarest-first order
+    /// Returns a list of (chunk requests, list of neighbors that can service them), which is
+    /// ordered from rarest chunk to most-common chunk.
     pub fn make_chunk_request_schedule(
         &self,
         network: &PeerNetwork,
@@ -277,6 +280,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .collect();
 
         schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.reverse();
+
         test_debug!(
             "{:?}: Will request up to {} chunks for {}",
             network.get_local_peer(),
@@ -299,7 +304,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let mut need_chunks: HashMap<usize, (StackerDBPushChunkData, Vec<NeighborAddress>)> =
             HashMap::new();
 
-        // who has data we need?
+        // who needs data we can serve?
         for (i, local_version) in local_slot_versions.iter().enumerate() {
             let mut local_chunk = None;
             for (naddr, chunk_inv) in self.chunk_invs.iter() {
@@ -332,7 +337,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     });
                 }
 
-                let our_chunk = if let Some(chunk) = local_chunk.take() {
+                let our_chunk = if let Some(chunk) = local_chunk.as_ref() {
                     chunk
                 } else {
                     // we don't have this chunk
@@ -347,7 +352,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 };
 
                 if !do_replicate {
-                    local_chunk = Some(our_chunk);
                     continue;
                 }
 
@@ -359,7 +363,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     // Add a record for it.
                     need_chunks.insert(i, (our_chunk.clone(), vec![naddr.clone()]));
                 };
-                local_chunk = Some(our_chunk);
             }
         }
 
@@ -371,6 +374,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .collect();
 
         schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.reverse();
         test_debug!(
             "{:?}: Will push up to {} chunks for {}",
             network.get_local_peer(),
@@ -414,29 +418,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             self.downloaded_chunks.insert(naddr.clone(), vec![data]);
         }
 
-        // yes, this is a linear scan. But because the number of chunks in the DB is a small O(1)
-        // enforced by the protocol, this isn't a big deal.
-        // This loop is only expected to run once, but is in place for defensive purposes.
-        loop {
-            let mut remove_idx = None;
-            for (i, (chunk, ..)) in self.chunk_fetch_priorities.iter().enumerate() {
-                if chunk.slot_id == slot_id {
-                    remove_idx = Some(i);
-                    break;
-                }
-            }
-            if let Some(remove_idx) = remove_idx {
-                test_debug!(
-                    "Downloaded chunk {}.{} from {:?}",
-                    slot_id,
-                    _slot_version,
-                    &naddr
-                );
-                self.chunk_fetch_priorities.remove(remove_idx);
-            } else {
-                break;
-            }
-        }
+        self.chunk_fetch_priorities
+            .retain(|(chunk, ..)| chunk.slot_id != slot_id);
+
         if self.chunk_fetch_priorities.len() > 0 {
             let next_chunk_fetch_priority =
                 self.next_chunk_fetch_priority % self.chunk_fetch_priorities.len();
@@ -456,7 +440,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
-        slot_version: u32,
     ) -> bool {
         // safety (should already be checked) -- don't accept if the size is wrong
         if new_inv.slot_versions.len() != self.num_slots {
@@ -487,30 +470,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
         self.chunk_invs.insert(naddr.clone(), new_inv);
 
-        // yes, this is a linear scan. But because the number of chunks in the DB is a small O(1)
-        // enforced by the protocol, this isn't a big deal.
-        // This loop is only expected to run once, but is in place for defensive purposes.
-        loop {
-            let mut remove_idx = None;
-            for (i, (chunk, ..)) in self.chunk_push_priorities.iter().enumerate() {
-                if chunk.chunk_data.slot_id == slot_id {
-                    remove_idx = Some(i);
-                    break;
-                }
-            }
-            if let Some(remove_idx) = remove_idx {
-                test_debug!(
-                    "{:?}: Pushed chunk {}.{} from {:?}",
-                    network.get_local_peer(),
-                    slot_id,
-                    slot_version,
-                    &naddr
-                );
-                self.chunk_push_priorities.remove(remove_idx);
-            } else {
-                break;
-            }
-        }
+        self.chunk_push_priorities
+            .retain(|(chunk, ..)| chunk.chunk_data.slot_id != slot_id);
+
         if self.chunk_push_priorities.len() > 0 {
             let next_chunk_push_priority =
                 self.next_chunk_push_priority % self.chunk_push_priorities.len();
@@ -661,7 +623,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns false otherwise
     pub fn connect_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
-            let _data = match message.payload {
+            let data = match message.payload {
                 StacksMessageType::StackerDBHandshakeAccept(_, db_data) => {
                     if network.get_chain_view().rc_consensus_hash != db_data.rc_consensus_hash {
                         // stale or inconsistent view. Do not proceed
@@ -691,11 +653,28 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
             };
 
+            if data
+                .smart_contracts
+                .iter()
+                .find(|db_id| *db_id == &self.smart_contract_id)
+                .is_none()
+            {
+                debug!(
+                    "{:?}: remote peer does not replicate {}",
+                    network.get_local_peer(),
+                    &self.smart_contract_id
+                );
+
+                // disconnect
+                self.comms.add_dead(network, &naddr);
+                continue;
+            }
+
             test_debug!(
                 "{:?}: connect_try_finish: Received StackerDBHandshakeAccept from {:?} for {:?}",
                 network.get_local_peer(),
                 &naddr,
-                &_data
+                &data
             );
 
             // this neighbor is good
@@ -1066,6 +1045,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         *slot_id,
                         *slot_version,
                     );
+                self.add_pushed_chunk(naddr, new_chunk_inv, *slot_id);
             }
         }
 

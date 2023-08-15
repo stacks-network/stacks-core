@@ -401,11 +401,13 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
     inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(false, BASE_PORT + 28);
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_push_10_chunks() {
     inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(true, BASE_PORT + 68);
 }

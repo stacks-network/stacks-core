@@ -24,6 +24,7 @@ use std::path::Path;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{
     SlotMetadata, StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX,
+    STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::Error as net_error;
 use crate::net::{ContractId, StackerDBChunkData, StackerDBHandshakeData};
@@ -381,6 +382,10 @@ impl<'a> StackerDBTx<'a> {
         slot_desc: &SlotMetadata,
         chunk: &[u8],
     ) -> Result<(), net_error> {
+        if chunk.len() > STACKERDB_MAX_CHUNK_SIZE as usize {
+            return Err(net_error::StackerDBChunkTooBig(chunk.len()));
+        }
+
         let slot_validation = self
             .get_slot_validation(smart_contract, slot_desc.slot_id)?
             .ok_or(net_error::NoSuchSlot(
