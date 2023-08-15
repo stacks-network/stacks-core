@@ -708,6 +708,13 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1521,6 +1528,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    /// stacker DBs we replicate
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -1799,6 +1808,7 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            stacker_dbs: vec![],
         }
     }
 
@@ -2005,6 +2015,8 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    /// Stacker DBs we replicate
+    pub stacker_dbs: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
