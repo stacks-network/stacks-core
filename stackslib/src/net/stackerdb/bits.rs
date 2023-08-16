@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/*
 /// This module contains methods for interacting with the data contained within the messages
 use crate::net::{
     Error as net_error, StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData,
@@ -127,3 +128,4 @@ impl StackerDBChunkData {
         md.verify(addr)
     }
 }
+*/

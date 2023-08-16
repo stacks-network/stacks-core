@@ -21,11 +21,11 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use libstackerdb::SlotMetadata;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
+
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::net::stackerdb::{
-    SlotMetadata, StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX,
-    STACKERDB_MAX_CHUNK_SIZE,
-};
+use crate::net::stackerdb::{StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX};
 use crate::net::Error as net_error;
 use crate::net::{ContractId, StackerDBChunkData, StackerDBHandshakeData};
 

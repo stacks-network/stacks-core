@@ -72,8 +72,6 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use crate::net::StackerDBChunkAckData;
-use crate::net::StackerDBChunkData;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
@@ -115,6 +113,7 @@ use clarity::vm::{
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
+use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -4005,11 +4004,12 @@ mod test {
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
     use crate::net::http::*;
-    use crate::net::stackerdb::SlotMetadata;
     use crate::net::stream::*;
     use crate::net::test::*;
     use crate::net::*;
     use clarity::vm::types::*;
+    use libstackerdb::SlotMetadata;
+    use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};

@@ -147,11 +147,10 @@ use crate::net::p2p::PeerNetwork;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
 
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
+
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
-
-/// maximum chunk size (1 MB)
-pub const STACKERDB_MAX_CHUNK_SIZE: u32 = 1024 * 1024;
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
@@ -217,6 +216,7 @@ pub struct StackerDBTx<'a> {
     config: StackerDBConfig,
 }
 
+/*
 /// Slot metadata from the DB.
 /// This is derived state from a StackerDBChunkData message.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -230,6 +230,7 @@ pub struct SlotMetadata {
     /// signature over the above
     pub signature: MessageSignature,
 }
+*/
 
 /// Possible states a DB sync state-machine can be in
 #[derive(Debug)]

@@ -21,6 +21,7 @@
 #![allow(non_upper_case_globals)]
 
 extern crate blockstack_lib;
+extern crate libstackerdb;
 extern crate rusqlite;
 #[macro_use]
 extern crate stacks_common;
@@ -72,7 +73,6 @@ use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::StackerDBChunkData;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::types::chainstate::{
@@ -100,6 +100,8 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;
+
+use libstackerdb::StackerDBChunkData;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

@@ -16,7 +16,8 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
+use libstackerdb::SlotMetadata;
 
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;

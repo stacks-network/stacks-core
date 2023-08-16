@@ -17,7 +17,8 @@
 use std::fs;
 use std::path::Path;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
+use libstackerdb::SlotMetadata;
 
 use crate::net::ContractId;
 use crate::net::ContractIdExtension;

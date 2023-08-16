@@ -34,6 +34,8 @@ use serde_json;
 use time;
 use url::{form_urlencoded, Url};
 
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
+
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::{
@@ -41,7 +43,6 @@ use crate::chainstate::stacks::{
 };
 use crate::deps::httparse;
 use crate::net::atlas::Attachment;
-use crate::net::stackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use crate::net::ClientError;
 use crate::net::ContractId;
 use crate::net::ContractIdExtension;

@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/*
 use std::fs;
 
 use crate::net::stackerdb::SlotMetadata;
 use crate::net::StackerDBChunkData;
 
-use clarity::vm::ContractName;
 use stacks_common::types::chainstate::StacksAddress;
 
 use stacks_common::util::hash::Hash160;
@@ -76,3 +76,4 @@ fn test_stackerdb_slot_metadata_sign_verify() {
     bad_slot_metadata.data_hash = Sha512Trunc256Sum([0x20; 32]);
     assert!(!bad_slot_metadata.verify(&addr).unwrap());
 }
+*/

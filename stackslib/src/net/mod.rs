@@ -104,6 +104,10 @@ pub use self::http::StacksHttp;
 
 use crate::core::StacksEpoch;
 
+use libstackerdb::{
+    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
+};
+
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
 /// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
@@ -283,6 +287,15 @@ pub enum Error {
     StepTimeout,
     /// stacker DB chunk is too big
     StackerDBChunkTooBig(usize),
+}
+
+impl From<libstackerdb_error> for Error {
+    fn from(e: libstackerdb_error) -> Self {
+        match e {
+            libstackerdb_error::SigningError(s) => Error::SigningError(s),
+            libstackerdb_error::VerifyingError(s) => Error::VerifyingError(s),
+        }
+    }
 }
 
 impl From<codec_error> for Error {
@@ -1069,6 +1082,7 @@ pub struct StackerDBGetChunkData {
     pub slot_version: u32,
 }
 
+/*
 /// Stacker DB chunk reply to a StackerDBGetChunkData
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackerDBChunkData {
@@ -1100,6 +1114,7 @@ fn stackerdb_chunk_hex_deserialize<'de, D: serde::Deserializer<'de>>(
     let inst_str = String::deserialize(d)?;
     hex_bytes(&inst_str).map_err(serde::de::Error::custom)
 }
+*/
 
 /// Stacker DB chunk push
 #[derive(Debug, Clone, PartialEq)]
@@ -1856,6 +1871,7 @@ impl HttpResponseMetadata {
     }
 }
 
+/*
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackerDBChunkAckData {
     pub accepted: bool,
@@ -1864,6 +1880,7 @@ pub struct StackerDBChunkAckData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<stackerdb::SlotMetadata>,
 }
+*/
 
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
@@ -1896,7 +1913,7 @@ pub enum HttpResponseType {
     MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
-    StackerDBMetadata(HttpResponseMetadata, Vec<stackerdb::SlotMetadata>),
+    StackerDBMetadata(HttpResponseMetadata, Vec<SlotMetadata>),
     StackerDBChunk(HttpResponseMetadata, Vec<u8>),
     StackerDBChunkAck(HttpResponseMetadata, StackerDBChunkAckData),
     // peer-given error responses

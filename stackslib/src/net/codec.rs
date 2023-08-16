@@ -37,7 +37,6 @@ use crate::chainstate::stacks::StacksTransaction;
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::LocalPeer;
-use crate::net::stackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use crate::net::Error as net_error;
 use crate::net::*;
 use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
@@ -873,6 +872,7 @@ impl StacksMessageCodec for StackerDBGetChunkData {
     }
 }
 
+/*
 impl StacksMessageCodec for StackerDBChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.slot_id)?;
@@ -895,6 +895,7 @@ impl StacksMessageCodec for StackerDBChunkData {
         })
     }
 }
+*/
 
 impl StacksMessageCodec for StackerDBPushChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
