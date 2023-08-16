@@ -6,4 +6,5 @@ members = [
     "pox-locking",
     "clarity",
     "stx-genesis",
+    "libstackerdb",
     "testnet/stacks-node"]
