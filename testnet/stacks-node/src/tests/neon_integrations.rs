@@ -28,12 +28,12 @@ use stacks::core::{
     BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
+use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
     AccountEntryResponse, ContractId, ContractIdExtension, ContractSrcResponse,
     GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody, RPCPeerInfoData,
-    StackerDBChunkAckData, StackerDBChunkData, StacksBlockAcceptedData,
-    UnconfirmedTransactionResponse,
+    StacksBlockAcceptedData, UnconfirmedTransactionResponse,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -11038,5 +11038,9 @@ fn test_stackerdb_load_store() {
 
         let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, None);
         assert_eq!(data, chunk_str.as_bytes().to_vec());
+    }
+
+    loop {
+        sleep_ms(1000);
     }
 }
