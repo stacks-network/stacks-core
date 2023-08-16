@@ -194,7 +194,7 @@ impl RunLoop {
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
-            should_keep_running: should_keep_running,
+            should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
             is_miner: None,

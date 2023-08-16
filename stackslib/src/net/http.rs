@@ -1616,6 +1616,11 @@ impl HttpRequestType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpRequestType::parse_post_mempool_query,
             ),
+            (
+                "POST",
+                &PATH_POST_BLOCK_PROPOSAL,
+                &HttpRequestType::parse_post_block_proposal,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -2724,6 +2729,53 @@ impl HttpRequestType {
         Ok(HttpRequestType::OptionsPreflight(
             HttpRequestMetadata::from_preamble(preamble),
             preamble.path.to_string(),
+        ))
+    }
+
+    fn parse_post_block_proposal<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-empty body".to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: BlockProposal body is too big".to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for BlockProposal".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::JSON {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for BlockProposal; expected application/json"
+                            .to_string(),
+                    ));
+                }
+            }
+        };
+
+        let bound_fd = BoundReader::from_reader(fd, u64::from(preamble.get_content_length()));
+        let block_proposal = serde_json::from_reader(bound_fd).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse JSON body: {e}"))
+        })?;
+
+        Ok(HttpRequestType::BlockProposal(
+            HttpRequestMetadata::from_preamble(preamble),
+            block_proposal,
         ))
     }
 

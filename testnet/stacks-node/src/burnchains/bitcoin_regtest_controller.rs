@@ -1716,7 +1716,7 @@ impl BitcoinRegtestController {
 
     /// Instruct a regtest Bitcoin node to build the next block.
     pub fn build_next_block(&self, num_blocks: u64) {
-        debug!("Generate {} block(s)", num_blocks);
+        debug!("Generate {num_blocks} block(s)");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
             None => panic!("Unable to make new block, mining public key"),
@@ -1732,7 +1732,7 @@ impl BitcoinRegtestController {
         match result {
             Ok(_) => {}
             Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
             }
         }

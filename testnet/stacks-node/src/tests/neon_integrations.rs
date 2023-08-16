@@ -93,7 +93,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
+    BlockProposal, signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
     TransactionSuccessEvent,
 };
 use stacks::net::RPCFeeEstimateResponse;
@@ -10684,6 +10684,95 @@ fn test_competing_miners_build_on_same_chain(
         btc_regtest_controller.build_next_block(1);
         sleep_ms(block_time_ms);
     }
+}
+            
+#[test]
+#[ignore]
+fn test_block_proposal() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, _) = neon_integration_test_conf();
+
+    // Start bitcoind
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    // Start Stacks node
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Build URL
+    let client = reqwest::blocking::Client::new();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{http_origin}/v2/block_proposal");
+
+    // Construct empty/invalid block proposal
+    let proposal = BlockProposal {
+        parent_block_hash: BlockHeaderHash::from_bytes(&[0; 32]).unwrap(),
+        parent_consensus_hash: ConsensusHash::from_bytes(&[0; 20]).unwrap(),
+        block: StacksBlock::genesis_block(),
+        microblocks_confirmed: vec![],
+        burn_tip: BurnchainHeaderHash::from_bytes(&[0; 32]).unwrap(),
+        burn_tip_height: 0,
+        is_mainnet: false,
+        microblock_pubkey_hash: Hash160::from_data(&[0, 20]),
+        total_burn: 0,
+    };
+
+    // Send POST request
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/json")
+        .json(&proposal)
+        .send()
+        .expect("Failed to POST");
+
+    // Response should be error with code 406
+    assert_eq!(res.status().as_u16(), 406);
+
+    // Construct valid block proposal
+    let proposal = BlockProposal {
+        parent_block_hash: BlockHeaderHash::from_bytes(&[0; 32]).unwrap(),
+        parent_consensus_hash: ConsensusHash::from_bytes(&[0; 20]).unwrap(),
+        block: StacksBlock::genesis_block(),
+        microblocks_confirmed: vec![],
+        burn_tip: BurnchainHeaderHash::from_bytes(&[0; 32]).unwrap(),
+        burn_tip_height: 0,
+        is_mainnet: false,
+        microblock_pubkey_hash: Hash160::from_data(&[0, 20]),
+        total_burn: 0,
+    };
 }
 
 // TODO: this needs to run as a smoke test, since they take too long to run in CI

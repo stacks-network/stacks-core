@@ -1268,7 +1268,7 @@ impl ConversationHttp {
         block_proposal: &BlockProposal,
         //validator_key: Option<&Secp256k1PrivateKey>,
         //signing_contract: Option<&QualifiedContractIdentifier>,
-        options: &ConnectionOptions,
+        _options: &ConnectionOptions,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         // TODO: Validate proposal
