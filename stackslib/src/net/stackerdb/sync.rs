@@ -343,7 +343,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .collect();
 
         schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
-        schedule.reverse();
         test_debug!(
             "{:?}: Will push up to {} chunks for {}",
             network.get_local_peer(),
