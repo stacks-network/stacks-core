@@ -41,7 +41,6 @@ use crate::net::stackerdb::{
     StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
 
-use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::NeighborAddress;
 use crate::net::PeerAddress;
@@ -54,6 +53,7 @@ use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_err
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::types::StandardPrincipalData;
 use clarity::vm::types::{
     BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData, SequenceSubtype,
@@ -159,7 +159,7 @@ impl StackerDBConfig {
     fn eval_signer_slots(
         chainstate: &mut StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
-        contract_id: &ContractId,
+        contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
     ) -> Result<Vec<(StacksAddress, u64)>, net_error> {
         let value = chainstate.eval_read_only(
@@ -252,7 +252,7 @@ impl StackerDBConfig {
     fn eval_config(
         chainstate: &mut StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
-        contract_id: &ContractId,
+        contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
         signers: Vec<(StacksAddress, u64)>,
     ) -> Result<StackerDBConfig, net_error> {
@@ -437,7 +437,7 @@ impl StackerDBConfig {
     pub fn from_smart_contract(
         chainstate: &mut StacksChainState,
         sortition_db: &SortitionDB,
-        contract_id: &ContractId,
+        contract_id: &QualifiedContractIdentifier,
     ) -> Result<StackerDBConfig, net_error> {
         let chain_tip = chainstate
             .get_stacks_chain_tip(sortition_db)?

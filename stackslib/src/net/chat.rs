@@ -49,7 +49,6 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::*;
 use crate::net::stackerdb::StackerDBs;
-use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
 use crate::net::GetPoxInv;
@@ -71,6 +70,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::core::StacksEpoch;
 use crate::types::chainstate::PoxId;
 use crate::types::StacksPublicKeyBuffer;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -380,7 +381,7 @@ pub struct ConversationP2P {
     pub stats: NeighborStats,
 
     /// which stacker DBs this peer replicates
-    pub db_smart_contracts: Vec<ContractId>,
+    pub db_smart_contracts: Vec<QualifiedContractIdentifier>,
 
     /// outbound replies
     pub reply_handles: VecDeque<ReplyHandleP2P>,
@@ -699,7 +700,7 @@ impl ConversationP2P {
     }
 
     /// Does this remote neighbor support a particular StackerDB?
-    pub fn replicates_stackerdb(&self, db: &ContractId) -> bool {
+    pub fn replicates_stackerdb(&self, db: &QualifiedContractIdentifier) -> bool {
         for cid in self.db_smart_contracts.iter() {
             if cid == db {
                 return true;
@@ -1182,7 +1183,7 @@ impl ConversationP2P {
     }
 
     /// Getter for stacker DB contracts
-    pub fn get_stackerdb_contract_ids(&self) -> &[ContractId] {
+    pub fn get_stackerdb_contract_ids(&self) -> &[QualifiedContractIdentifier] {
         &self.db_smart_contracts
     }
 
@@ -2784,7 +2785,9 @@ mod test {
             data_url.clone(),
             &asn4_entries,
             Some(&initial_neighbors),
-            &vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
+            &vec![
+                QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc").unwrap(),
+            ],
         )
         .unwrap();
         let sortdb = SortitionDB::connect(
@@ -3093,7 +3096,10 @@ mod test {
                     burnchain.network_id,
                     local_peer_1.data_url,
                     local_peer_1.port,
-                    &[ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
+                    &[
+                        QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap(),
+                    ],
                 )
                 .unwrap();
 
@@ -3103,7 +3109,10 @@ mod test {
                     burnchain.network_id,
                     local_peer_2.data_url,
                     local_peer_2.port,
-                    &[ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
+                    &[
+                        QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap(),
+                    ],
                 )
                 .unwrap();
 
@@ -3112,12 +3121,18 @@ mod test {
 
             assert_eq!(
                 local_peer_1.stacker_dbs,
-                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
+                vec![
+                    QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                        .unwrap()
+                ]
             );
 
             assert_eq!(
                 local_peer_2.stacker_dbs,
-                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()]
+                vec![
+                    QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                        .unwrap()
+                ]
             );
 
             let mut convo_1 = ConversationP2P::new(
@@ -3214,8 +3229,10 @@ mod test {
                             // remote peer always replies with its supported smart contracts
                             assert_eq!(
                                 db_data.smart_contracts,
-                                vec![ContractId::parse("SP000000000000000000002Q6VF78.sbtc")
-                                    .unwrap()]
+                                vec![QualifiedContractIdentifier::parse(
+                                    "SP000000000000000000002Q6VF78.sbtc"
+                                )
+                                .unwrap()]
                             );
 
                             // peers learn each others' smart contract DBs
@@ -3225,7 +3242,10 @@ mod test {
                             );
                             assert_eq!(convo_1.db_smart_contracts.len(), 1);
                             assert!(convo_1.replicates_stackerdb(
-                                &ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                                &QualifiedContractIdentifier::parse(
+                                    "SP000000000000000000002Q6VF78.sbtc"
+                                )
+                                .unwrap()
                             ));
                         } else {
                             assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
@@ -3237,7 +3257,10 @@ mod test {
                             );
                             assert_eq!(convo_1.db_smart_contracts.len(), 0);
                             assert!(!convo_1.replicates_stackerdb(
-                                &ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
+                                &QualifiedContractIdentifier::parse(
+                                    "SP000000000000000000002Q6VF78.sbtc"
+                                )
+                                .unwrap()
                             ));
                         }
                     }
@@ -4946,9 +4969,10 @@ mod test {
                 StackerDBHandshakeData {
                     rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
                     // placeholder sbtc address for now
-                    smart_contracts: vec![
-                        ContractId::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()
-                    ],
+                    smart_contracts: vec![QualifiedContractIdentifier::parse(
+                        "SP000000000000000000002Q6VF78.sbtc",
+                    )
+                    .unwrap()],
                 },
             );
 

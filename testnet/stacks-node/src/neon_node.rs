@@ -194,7 +194,7 @@ use stacks::net::{
     relay::Relayer,
     rpc::RPCHandlerArgs,
     stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs},
-    ContractId, Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags,
+    Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
@@ -225,6 +225,7 @@ use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -3897,7 +3898,7 @@ impl StacksNode {
     fn setup_peer_db(
         config: &Config,
         burnchain: &Burnchain,
-        stackerdb_contract_ids: &[ContractId],
+        stackerdb_contract_ids: &[QualifiedContractIdentifier],
     ) -> PeerDB {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();

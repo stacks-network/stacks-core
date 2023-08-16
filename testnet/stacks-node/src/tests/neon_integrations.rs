@@ -31,9 +31,9 @@ use stacks::core::{
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
-    AccountEntryResponse, ContractId, ContractIdExtension, ContractSrcResponse,
-    GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody, RPCPeerInfoData,
-    StacksBlockAcceptedData, UnconfirmedTransactionResponse,
+    AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
+    UnconfirmedTransactionResponse,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -98,6 +98,7 @@ use stacks::chainstate::stacks::miner::{
     TransactionSuccessEvent,
 };
 use stacks::net::RPCFeeEstimateResponse;
+use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
@@ -10837,7 +10838,7 @@ fn microblock_miner_multiple_attempts() {
 
 fn post_stackerdb_chunk(
     http_origin: &str,
-    stackerdb_contract_id: &ContractId,
+    stackerdb_contract_id: &QualifiedContractIdentifier,
     data: Vec<u8>,
     signer: &StacksPrivateKey,
     slot_id: u32,
@@ -10852,8 +10853,8 @@ fn post_stackerdb_chunk(
     let path = format!(
         "{}/v2/stackerdb/{}/{}/chunks",
         http_origin,
-        stackerdb_contract_id.address(),
-        stackerdb_contract_id.name()
+        &StacksAddress::from(stackerdb_contract_id.issuer.clone()),
+        stackerdb_contract_id.name
     );
     let res = client
         .post(&path)
@@ -10873,7 +10874,7 @@ fn post_stackerdb_chunk(
 
 fn get_stackerdb_chunk(
     http_origin: &str,
-    stackerdb_contract_id: &ContractId,
+    stackerdb_contract_id: &QualifiedContractIdentifier,
     slot_id: u32,
     slot_version: Option<u32>,
 ) -> Vec<u8> {
@@ -10881,8 +10882,8 @@ fn get_stackerdb_chunk(
         format!(
             "{}/v2/stackerdb/{}/{}/{}/{}",
             http_origin,
-            stackerdb_contract_id.address(),
-            stackerdb_contract_id.name(),
+            StacksAddress::from(stackerdb_contract_id.issuer.clone()),
+            stackerdb_contract_id.name,
             slot_id,
             version
         )
@@ -10890,8 +10891,8 @@ fn get_stackerdb_chunk(
         format!(
             "{}/v2/stackerdb/{}/{}/{}",
             http_origin,
-            stackerdb_contract_id.address(),
-            stackerdb_contract_id.name(),
+            StacksAddress::from(stackerdb_contract_id.issuer.clone()),
+            stackerdb_contract_id.name,
             slot_id
         )
     };
@@ -10968,8 +10969,8 @@ fn test_stackerdb_load_store() {
         },
     ]);
 
-    conf.node.stacker_dbs.push(ContractId::from_parts(
-        to_addr(&privks[0]),
+    conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
+        to_addr(&privks[0]).into(),
         "hello-world".into(),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();

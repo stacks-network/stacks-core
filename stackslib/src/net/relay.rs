@@ -1704,11 +1704,12 @@ impl Relayer {
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
     pub fn process_stacker_db_chunks(
         stackerdbs: &mut StackerDBs,
-        stackerdb_configs: &HashMap<ContractId, StackerDBConfig>,
+        stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         sync_results: &[StackerDBSyncResult],
     ) -> Result<(), Error> {
         // sort stacker results by contract, so as to minimize the number of transactions.
-        let mut sync_results_map: HashMap<&ContractId, Vec<&StackerDBSyncResult>> = HashMap::new();
+        let mut sync_results_map: HashMap<&QualifiedContractIdentifier, Vec<&StackerDBSyncResult>> =
+            HashMap::new();
         for sync_result in sync_results {
             let sc = &sync_result.contract_id;
             if let Some(result_list) = sync_results_map.get_mut(sc) {
@@ -1751,7 +1752,7 @@ impl Relayer {
     /// extract all StackerDBPushChunk messages from `unhandled_messages`
     pub fn process_pushed_stacker_db_chunks(
         stackerdbs: &mut StackerDBs,
-        stackerdb_configs: &HashMap<ContractId, StackerDBConfig>,
+        stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         unhandled_messages: &mut HashMap<NeighborKey, Vec<StacksMessage>>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk

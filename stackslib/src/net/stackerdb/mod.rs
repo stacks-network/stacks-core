@@ -114,12 +114,10 @@
 #[cfg(test)]
 pub mod tests;
 
-pub mod bits;
 pub mod config;
 pub mod db;
 pub mod sync;
 
-use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::NackData;
 use crate::net::NackErrorCodes;
@@ -149,13 +147,15 @@ use stacks_common::util::get_epoch_time_secs;
 
 use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 
+use clarity::vm::types::QualifiedContractIdentifier;
+
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
-    pub contract_id: ContractId,
+    pub contract_id: QualifiedContractIdentifier,
     /// slot inventory for this replica
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
     /// list of data to store
@@ -216,22 +216,6 @@ pub struct StackerDBTx<'a> {
     config: StackerDBConfig,
 }
 
-/*
-/// Slot metadata from the DB.
-/// This is derived state from a StackerDBChunkData message.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SlotMetadata {
-    /// Slot identifier (unique for each DB instance)
-    pub slot_id: u32,
-    /// Slot version (a lamport clock)
-    pub slot_version: u32,
-    /// data hash
-    pub data_hash: Sha512Trunc256Sum,
-    /// signature over the above
-    pub signature: MessageSignature,
-}
-*/
-
 /// Possible states a DB sync state-machine can be in
 #[derive(Debug)]
 pub enum StackerDBSyncState {
@@ -249,7 +233,7 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// what state are we in?
     state: StackerDBSyncState,
     /// which contract this is a replica for
-    pub smart_contract_id: ContractId,
+    pub smart_contract_id: QualifiedContractIdentifier,
     /// number of chunks in this DB
     pub num_slots: usize,
     /// how frequently we accept chunk writes, in seconds
@@ -356,7 +340,10 @@ impl PeerNetwork {
     }
 
     /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here
-    pub fn make_StackerDBChunksInv_or_Nack(&self, contract_id: &ContractId) -> StacksMessageType {
+    pub fn make_StackerDBChunksInv_or_Nack(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> StacksMessageType {
         let slot_versions = match self.stackerdbs.get_slot_versions(contract_id) {
             Ok(versions) => versions,
             Err(e) => {
@@ -384,7 +371,7 @@ impl PeerNetwork {
     /// Returns Err(..) on DB error
     pub fn validate_received_chunk(
         &self,
-        smart_contract_id: &ContractId,
+        smart_contract_id: &QualifiedContractIdentifier,
         config: &StackerDBConfig,
         data: &StackerDBChunkData,
         expected_versions: &[u32],

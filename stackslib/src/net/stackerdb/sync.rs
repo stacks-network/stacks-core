@@ -33,12 +33,13 @@ use crate::net::connection::ReplyHandleP2P;
 use crate::net::p2p::PeerNetwork;
 use crate::net::Error as net_error;
 use crate::net::{
-    ContractId, NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData,
-    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData,
-    StacksMessageType,
+    NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData, StackerDBChunkInvData,
+    StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData, StacksMessageType,
 };
 
 use crate::net::neighbors::NeighborComms;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
@@ -51,7 +52,7 @@ const MAX_DB_NEIGHBORS: usize = 32;
 impl<NC: NeighborComms> StackerDBSync<NC> {
     /// TODO: replace `stackerdbs` with a type parameter
     pub fn new(
-        smart_contract: ContractId,
+        smart_contract: QualifiedContractIdentifier,
         config: &StackerDBConfig,
         comms: NC,
         stackerdbs: StackerDBs,

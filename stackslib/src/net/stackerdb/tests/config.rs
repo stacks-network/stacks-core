@@ -28,8 +28,6 @@ use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::TransactionVersion;
 
 use crate::net::test::TestEventObserver;
-use crate::net::ContractId;
-use crate::net::ContractIdExtension;
 use crate::net::Error as net_error;
 use crate::net::NeighborAddress;
 use crate::net::PeerAddress;
@@ -45,6 +43,8 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::types::StacksEpoch;
 use stacks_common::util::hash::Hash160;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 fn make_smart_contract(
     name: &str,
@@ -490,14 +490,15 @@ fn test_valid_and_invalid_stackerdb_configs() {
     peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     for (i, (code, result)) in testcases.iter().enumerate() {
-        let contract_id = ContractId::from_parts(
+        let contract_id = QualifiedContractIdentifier::new(
             StacksAddress::from_public_keys(
                 26,
                 &AddressHashMode::SerializeP2PKH,
                 1,
                 &vec![StacksPublicKey::from_private(&contract_owner)],
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
             ContractName::try_from(format!("test-{}", i)).unwrap(),
         );
         peer.with_db_state(|sortdb, chainstate, _, _| {

@@ -752,31 +752,30 @@ impl StacksMessageCodec for MemPoolSyncData {
     }
 }
 
-/// We can't implement StacksMessageCodec directly for T: ContractIdExtension, so
-/// we have to resort to these crude methods.
-fn contract_id_consensus_serialize<W: Write, T: ContractIdExtension>(
+fn contract_id_consensus_serialize<W: Write>(
     fd: &mut W,
-    cid: &T,
+    cid: &QualifiedContractIdentifier,
 ) -> Result<(), codec_error> {
-    let addr = cid.address();
-    let name = cid.name();
-    write_next(fd, &addr.version)?;
-    write_next(fd, &addr.bytes.0)?;
-    write_next(fd, &name)?;
+    let addr = &cid.issuer;
+    let name = &cid.name;
+    write_next(fd, &addr.0)?;
+    write_next(fd, &addr.1)?;
+    write_next(fd, name)?;
     Ok(())
 }
 
-fn contract_id_consensus_deserialize<R: Read, T: ContractIdExtension>(
+fn contract_id_consensus_deserialize<R: Read>(
     fd: &mut R,
-) -> Result<T, codec_error> {
+) -> Result<QualifiedContractIdentifier, codec_error> {
     let version: u8 = read_next(fd)?;
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
-    let qn = T::from_parts(
+    let qn = QualifiedContractIdentifier::new(
         StacksAddress {
             version,
             bytes: Hash160(bytes),
-        },
+        }
+        .into(),
         name,
     );
     Ok(qn)
@@ -802,7 +801,7 @@ impl StacksMessageCodec for StackerDBHandshakeData {
         let len_u8: u8 = read_next(fd)?;
         let mut smart_contracts = Vec::with_capacity(len_u8 as usize);
         for _ in 0..len_u8 {
-            let cid: ContractId = contract_id_consensus_deserialize(fd)?;
+            let cid: QualifiedContractIdentifier = contract_id_consensus_deserialize(fd)?;
             smart_contracts.push(cid);
         }
         Ok(StackerDBHandshakeData {
@@ -820,7 +819,7 @@ impl StacksMessageCodec for StackerDBGetChunkInvData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkInvData, codec_error> {
-        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
+        let contract_id: QualifiedContractIdentifier = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
         Ok(StackerDBGetChunkInvData {
             contract_id,
@@ -859,7 +858,7 @@ impl StacksMessageCodec for StackerDBGetChunkData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkData, codec_error> {
-        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
+        let contract_id: QualifiedContractIdentifier = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
         let slot_id: u32 = read_next(fd)?;
         let slot_version: u32 = read_next(fd)?;
@@ -872,31 +871,6 @@ impl StacksMessageCodec for StackerDBGetChunkData {
     }
 }
 
-/*
-impl StacksMessageCodec for StackerDBChunkData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.slot_id)?;
-        write_next(fd, &self.slot_version)?;
-        write_next(fd, &self.sig)?;
-        write_next(fd, &self.data)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkData, codec_error> {
-        let slot_id: u32 = read_next(fd)?;
-        let slot_version: u32 = read_next(fd)?;
-        let sig: MessageSignature = read_next(fd)?;
-        let data: Vec<u8> = read_next_at_most(fd, STACKERDB_MAX_CHUNK_SIZE.into())?;
-        Ok(StackerDBChunkData {
-            slot_id,
-            slot_version,
-            sig,
-            data,
-        })
-    }
-}
-*/
-
 impl StacksMessageCodec for StackerDBPushChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         contract_id_consensus_serialize(fd, &self.contract_id)?;
@@ -906,7 +880,7 @@ impl StacksMessageCodec for StackerDBPushChunkData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBPushChunkData, codec_error> {
-        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
+        let contract_id: QualifiedContractIdentifier = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
         let chunk_data: StackerDBChunkData = read_next(fd)?;
         Ok(StackerDBPushChunkData {
@@ -2217,8 +2191,10 @@ pub mod test {
         let data = StackerDBHandshakeData {
             rc_consensus_hash: ConsensusHash([0x01; 20]),
             smart_contracts: vec![
-                ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
-                ContractId::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar").unwrap(),
+                QualifiedContractIdentifier::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo")
+                    .unwrap(),
+                QualifiedContractIdentifier::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar")
+                    .unwrap(),
             ],
         };
         let bytes = vec![
@@ -2242,7 +2218,10 @@ pub mod test {
     #[test]
     fn codec_StackerDBGetChunkInvData() {
         let data = StackerDBGetChunkInvData {
-            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            contract_id: QualifiedContractIdentifier::parse(
+                "SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo",
+            )
+            .unwrap(),
             rc_consensus_hash: ConsensusHash([0x01; 20]),
         };
 
@@ -2282,7 +2261,10 @@ pub mod test {
     #[test]
     fn codec_StackerDBGetChunkData() {
         let data = StackerDBGetChunkData {
-            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            contract_id: QualifiedContractIdentifier::parse(
+                "SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo",
+            )
+            .unwrap(),
             rc_consensus_hash: ConsensusHash([0x01; 20]),
             slot_id: 2,
             slot_version: 3,
@@ -2342,7 +2324,10 @@ pub mod test {
         };
 
         let push_data = StackerDBPushChunkData {
-            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            contract_id: QualifiedContractIdentifier::parse(
+                "SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo",
+            )
+            .unwrap(),
             rc_consensus_hash: ConsensusHash([0x01; 20]),
             chunk_data: data,
         };
@@ -2509,11 +2494,11 @@ pub mod test {
                 },
                 StackerDBHandshakeData {
                     rc_consensus_hash: ConsensusHash([0x01; 20]),
-                    smart_contracts: vec![ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(), ContractId::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar").unwrap()]
+                    smart_contracts: vec![QualifiedContractIdentifier::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(), QualifiedContractIdentifier::parse("SP28D54YKFCMRKXBR6BR0E4BPN57S62RSM4XEVPRP.bar").unwrap()]
                 }
             ),
             StacksMessageType::StackerDBGetChunkInv(StackerDBGetChunkInvData {
-                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                contract_id: QualifiedContractIdentifier::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
                 rc_consensus_hash: ConsensusHash([0x01; 20]),
             }),
             StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
@@ -2521,7 +2506,7 @@ pub mod test {
                 num_outbound_replicas: 4,
             }),
             StacksMessageType::StackerDBGetChunk(StackerDBGetChunkData {
-                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                contract_id: QualifiedContractIdentifier::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
                 rc_consensus_hash: ConsensusHash([0x01; 20]),
                 slot_id: 2,
                 slot_version: 3
@@ -2533,7 +2518,7 @@ pub mod test {
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),
             StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
-                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                contract_id: QualifiedContractIdentifier::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
                 rc_consensus_hash: ConsensusHash([0x01; 20]),
                 chunk_data: StackerDBChunkData {
                     slot_id: 2,

@@ -95,6 +95,7 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::{PoxId, SortitionId};
 
 use clarity::vm::ast::ASTRules;
+use clarity::vm::types::QualifiedContractIdentifier;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -318,9 +319,10 @@ pub struct PeerNetwork {
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
     // peer stacker DB state machines
-    pub stacker_db_syncs: Option<HashMap<ContractId, StackerDBSync<PeerNetworkComms>>>,
+    pub stacker_db_syncs:
+        Option<HashMap<QualifiedContractIdentifier, StackerDBSync<PeerNetworkComms>>>,
     // configuration state for stacker DBs (loaded at runtime from smart contracts)
-    pub stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
+    pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     // handle to all stacker DB state
     pub stackerdbs: StackerDBs,
 
@@ -387,7 +389,10 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
-        stacker_db_syncs: HashMap<ContractId, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>,
+        stacker_db_syncs: HashMap<
+            QualifiedContractIdentifier,
+            (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
+        >,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
@@ -644,7 +649,7 @@ impl PeerNetwork {
     /// Get StackerDBs transaction
     pub fn stackerdbs_tx_begin<'a>(
         &'a mut self,
-        stackerdb_contract_id: &ContractId,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
     ) -> Result<StackerDBTx<'a>, net_error> {
         if let Some(config) = self.stacker_db_configs.get(stackerdb_contract_id) {
             return self
@@ -687,7 +692,10 @@ impl PeerNetwork {
 
     /// Count up the number of outbound StackerDB replicas we talk to,
     /// given the contract ID that controls it.
-    pub fn count_outbound_stackerdb_replicas(&self, contract_id: &ContractId) -> usize {
+    pub fn count_outbound_stackerdb_replicas(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> usize {
         let mut count = 0;
         for (_, convo) in self.peers.iter() {
             if !convo.is_outbound() {
@@ -5166,17 +5174,22 @@ impl PeerNetwork {
     }
 
     /// Set the stacker DB configs
-    pub fn set_stacker_db_configs(&mut self, configs: HashMap<ContractId, StackerDBConfig>) {
+    pub fn set_stacker_db_configs(
+        &mut self,
+        configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    ) {
         self.stacker_db_configs = configs;
     }
 
     /// Obtain a copy of the stacker DB configs
-    pub fn get_stacker_db_configs_owned(&self) -> HashMap<ContractId, StackerDBConfig> {
+    pub fn get_stacker_db_configs_owned(
+        &self,
+    ) -> HashMap<QualifiedContractIdentifier, StackerDBConfig> {
         self.stacker_db_configs.clone()
     }
 
     /// Obtain a ref to the stacker DB configs
-    pub fn get_stacker_db_configs(&self) -> &HashMap<ContractId, StackerDBConfig> {
+    pub fn get_stacker_db_configs(&self) -> &HashMap<QualifiedContractIdentifier, StackerDBConfig> {
         &self.stacker_db_configs
     }
 
@@ -5184,7 +5197,7 @@ impl PeerNetwork {
     /// Fails only if the underlying DB fails
     fn create_or_reconfigure_stackerdb(
         &mut self,
-        stackerdb_contract_id: &ContractId,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
         new_config: &StackerDBConfig,
     ) -> Result<(), db_error> {
         info!("Reconfiguring StackerDB {}...", stackerdb_contract_id);

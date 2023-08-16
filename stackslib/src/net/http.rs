@@ -44,8 +44,6 @@ use crate::chainstate::stacks::{
 use crate::deps::httparse;
 use crate::net::atlas::Attachment;
 use crate::net::ClientError;
-use crate::net::ContractId;
-use crate::net::ContractIdExtension;
 use crate::net::Error as net_error;
 use crate::net::Error::ClarityError;
 use crate::net::ExtendedStacksHeader;
@@ -81,7 +79,7 @@ use clarity::vm::{
     representations::{
         CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
     },
-    types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
+    types::{PrincipalData, QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX},
     ClarityName, ContractName, Value,
 };
 use stacks_common::util::hash::hex_bytes;
@@ -2768,7 +2766,7 @@ impl HttpRequestType {
 
         HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
             |(preamble, addr, name)| {
-                let contract_id = ContractId::from_parts(addr, name);
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
                 HttpRequestType::GetStackerDBMetadata(preamble, contract_id)
             },
         )
@@ -2798,7 +2796,7 @@ impl HttpRequestType {
 
         HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
             |(preamble, addr, name)| {
-                let contract_id = ContractId::from_parts(addr, name);
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
                 HttpRequestType::GetStackerDBChunk(preamble, contract_id, slot_id, None)
             },
         )
@@ -2839,7 +2837,7 @@ impl HttpRequestType {
 
         HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
             |(preamble, addr, name)| {
-                let contract_id = ContractId::from_parts(addr, name);
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
                 HttpRequestType::GetStackerDBChunk(preamble, contract_id, slot_id, Some(version))
             },
         )
@@ -2887,7 +2885,7 @@ impl HttpRequestType {
         let contract_name = ContractName::try_from(regex["contract"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
 
-        let contract_id = ContractId::from_parts(contract_addr, contract_name);
+        let contract_id = QualifiedContractIdentifier::new(contract_addr.into(), contract_name);
 
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
         let chunk_data: StackerDBChunkData =
@@ -3165,23 +3163,23 @@ impl HttpRequestType {
             },
             HttpRequestType::GetStackerDBMetadata(_, contract_id) => format!(
                 "/v2/stackerdb/{}/{}",
-                &contract_id.address(),
-                &contract_id.name()
+                StacksAddress::from(contract_id.issuer.clone()),
+                &contract_id.name
             ),
             HttpRequestType::GetStackerDBChunk(_, contract_id, slot_id, slot_version_opt) => {
                 if let Some(version) = slot_version_opt {
                     format!(
                         "/v2/stackerdb/{}/{}/{}/{}",
-                        &contract_id.address(),
-                        &contract_id.name(),
+                        StacksAddress::from(contract_id.issuer.clone()),
+                        &contract_id.name,
                         slot_id,
                         version
                     )
                 } else {
                     format!(
                         "/v2/stackerdb/{}/{}/{}",
-                        &contract_id.address(),
-                        &contract_id.name(),
+                        StacksAddress::from(contract_id.issuer.clone()),
+                        &contract_id.name,
                         slot_id
                     )
                 }
@@ -3189,8 +3187,8 @@ impl HttpRequestType {
             HttpRequestType::PostStackerDBChunk(_, contract_id, ..) => {
                 format!(
                     "/v2/stackerdb/{}/{}/chunks",
-                    &contract_id.address(),
-                    &contract_id.name()
+                    StacksAddress::from(contract_id.issuer.clone()),
+                    &contract_id.name
                 )
             }
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),

@@ -44,11 +44,10 @@ use rand::RngCore;
 use crate::net::relay::Relayer;
 use crate::net::test::TestPeer;
 use crate::net::test::TestPeerConfig;
-use crate::net::ContractIdExtension;
-
-use crate::net::ContractId;
 
 use crate::util_lib::test::with_timeout;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 const BASE_PORT: u16 = 33000;
 
@@ -85,7 +84,9 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
-    config.stacker_dbs.push(ContractId::from_parts(addr, name));
+    config
+        .stacker_dbs
+        .push(QualifiedContractIdentifier::new(addr.into(), name));
     config.stacker_db_configs.push(Some(stackerdb_config));
 
     config.stacker_dbs.len() - 1

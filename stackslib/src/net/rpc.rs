@@ -57,7 +57,6 @@ use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBTx;
 use crate::net::stackerdb::StackerDBs;
 use crate::net::BlocksDatum;
-use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -2470,7 +2469,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         stackerdbs: &StackerDBs,
-        stackerdb_contract_id: &ContractId,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
@@ -2493,7 +2492,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         stackerdbs: &StackerDBs,
-        stackerdb_contract_id: &ContractId,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
         slot_id: u32,
         slot_version: Option<u32>,
         canonical_stacks_tip_height: u64,
@@ -2543,7 +2542,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         tx: &mut StackerDBTx,
-        stackerdb_contract_id: &ContractId,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
         stackerdb_chunk: &StackerDBChunkData,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
@@ -3941,7 +3940,10 @@ impl ConversationHttp {
     }
 
     /// Make a request for a stackerDB's metadata
-    pub fn new_get_stackerdb_metadata(&self, stackerdb_contract_id: ContractId) -> HttpRequestType {
+    pub fn new_get_stackerdb_metadata(
+        &self,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+    ) -> HttpRequestType {
         HttpRequestType::GetStackerDBMetadata(
             HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             stackerdb_contract_id,
@@ -3951,7 +3953,7 @@ impl ConversationHttp {
     /// Make a request for a stackerDB's chunk
     pub fn new_get_stackerdb_chunk(
         &self,
-        stackerdb_contract_id: ContractId,
+        stackerdb_contract_id: QualifiedContractIdentifier,
         slot_id: u32,
         slot_version: Option<u32>,
     ) -> HttpRequestType {
@@ -3966,7 +3968,7 @@ impl ConversationHttp {
     /// Make a new post for a stackerDB's chunk
     pub fn new_post_stackerdb_chunk(
         &self,
-        stackerdb_contract_id: ContractId,
+        stackerdb_contract_id: QualifiedContractIdentifier,
         slot_id: u32,
         slot_version: u32,
         sig: MessageSignature,
@@ -4174,11 +4176,11 @@ mod test {
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
-            ContractId::from_parts(addr1.clone(), "hello-world".into()),
+            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
             StackerDBConfig::noop(),
         );
         peer_2_config.add_stacker_db(
-            ContractId::from_parts(addr1.clone(), "hello-world".into()),
+            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
             StackerDBConfig::noop(),
         );
 
@@ -7012,8 +7014,10 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 convo_client.new_get_stackerdb_metadata(
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap(),
+                    QualifiedContractIdentifier::parse(
+                        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                    )
+                    .unwrap(),
                 )
             },
             |ref http_request,
@@ -7058,9 +7062,10 @@ mod test {
              ref mut convo_server| {
                 debug!("Set up peer stackerDB");
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7118,9 +7123,10 @@ mod test {
              ref mut convo_server| {
                 debug!("Set up peer stackerDB");
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7178,9 +7184,10 @@ mod test {
              ref mut convo_server| {
                 debug!("Set up peer stackerDB");
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7235,9 +7242,10 @@ mod test {
              ref mut convo_server| {
                 debug!("Set up peer stackerDB");
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7291,9 +7299,10 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7335,7 +7344,7 @@ mod test {
                         assert_eq!(md.data_hash, data_hash);
 
                         // server actually has it
-                        let contract_id = ContractId::from_str(
+                        let contract_id = QualifiedContractIdentifier::parse(
                             "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
                         )
                         .unwrap();
@@ -7371,9 +7380,10 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7432,7 +7442,7 @@ mod test {
                         assert_eq!(md.data_hash, data_hash);
 
                         // server actually has it
-                        let contract_id = ContractId::from_str(
+                        let contract_id = QualifiedContractIdentifier::parse(
                             "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
                         )
                         .unwrap();
@@ -7468,9 +7478,10 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
@@ -7482,8 +7493,10 @@ mod test {
                 slot_metadata.sign(&privk1).unwrap();
 
                 // ... but for the wrong DB
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.nope").unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.nope",
+                )
+                .unwrap();
                 convo_client.new_post_stackerdb_chunk(
                     contract_id,
                     slot_metadata.slot_id,
@@ -7523,9 +7536,10 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // insert a value in slot 0
-                let contract_id =
-                    ContractId::from_str("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-                        .unwrap();
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
                 let privk1 = StacksPrivateKey::from_hex(
                     "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
                 )
