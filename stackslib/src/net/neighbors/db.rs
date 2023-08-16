@@ -253,7 +253,6 @@ impl PeerDBNeighborWalk {
 }
 
 impl NeighborWalkDB for PeerDBNeighborWalk {
-    /// implements get_fresh_random_neighbors
     fn get_fresh_random_neighbors(
         &self,
         network: &PeerNetwork,
@@ -283,7 +282,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(neighbors)
     }
 
-    /// implements lookup_stale_neighbors
     fn lookup_stale_neighbors(
         &self,
         network: &PeerNetwork,
@@ -336,7 +334,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok((resolved, to_resolve))
     }
 
-    /// implements add_or_schedule_replace_neighbor
     fn add_or_schedule_replace_neighbor(
         &self,
         network: &mut PeerNetwork,
@@ -397,7 +394,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok((true, neighbor_from_handshake))
     }
 
-    /// implements get_initial_walk_neighbors
     fn get_initial_walk_neighbors(
         &self,
         network: &PeerNetwork,
@@ -419,7 +415,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(allowed_peers)
     }
 
-    /// implements check_neighbor_denied
     fn check_neighbor_denied(
         &self,
         network: &PeerNetwork,
@@ -442,7 +437,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(())
     }
 
-    /// implements replace_neighbors
     fn replace_neighbors(
         &self,
         network: &mut PeerNetwork,
@@ -483,7 +477,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(())
     }
 
-    /// implements neighbor_from_handshake
     fn neighbor_from_handshake(
         &self,
         network: &PeerNetwork,
@@ -499,7 +492,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         .map(|(neighbor, _)| neighbor)
     }
 
-    /// implements save_neighbor_from_handshake
     fn save_neighbor_from_handshake(
         &self,
         network: &mut PeerNetwork,
@@ -519,7 +511,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(neighbor_from_handshake)
     }
 
-    /// implements update_neighbor
     fn update_neighbor(
         &self,
         network: &mut PeerNetwork,
@@ -540,7 +531,6 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(cur_neighbor)
     }
 
-    /// implements get_asn_count
     fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64 {
         PeerDB::asn_count(network.peerdb_conn(), asn).unwrap_or(1)
     }
