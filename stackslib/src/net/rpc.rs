@@ -24,6 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
@@ -43,6 +44,8 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::Error as chain_error;
 use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::miner::BlockBuilderSettings;
+use crate::chainstate::stacks::miner::MinerStatus;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
@@ -131,7 +134,8 @@ use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
-
+use std::sync::Mutex;
+use stacks_common::util::vrf::VRFProof;
 use crate::util_lib::boot::boot_code_id;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
@@ -1255,6 +1259,52 @@ impl ConversationHttp {
         //   right now, it just uses the minimum.
         let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
         let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_block_template<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        mempool: &mut MemPoolDB,
+        tip: &StacksBlockId,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let mainnet = chainstate.mainnet;
+        let chain_id = chainstate.chain_id;
+        let coinbase_tx = StacksBlockBuilder::make_transient_coinbase_tx(chain_id, mainnet);
+        let parent = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.db(),
+            tip,
+        )?.ok_or_else(|| net_error::ChainstateError(chain_error::NoSuchBlockError.to_string()))?;
+        let total_burn = parent.burn_header_height + 1;
+        // TODO: nakamoto VRFProofs require some reworking of the existing VRF
+        let vrf_proof = VRFProof::empty();
+        // TODO: nakamoto block headers won't have pubkey hashes
+        let pubkey_hash = Hash160([0; 20]);
+        let settings = BlockBuilderSettings {
+            max_miner_time_ms: 30_000,
+            mempool_settings: MemPoolWalkSettings::default(),
+            miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
+        };
+
+        let (block, ..) = StacksBlockBuilder::build_anchored_block(
+            chainstate,
+            &sortdb.index_conn(),
+            mempool,
+            &parent,
+            total_burn.into(),
+            vrf_proof,
+            pubkey_hash,
+            &coinbase_tx,
+            settings,
+            None
+        )?;
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let response = HttpResponseType::BlockTemplate(response_metadata, block);
         response.send(http, fd).map(|_| ())
     }
 
@@ -2649,6 +2699,33 @@ impl ConversationHttp {
                 }
                 None
             }
+
+            HttpRequestType::GetBlockTemplate (
+                ref _md,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    &TipRequest::UseLatestAnchoredTip,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_block_template(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        mempool,
+                        &tip,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
+                None
+            }
+
             HttpRequestType::GetConstantVal(
                 ref _md,
                 ref contract_addr,

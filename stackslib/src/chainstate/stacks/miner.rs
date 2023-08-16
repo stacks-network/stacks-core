@@ -2339,6 +2339,24 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    pub fn make_transient_coinbase_tx(chain_id: u32, is_mainnet: bool) -> StacksTransaction {
+        let version = if is_mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+        let secret_key = StacksPrivateKey::new();
+        let tx_auth = TransactionAuth::from_p2pkh(&secret_key)
+            .expect("Failed to create transaction auth");
+        let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
+        let mut tx = StacksTransaction::new(version, tx_auth, payload);
+        tx.chain_id = chain_id;
+        tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.sign_origin(&secret_key).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(

@@ -1647,6 +1647,7 @@ pub enum HttpRequestType {
         TraitIdentifier,
         TipRequest,
     ),
+    GetBlockTemplate(HttpRequestMetadata),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
@@ -1766,6 +1767,7 @@ pub enum HttpResponseType {
     MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
+    BlockTemplate(HttpResponseMetadata, StacksBlock),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),

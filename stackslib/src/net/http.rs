@@ -164,6 +164,7 @@ lazy_static! {
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
+    static ref PATH_GET_TEMPLATE: Regex = Regex::new("^/v2/make_block_template$").unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1504,6 +1505,7 @@ impl HttpRequestType {
         )] = &[
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
             ("GET", &PATH_GETPOXINFO, &HttpRequestType::parse_getpoxinfo),
+            ("GET", &PATH_GET_TEMPLATE, &HttpRequestType::parse_get_template),
             (
                 "GET",
                 &PATH_GETNEIGHBORS,
@@ -1673,6 +1675,23 @@ impl HttpRequestType {
             ));
         }
         Ok(HttpRequestType::GetInfo(
+            HttpRequestMetadata::from_preamble(preamble),
+        ))
+    }
+
+    fn parse_get_template<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetTemplate".to_string(),
+            ));
+        }
+        Ok(HttpRequestType::GetBlockTemplate(
             HttpRequestMetadata::from_preamble(preamble),
         ))
     }
@@ -2752,6 +2771,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
+            HttpRequestType::GetBlockTemplate(ref md) => md,
         }
     }
 
@@ -2784,6 +2804,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
+            HttpRequestType::GetBlockTemplate(ref mut md) => md,
         }
     }
 
@@ -2965,6 +2986,7 @@ impl HttpRequestType {
                 }
                 None => "/v2/mempool/query".to_string(),
             },
+            HttpRequestType::GetBlockTemplate(..) => self.get_path().to_string(),
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -3009,6 +3031,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+            HttpRequestType::GetBlockTemplate(..) => "/v2/make_block_template",
         }
     }
 
@@ -4105,6 +4128,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::BlockTemplate(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -4277,6 +4301,20 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_bytestream(protocol, md, fd, block)?;
             }
+            HttpResponseType::BlockTemplate(ref md, ref block) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                let bytes = block.serialize_to_vec();
+                let hex = to_hex(&bytes);
+                HttpResponseType::send_json(protocol, md, fd, &hex)?;
+            },
             HttpResponseType::BlockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the block data itself.
@@ -4527,6 +4565,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
+                HttpRequestType::GetBlockTemplate(..) => "HTTP(GetBlockTemplate)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4555,6 +4594,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
                 HttpResponseType::MemPoolTxStream(..) => "HTTP(MemPoolTxStream)",
                 HttpResponseType::MemPoolTxs(..) => "HTTP(MemPoolTxs)",
+                HttpResponseType::BlockTemplate(..) => "HTTP(BlockTemplate)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
