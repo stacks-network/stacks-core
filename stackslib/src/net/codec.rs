@@ -752,9 +752,9 @@ impl StacksMessageCodec for MemPoolSyncData {
     }
 }
 
-/// We can't implement StacksMessageCodec directly for T: QualifiedContractIdentifierExtension, so
+/// We can't implement StacksMessageCodec directly for T: ContractIdExtension, so
 /// we have to resort to these crude methods.
-fn contract_id_consensus_serialize<W: Write, T: QualifiedContractIdentifierExtension>(
+fn contract_id_consensus_serialize<W: Write, T: ContractIdExtension>(
     fd: &mut W,
     cid: &T,
 ) -> Result<(), codec_error> {
@@ -766,13 +766,13 @@ fn contract_id_consensus_serialize<W: Write, T: QualifiedContractIdentifierExten
     Ok(())
 }
 
-fn contract_id_consensus_deserialize<R: Read, T: QualifiedContractIdentifierExtension>(
+fn contract_id_consensus_deserialize<R: Read, T: ContractIdExtension>(
     fd: &mut R,
 ) -> Result<T, codec_error> {
     let version: u8 = read_next(fd)?;
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
-    let qn = T::new(
+    let qn = T::from_parts(
         StacksAddress {
             version,
             bytes: Hash160(bytes),
@@ -831,16 +831,16 @@ impl StacksMessageCodec for StackerDBGetChunkInvData {
 
 impl StacksMessageCodec for StackerDBChunkInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        if self.chunk_versions.len() > (stackerdb::STACKERDB_INV_MAX as usize) {
+        if self.slot_versions.len() > (stackerdb::STACKERDB_INV_MAX as usize) {
             return Err(codec_error::ArrayTooLong);
         }
-        write_next(fd, &self.chunk_versions)?;
+        write_next(fd, &self.slot_versions)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkInvData, codec_error> {
-        let chunk_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
-        Ok(StackerDBChunkInvData { chunk_versions })
+        let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
+        Ok(StackerDBChunkInvData { slot_versions })
     }
 }
 
@@ -848,42 +848,42 @@ impl StacksMessageCodec for StackerDBGetChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         contract_id_consensus_serialize(fd, &self.contract_id)?;
         write_next(fd, &self.rc_consensus_hash)?;
-        write_next(fd, &self.chunk_id)?;
-        write_next(fd, &self.chunk_version)?;
+        write_next(fd, &self.slot_id)?;
+        write_next(fd, &self.slot_version)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBGetChunkData, codec_error> {
         let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
         let rc_consensus_hash: ConsensusHash = read_next(fd)?;
-        let chunk_id: u32 = read_next(fd)?;
-        let chunk_version: u32 = read_next(fd)?;
+        let slot_id: u32 = read_next(fd)?;
+        let slot_version: u32 = read_next(fd)?;
         Ok(StackerDBGetChunkData {
             contract_id,
             rc_consensus_hash,
-            chunk_id,
-            chunk_version,
+            slot_id,
+            slot_version,
         })
     }
 }
 
 impl StacksMessageCodec for StackerDBChunkData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.chunk_id)?;
-        write_next(fd, &self.chunk_version)?;
+        write_next(fd, &self.slot_id)?;
+        write_next(fd, &self.slot_version)?;
         write_next(fd, &self.sig)?;
         write_next(fd, &self.data)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkData, codec_error> {
-        let chunk_id: u32 = read_next(fd)?;
-        let chunk_version: u32 = read_next(fd)?;
+        let slot_id: u32 = read_next(fd)?;
+        let slot_version: u32 = read_next(fd)?;
         let sig: MessageSignature = read_next(fd)?;
         let data: Vec<u8> = read_next(fd)?;
         Ok(StackerDBChunkData {
-            chunk_id,
-            chunk_version,
+            slot_id,
+            slot_version,
             sig,
             data,
         })
@@ -1041,19 +1041,19 @@ impl StacksMessageType {
                 )
             }
             StacksMessageType::StackerDBChunkInv(ref m) => {
-                format!("StackerDBChunkInv({:?})", &m.chunk_versions)
+                format!("StackerDBChunkInv({:?})", &m.slot_versions)
             }
             StacksMessageType::StackerDBGetChunk(ref m) => {
                 format!(
                     "StackerDBGetChunk({},{},{},{})",
-                    &m.contract_id, &m.rc_consensus_hash, m.chunk_id, m.chunk_version
+                    &m.contract_id, &m.rc_consensus_hash, m.slot_id, m.slot_version
                 )
             }
             StacksMessageType::StackerDBChunk(ref m) => {
                 format!(
                     "StackerDBChunk({},{},{},sz={})",
-                    m.chunk_id,
-                    m.chunk_version,
+                    m.slot_id,
+                    m.slot_version,
                     &m.sig,
                     m.data.len()
                 )
@@ -2214,11 +2214,11 @@ pub mod test {
     #[test]
     fn codec_StackerDBChunkInvData() {
         let data = StackerDBChunkInvData {
-            chunk_versions: vec![0, 1, 2, 3],
+            slot_versions: vec![0, 1, 2, 3],
         };
 
         let bytes = vec![
-            // len(chunk_versions)
+            // len(slot_versions)
             0x00, 0x00, 0x00, 0x04, // 0u32
             0x00, 0x00, 0x00, 0x00, // 1u32
             0x00, 0x00, 0x00, 0x01, // 2u32
@@ -2234,8 +2234,8 @@ pub mod test {
         let data = StackerDBGetChunkData {
             contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
             rc_consensus_hash: ConsensusHash([0x01; 20]),
-            chunk_id: 2,
-            chunk_version: 3,
+            slot_id: 2,
+            slot_version: 3,
         };
 
         let bytes = vec![
@@ -2245,8 +2245,8 @@ pub mod test {
             0x03, // foo
             0x66, 0x6f, 0x6f, // rc consensus hash
             0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // chunk id
-            0x00, 0x00, 0x00, 0x02, // chunk version
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // slot id
+            0x00, 0x00, 0x00, 0x02, // slot version
             0x00, 0x00, 0x00, 0x03,
         ];
 
@@ -2256,8 +2256,8 @@ pub mod test {
     #[test]
     fn codec_StackerDBChunkData() {
         let data = StackerDBChunkData {
-            chunk_id: 2,
-            chunk_version: 3,
+            slot_id: 2,
+            slot_version: 3,
             sig: MessageSignature::from_raw(&vec![0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
@@ -2265,8 +2265,8 @@ pub mod test {
         };
 
         let bytes = vec![
-            // chunk id
-            0x00, 0x00, 0x00, 0x02, // chunk version
+            // slot id
+            0x00, 0x00, 0x00, 0x02, // slot version
             0x00, 0x00, 0x00, 0x03, // signature
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
@@ -2428,17 +2428,17 @@ pub mod test {
                 rc_consensus_hash: ConsensusHash([0x01; 20]),
             }),
             StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
-                chunk_versions: vec![0, 1, 2, 3],
+                slot_versions: vec![0, 1, 2, 3],
             }),
             StacksMessageType::StackerDBGetChunk(StackerDBGetChunkData {
                 contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
                 rc_consensus_hash: ConsensusHash([0x01; 20]),
-                chunk_id: 2,
-                chunk_version: 3
+                slot_id: 2,
+                slot_version: 3
             }),
             StacksMessageType::StackerDBChunk(StackerDBChunkData {
-                chunk_id: 2,
-                chunk_version: 3,
+                slot_id: 2,
+                slot_version: 3,
                 sig: MessageSignature::from_raw(&vec![0x44; 65]),
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),

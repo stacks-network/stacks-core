@@ -256,6 +256,20 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// chunk is stale
+    StaleChunk(u32, u32),
+    /// no such slot
+    NoSuchSlot(ContractId, u32),
+    /// no such DB
+    NoSuchStackerDB(ContractId),
+    /// stacker DB exists
+    StackerDBExists(ContractId),
+    /// slot signer is wrong
+    BadSlotSigner(StacksAddress, u32),
+    /// too many writes to a slot
+    TooManySlotWrites(u32, u32),
+    /// too frequent writes to a slot
+    TooFrequentSlotWrites(u64),
     /// state machine step took too long
     StepTimeout,
 }
@@ -359,6 +373,27 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StaleChunk(ref current, ref given) => {
+                write!(f, "Stale DB chunk (cur={},given={})", current, given)
+            }
+            Error::NoSuchSlot(ref addr, ref slot_id) => {
+                write!(f, "No such DB slot ({},{})", addr, slot_id)
+            }
+            Error::NoSuchStackerDB(ref addr) => {
+                write!(f, "No such StackerDB {}", addr)
+            }
+            Error::StackerDBExists(ref addr) => {
+                write!(f, "StackerDB already exists: {}", addr)
+            }
+            Error::BadSlotSigner(ref addr, ref slot_id) => {
+                write!(f, "Bad DB slot signer ({},{})", addr, slot_id)
+            }
+            Error::TooManySlotWrites(ref max, ref given) => {
+                write!(f, "Too many slot writes (max={},given={})", max, given)
+            }
+            Error::TooFrequentSlotWrites(ref deadline) => {
+                write!(f, "Too frequent slot writes (deadline={})", deadline)
+            }
             Error::StepTimeout => write!(f, "State-machine step took too long"),
         }
     }
@@ -421,6 +456,13 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StaleChunk(..) => None,
+            Error::NoSuchSlot(..) => None,
+            Error::NoSuchStackerDB(..) => None,
+            Error::StackerDBExists(..) => None,
+            Error::BadSlotSigner(..) => None,
+            Error::TooManySlotWrites(..) => None,
+            Error::TooFrequentSlotWrites(..) => None,
             Error::StepTimeout => None,
         }
     }
@@ -920,19 +962,22 @@ pub enum MemPoolSyncData {
 }
 
 /// Make QualifiedContractIdentifier usable to the networking code
-pub trait QualifiedContractIdentifierExtension {
-    fn new(addr: StacksAddress, name: ContractName) -> Self;
+pub trait ContractIdExtension {
+    fn from_parts(addr: StacksAddress, name: ContractName) -> Self;
     fn address(&self) -> StacksAddress;
     fn name(&self) -> ContractName;
-    fn parse(txt: &str) -> Option<Self>
+    fn from_str(txt: &str) -> Option<Self>
     where
         Self: Sized;
 }
 
-impl QualifiedContractIdentifierExtension for QualifiedContractIdentifier {
-    fn new(addr: StacksAddress, name: ContractName) -> QualifiedContractIdentifier {
+/// short-hand type alias
+pub type ContractId = QualifiedContractIdentifier;
+
+impl ContractIdExtension for ContractId {
+    fn from_parts(addr: StacksAddress, name: ContractName) -> ContractId {
         let id_addr = StandardPrincipalData(addr.version, addr.bytes.0);
-        QualifiedContractIdentifier::new(id_addr, name)
+        ContractId::new(id_addr, name)
     }
 
     fn address(&self) -> StacksAddress {
@@ -946,13 +991,10 @@ impl QualifiedContractIdentifierExtension for QualifiedContractIdentifier {
         self.name.clone()
     }
 
-    fn parse(txt: &str) -> Option<QualifiedContractIdentifier> {
-        QualifiedContractIdentifier::parse(txt).ok()
+    fn from_str(txt: &str) -> Option<ContractId> {
+        ContractId::parse(txt).ok()
     }
 }
-
-/// short-hand type alias
-pub type ContractId = QualifiedContractIdentifier;
 
 /// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
 #[derive(Debug, Clone, PartialEq)]
@@ -978,30 +1020,30 @@ pub struct StackerDBGetChunkInvData {
 pub struct StackerDBChunkInvData {
     /// version vector of chunks available.
     /// The max-length is a protocol constant.
-    pub chunk_versions: Vec<u32>,
+    pub slot_versions: Vec<u32>,
 }
 
 /// Request for a stacker DB chunk.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBGetChunkData {
-    /// smart contract being used to determine chunk quantity and order
+    /// smart contract being used to determine slot quantity and order
     pub contract_id: ContractId,
     /// consensus hash of the sortition that started this reward cycle
     pub rc_consensus_hash: ConsensusHash,
-    /// chunk ID (i.e. the ith bit)
-    pub chunk_id: u32,
-    /// last-seen chunk version
-    pub chunk_version: u32,
+    /// slot ID
+    pub slot_id: u32,
+    /// last-seen slot version
+    pub slot_version: u32,
 }
 
 /// Stacker DB chunk reply to a StackerDBGetChunkData
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBChunkData {
-    /// chunk ID (i.e. the ith bit)
-    pub chunk_id: u32,
-    /// chunk version (a lamport clock)
-    pub chunk_version: u32,
-    /// signature from the stacker over (reward cycle consensus hash, chunk id, chunk version, chunk sha512/256)
+    /// slot ID
+    pub slot_id: u32,
+    /// slot version (a lamport clock)
+    pub slot_version: u32,
+    /// signature from the stacker over (reward cycle consensus hash, slot id, slot version, chunk sha512/256)
     pub sig: MessageSignature,
     /// the chunk data
     pub data: Vec<u8>,
