@@ -104,6 +104,12 @@ use std::convert::TryFrom;
 
 use crate::stacks_common::types::PrivateKey;
 
+use aes_gcm::{aead::Aead, Aes256Gcm, Error as AesGcmError, KeyInit, Nonce};
+use rand_core::{CryptoRng, RngCore, OsRng};
+use sha2::{Digest, Sha256};
+use p256k1::{ecdsa, scalar::Scalar, point::Point};
+use wsts::{common::PolyCommitment, traits::Signer, v1};
+
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -10909,7 +10915,6 @@ fn get_stackerdb_chunk(
 }
 
 #[test]
-#[ignore]
 fn test_stackerdb_load_store() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -11039,4 +11044,483 @@ fn test_stackerdb_load_store() {
         let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, None);
         assert_eq!(data, chunk_str.as_bytes().to_vec());
     }
+}
+
+pub trait Signable {
+    fn hash(&self, hasher: &mut Sha256);
+
+    fn sign(&self, private_key: &Scalar) -> Result<Vec<u8>, ecdsa::Error> {
+        let mut hasher = Sha256::new();
+
+        self.hash(&mut hasher);
+
+        let hash = hasher.finalize();
+        match ecdsa::Signature::new(hash.as_slice(), private_key) {
+            Ok(sig) => Ok(sig.to_bytes().to_vec()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn verify(&self, signature: &[u8], public_key: &ecdsa::PublicKey) -> bool {
+        let mut hasher = Sha256::new();
+
+        self.hash(&mut hasher);
+
+        let hash = hasher.finalize();
+        let sig = match ecdsa::Signature::try_from(signature) {
+            Ok(sig) => sig,
+            Err(_) => return false,
+        };
+
+        sig.verify(hash.as_slice(), public_key)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum DkgStatus {
+    Success,
+    Failure(String),
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum MessageTypes {
+    DkgBegin(DkgBegin),
+    DkgPrivateBegin(DkgBegin),
+    DkgEnd(DkgEnd),
+    DkgPublicEnd(DkgEnd),
+    DkgPublicShares(DkgPublicShares),
+    DkgPrivateShares(DkgPrivateShares),
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DkgPublicShares {
+    pub dkg_id: u64,
+    pub dkg_public_id: u64,
+    pub party_shares: Vec<(u32, PolyCommitment)>,
+}
+
+impl Signable for DkgPublicShares {
+    fn hash(&self, hasher: &mut Sha256) {
+        hasher.update("DKG_PUBLIC_SHARE".as_bytes());
+        hasher.update(self.dkg_id.to_be_bytes());
+        hasher.update(self.dkg_public_id.to_be_bytes());
+        for (id, share) in &self.party_shares {
+            hasher.update(id.to_be_bytes());
+            for a in &share.A {
+                hasher.update(a.compress().as_bytes());
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DkgPrivateShares {
+    pub dkg_id: u64,
+    /// Encrypt the shares using AES-GCM with a key derived from ECDH
+    pub key_shares: Vec<(u32, HashMap<u32, Vec<u8> >)>,
+}
+
+impl Signable for DkgPrivateShares {
+    fn hash(&self, hasher: &mut Sha256) {
+        hasher.update("DKG_PRIVATE_SHARES".as_bytes());
+        hasher.update(self.dkg_id.to_be_bytes());
+        // make sure we iterate sequentially
+        // TODO: change this once WSTS goes to 1 based indexing for key_ids, or change to BTreeMap
+        for (id, shares) in &self.key_shares {
+            hasher.update(id.to_be_bytes());
+            for i in 0..shares.len() as u32 {
+                hasher.update(i.to_be_bytes());
+                hasher.update(&shares[&i]);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DkgBegin {
+    pub dkg_id: u64, //TODO: Strong typing for this, alternatively introduce a type alias
+}
+
+impl Signable for DkgBegin {
+    fn hash(&self, hasher: &mut Sha256) {
+        hasher.update("DKG_BEGIN".as_bytes());
+        hasher.update(self.dkg_id.to_be_bytes());
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DkgEnd {
+    pub dkg_id: u64,
+    pub signer_id: u32,
+    pub status: DkgStatus,
+}
+
+impl Signable for DkgEnd {
+    fn hash(&self, hasher: &mut Sha256) {
+        hasher.update("DKG_END".as_bytes());
+        hasher.update(self.dkg_id.to_be_bytes());
+        hasher.update(self.signer_id.to_be_bytes());
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Message {
+    pub msg: MessageTypes,
+    pub sig: Vec<u8>,
+}
+
+/// Do a Diffie-Hellman key exchange to create a shared secret from the passed private and public keys
+pub fn make_shared_secret(private_key: &Scalar, public_key: &Point) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    let shared_key = private_key * public_key;
+
+    hasher.update("DH_SHARED_SECRET_KEY/".as_bytes());
+    hasher.update(shared_key.compress().as_bytes());
+
+    hasher.finalize().into()
+}
+
+pub const AES_GCM_NONCE_SIZE: usize = 12;
+
+/// Encrypt the passed data using the key
+pub fn encrypt<RNG: RngCore + CryptoRng>(
+    key: &[u8; 32],
+    data: &[u8],
+    rng: &mut RNG,
+) -> Result<Vec<u8>, AesGcmError> {
+    let mut nonce_bytes = [0u8; AES_GCM_NONCE_SIZE];
+
+    rng.fill_bytes(&mut nonce_bytes);
+
+    let nonce_vec = nonce_bytes.to_vec();
+    let nonce = Nonce::from_slice(&nonce_vec);
+    let cipher = Aes256Gcm::new(key.into());
+    let cipher_vec = cipher.encrypt(nonce, data.to_vec().as_ref())?;
+    let mut bytes = Vec::new();
+
+    bytes.extend_from_slice(&nonce_vec);
+    bytes.extend_from_slice(&cipher_vec);
+
+    Ok(bytes)
+}
+
+/// Decrypt the passed data using the key
+pub fn decrypt(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, AesGcmError> {
+    let nonce_vec = data[..AES_GCM_NONCE_SIZE].to_vec();
+    let cipher_vec = data[AES_GCM_NONCE_SIZE..].to_vec();
+    let nonce = Nonce::from_slice(&nonce_vec);
+    let cipher = Aes256Gcm::new(key.into());
+
+    cipher.decrypt(nonce, cipher_vec.as_ref())
+}
+
+#[test]
+fn test_stackerdb_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut rng = OsRng::default();
+    let msg = "It was many and many a year ago".as_bytes();
+    let num_keys: u32 = 20;
+    let num_signers: u32 = 5;
+    let keys_per_signer = num_keys / num_signers;
+    let threshold: u32 = num_keys;//(num_keys / 10) * 7; //num_keys
+
+    let signer_private_keys = (0..num_signers).map(|_| StacksPrivateKey::new()).collect::<Vec<StacksPrivateKey>>();
+    let signer_ecdsa_private_keys = (0..num_signers).map(|_| Scalar::random(&mut rng)).collect::<Vec<Scalar>>();
+    let signer_ecdsa_public_keys = (0..num_signers).map(|i| ecdsa::PublicKey::new(&signer_ecdsa_private_keys[i as usize]).unwrap()).collect::<Vec<ecdsa::PublicKey>>();
+    let coordinator_id: u32 = 0;
+    let coordinator_private_key = signer_private_keys[coordinator_id as usize];
+    let coordinator_ecdsa_private_key = signer_ecdsa_private_keys[coordinator_id as usize];
+    let coordinator_ecdsa_public_key = signer_ecdsa_public_keys[coordinator_id as usize];
+
+    const SLOTS_PER_USER: u32 = 16;
+    const DKG_BEGIN_SLOT: u32 = 0;
+    const DKG_PUBLIC_SLOT: u32 = 1;
+    const DKG_PRIVATE_SLOT: u32 = 2;
+
+    let mut stackerdb_contract = String::new();// "
+stackerdb_contract += "        ;; stacker DB\n";
+stackerdb_contract += "        (define-read-only (stackerdb-get-signer-slots)\n";
+stackerdb_contract += "            (ok (list\n";
+for i in 0..num_signers {
+    stackerdb_contract += "                {\n";
+    stackerdb_contract += format!("                    signer: '{},\n", to_addr(&signer_private_keys[i as usize])).as_str();
+    stackerdb_contract += format!("                    num-slots: u{}\n", SLOTS_PER_USER).as_str();
+    stackerdb_contract += "                }\n";
+}
+stackerdb_contract += "                )))\n";
+stackerdb_contract += "\n";
+stackerdb_contract += "        (define-read-only (stackerdb-get-config)\n";
+stackerdb_contract += "            (ok {\n";
+stackerdb_contract += "                chunk-size: u4096,\n";
+stackerdb_contract += "                write-freq: u0,\n";
+stackerdb_contract += "                max-writes: u4096,\n";
+stackerdb_contract += "                max-neighbors: u32,\n";
+stackerdb_contract += "                hint-replicas: (list )\n";
+stackerdb_contract += "            }))\n";
+stackerdb_contract += "    ";
+
+info!("stackerdb_contract:\n{}\n", &stackerdb_contract);
+
+let mut initial_balances = Vec::new();
+for i in 0..num_signers {
+    initial_balances.push(InitialBalance {
+        address: to_addr(&signer_private_keys[i as usize]).into(),
+        amount: 10_000_000_000_000,
+    });
+}
+
+    conf.initial_balances.append(&mut initial_balances);
+    conf.node.stacker_dbs.push(ContractId::from_parts(
+        to_addr(&signer_private_keys[0]),
+        "hello-world".into(),
+    ));
+    let contract_id = conf.node.stacker_dbs[0].clone();
+    
+    test_observer::spawn();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop some time to start up!
+    eprintln!("Wait for runloop...");
+    wait_for_runloop(&blocks_processed);
+
+    // First block wakes up the run loop.
+    eprintln!("Mine first block...");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    
+    // Second block will hold our VRF registration.
+    eprintln!("Mine second block...");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    
+    // Third block will be the first mined Stacks block.
+    eprintln!("Mine third block...");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    eprintln!("Send contract-publish...");
+    let tx = make_contract_publish(&signer_private_keys[0], 0, 10_000, "hello-world", &stackerdb_contract);
+    submit_tx(&http_origin, &tx);
+
+    // mine it
+    eprintln!("Mine it...");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    
+    let mut key_id: u32 = 0;
+    let mut signer_ids = Vec::new();
+    for i in 0..num_signers {
+        let mut ids: Vec<u32> = Vec::new();
+        for j in 0..keys_per_signer {
+            ids.push(key_id);
+            key_id += 1;
+        }
+        signer_ids.push(ids);
+    }
+
+    let mut signers: Vec<v1::Signer> = signer_ids
+        .iter()
+        .enumerate()
+        .map(|(id, ids)| v1::Signer::new(id.try_into().unwrap(), &ids[..], num_keys, threshold, &mut rng))
+        .collect();
+
+    const DKG_ID: u64 = 0;
+    const DKG_PUBLIC_ID: u64 = 0;
+    // send DkgBegin to both signers
+    let dkg_begin = DkgBegin{
+        dkg_id: 0,
+    };
+    let dkg_begin = Message {
+        sig: dkg_begin.sign(&coordinator_ecdsa_private_key).unwrap(),
+        msg: MessageTypes::DkgBegin(dkg_begin),
+    };
+        
+    let dkg_begin_bytes = bincode::serialize(&dkg_begin).unwrap();
+
+    info!("Writing {} bytes to slot {}", dkg_begin_bytes.len(), SLOTS_PER_USER * coordinator_id + DKG_BEGIN_SLOT);
+    let ack = post_stackerdb_chunk(
+        &http_origin,
+        &contract_id,
+        dkg_begin_bytes.to_vec(),
+        &coordinator_private_key,
+        SLOTS_PER_USER * coordinator_id + DKG_BEGIN_SLOT,
+        1 as u32,
+    );
+    info!("ACK {:?}", &ack);
+
+    for i in 0..num_signers {
+        loop {
+            info!("Signer {} checking for DkgBegin from coordinator {}", i, coordinator_id);
+            let data = get_stackerdb_chunk(&http_origin, &contract_id, SLOTS_PER_USER * coordinator_id + DKG_BEGIN_SLOT, None);//Some(1 as u32));
+            info!("Read {} bytes", data.len());
+            match bincode::deserialize::<Message>(&data[..]) {
+                Ok(msg) => {
+                    match &msg.msg {
+                        MessageTypes::DkgBegin(dkg_begin) => {
+                            if !dkg_begin.verify(&msg.sig, &coordinator_ecdsa_public_key) {
+                                panic!("DkgBegin failed to verify with coordinator public key");
+                            }
+                            // check to see if this is the correct dkg_id
+                        },
+                        x => {
+                            warn!("expected DkgBegin got {:?} instead", x);
+                            continue
+                        },
+                    }
+                },
+                _ => continue, //warn!("failed to read DkgBegin from coordinator {}", coordinator_id),
+            };
+            break;
+        }
+        let party_shares = signers[i as usize].get_poly_commitments(&mut rng).iter().map(|pc| (pc.id.id.get_u32(), pc.clone())).collect::<Vec<(u32, PolyCommitment)>>();
+        let dkg_public_shares = DkgPublicShares {
+            dkg_id: DKG_ID,
+            dkg_public_id: DKG_PUBLIC_ID,
+            party_shares,
+        };
+        let dkg_public_shares = Message {
+            sig: dkg_public_shares.sign(&signer_ecdsa_private_keys[i as usize]).unwrap(),
+            msg: MessageTypes::DkgPublicShares(dkg_public_shares),
+        };
+        let dkg_public_bytes = bincode::serialize(&dkg_public_shares).unwrap();
+        let ack = post_stackerdb_chunk(
+            &http_origin,
+            &contract_id,
+            dkg_public_bytes.to_vec(),
+            &signer_private_keys[i as usize],
+            SLOTS_PER_USER * i + DKG_PUBLIC_SLOT,
+            1 as u32,
+        );
+        debug!("ACK {}: {:?}", i, &ack);
+        let private_shares = signers[i as usize].get_shares();
+        let mut key_shares: Vec<(u32, HashMap<u32, Vec<u8>>)> = Vec::new();
+        for (key_id, shares) in private_shares {
+            let mut encrypted_shares: HashMap<u32, Vec<u8>> = HashMap::new();
+            for (dst_key_id, private_share) in shares {
+                let dst_signer_id = dst_key_id / keys_per_signer;
+                let public_point = Point::from(&signer_ecdsa_private_keys[dst_signer_id as usize]);
+                let shared_secret = make_shared_secret(&signer_ecdsa_private_keys[i as usize], &public_point);
+                let encrypted_share = encrypt(&shared_secret, &private_share.to_bytes(), &mut rng).unwrap();
+                encrypted_shares.insert(dst_key_id, encrypted_share);
+            }
+            key_shares.push((key_id, encrypted_shares));
+        }
+        let dkg_private_shares = DkgPrivateShares {
+            dkg_id: DKG_ID,
+            key_shares,
+        };
+        let dkg_private_shares = Message {
+            sig: dkg_private_shares.sign(&signer_ecdsa_private_keys[i as usize]).unwrap(),
+            msg: MessageTypes::DkgPrivateShares(dkg_private_shares),
+        };
+        let dkg_private_bytes = bincode::serialize(&dkg_private_shares).unwrap();
+        let ack = post_stackerdb_chunk(
+            &http_origin,
+            &contract_id,
+            dkg_private_bytes.to_vec(),
+            &signer_private_keys[i as usize],
+            SLOTS_PER_USER * i + DKG_PRIVATE_SLOT,
+            1 as u32,
+        );
+        debug!("ACK {}: {:?}", i, &ack);
+    }
+    info!("Compute secrets for all signers");
+    for i in 0..num_signers {
+        // grab the public shares from all signers
+        let mut polys: Vec<PolyCommitment> = Vec::new();
+        let mut polymap: HashMap<u32, PolyCommitment> = HashMap::new();
+        for j in 0..num_signers {
+            let data = get_stackerdb_chunk(&http_origin, &contract_id, SLOTS_PER_USER * j + DKG_PUBLIC_SLOT, None);//Some(1 as u32));
+            info!("Read {} bytes", data.len());
+            let msg = match bincode::deserialize::<Message>(&data[..]) {
+                Ok(msg) => msg,
+                _ => panic!("failed to read DkgPrivateShares from signer {}", j),
+            };
+            match msg.msg {
+                MessageTypes::DkgPublicShares(dkg_public_shares) => {
+                    if !dkg_public_shares.verify(&msg.sig, &signer_ecdsa_public_keys[j as usize]) {
+                        panic!("DkgPublicShares failed to verify with the sending signer public key");
+                    }
+                    for (key_id, poly) in dkg_public_shares.party_shares {
+                        info!("insert poly for key_id {}", key_id);
+                        polymap.insert(key_id-1, poly);
+                    }
+                },
+                x => panic!("Expected DkgPrivateShares got {:?}", x),
+            }
+        }
+        for j in 0..num_keys {
+            info!("grab poly for key_id {}", j);
+            polys.push(polymap[&j].clone());
+        }
+        let mut private_shares: hashbrown::HashMap<u32, hashbrown::HashMap<u32, Scalar>> = hashbrown::HashMap::new();
+        let my_ids = signer_ids[i as usize].iter().map(|id| *id).collect::<hashbrown::HashSet<u32>>();
+        for j in 0..num_signers {
+            let data = get_stackerdb_chunk(&http_origin, &contract_id, SLOTS_PER_USER * j + DKG_PRIVATE_SLOT, None);//Some(1 as u32));
+            info!("Read private share from signer {} ({} bytes)", j, data.len());
+            let msg = match bincode::deserialize::<Message>(&data[..]) {
+                Ok(msg) => msg,
+                _ => panic!("failed to read DkgPrivateShares from signer {}", j),
+            };
+            match msg.msg {
+                MessageTypes::DkgPrivateShares(dkg_private_shares) => {
+                    if !dkg_private_shares.verify(&msg.sig, &signer_ecdsa_public_keys[j as usize]) {
+                        panic!("DkgPrivateShares failed to verify with the sending signer public key");
+                    }
+                    // iterate over all of the key_ids this signer controls, then grab the shares for key_id
+                    for (src_key_id, share_map) in &dkg_private_shares.key_shares {
+                        let mut decrypted_shares: hashbrown::HashMap<u32, Scalar> = hashbrown::HashMap::new();
+                        
+                        for (dst_key_id, encrypted_share) in share_map {
+                            if my_ids.contains(dst_key_id) {
+                                let src_signer_id = src_key_id / keys_per_signer;
+                                let public_point = Point::from(&signer_ecdsa_private_keys[src_signer_id as usize]);
+                                let shared_secret = make_shared_secret(&signer_ecdsa_private_keys[i as usize], &public_point);
+                                let bytes = decrypt(&shared_secret, encrypted_share).unwrap();
+                                let decrypted_share = Scalar::try_from(&bytes[..]).unwrap();
+                                info!("insert decrypted share from {} to {}", src_key_id, dst_key_id);
+                                decrypted_shares.insert(*dst_key_id, decrypted_share);
+                            }
+                        }
+                        private_shares.insert(*src_key_id, decrypted_shares);
+                    }
+                },
+                x => panic!("Expected DkgPrivateShares got {:?}", x),
+            }
+        }
+        signers[i as usize].compute_secrets(&private_shares, &polys).unwrap();
+    }
+    /*
+    let mut signers = [signers[0].clone(), signers[1].clone()].to_vec();
+    let mut sig_agg = v1::SignatureAggregator::new(num_keys, threshold, dkg_public_shares.clone()).expect("aggregator ctor failed");
+
+    let (nonces, sig_shares) = v1::test_helpers::sign(&msg, &mut signers, &mut rng);
+    if let Err(e) = sig_agg.sign(&msg, &nonces, &sig_shares) {
+        panic!("Aggregator sign failed: {:?}", e);
+    }
+    */
 }

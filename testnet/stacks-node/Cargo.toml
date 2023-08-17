@@ -27,6 +27,13 @@ clarity = { path = "../../clarity" }
 stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
+rand_core = "0.6"
+p256k1 = "=5.2.0"
+wsts = "1.2"
+sha2 = "0.10"
+bincode = "1.3.3"
+aes-gcm = "0.10"
+hashbrown = "0.13"
 
 [dev-dependencies]
 ring = "0.16.19"
