@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::deps::httparse::{Error, Request, Status, EMPTY_HEADER};
+use crate::deps_common::httparse::{Error, Request, Status, EMPTY_HEADER};
 
 const NUM_OF_HEADERS: usize = 4;
 
