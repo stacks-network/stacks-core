@@ -157,6 +157,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
+    cfile.node.as_mut().map(|node| node.bootstrap_node.take());
+
     if let Some(burnchain) = cfile.burnchain.as_mut() {
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
