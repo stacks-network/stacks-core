@@ -32,7 +32,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::codec::read_next;
 use stacks_common::codec::read_next_at_most;
 use stacks_common::codec::write_next;
-use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::Error as CodecError;
 use stacks_common::codec::StacksMessageCodec;
 
 use stacks_common::util::secp256k1::MessageSignature;
@@ -209,7 +209,7 @@ impl StackerDBChunkData {
 }
 
 impl StacksMessageCodec for StackerDBChunkData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.slot_id)?;
         write_next(fd, &self.slot_version)?;
         write_next(fd, &self.sig)?;
@@ -217,7 +217,7 @@ impl StacksMessageCodec for StackerDBChunkData {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkData, codec_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkData, CodecError> {
         let slot_id: u32 = read_next(fd)?;
         let slot_version: u32 = read_next(fd)?;
         let sig: MessageSignature = read_next(fd)?;

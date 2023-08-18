@@ -2478,9 +2478,7 @@ impl ConversationHttp {
         let response = if let Ok(slots) = stackerdbs.get_db_slot_metadata(stackerdb_contract_id) {
             HttpResponseType::StackerDBMetadata(response_metadata, slots)
         } else {
-            let resp =
-                HttpResponseType::NotFound(response_metadata, "No such StackerDB contract".into());
-            return resp.send(http, fd).and_then(|_| Ok(()));
+            HttpResponseType::NotFound(response_metadata, "No such StackerDB contract".into())
         };
 
         return response.send(http, fd).map(|_| ());
@@ -2508,13 +2506,11 @@ impl ConversationHttp {
             stackerdbs.get_latest_chunk(stackerdb_contract_id, slot_id)
         };
 
-        let chunk_data = match chunk_res {
-            Ok(Some(chunk)) => chunk,
+        let response = match chunk_res {
+            Ok(Some(chunk)) => HttpResponseType::StackerDBChunk(response_metadata, chunk_data),
             Ok(None) | Err(net_error::NoSuchStackerDB(..)) => {
                 // not found
-                let resp =
-                    HttpResponseType::NotFound(response_metadata, "No such StackerDB chunk".into());
-                return resp.send(http, fd).and_then(|_| Ok(()));
+                HttpResponseType::NotFound(response_metadata, "No such StackerDB chunk".into())
             }
             Err(e) => {
                 // some other error
@@ -2524,15 +2520,13 @@ impl ConversationHttp {
                        "slot_version" => slot_version,
                        "error" => format!("{:?}", &e)
                 );
-                let resp = HttpResponseType::ServerError(
+                HttpResponseType::ServerError(
                     response_metadata,
                     format!("Failed to load StackerDB chunk"),
-                );
-                return resp.send(http, fd).and_then(|_| Ok(()));
+                )
             }
         };
 
-        let response = HttpResponseType::StackerDBChunk(response_metadata, chunk_data);
         return response.send(http, fd).map(|_| ());
     }
 
@@ -7266,6 +7260,10 @@ mod test {
                 tx.commit().unwrap();
 
                 // now go ask for it, but from the wrong contract
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.nope",
+                )
+                .unwrap();
                 convo_client.new_get_stackerdb_chunk(contract_id, 0, None)
             },
             |ref http_request,

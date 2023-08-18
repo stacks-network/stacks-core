@@ -120,8 +120,10 @@ lazy_static! {
 }
 
 impl StackerDBConfig {
-    /// Check that a smart contract is consistent with being a StackerDB controller
-    fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> (bool, String) {
+    /// Check that a smart contract is consistent with being a StackerDB controller.
+    /// Returns Ok(..) if the contract is valid
+    /// Returns Err(reason) if the contract is invalid.  A human-readable reason will be given.
+    fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> Result<(), String> {
         for (name, func_return_type) in REQUIRED_FUNCTIONS.iter() {
             let func = if let Some(f) = analysis.read_only_function_types.get(name) {
                 f
@@ -129,30 +131,30 @@ impl StackerDBConfig {
                 f
             } else {
                 let reason = format!("Contract is missing function '{}'", name);
-                return (false, reason);
+                return Err(reason);
             };
 
             match func {
                 FunctionType::Fixed(FixedFunction { args, returns }) => {
                     if args.len() != 0 {
                         let reason = format!("Contract function '{}' has an invalid signature: it must take zero arguments", name);
-                        return (false, reason);
+                        return Err(reason);
                     }
                     if !func_return_type
                         .admits_type(epoch, &returns)
                         .unwrap_or(false)
                     {
                         let reason = format!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
-                        return (false, reason);
+                        return Err(reason);
                     }
                 }
                 _ => {
                     let reason = format!("Contract function '{}' is not a fixed function", name);
-                    return (false, reason);
+                    return Err(reason);
                 }
             }
         }
-        (true, "".to_string())
+        Ok(())
     }
 
     /// Evaluate the contract to get its signer slots
@@ -467,13 +469,12 @@ impl StackerDBConfig {
                         .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface
-                    let (valid, reason) = Self::is_contract_valid(&cur_epoch.epoch_id, analysis);
-                    if !valid {
+                    if let Err(invalid_reason) = Self::is_contract_valid(&cur_epoch.epoch_id, analysis) {
                         let reason = format!(
                             "Contract {} does not conform to StackerDB trait: {}",
-                            contract_id, reason
+                            contract_id, invalid_reason
                         );
-                        debug!("{}", &reason);
+                        warn!("{}", &reason);
                         return Err(net_error::InvalidStackerDBContract(
                             contract_id.clone(),
                             reason,
@@ -489,7 +490,7 @@ impl StackerDBConfig {
                 "Could not evaluate contract {} at {}",
                 contract_id, &chain_tip_hash
             );
-            debug!("{}", &reason);
+            warn!("{}", &reason);
             return Err(net_error::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,

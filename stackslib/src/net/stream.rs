@@ -24,7 +24,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::stacks::{StacksBlock, StacksBlockHeader, StacksMicroblock};
 
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::Error as ChainstateError;
 
 use crate::core::mempool::MemPoolDB;
 
@@ -35,7 +35,11 @@ use rand::Rng;
 
 /// Interface for streaming data
 pub trait Streamer {
+    /// Return the offset into the stream at which this Streamer points.  This value is equivalent
+    /// to returning the number of bytes streamed out so far.
     fn offset(&self) -> u64;
+    /// Update the stream's offset pointer by `nw` bytes, so the implementation can keep track of
+    /// how much data has been sent so far.
     fn add_bytes(&mut self, nw: u64);
 }
 
@@ -123,7 +127,7 @@ impl MicroblockStreamData {
     /// Stream the number of microblocks, as a SIP-003-encoded 4-byte big-endian integer.
     /// Returns the number of bytes written to `fd` on success
     /// Returns chainstate errors otherwise.
-    fn stream_count<W: Write>(&mut self, fd: &mut W, count: u64) -> Result<u64, chainstate_error> {
+    fn stream_count<W: Write>(&mut self, fd: &mut W, count: u64) -> Result<u64, ChainstateError> {
         let mut num_written = 0;
         while self.num_items_ptr < self.num_items_buf.len() && num_written < count {
             // stream length prefix
@@ -152,7 +156,7 @@ impl MicroblockStreamData {
                         // blocked
                         return Ok(num_written);
                     } else {
-                        return Err(chainstate_error::WriteError(e));
+                        return Err(ChainstateError::WriteError(e));
                     }
                 }
             };
@@ -182,13 +186,13 @@ impl StreamCursor {
     pub fn new_microblock_confirmed(
         chainstate: &StacksChainState,
         tail_index_microblock_hash: StacksBlockId,
-    ) -> Result<StreamCursor, chainstate_error> {
+    ) -> Result<StreamCursor, ChainstateError> {
         // look up parent
         let mblock_info = StacksChainState::load_staging_microblock_info_indexed(
             &chainstate.db(),
             &tail_index_microblock_hash,
         )?
-        .ok_or(chainstate_error::NoSuchBlockError)?;
+        .ok_or(ChainstateError::NoSuchBlockError)?;
 
         let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
             &mblock_info.consensus_hash,
@@ -220,13 +224,13 @@ impl StreamCursor {
         chainstate: &StacksChainState,
         anchored_index_block_hash: StacksBlockId,
         seq: u16,
-    ) -> Result<StreamCursor, chainstate_error> {
+    ) -> Result<StreamCursor, ChainstateError> {
         let mblock_info = StacksChainState::load_next_descendant_microblock(
             &chainstate.db(),
             &anchored_index_block_hash,
             seq,
         )?
-        .ok_or(chainstate_error::NoSuchBlockError)?;
+        .ok_or(ChainstateError::NoSuchBlockError)?;
 
         Ok(StreamCursor::Microblocks(MicroblockStreamData {
             index_block_hash: anchored_index_block_hash.clone(),
@@ -246,9 +250,9 @@ impl StreamCursor {
         chainstate: &StacksChainState,
         tip: &StacksBlockId,
         num_headers_requested: u32,
-    ) -> Result<StreamCursor, chainstate_error> {
+    ) -> Result<StreamCursor, ChainstateError> {
         let header_info = StacksChainState::load_staging_block_info(chainstate.db(), tip)?
-            .ok_or(chainstate_error::NoSuchBlockError)?;
+            .ok_or(ChainstateError::NoSuchBlockError)?;
 
         let num_headers = if header_info.height < (num_headers_requested as u64) {
             header_info.height as u32
@@ -295,7 +299,7 @@ impl StreamCursor {
 
     /// Write a single byte to the given `fd`.
     /// Non-blocking -- masks EINTR by returning 0.
-    fn stream_one_byte<W: Write>(fd: &mut W, b: u8) -> Result<u64, chainstate_error> {
+    fn stream_one_byte<W: Write>(fd: &mut W, b: u8) -> Result<u64, ChainstateError> {
         loop {
             match fd.write(&[b]) {
                 Ok(0) => {
@@ -315,7 +319,7 @@ impl StreamCursor {
                         // blocked
                         return Ok(0);
                     } else {
-                        return Err(chainstate_error::WriteError(e));
+                        return Err(ChainstateError::WriteError(e));
                     }
                 }
             }
@@ -333,7 +337,7 @@ impl StreamCursor {
         }
     }
 
-    /// Update the cursor's offse by nw
+    /// Update the cursor's offset by nw
     pub fn add_more_bytes(&mut self, nw: u64) {
         match self {
             StreamCursor::Block(ref mut stream) => stream.add_bytes(nw),
@@ -355,7 +359,7 @@ impl StreamCursor {
         chainstate: &mut StacksChainState,
         fd: &mut W,
         count: u64,
-    ) -> Result<u64, chainstate_error> {
+    ) -> Result<u64, ChainstateError> {
         match self {
             StreamCursor::Microblocks(ref mut stream) => {
                 let mut num_written = 0;

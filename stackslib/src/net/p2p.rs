@@ -5200,7 +5200,7 @@ impl PeerNetwork {
         stackerdb_contract_id: &QualifiedContractIdentifier,
         new_config: &StackerDBConfig,
     ) -> Result<(), db_error> {
-        info!("Reconfiguring StackerDB {}...", stackerdb_contract_id);
+        debug!("Reconfiguring StackerDB {}...", stackerdb_contract_id);
         let tx = self.stackerdbs.tx_begin(new_config.clone())?;
         match tx.reconfigure_stackerdb(stackerdb_contract_id, &new_config.signers) {
             Ok(..) => {}

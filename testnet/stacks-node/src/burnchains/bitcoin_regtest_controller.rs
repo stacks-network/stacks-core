@@ -2376,28 +2376,11 @@ impl BitcoinRPCRequest {
             let result = BitcoinRPCRequest::send(&config, payload)?;
             let checksum = result
                 .get(&"result".to_string())
-                .map(|res| {
-                    res.as_object().map(|obj| {
-                        obj.get(&"checksum".to_string()).map(|checksum_val| {
-                            checksum_val.as_str().map(|val_str| val_str.to_string())
-                        })
-                    })
-                })
+                .and_then(|res| res.as_object())
+                .and_then(|obj| obj.get("checksum"))
+                .and_then(|checksum_val| checksum_val.as_str())
                 .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
-                )))?
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
-                )))?
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
-                )))?
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with 'checksum' for `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
+                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{}\"`", &addr2str(&address)
                 )))?;
 
             let payload = BitcoinRPCRequest {

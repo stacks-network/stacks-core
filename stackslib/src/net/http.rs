@@ -170,12 +170,12 @@ lazy_static! {
         )).unwrap();
     static ref PATH_GET_STACKERDB_CHUNK: Regex =
         Regex::new(&format!(
-            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/([0-9]+)$"#,
+            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)$"#,
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
         )).unwrap();
     static ref PATH_GET_STACKERDB_VERSIONED_CHUNK: Regex =
         Regex::new(&format!(
-            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/([0-9]+)/([0-9]+)$"#,
+            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)/(?P<slot_version>[0-9]+)$"#,
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
         )).unwrap();
     static ref PATH_POST_STACKERDB_CHUNK: Regex =
@@ -2786,7 +2786,7 @@ impl HttpRequestType {
         }
 
         let slot_id: u32 = regex
-            .get(6)
+            .name("slot_id")
             .ok_or(net_error::DeserializeError(
                 "Failed to match slot ID".to_string(),
             ))?
@@ -2816,7 +2816,7 @@ impl HttpRequestType {
         }
 
         let slot_id: u32 = regex
-            .get(6)
+            .name("slot_id")
             .ok_or(net_error::DeserializeError(
                 "Failed to match slot ID".to_string(),
             ))?
@@ -2825,7 +2825,7 @@ impl HttpRequestType {
             .map_err(|_| net_error::DeserializeError("Failed to decode slot ID".to_string()))?;
 
         let version: u32 = regex
-            .get(7)
+            .name("slot_version")
             .ok_or(net_error::DeserializeError(
                 "Failed to match slot version".to_string(),
             ))?
@@ -3523,6 +3523,7 @@ impl HttpResponseType {
         Ok(resp)
     }
 
+    /// Parse a SIP-003 bytestream.  The first 4 bytes are a big-endian length prefix
     fn parse_bytestream<R: Read, T: StacksMessageCodec>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
@@ -3615,17 +3616,17 @@ impl HttpResponseType {
             }
         })
     }
-
-    fn parse_text<R: Read>(
+    
+    fn parse_raw_bytes<R: Read>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
         len_hint: Option<usize>,
         max_len: u64,
+        expected_content_type: HttpContentType
     ) -> Result<Vec<u8>, net_error> {
-        // content-type has to be text/plain
-        if preamble.content_type != HttpContentType::Text {
+        if preamble.content_type != expected_content_type {
             return Err(net_error::DeserializeError(
-                "Invalid content-type: expected text/plain".to_string(),
+                format!("Invalid content-type: expected {}", expected_content_type)
             ));
         }
         let buf = if preamble.is_chunked() && len_hint.is_none() {
@@ -3655,6 +3656,24 @@ impl HttpResponseType {
         };
 
         Ok(buf)
+    }
+
+    fn parse_text<R: Read>(
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+        max_len: u64,
+    ) -> Result<Vec<u8>, net_error> {
+        Self::parse_raw_bytes(preamble, fd, len_hint, max_len, HttpContentType::Text)
+    }
+    
+    fn parse_bytes<R: Read>(
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+        max_len: u64,
+    ) -> Result<Vec<u8>, net_error> {
+        Self::parse_raw_bytes(preamble, fd, len_hint, max_len, HttpContentType::Bytes)
     }
 
     // len_hint is given by the StacksHttp protocol implementation
@@ -4334,7 +4353,7 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let chunk = HttpResponseType::parse_bytestream(
+        let chunk = HttpResponseType::parse_bytes(
             preamble,
             fd,
             len_hint,
