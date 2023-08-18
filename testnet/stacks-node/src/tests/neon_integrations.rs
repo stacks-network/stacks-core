@@ -10833,4 +10833,3 @@ fn microblock_miner_multiple_attempts() {
 
     channel.stop_chains_coordinator();
 }
-

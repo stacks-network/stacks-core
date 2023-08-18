@@ -24,29 +24,22 @@ use crate::{
     config::EventObserverConfig,
     config::InitialBalance,
     neon,
-    BitcoinRegtestController,
     tests::{
-        to_addr,
         make_contract_publish,
         neon_integrations::{
-            neon_integration_test_conf,
-            test_observer,
+            neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer,
             wait_for_runloop,
-            next_block_and_wait,
-            submit_tx
-        }
+        },
+        to_addr,
     },
+    BitcoinRegtestController,
 };
 
-use stacks::{
-    chainstate::stacks::{
-        StacksPrivateKey,
-    },
-};
+use stacks::chainstate::stacks::StacksPrivateKey;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 
-use stacks::libstackerdb::{StackerDBChunkData, StackerDBChunkAckData};
+use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 
 use stacks_common::types::chainstate::StacksAddress;
 

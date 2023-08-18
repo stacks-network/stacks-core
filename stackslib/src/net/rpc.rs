@@ -2507,7 +2507,7 @@ impl ConversationHttp {
         };
 
         let response = match chunk_res {
-            Ok(Some(chunk)) => HttpResponseType::StackerDBChunk(response_metadata, chunk_data),
+            Ok(Some(chunk)) => HttpResponseType::StackerDBChunk(response_metadata, chunk),
             Ok(None) | Err(net_error::NoSuchStackerDB(..)) => {
                 // not found
                 HttpResponseType::NotFound(response_metadata, "No such StackerDB chunk".into())

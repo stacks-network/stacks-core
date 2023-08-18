@@ -469,7 +469,9 @@ impl StackerDBConfig {
                         .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface
-                    if let Err(invalid_reason) = Self::is_contract_valid(&cur_epoch.epoch_id, analysis) {
+                    if let Err(invalid_reason) =
+                        Self::is_contract_valid(&cur_epoch.epoch_id, analysis)
+                    {
                         let reason = format!(
                             "Contract {} does not conform to StackerDB trait: {}",
                             contract_id, invalid_reason

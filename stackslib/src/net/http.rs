@@ -3616,18 +3616,19 @@ impl HttpResponseType {
             }
         })
     }
-    
+
     fn parse_raw_bytes<R: Read>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
         len_hint: Option<usize>,
         max_len: u64,
-        expected_content_type: HttpContentType
+        expected_content_type: HttpContentType,
     ) -> Result<Vec<u8>, net_error> {
         if preamble.content_type != expected_content_type {
-            return Err(net_error::DeserializeError(
-                format!("Invalid content-type: expected {}", expected_content_type)
-            ));
+            return Err(net_error::DeserializeError(format!(
+                "Invalid content-type: expected {}",
+                expected_content_type
+            )));
         }
         let buf = if preamble.is_chunked() && len_hint.is_none() {
             let mut chunked_fd = HttpChunkedTransferReader::from_reader(fd, max_len);
@@ -3666,7 +3667,7 @@ impl HttpResponseType {
     ) -> Result<Vec<u8>, net_error> {
         Self::parse_raw_bytes(preamble, fd, len_hint, max_len, HttpContentType::Text)
     }
-    
+
     fn parse_bytes<R: Read>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
@@ -4353,12 +4354,8 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        let chunk = HttpResponseType::parse_bytes(
-            preamble,
-            fd,
-            len_hint,
-            STACKERDB_MAX_CHUNK_SIZE as u64,
-        )?;
+        let chunk =
+            HttpResponseType::parse_bytes(preamble, fd, len_hint, STACKERDB_MAX_CHUNK_SIZE as u64)?;
         Ok(HttpResponseType::StackerDBChunk(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             chunk,
