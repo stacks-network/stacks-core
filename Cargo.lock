@@ -2693,6 +2693,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-signer"
+version = "0.0.1"
+dependencies = [
+ "clarity",
+ "libstackerdb",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.10.6",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "stacks-common",
+ "toml",
+]
+
+[[package]]
 name = "stackslib"
 version = "0.0.1"
 dependencies = [
