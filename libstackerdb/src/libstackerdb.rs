@@ -249,7 +249,7 @@ fn stackerdb_chunk_hex_deserialize<'de, D: serde::Deserializer<'de>>(
 /// Calculate the GET path for a stacker DB metadata listing
 pub fn stackerdb_get_metadata_path(contract_id: QualifiedContractIdentifier) -> String {
     format!(
-        "/v2/{}/{}",
+        "/v2/stackerdb/{}/{}",
         &StacksAddress::from(contract_id.issuer),
         &contract_id.name
     )
@@ -263,7 +263,7 @@ pub fn stackerdb_get_chunk_path(
 ) -> String {
     if let Some(version) = slot_version {
         format!(
-            "/v2/{}/{}/{}/{}",
+            "/v2/stackerdb/{}/{}/{}/{}",
             &StacksAddress::from(contract_id.issuer),
             &contract_id.name,
             slot_id,
@@ -271,7 +271,7 @@ pub fn stackerdb_get_chunk_path(
         )
     } else {
         format!(
-            "/v2/{}/{}/{}",
+            "/v2/stackerdb/{}/{}/{}",
             &StacksAddress::from(contract_id.issuer),
             &contract_id.name,
             slot_id
@@ -282,7 +282,7 @@ pub fn stackerdb_get_chunk_path(
 /// Calculate POST path for a stacker DB chunk
 pub fn stackerdb_post_chunk_path(contract_id: QualifiedContractIdentifier) -> String {
     format!(
-        "/v2/{}/{}/chunks",
+        "/v2/stackerdb/{}/{}/chunks",
         &StacksAddress::from(contract_id.issuer),
         &contract_id.name
     )
