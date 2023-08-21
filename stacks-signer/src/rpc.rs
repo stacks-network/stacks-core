@@ -275,7 +275,6 @@ impl StackerDBSession {
                 return Ok(vec![]);
             }
 
-            // let chunked = Self::is_http_chunked(&buf[0..body_offset])?;
             let chunked = if let Some(val) = headers.get("transfer-encoding") {
                 val == "chunked"
             }

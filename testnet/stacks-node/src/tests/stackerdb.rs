@@ -42,6 +42,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::sleep_ms;
 
 use serde_json;
 
@@ -250,5 +251,9 @@ fn test_stackerdb_load_store() {
 
         let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, None);
         assert_eq!(data, chunk_str.as_bytes().to_vec());
+    }
+
+    loop {
+        sleep_ms(10000);
     }
 }
