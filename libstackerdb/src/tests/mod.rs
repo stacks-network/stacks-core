@@ -92,21 +92,21 @@ fn test_stackerdb_paths() {
 
     assert_eq!(
         stackerdb_get_metadata_path(contract_id.clone()),
-        "/v2/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world".to_string()
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world".to_string()
     );
 
     assert_eq!(
         stackerdb_get_chunk_path(contract_id.clone(), 1, Some(2)),
-        "/v2/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1/2".to_string()
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1/2".to_string()
     );
 
     assert_eq!(
         stackerdb_get_chunk_path(contract_id.clone(), 1, None),
-        "/v2/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1".to_string()
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1".to_string()
     );
 
     assert_eq!(
         stackerdb_post_chunk_path(contract_id.clone()),
-        "/v2/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/chunks".to_string()
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/chunks".to_string()
     );
 }
