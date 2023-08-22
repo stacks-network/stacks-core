@@ -2769,9 +2769,8 @@ impl HttpRequestType {
         };
 
         let bound_fd = BoundReader::from_reader(fd, u64::from(preamble.get_content_length()));
-        let block_proposal = serde_json::from_reader(bound_fd).map_err(|e| {
-            net_error::DeserializeError(format!("Failed to parse JSON body: {e}"))
-        })?;
+        let block_proposal = serde_json::from_reader(bound_fd)
+            .map_err(|e| net_error::DeserializeError(format!("Failed to parse JSON body: {e}")))?;
 
         Ok(HttpRequestType::BlockProposal(
             HttpRequestMetadata::from_preamble(preamble),

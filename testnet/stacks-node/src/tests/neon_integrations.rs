@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
@@ -11,15 +12,23 @@ use std::{
 };
 use std::{env, thread};
 
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::MAX_CALL_STACK_DEPTH;
+use rand::Rng;
 use rusqlite::types::ToSql;
-
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::miner::{
+    signal_mining_blocked, signal_mining_ready, BlockProposal, TransactionErrorEvent,
+    TransactionEvent, TransactionSuccessEvent,
+};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -29,6 +38,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use stacks::net::RPCFeeEstimateResponse;
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
@@ -44,40 +54,24 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::vm::types::PrincipalData;
+use stacks::vm::ClarityName;
 use stacks::vm::ClarityVersion;
+use stacks::vm::ContractName;
 use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
-    chainstate::{burn::ConsensusHash, stacks::StacksMicroblock},
-};
-use stacks::{
     burnchains::{Address, Burnchain, PoxConstants},
-    vm::costs::ExecutionCost,
-};
-use stacks::{
+    chainstate::burn::ConsensusHash,
     chainstate::stacks::{
-        db::StacksChainState, StacksBlock, StacksBlockHeader, StacksMicroblockHeader,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionContractCall,
-        TransactionPayload,
+        db::StacksChainState, miner::MinerEpochInfo, StacksBlock, StacksBlockBuilder,
+        StacksBlockHeader, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
+        StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
     },
     net::RPCPoxInfoData,
-    util_lib::db::query_row_columns,
-    util_lib::db::query_rows,
-    util_lib::db::u64_to_sql,
+    util_lib::db::{query_row_columns, query_rows, u64_to_sql},
+    vm::costs::ExecutionCost,
+    vm::database::BurnStateDB,
 };
-
-use crate::{
-    burnchains::bitcoin_regtest_controller::BitcoinRPCRequest,
-    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
-};
-
-use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
-
-use rand::Rng;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
@@ -85,23 +79,18 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-
 use crate::config::FeeEstimatorName;
-use crate::tests::SK_3;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::MAX_CALL_STACK_DEPTH;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::miner::{
-    BlockProposal, signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
-    TransactionSuccessEvent,
-};
-use stacks::net::RPCFeeEstimateResponse;
-use stacks::vm::ClarityName;
-use stacks::vm::ContractName;
-use std::convert::TryFrom;
-
 use crate::stacks_common::types::PrivateKey;
+use crate::tests::SK_3;
+use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use crate::util::secp256k1::MessageSignature;
+use crate::{
+    burnchains::bitcoin_regtest_controller::BitcoinRPCRequest,
+    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
+    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
+    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
+    ConfigFile, Keychain,
+};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -671,7 +660,7 @@ pub fn submit_microblock(http_origin: &str, mblock: &Vec<u8>) -> BlockHeaderHash
 
 pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBlock> {
     let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v2/blocks/{}", http_origin, block_id);
+    let path = format!("{http_origin}/v2/blocks/{block_id}");
     let res = client.get(&path).send().unwrap();
 
     if res.status().is_success() {
@@ -683,36 +672,21 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     }
 }
 
-pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
-
-    tip_info
+    let path = format!("{http_origin}/v2/info");
+    client.get(&path).send().unwrap().json::<RPCPeerInfoData>()
 }
 
 pub fn get_chain_info_opt(conf: &Config) -> Option<RPCPeerInfoData> {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let client = reqwest::blocking::Client::new();
+    get_chain_info_result(conf).ok()
+}
 
-    // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info_opt = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .ok();
-
-    tip_info_opt
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+    get_chain_info_result(conf).unwrap()
 }
 
 fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
@@ -728,7 +702,7 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     // get the associated anchored block
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
+    let path = format!("{http_origin}/v2/blocks/{stacks_id_tip}");
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
@@ -4466,7 +4440,7 @@ fn block_replay_integration_test() {
 
     // let's query the miner's account nonce:
 
-    info!("Miner account: {}", miner_account);
+    info!("Miner account: {miner_account}");
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
@@ -4492,7 +4466,7 @@ fn block_replay_integration_test() {
     tip_block.consensus_serialize(&mut tip_block_bytes).unwrap();
 
     for i in 0..1024 {
-        let path = format!("{}/v2/blocks/upload/{}", &http_origin, &tip_consensus_hash);
+        let path = format!("{http_origin}/v2/blocks/upload/{tip_consensus_hash}");
         let res_text = client
             .post(&path)
             .header("Content-Type", "application/octet-stream")
@@ -4502,7 +4476,7 @@ fn block_replay_integration_test() {
             .text()
             .unwrap();
 
-        eprintln!("{}: text of {}\n{}", i, &path, &res_text);
+        eprintln!("{i}: text of {path}\n{res_text}");
     }
 
     test_observer::clear();
@@ -10472,8 +10446,8 @@ fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64) -> Vec<Vec<u8>>
 
         let mut addr_prefix = addr.to_string();
         let _ = addr_prefix.split_off(12);
-        let contract_name = format!("crct-{}-{}-{}", nonce, &addr_prefix, random_iters);
-        eprintln!("Make tx {}", &contract_name);
+        let contract_name = format!("crct-{nonce}-{addr_prefix}-{random_iters}");
+        eprintln!("Make tx {contract_name}");
         let tx = make_contract_publish_microblock_only(
             privk,
             nonce,
@@ -10616,7 +10590,7 @@ fn test_competing_miners_build_on_same_chain(
 
     // give the run loops some time to start up!
     for i in 0..num_miners {
-        wait_for_runloop(&blocks_processed[i as usize]);
+        wait_for_runloop(&blocks_processed[i]);
     }
 
     // activate miners
@@ -10624,7 +10598,7 @@ fn test_competing_miners_build_on_same_chain(
     loop {
         let tip_info_opt = get_chain_info_opt(&confs[0]);
         if let Some(tip_info) = tip_info_opt {
-            eprintln!("\n\nMiner 1: {:?}\n\n", &tip_info);
+            eprintln!("\n\nMiner 1: {tip_info:?}\n\n");
             if tip_info.stacks_tip_height > 0 {
                 break;
             }
@@ -10635,22 +10609,18 @@ fn test_competing_miners_build_on_same_chain(
     }
 
     for i in 1..num_miners {
-        eprintln!("\n\nBoot miner {}\n\n", i);
+        eprintln!("\n\nBoot miner {i}\n\n");
         loop {
             let tip_info_opt = get_chain_info_opt(&confs[i]);
             if let Some(tip_info) = tip_info_opt {
-                eprintln!("\n\nMiner 2: {:?}\n\n", &tip_info);
+                eprintln!("\n\nMiner 2: {tip_info:?}\n\n");
                 if tip_info.stacks_tip_height > 0 {
                     break;
                 }
             } else {
-                eprintln!("\n\nWaiting for miner {}...\n\n", i);
+                eprintln!("\n\nWaiting for miner {i}...\n\n");
             }
-            next_block_and_iterate(
-                &mut btc_regtest_controller,
-                &blocks_processed[i as usize],
-                5_000,
-            );
+            next_block_and_iterate(&mut btc_regtest_controller, &blocks_processed[i], 5_000);
         }
     }
 
@@ -10670,7 +10640,7 @@ fn test_competing_miners_build_on_same_chain(
     let mut cnt = 0;
     for tx_chain in all_txs {
         for tx in tx_chain {
-            eprintln!("\n\nSubmit tx {}\n\n", &cnt);
+            eprintln!("\n\nSubmit tx {cnt}\n\n");
             submit_tx(&http_origin, &tx);
             cnt += 1;
         }
@@ -10680,12 +10650,12 @@ fn test_competing_miners_build_on_same_chain(
 
     // mine quickly -- see if we can induce flash blocks
     for i in 0..1000 {
-        eprintln!("\n\nBuild block {}\n\n", i);
+        eprintln!("\n\nBuild block {i}\n\n");
         btc_regtest_controller.build_next_block(1);
         sleep_ms(block_time_ms);
     }
 }
-            
+
 #[test]
 #[ignore]
 fn test_block_proposal() {
@@ -10732,6 +10702,15 @@ fn test_block_proposal() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // And a couple more blocks...
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // TODO (hack) instantiate the sortdb in the burnchain
+    let _ = btc_regtest_controller.sortdb_mut();
+
+    // ----- Setup boilerplate finished, test block proposal API endpoint -----
+
     // Build URL
     let client = reqwest::blocking::Client::new();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -10739,16 +10718,18 @@ fn test_block_proposal() {
 
     // Construct empty/invalid block proposal
     let proposal = BlockProposal {
-        parent_block_hash: BlockHeaderHash::from_bytes(&[0; 32]).unwrap(),
-        parent_consensus_hash: ConsensusHash::from_bytes(&[0; 20]).unwrap(),
+        parent_block_hash: BlockHeaderHash::from_bytes(&[0xAA; 32]).unwrap(),
+        parent_consensus_hash: ConsensusHash::from_bytes(&[0xAA; 20]).unwrap(),
         block: StacksBlock::genesis_block(),
         microblocks_confirmed: vec![],
-        burn_tip: BurnchainHeaderHash::from_bytes(&[0; 32]).unwrap(),
+        burn_tip: BurnchainHeaderHash::from_bytes(&[0xAA; 32]).unwrap(),
         burn_tip_height: 0,
         is_mainnet: false,
-        microblock_pubkey_hash: Hash160::from_data(&[0, 20]),
+        microblock_pubkey_hash: Hash160::from_data(&[0xAA, 20]),
         total_burn: 0,
     };
+
+    eprintln!("{proposal:?}");
 
     // Send POST request
     let res = client
@@ -10762,17 +10743,92 @@ fn test_block_proposal() {
     assert_eq!(res.status().as_u16(), 406);
 
     // Construct valid block proposal
-    let proposal = BlockProposal {
-        parent_block_hash: BlockHeaderHash::from_bytes(&[0; 32]).unwrap(),
-        parent_consensus_hash: ConsensusHash::from_bytes(&[0; 20]).unwrap(),
-        block: StacksBlock::genesis_block(),
-        microblocks_confirmed: vec![],
-        burn_tip: BurnchainHeaderHash::from_bytes(&[0; 32]).unwrap(),
-        burn_tip_height: 0,
-        is_mainnet: false,
-        microblock_pubkey_hash: Hash160::from_data(&[0, 20]),
-        total_burn: 0,
+    let tip_info = get_chain_info(&conf);
+    let stacks_tip_hash = tip_info.stacks_tip;
+    let (consensus_hash, stacks_tip_block) = get_tip_anchored_block(&conf);
+
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
+        chainstate.db(),
+        &consensus_hash,
+        &stacks_tip_hash,
+    )
+    .unwrap()
+    .unwrap();
+
+    let proof = parent_stacks_header.anchored_header.proof.clone();
+    let total_burn = 0; // TODO
+    let burn_tip = parent_stacks_header.burn_header_hash.clone();
+    let burn_tip_height = parent_stacks_header.burn_header_height;
+
+    // Put block builder in code block so any database locks expire at the end
+    let block = {
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            false, // chainstate.mainnet,
+            &parent_stacks_header,
+            proof,
+            total_burn,
+            stacks_tip_block.header.microblock_pubkey_hash.clone(), // ???
+        )
+        .unwrap();
+
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_conn();
+        let ast_rules = burn_dbconn.get_ast_rules(burn_tip_height);
+
+        // Setup the MinerEpochInfo that would normally be done by pre_epoch_begin
+        // but we must do so manually because we use the provided parameters in the proposal
+        let mut miner_epoch_info = MinerEpochInfo {
+            chainstate_tx,
+            clarity_instance,
+            burn_tip: burn_tip.clone(),
+            burn_tip_height,
+            parent_microblocks: vec![], // ???
+            mainnet: false,
+            ast_rules,
+        };
+
+        let (mut epoch_tx, _) = builder
+            .epoch_begin(&burn_dbconn, &mut miner_epoch_info)
+            .unwrap();
+
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let _consumed = builder.epoch_finish(epoch_tx);
+        block
     };
+    let microblock_pubkey_hash = block.header.microblock_pubkey_hash.clone(); // ???
+
+    let proposal = BlockProposal {
+        parent_block_hash: stacks_tip_hash,
+        parent_consensus_hash: parent_stacks_header.consensus_hash,
+        block,
+        microblocks_confirmed: vec![],
+        burn_tip,
+        burn_tip_height,
+        is_mainnet: false,
+        microblock_pubkey_hash,
+        total_burn,
+    };
+
+    eprintln!("{proposal:?}");
+
+    // Send POST request
+    let res = client
+        .post(&path)
+        .header("Content-Type", "application/json")
+        .json(&proposal)
+        .send()
+        .expect("Failed to POST");
+
+    // Response should be HTTP OK
+    assert_eq!(res.status().as_u16(), 200);
 }
 
 // TODO: this needs to run as a smoke test, since they take too long to run in CI
