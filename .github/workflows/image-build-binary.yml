@@ -1,3 +1,7 @@
+## Github workflow to build a docker image from binary artifacts
+##  - Runs during a tagged release action
+##   - Builds multi-arch images from release binaries for Debian/Alpine base images
+
 name: Docker Image (Binary)
 
 on:

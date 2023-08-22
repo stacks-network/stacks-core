@@ -1,4 +1,7 @@
 ## Github workflow to run epoch tests
+##   - This workflow only runs manually (via standalone-tests.yml) or during the release process
+##   - The tests in this workflow follow the pattern of  `tests::epoch_[0-9]*`
+##     - exception of `tests::epoch_21::test_pox_reorg_flap*` which are longer running tests (run in slow-tests.yml)
 
 name: Tests::Epoch
 

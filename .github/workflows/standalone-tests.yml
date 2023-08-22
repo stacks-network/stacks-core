@@ -1,4 +1,5 @@
 ## Github workflow to run specified tests on demand
+##   - This workflow is meant to run a set of tests on demand - individual, or to simulate a tagged release tests)
 
 name: Standalone Tests
 

@@ -1,4 +1,7 @@
 ## Github workflow to run slow tests
+##   - This workflow only runs manually (via standalone-tests.yml) or during the release process
+##   - The tests in this workflow follow the pattern of  `tests::epoch_21::test_pox_reorg_flap*`
+##     - These tests are expected to be longer running tests ( > 20 minutes)
 
 name: Tests::Slow
 

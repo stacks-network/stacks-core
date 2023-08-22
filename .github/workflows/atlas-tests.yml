@@ -1,4 +1,6 @@
 ## Github workflow to run atlas tests
+##   - This workflow only runs manually (via standalone-tests.yml) or during the release process
+##   - The tests in this workflow follow the pattern of  `tests::neon_integrations::atlas*`
 
 name: Tests::Atlas
 

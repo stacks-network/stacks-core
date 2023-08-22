@@ -1,4 +1,5 @@
 ## Github workflow to create multi-arch binaries from source
+##   - Runs when an input tag is provided as part of the release process
 
 name: Create Binaries
 

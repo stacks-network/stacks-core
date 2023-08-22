@@ -1,3 +1,6 @@
+## Github workflow to build a docker image from source
+##   - Builds a debian image from source and pushes to dockerhub
+
 name: Docker Image (Source)
 
 on:

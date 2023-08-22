@@ -1,3 +1,6 @@
+## Github workflow to create a github release
+##   - Runs when an input tag is provided as part of the release process
+
 name: Github Release
 
 on:

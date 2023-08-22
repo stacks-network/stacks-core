@@ -1,4 +1,6 @@
 ## Github workflow to create reusable caches
+##   - This is used by all test workflows
+##   - If a cache does not exist, it will be created
 
 name: Create Test Cache
 

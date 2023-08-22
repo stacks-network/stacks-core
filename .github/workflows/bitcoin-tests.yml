@@ -1,4 +1,5 @@
 ## Github workflow to run bitcoin tests
+##   - This workflow runs on any PR approval, PR synchronize, or release via ci.yml
 
 name: Tests::Bitcoin
 

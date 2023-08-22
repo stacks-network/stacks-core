@@ -1,3 +1,8 @@
+## Main workflow for the stacks-blockchain repository
+## The primary purpose of this workflow is to:
+##   - confirm rustfmt
+##   - conditionally run other reusable workflows based on how this workflow was triggered
+
 name: CI
 
 on:
