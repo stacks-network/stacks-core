@@ -716,9 +716,12 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
-    let db = Connection::open_with_flags(path, flags)?;
+    #[cfg(feature = "profile-sqlite")]
+    let mut db = Connection::open_with_flags(path, flags)?;
     #[cfg(feature = "profile-sqlite")]
     db.profile(Some(trace_profile));
+    #[cfg(not(feature = "profile-sqlite"))]
+    let db = Connection::open_with_flags(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
