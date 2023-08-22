@@ -105,6 +105,7 @@ lazy_static! {
     static ref PATH_GETNEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
     static ref PATH_GETHEADERS: Regex = Regex::new(r#"^/v2/headers/([0-9]+)$"#).unwrap();
     static ref PATH_GETBLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETBLOCK_RECEIPT: Regex = Regex::new(r#"^/v2/block_receipts/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_INDEXED: Regex =
         Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_CONFIRMED: Regex =
@@ -1513,6 +1514,11 @@ impl HttpRequestType {
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             (
                 "GET",
+                &PATH_GETBLOCK_RECEIPT,
+                &HttpRequestType::parse_getblock_receipt,
+            ),
+            (
+                "GET",
                 &PATH_GETMICROBLOCKS_INDEXED,
                 &HttpRequestType::parse_getmicroblocks_indexed,
             ),
@@ -2163,6 +2169,35 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_getblock_receipt<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetBlockReceipt".to_string(),
+            ));
+        }
+
+        let block_hash_str = captures
+            .get(1)
+            .ok_or(net_error::DeserializeError(
+                "Failed to match path to block hash group".to_string(),
+            ))?
+            .as_str();
+
+        let block_hash = StacksBlockId::from_hex(block_hash_str)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block hash".to_string()))?;
+
+        Ok(HttpRequestType::GetBlockReceipt(
+            HttpRequestMetadata::from_preamble(preamble),
+            block_hash,
+        ))
+    }
+
     fn parse_getmicroblocks_indexed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2730,6 +2765,7 @@ impl HttpRequestType {
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetHeaders(ref md, ..) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
+            HttpRequestType::GetBlockReceipt(ref md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
@@ -2762,6 +2798,7 @@ impl HttpRequestType {
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetHeaders(ref mut md, ..) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
+            HttpRequestType::GetBlockReceipt(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
@@ -2820,6 +2857,9 @@ impl HttpRequestType {
             ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
+            }
+            HttpRequestType::GetBlockReceipt(_md, block_hash) => {
+                format!("/v2/block_receipts/{}", block_hash.to_hex())
             }
             HttpRequestType::GetMicroblocksIndexed(_md, block_hash) => {
                 format!("/v2/microblocks/{}", block_hash.to_hex())
@@ -2980,6 +3020,7 @@ impl HttpRequestType {
             HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
             HttpRequestType::GetHeaders(..) => "/v2/headers/:height",
             HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
+            HttpRequestType::GetBlockReceipt(..) => "/v2/block_receipts/:hash",
             HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
             HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
             HttpRequestType::GetMicroblocksUnconfirmed(..) => {
@@ -4084,6 +4125,7 @@ impl HttpResponseType {
             HttpResponseType::Headers(ref md, _) => md,
             HttpResponseType::Block(ref md, _) => md,
             HttpResponseType::BlockStream(ref md) => md,
+            HttpResponseType::BlockReceiptStream(ref md) => md,
             HttpResponseType::Microblocks(ref md, _) => md,
             HttpResponseType::MicroblockStream(ref md) => md,
             HttpResponseType::TransactionID(ref md, _) => md,
@@ -4280,6 +4322,19 @@ impl HttpResponseType {
             HttpResponseType::BlockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the block data itself.
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+            }
+            HttpResponseType::BlockReceiptStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the block receipt data itself.
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4501,6 +4556,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetHeaders(..) => "HTTP(GetHeaders)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
+                HttpRequestType::GetBlockReceipt(_, _) => "HTTP(GetBlockReceipt)",
                 HttpRequestType::GetMicroblocksIndexed(_, _) => "HTTP(GetMicroblocksIndexed)",
                 HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => {
@@ -4547,6 +4603,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::HeaderStream(..) => "HTTP(HeaderStream)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",
                 HttpResponseType::BlockStream(_) => "HTTP(BlockStream)",
+                HttpResponseType::BlockReceiptStream(_) => "HTTP(BlockReceiptStream)",
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",

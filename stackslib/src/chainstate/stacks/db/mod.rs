@@ -97,6 +97,8 @@ use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_co
 use clarity::vm::Value;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 
+mod block_receipts;
+
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -128,6 +130,7 @@ pub struct StacksChainState {
     pub clarity_state: ClarityInstance,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
+    pub block_receipts_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
@@ -534,9 +537,20 @@ pub trait Streamer {
 #[derive(Debug, PartialEq, Clone)]
 pub enum StreamCursor {
     Block(BlockStreamData),
+    BlockReceipt(BlockReceiptStreamData),
     Microblocks(MicroblockStreamData),
     Headers(HeaderStreamData),
     MempoolTxs(TxStreamData),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BlockReceiptStreamData {
+    /// index block hash of the block to download
+    index_block_hash: StacksBlockId,
+    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    offset: u64,
+    /// total number of bytes read.
+    total_bytes: u64,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -1646,6 +1660,11 @@ impl StacksChainState {
         path
     }
 
+    pub fn block_receipts_path(mut path: PathBuf) -> PathBuf {
+        path.push("block_receipts");
+        path
+    }
+
     pub fn vm_state_path(mut path: PathBuf) -> PathBuf {
         path.push("vm");
         path
@@ -1676,6 +1695,9 @@ impl StacksChainState {
         let blocks_path = StacksChainState::blocks_path(path.clone());
         StacksChainState::mkdirs(&blocks_path)?;
 
+        let block_receipts_path = StacksChainState::block_receipts_path(path.clone());
+        StacksChainState::mkdirs(&block_receipts_path)?;
+
         let vm_state_path = StacksChainState::vm_state_path(path.clone());
         StacksChainState::mkdirs(&vm_state_path)?;
         Ok(())
@@ -1692,6 +1714,11 @@ impl StacksChainState {
         let path = PathBuf::from(path_str);
         let blocks_path = StacksChainState::blocks_path(path.clone());
         let blocks_path_root = blocks_path
+            .to_str()
+            .ok_or_else(|| Error::DBError(db_error::ParseError))?
+            .to_string();
+        let block_receipts_path = StacksChainState::block_receipts_path(path.clone());
+        let block_receipts_path_root = block_receipts_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
@@ -1741,6 +1768,7 @@ impl StacksChainState {
             clarity_state: clarity_state,
             state_index: state_index,
             blocks_path: blocks_path_root,
+            block_receipts_path: block_receipts_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),

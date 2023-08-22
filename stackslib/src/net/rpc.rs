@@ -1044,6 +1044,54 @@ impl ConversationHttp {
         }
     }
 
+    /// Handle a GET block receipt.  Start streaming the reply.
+    /// The response's preamble (but not the block receipt data) will be synchronously written to the fd
+    /// (so use a fd that can buffer!)
+    /// Return a StreamCursor struct for the block receipt that we're sending, so we can continue to
+    /// make progress sending it.
+    fn handle_getblock_receipt<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        index_block_hash: &StacksBlockId,
+        chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<Option<StreamCursor>, net_error> {
+        monitoring::increment_stx_blocks_served_counter();
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        // do we have this block?
+        match StacksChainState::has_block_indexed(&chainstate.block_receipts_path, index_block_hash)
+        {
+            Ok(false) => {
+                return ConversationHttp::handle_notfound(
+                    http,
+                    fd,
+                    response_metadata,
+                    format!("No such block receipt {}", index_block_hash.to_hex()),
+                );
+            }
+            Err(e) => {
+                // nope -- error trying to check
+                warn!("Failed to serve block receipt {:?}: {:?}", req, &e);
+                let response = HttpResponseType::ServerError(
+                    response_metadata,
+                    format!(
+                        "Failed to query block receipt {}",
+                        index_block_hash.to_hex()
+                    ),
+                );
+                response.send(http, fd).and_then(|_| Ok(None))
+            }
+            Ok(true) => {
+                // yup! start streaming it back
+                let stream = StreamCursor::new_block_receipt(index_block_hash.clone());
+                let response = HttpResponseType::BlockReceiptStream(response_metadata);
+                response.send(http, fd).and_then(|_| Ok(Some(stream)))
+            }
+        }
+    }
+
     /// Handle a GET confirmed microblock stream, by _anchor block hash_.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
@@ -2539,6 +2587,16 @@ impl ConversationHttp {
             }
             HttpRequestType::GetBlock(ref _md, ref index_block_hash) => {
                 ConversationHttp::handle_getblock(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    index_block_hash,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?
+            }
+            HttpRequestType::GetBlockReceipt(ref _md, ref index_block_hash) => {
+                ConversationHttp::handle_getblock_receipt(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
