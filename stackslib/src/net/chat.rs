@@ -715,7 +715,7 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
     ) -> bool {
         let bhh = match chain_view.last_burn_block_hashes.get(&block_height) {
-            Some(ref bhh) => bhh.clone(),
+            Some(bhh) => bhh,
             None => {
                 // not present; can't prove disagreement (assume the remote peer is just stale)
                 return false;
