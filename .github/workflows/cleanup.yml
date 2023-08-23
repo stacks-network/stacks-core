@@ -15,6 +15,8 @@ concurrency:
 
 ## set some basic values for timing
 env:
+  EPOCH_60: 5184000 # seconds in 60 days
+  EPOCH_45: 3888000 # seconds in 45 days
   EPOCH_30: 2592000 # seconds in 30 days
   EPOCH_14: 1209600 # seconds in 14 days
   EPOCH_10: 864000 # seconds in 14 days
@@ -31,8 +33,9 @@ defaults:
     shell: bash
 
 jobs:
+
   ## Use the gh cli and API to delete any action that has been completed (and was successful) for x days
-  ##   - currently set for: 2 days (EPOCH_2)
+  ##   - currently set for: 30 days (EPOCH_30)
   delete-old-actions:
     name: Delete Completed Actions
     runs-on: ubuntu-latest
@@ -42,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ## Set a timestamp in iso-8601 format for x days in the past, defined by a variable
-          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_2 }})))
+          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_30 }})))
           echo "Deleting all actions older than: ${TS}"
           ## Retrieve a list of all actions
           gh api \
@@ -74,7 +77,7 @@ jobs:
           echo "Done"
 
   ## Use the gh cli and API to delete any action that has been completed (and was unsuccessful) for x days
-  ##   - currently set for: 1 days (EPOCH_1)
+  ##   - currently set for: 7 days (EPOCH_7)
   delete-failed-actions:
     name: Delete Failed Workflows
     runs-on: ubuntu-latest
@@ -84,7 +87,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ## Set a timestamp in iso-8601 format for x days in the past, defined by a variable
-          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_1 }})))
+          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_7 }})))
           echo "Deleting all failed/skipped actions older than: ${TS}"
           ## Retrieve a list of all actions
           gh api \
@@ -116,10 +119,9 @@ jobs:
           echo "Done"
 
   ## Use the gh cli and API to delete caches that have existed for at least x days
-  ##   - currently set for: 1 days (EPOCH_1)
+  ##   - currently set for: 7 days (EPOCH_7)
   ##   - ignore caches with a key of `stacks-blockchain-bitcoin-binaries`
   delete-old-caches:
-    # if: ${{ false }}
     name: Delete Caches
     runs-on: ubuntu-latest
     steps:
@@ -128,7 +130,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ## Set a timestamp in iso-8601 format for x days in the past, defined by a variable
-          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_1 }})))
+          TS=$(date --iso-8601=ns -u -d @$((EPOCHSECONDS-${{ env.EPOCH_7 }})))
           echo "Deleting all caches older than: ${TS}"
           ## Install the gh actions-cache extension
           gh extension install actions/gh-actions-cache
