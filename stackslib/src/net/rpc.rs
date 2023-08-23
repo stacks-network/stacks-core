@@ -71,6 +71,7 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
+use crate::net::StackerDBPushChunkData;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
@@ -2532,6 +2533,8 @@ impl ConversationHttp {
     }
 
     /// Handle a post for a new StackerDB chunk.
+    /// If we accept it, then forward it to the relayer as well
+    /// so an event can be generated for it.
     fn handle_post_stackerdb_chunk<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
@@ -2540,7 +2543,7 @@ impl ConversationHttp {
         stackerdb_contract_id: &QualifiedContractIdentifier,
         stackerdb_chunk: &StackerDBChunkData,
         canonical_stacks_tip_height: u64,
-    ) -> Result<(), net_error> {
+    ) -> Result<Option<StacksMessageType>, net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
@@ -2548,7 +2551,7 @@ impl ConversationHttp {
             // shouldn't be necessary (this is checked against the peer network's configured DBs),
             // but you never know.
             let resp = HttpResponseType::NotFound(response_metadata, "No such StackerDB".into());
-            return resp.send(http, fd).and_then(|_| Ok(()));
+            return resp.send(http, fd).and_then(|_| Ok(None));
         }
         if let Err(_e) = tx.try_replace_chunk(
             stackerdb_contract_id,
@@ -2568,7 +2571,7 @@ impl ConversationHttp {
                             response_metadata,
                             format!("Failed to load StackerDB chunk"),
                         );
-                        return resp.send(http, fd).and_then(|_| Ok(()));
+                        return resp.send(http, fd).and_then(|_| Ok(None));
                     }
                 };
 
@@ -2596,7 +2599,7 @@ impl ConversationHttp {
                 metadata: slot_metadata_opt,
             };
             let resp = HttpResponseType::StackerDBChunkAck(response_metadata, ack);
-            return resp.send(http, fd).and_then(|_| Ok(()));
+            return resp.send(http, fd).and_then(|_| Ok(None));
         }
 
         let slot_metadata = if let Some(md) =
@@ -2609,7 +2612,7 @@ impl ConversationHttp {
                 response_metadata,
                 format!("Failed to load slot metadata after storing chunk"),
             );
-            return resp.send(http, fd).and_then(|_| Ok(()));
+            return resp.send(http, fd).and_then(|_| Ok(None));
         };
 
         // success!
@@ -2620,7 +2623,15 @@ impl ConversationHttp {
         };
 
         let resp = HttpResponseType::StackerDBChunkAck(response_metadata, ack);
-        return resp.send(http, fd).and_then(|_| Ok(()));
+        return resp.send(http, fd).and_then(|_| {
+            Ok(Some(StacksMessageType::StackerDBPushChunk(
+                StackerDBPushChunkData {
+                    contract_id: stackerdb_contract_id.clone(),
+                    rc_consensus_hash: ConsensusHash([0u8; 20]), // unused,
+                    chunk_data: stackerdb_chunk.clone(),
+                },
+            )))
+        });
     }
 
     /// Handle an external HTTP request.
@@ -3231,7 +3242,7 @@ impl ConversationHttp {
             ) => {
                 let tip_height = network.burnchain_tip.canonical_stacks_tip_height;
                 if let Ok(mut tx) = network.stackerdbs_tx_begin(stackerdb_contract_id) {
-                    ConversationHttp::handle_post_stackerdb_chunk(
+                    ret = ConversationHttp::handle_post_stackerdb_chunk(
                         &mut self.connection.protocol,
                         &mut reply,
                         &req,
