@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Result, Write};
+use std::{
+    io::{Result, Write},
+    mem::size_of_val,
+};
 
 use clarity::vm::{costs::ExecutionCost, events::StacksTransactionEvent};
 use stacks_common::codec::StacksMessageCodec;
@@ -25,6 +28,18 @@ use crate::chainstate::stacks::{
 };
 
 use super::{accounts::MinerReward, MinerRewardInfo, StacksEpochReceipt, StacksHeaderInfo};
+
+fn serialize_usize(w: &mut dyn Write, value: usize) -> Result<()> {
+    let size = size_of_val(&value);
+    if size > 4 && (size >> 32) != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "usize value exceeds 32bits",
+        ));
+    }
+    w.write(&(value as u32).to_be_bytes())?;
+    Ok(())
+}
 
 fn serialize_option<T, F>(w: &mut dyn Write, item: &Option<T>, mut item_serialize: F) -> Result<()>
 where
@@ -46,7 +61,7 @@ fn serialize_vec<T, F>(w: &mut dyn Write, list: &Vec<T>, mut item_serialize: F) 
 where
     F: FnMut(&mut dyn Write, &T) -> Result<()>,
 {
-    w.write(&list.len().to_be_bytes())?;
+    serialize_usize(w, list.len())?;
     for item in list.iter() {
         item_serialize(w, item)?;
     }
@@ -55,7 +70,7 @@ where
 
 fn serialize_str(w: &mut dyn Write, s: &str) -> Result<()> {
     let buf = s.as_bytes();
-    w.write(&buf.len().to_be_bytes())?;
+    serialize_usize(w, buf.len())?;
     w.write(buf)?;
     Ok(())
 }
@@ -86,7 +101,7 @@ where
 {
     let buf = value.serialize_to_vec();
     let buf = buf.as_slice();
-    w.write(&buf.len().to_be_bytes())?;
+    serialize_usize(w, buf.len())?;
     w.write(buf)?;
     Ok(())
 }
@@ -169,7 +184,7 @@ fn serialize_tx_receipt(w: &mut dyn Write, tx_receipt: &StacksTransactionReceipt
             serialize_as_json(w, burnchain_tx)?;
         }
     }
-    w.write(&tx_receipt.events.len().to_be_bytes())?;
+    serialize_usize(w, tx_receipt.events.len())?;
     for i in 0..tx_receipt.events.len() {
         let tx_event = &tx_receipt.events[i];
         let value = tx_event.json_serialize(i, &tx_receipt.transaction.txid(), true);
