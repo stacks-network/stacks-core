@@ -9,10 +9,20 @@
 
 name: Open Docs PR
 
+# Only run when:
+#   - push to master
+
+on:
+  push:
+    branches:
+      - master
+
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
+## Set environment variables to be used in each step
 env:
   ROBOT_OWNER: kantai-robot
   ROBOT_REPO: docs.blockstack
@@ -20,18 +30,8 @@ env:
   TARGET_REPO: docs
   TARGET_REPOSITORY: stacks-network/docs
 
-# Only run when:
-#   - push to master
-
-on:
-  workflow_dispatch:
-  # push:
-  #   branches:
-  #     - master
-
 jobs:
   dist:
-    if: ${{ false }}
     name: Open Docs PR
     runs-on: ubuntu-latest
     env:

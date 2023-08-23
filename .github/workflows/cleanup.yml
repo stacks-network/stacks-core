@@ -1,5 +1,7 @@
 ## Github workflow to clean up old caches and workflow runs
 ##   TODO: look into using  https://github.com/actions/github-script
+## Runs when:
+##   - Nightly via a scheduler
 
 name: Cleanup
 
@@ -9,11 +11,12 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
-concurrency:
-  group: cleanup-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+## Set some defaults for all jobs
+defaults:
+  run:
+    shell: bash
 
-## set some basic values for timing
+## Set environment variables to be used in each step
 env:
   EPOCH_60: 5184000 # seconds in 60 days
   EPOCH_45: 3888000 # seconds in 45 days
@@ -28,12 +31,12 @@ env:
   EPOCH_2: 172800 # seconds in 2 days
   EPOCH_1: 86400 # seconds in 1 day
 
-defaults:
-  run:
-    shell: bash
+## Concurrency: cancel an in progress workflow
+concurrency:
+  group: cleanup-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-
   ## Use the gh cli and API to delete any action that has been completed (and was successful) for x days
   ##   - currently set for: 30 days (EPOCH_30)
   delete-old-actions:
@@ -162,4 +165,3 @@ jobs:
             | echo;
           done
           echo "Done"
-

@@ -1,5 +1,8 @@
 ## Github workflow to build a docker image from source
-##   - Builds a debian image from source and pushes to dockerhub
+## Builds a Debian docker image from source and pushes to dockerhub
+## Runs when:
+##   - 'CI' workflow is triggered without an input tag
+##   - triggered manually
 
 name: Docker Image (Source)
 
@@ -7,16 +10,18 @@ on:
   workflow_dispatch:
   workflow_call:
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
-## Define which docker arch to build for
+## Set environment variables to be used in each step
 env:
+  ## Define which docker arch to build for
   docker_platforms: linux/amd64
 
 jobs:
-  ## Runs anytime `ci.yml` runs or when manually called
+  ## Build docker image from source
   image:
     name: Build Image
     runs-on: ubuntu-latest

@@ -1,40 +1,45 @@
 ## Github workflow to run slow tests
-##   - This workflow only runs manually (via standalone-tests.yml) or during the release process
-##   - The tests in this workflow follow the pattern of  `tests::epoch_21::test_pox_reorg_flap*`
-##     - These tests are expected to be longer running tests ( > 20 minutes)
+## The tests in this workflow follow the pattern of  `tests::epoch_21::test_pox_reorg_flap*`
+##   - These tests are expected to be longer running tests ( > 20 minutes)
+## Runs when:
+##   - 'CI' workflow is triggered for a PR approval
+##   - 'CI' workflow is triggered manually (with an input tag)
+##   - 'Standalone Tests' workflow is triggered manually
 
 name: Tests::Slow
 
 on:
   workflow_call:
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
+## Set environment variables to be used in each step
 env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
 
+## Concurrency: only cancel an in progress workflow if this is for a PR
 concurrency:
   group: slow-tests-${{ github.workflow }}-${{ github.ref }}
-  # Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # slow tests with code coverage
+  ## Slow tests with code coverage
   slow-tests:
     name: Slow Tests
     runs-on: ubuntu-latest
-    ## run a maximum of 2 concurrent tests from the test matrix
+    ## Run a maximum of 2 concurrent tests from the test matrix
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
         test-name:
           - tests::epoch_21::test_pox_reorg_flap_duel
-          - tests::epoch_21::test_pox_reorg_flap_reward_cycles ## really, really slow test
+          - tests::epoch_21::test_pox_reorg_flap_reward_cycles
     steps:
       ## Checkout the code
       - name: Checkout the latest code
@@ -61,7 +66,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          # key: ${{ github.event.repository.name }}-cargo
           key: ${{ github.event.repository.name }}-${{ github.sha }}-cargo
 
       ## Restore bitcoin cache data
@@ -80,7 +84,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: /tmp/test_archive.tar.zst
-          # key: ${{ github.event.repository.name }}-test-archive
           key: ${{ github.event.repository.name }}-${{ github.sha }}-test-archive
 
       ## Restore nextest target cache data
@@ -90,7 +93,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: ./target
-          # key: ${{ github.event.repository.name }}-target
           key: ${{ github.event.repository.name }}-${{ github.sha }}-target
 
       ## Symlink bitoind to $PATH
@@ -123,7 +125,7 @@ jobs:
           echo "created=true\n" >> $GITHUB_OUTPUT
 
       ## Upload coverage to codecov
-      ##   - use wretry action, to retry on a failed upload 3x
+      ##   - retry on a failed upload 3x using 'Wandalen/wretry.action'
       - name: Upload Code Coverage
         id: code_coverage
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0

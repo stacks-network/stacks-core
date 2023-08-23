@@ -1,5 +1,7 @@
 ## Github workflow to create a github release
-##   - Runs when an input tag is provided as part of the release process
+## Compressed binaries from 'Create Binaries' workflow are uploaded to the created release page
+## Runs when:
+##   - 'CI' workflow is triggered with an input tag as part of the release process on the default (master) branch
 
 name: Github Release
 
@@ -20,14 +22,15 @@ on:
       GH_TOKEN:
         required: true
 
+## Set the display name to the tag being built/released
 run-name: ${{ inputs.tag }}
 
 jobs:
   ## Build arch dependent binaries from source
   ##
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##   - tag is provided
+  ##   - workflow is building default branch (master)
   build-binaries:
     if: |
       inputs.tag != '' && 
@@ -39,9 +42,11 @@ jobs:
       arch: ${{ inputs.arch }}
     secrets: inherit
 
+  ## Create a github release with compressed binaries uploaded
+  ##
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##   - tag is provided
+  ##   - workflow is building default branch (master)
   create-release:
     if: |
       inputs.tag != '' && 
@@ -59,7 +64,7 @@ jobs:
           name: artifact
           path: release
 
-      # Generate a checksums file to be added to the release page
+      ## Generate a checksums file to be added to the release page
       - name: Generate Checksums
         id: generate_checksum
         uses: jmgilman/actions-generate-checksum@24a35957fba81c6cbaefeb1e3d59ee56e3db5077 # v1.0.0
@@ -68,7 +73,7 @@ jobs:
           patterns: |
             release/*.zip
 
-      # Upload the release archives with the checksums file
+      ## Upload the release archives with the checksums file
       - name: Upload Release
         id: upload_release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 #v0.1.15
@@ -84,11 +89,11 @@ jobs:
             release/*.zip
             CHECKSUMS.txt
 
-  ## Builds arch dependent Docker images from binaries
+  ## Build arch dependent Docker images from binaries
   ##
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##   - tag is provided
+  ##   - workflow is building default branch (master)
   docker-image:
     if: |
       inputs.tag != '' && 

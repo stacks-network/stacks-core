@@ -1,6 +1,7 @@
 ## Github workflow to build a docker image from binary artifacts
-##  - Runs during a tagged release action
-##   - Builds multi-arch images from release binaries for Debian/Alpine base images
+## Builds multi-arch docker images from release binaries created in 'Create Binaries'
+## Runs when:
+##   - 'CI' workflow is triggered with an input tag as part of the release process
 
 name: Docker Image (Binary)
 
@@ -12,17 +13,22 @@ on:
         type: string
         description: "semver tag for alpine images"
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
-## Define which docker arch to build for
+## Set environment variables to be used in each step
 env:
+  ## Define which docker arch to build for
   docker_platforms: "linux/arm64, linux/amd64, linux/amd64/v2, linux/amd64/v3"
 
+## Set the display name to the tag being built/released
 run-name: ${{ inputs.tag }}
 
 jobs:
+  ## Build arch dependent Docker images from binaries
+  ##
   ## Runs when the following is true:
   ##  - tag is provided
   ##  - workflow is building default branch (master)

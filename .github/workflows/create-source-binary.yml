@@ -1,5 +1,8 @@
 ## Github workflow to create multi-arch binaries from source
-##   - Runs when an input tag is provided as part of the release process
+## Compressed binaries are uploaded to the github release
+## Compressed binaries are used creating release docker images in `image-build-binary.yml`
+## Runs when:
+##   - 'CI' workflow is triggered with an input tag as part of the release process on the default (master) branch
 
 name: Create Binaries
 
@@ -17,17 +20,20 @@ on:
         default: >-
           ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
-## change the display name to the tag being built
+## Set the display name to the tag being built/released
 run-name: ${{ inputs.tag }}
 
 jobs:
+  ## Create compressed binary artifacts for multiple architectures
+  ##
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##   - tag is provided
+  ##   - workflow is building default branch (master)
   artifact:
     if: |
       inputs.tag != '' && 

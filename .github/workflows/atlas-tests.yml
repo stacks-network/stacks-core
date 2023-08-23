@@ -1,32 +1,36 @@
 ## Github workflow to run atlas tests
-##   - This workflow only runs manually (via standalone-tests.yml) or during the release process
-##   - The tests in this workflow follow the pattern of  `tests::neon_integrations::atlas*`
+## The tests in this workflow follow the pattern of  `tests::neon_integrations::atlas*`
+## Runs when:
+##   - 'Standalone Tests' workflow is manually triggered
+##   - 'CI' workfow is triggered manually (with or without an input tag)
 
 name: Tests::Atlas
 
 on:
   workflow_call:
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
+## Set environment variables to be used in each step
 env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
 
+## Concurrency: only cancel an in progress workflow if this is for a PR
 concurrency:
   group: atlas-tests-${{ github.workflow }}-${{ github.ref }}
-  # Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # atlas integration tests with code coverage
+  ## Atlas integration tests with code coverage
   atlas-tests:
     name: Atlas Test
     runs-on: ubuntu-latest
-    ## run a maximum of 2 concurrent tests from the test matrix
+    ## Run a maximum of 2 concurrent tests from the test matrix
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -60,7 +64,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          # key: ${{ github.event.repository.name }}-cargo
           key: ${{ github.event.repository.name }}-${{ github.sha }}-cargo
 
       ## Restore bitcoin cache data
@@ -79,7 +82,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: /tmp/test_archive.tar.zst
-          # key: ${{ github.event.repository.name }}-test-archive
           key: ${{ github.event.repository.name }}-${{ github.sha }}-test-archive
 
       ## Restore nextest target cache data
@@ -89,7 +91,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: ./target
-          # key: ${{ github.event.repository.name }}-target
           key: ${{ github.event.repository.name }}-${{ github.sha }}-target
 
       ## Symlink bitoind to $PATH
@@ -121,7 +122,7 @@ jobs:
           echo "created=true\n" >> $GITHUB_OUTPUT
 
       ## Upload coverage to codecov
-      ##   - use wretry action, to retry on a failed upload 3x
+      ##   - retry on a failed upload 3x using 'Wandalen/wretry.action'
       - name: Upload Code Coverage
         id: code_coverage
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0

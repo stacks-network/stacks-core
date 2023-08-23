@@ -1,5 +1,5 @@
 ## Github workflow to run specified tests on demand
-##   - This workflow is meant to run a set of tests on demand - individual, or to simulate a tagged release tests)
+## This workflow is meant to run a set of test(s) on demand
 
 name: Standalone Tests
 
@@ -28,21 +28,15 @@ on:
 ## Set the display name to the test being run
 run-name: ${{ inputs.workflow }}
 
-# concurrency:
-#   group: ${{ inputs.workflow }}-tests-${{ github.workflow }}-${{ github.ref }}
-#   # Only cancel in progress if this is for a PR
-#   cancel-in-progress: false
-
 jobs:
   ## Runs every time
-  ##   - note: this job
   create-cache:
     name: Create Test Cache
     uses: stacks-network/stacks-blockchain/.github/workflows/create_cache.yml@master
 
   #####################################################
   ## Runs when:
-  ##   either or of the following:
+  ##   either or of the following is true:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'CI Tests'
   ##     - workflow is 'Stacks-Blockchain Tests'
@@ -59,7 +53,7 @@ jobs:
     uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
 
   ## Runs when:
-  ##   either or of the following:
+  ##   either or of the following is true:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'CI Tests'
   ##     - workflow is 'Bitcoin Tests'
@@ -77,7 +71,7 @@ jobs:
 
   #####################################################
   ## Runs when:
-  ##   either or of the following:
+  ##   either or of the following is true:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'Atlas Tests'
   atlas-tests:
@@ -92,7 +86,7 @@ jobs:
     uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
 
   ## Runs when:
-  ##   either or of the following:
+  ##   either or of the following is true:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'Epoch Tests'
   epoch-tests:
@@ -107,7 +101,7 @@ jobs:
     uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
 
   ## Runs when:
-  ##   either or of the following:
+  ##   either or of the following is true:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'Slow Tests'
   slow-tests:

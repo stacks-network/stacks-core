@@ -4,19 +4,22 @@
 
 name: Open Clarity JS SDK PR
 
-defaults:
-  run:
-    shell: bash
-
-env:
-  CLARITY_JS_SDK_REPOSITORY: stacks-network/clarity-js-sdk
-  COMMIT_USER: Hiro DevOps
-  COMMIT_EMAIL: 45208873+blockstack-devops@users.noreply.github.com
 on:
   release:
     types:
       - released
   workflow_dispatch:
+
+## Set some defaults for all jobs
+defaults:
+  run:
+    shell: bash
+
+## Set environment variables to be used in each step
+env:
+  CLARITY_JS_SDK_REPOSITORY: stacks-network/clarity-js-sdk
+  COMMIT_USER: Hiro DevOps
+  COMMIT_EMAIL: 45208873+blockstack-devops@users.noreply.github.com
 
 jobs:
   run:

@@ -1,31 +1,35 @@
 ## Github workflow to run bitcoin tests
-##   - This workflow runs on any PR approval, PR synchronize, or release via ci.yml
+## Runs when:
+##   - 'CI' workflow is triggered for a PR (open, synchronize, approval)
+##   - 'CI' workfow is triggered manually (with or without an input tag)
 
 name: Tests::Bitcoin
 
 on:
   workflow_call:
 
+## Set some defaults for all jobs
 defaults:
   run:
     shell: bash
 
+## Set environment variables to be used in each step
 env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
 
+## Concurrency: only cancel an in progress workflow if this is for a PR
 concurrency:
   group: bitcoin-tests-${{ github.workflow }}-${{ github.ref }}
-  # Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # bitcoin integration tests with code coverage
+  ## Bitcoin integration tests with code coverage
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    ## run a maximum of 32 concurrent tests from the test matrix
+    ## Run a maximum of 32 concurrent tests from the test matrix
     strategy:
       fail-fast: false
       max-parallel: 32
@@ -97,7 +101,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          # key: ${{ github.event.repository.name }}-cargo
           key: ${{ github.event.repository.name }}-${{ github.sha }}-cargo
 
       ## Restore bitcoin cache data
@@ -116,7 +119,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: /tmp/test_archive.tar.zst
-          # key: ${{ github.event.repository.name }}-test-archive
           key: ${{ github.event.repository.name }}-${{ github.sha }}-test-archive
 
       ## Restore nextest target cache data
@@ -126,7 +128,6 @@ jobs:
         with:
           fail-on-cache-miss: true
           path: ./target
-          # key: ${{ github.event.repository.name }}-target
           key: ${{ github.event.repository.name }}-${{ github.sha }}-target
 
       ## Symlink bitoind to $PATH
@@ -159,7 +160,7 @@ jobs:
           echo "created=true\n" >> $GITHUB_OUTPUT
 
       ## Upload coverage to codecov
-      ##   - use wretry action, to retry on a failed upload 3x
+      ##   - retry on a failed upload 3x using 'Wandalen/wretry.action'
       - name: Upload Code Coverage
         id: code_coverage
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
