@@ -51,6 +51,8 @@ use crate::net::Error as net_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::{StacksString, VecDisplay};
 
+use clar2wasm::compile_contract;
+
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
         tx: StacksTransaction,
@@ -1124,7 +1126,7 @@ impl StacksChainState {
                     &contract_code_str,
                     ast_rules,
                 );
-                let (contract_ast, contract_analysis) = match analysis_resp {
+                let (mut contract_ast, mut contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
@@ -1188,6 +1190,11 @@ impl StacksChainState {
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
+
+                // Compile the contract to Wasm
+                let mut module =
+                    compile_contract(&mut contract_analysis).expect("Failed to compile contract");
+                contract_ast.wasm_module = Some(module.emit_wasm());
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).

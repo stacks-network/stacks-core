@@ -24,6 +24,8 @@ pub mod types;
 
 pub mod contracts;
 
+mod clarity_wasm;
+
 pub mod ast;
 pub mod contexts;
 pub mod database;
