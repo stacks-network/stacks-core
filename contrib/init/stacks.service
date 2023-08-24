@@ -35,7 +35,7 @@ Group=stacks
 RuntimeDirectory=stacks-blockchain
 RuntimeDirectoryMode=0710
 
-# /etc/bitcoin
+# /etc/stacks-blockchain
 ConfigurationDirectory=stacks-blockchain
 ConfigurationDirectoryMode=0710
 
@@ -61,6 +61,7 @@ PrivateDevices=true
 
 # Deny the creation of writable and executable memory mappings.
 MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
