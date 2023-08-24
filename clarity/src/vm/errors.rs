@@ -44,6 +44,7 @@ pub enum Error {
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType),
+    Wasm(WasmError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -108,6 +109,13 @@ pub enum RuntimeErrorType {
 pub enum ShortReturnType {
     ExpectedValue(Value),
     AssertionFailed(Value),
+}
+
+#[derive(Debug)]
+pub enum WasmError {
+    ModuleNotFound,
+    UnableToLoadModule(wasmtime::Error),
+    Runtime(wasmtime::Error),
 }
 
 pub type InterpreterResult<R> = Result<R, Error>;

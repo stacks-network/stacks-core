@@ -17,8 +17,9 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ContractAST;
-
-use crate::vm::contexts::{ContractContext, GlobalContext};
+use crate::vm::callables::CallableType;
+use crate::vm::clarity_wasm::initialize_contract;
+use crate::vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
 use crate::vm::errors::InterpreterResult as Result;
 
 use crate::vm::eval_all;
@@ -42,12 +43,18 @@ impl Contract {
     ) -> Result<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
-        eval_all(
-            &contract.expressions,
-            &mut contract_context,
-            global_context,
-            sponsor,
-        )?;
+        if let Some(wasm_module) = contract.wasm_module.as_ref() {
+            // Execute the contract via the compiled Wasm module
+            initialize_contract(&wasm_module, global_context, &mut contract_context)?;
+        } else {
+            // Interpret the contract
+            eval_all(
+                &contract.expressions,
+                &mut contract_context,
+                global_context,
+                sponsor,
+            )?;
+        }
 
         Ok(Contract { contract_context })
     }
