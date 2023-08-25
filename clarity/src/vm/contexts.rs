@@ -223,6 +223,7 @@ pub struct ContractContext {
     pub data_size: u64,
     /// track the clarity version of the contract
     clarity_version: ClarityVersion,
+    wasm_module: Option<Vec<u8>>,
 }
 
 pub struct LocalContext<'a> {
@@ -720,7 +721,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
-        contract_content: &ContractAST,
+        contract_content: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
@@ -1294,7 +1295,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.initialize_contract_from_ast(
             contract_identifier,
             clarity_version,
-            &contract_ast,
+            &mut contract_ast,
             &contract_analysis,
             &contract_content,
         )
@@ -1304,7 +1305,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_version: ClarityVersion,
-        contract_content: &ContractAST,
+        contract_content: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
     ) -> Result<()> {
@@ -1820,7 +1821,24 @@ impl ContractContext {
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
             clarity_version,
+            wasm_module: None,
         }
+    }
+
+    pub fn set_wasm_module(&mut self, wasm_module: Vec<u8>) {
+        self.wasm_module = Some(wasm_module);
+    }
+
+    pub fn with_wasm_module<T>(&mut self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
+        let wasm_module = self
+            .wasm_module
+            .take()
+            .ok_or(crate::vm::errors::Error::Wasm(
+                crate::vm::errors::WasmError::ModuleNotFound,
+            ))?;
+        let result = f(wasm_module.as_slice());
+        self.wasm_module = Some(wasm_module);
+        result
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<&Value> {

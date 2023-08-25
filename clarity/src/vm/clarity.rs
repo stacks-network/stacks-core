@@ -319,7 +319,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
-        contract_ast: &ContractAST,
+        contract_ast: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         contract_str: &str,
         sponsor: Option<PrincipalData>,

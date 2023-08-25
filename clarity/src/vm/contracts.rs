@@ -38,7 +38,7 @@ pub struct Contract {
 impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
-        contract: &ContractAST,
+        contract: &mut ContractAST,
         contract_analysis: &ContractAnalysis,
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
@@ -46,9 +46,11 @@ impl Contract {
     ) -> Result<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
-        if let Some(wasm_module) = contract.wasm_module.as_ref() {
+        if let Some(wasm_module) = contract.wasm_module.take() {
+            contract_context.set_wasm_module(wasm_module);
+
             // Execute the contract via the compiled Wasm module
-            initialize_contract(&wasm_module, global_context, &mut contract_context, contract_analysis)?;
+            initialize_contract(global_context, &mut contract_context, contract_analysis)?;
         } else {
             // Interpret the contract
             eval_all(
