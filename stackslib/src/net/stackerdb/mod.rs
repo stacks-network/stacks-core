@@ -297,7 +297,7 @@ pub trait StackerDBEventDispatcher {
     fn new_stackerdb_chunks(
         &self,
         contract_id: &QualifiedContractIdentifier,
-        chunk_info: &[SlotMetadata],
+        chunk_info: &[StackerDBChunkData],
     );
 }
 

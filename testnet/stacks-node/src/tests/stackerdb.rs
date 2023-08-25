@@ -407,6 +407,7 @@ fn test_stackerdb_event_observer() {
         let expected_data = format!("Hello chunks {}", &i);
         let expected_hash = Sha512Trunc256Sum::from_data(expected_data.as_bytes());
 
-        assert_eq!(event.data_hash, expected_hash);
+        assert_eq!(event.data, expected_data.as_bytes().to_vec());
+        assert_eq!(event.data_hash(), expected_hash);
     }
 }

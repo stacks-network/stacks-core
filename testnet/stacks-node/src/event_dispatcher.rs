@@ -39,7 +39,7 @@ use stacks::chainstate::stacks::TransactionPayload;
 
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 
-use stacks::libstackerdb::SlotMetadata;
+use stacks::libstackerdb::StackerDBChunkData;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -94,7 +94,7 @@ pub struct MinedMicroblockEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StackerDBChunksEvent {
     pub contract_id: QualifiedContractIdentifier,
-    pub modified_slots: Vec<SlotMetadata>,
+    pub modified_slots: Vec<StackerDBChunkData>,
 }
 
 impl EventObserver {
@@ -478,7 +478,7 @@ impl StackerDBEventDispatcher for EventDispatcher {
     fn new_stackerdb_chunks(
         &self,
         contract_id: &QualifiedContractIdentifier,
-        chunks: &[SlotMetadata],
+        chunks: &[StackerDBChunkData],
     ) {
         self.process_new_stackerdb_chunks(contract_id, chunks);
     }
@@ -915,7 +915,7 @@ impl EventDispatcher {
     pub fn process_new_stackerdb_chunks(
         &self,
         contract_id: &QualifiedContractIdentifier,
-        new_chunks: &[SlotMetadata],
+        new_chunks: &[StackerDBChunkData],
     ) {
         let interested_observers: Vec<_> = self
             .registered_observers
