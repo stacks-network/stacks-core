@@ -359,7 +359,7 @@ impl ClarityInstance {
 
         let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -372,6 +372,7 @@ impl ClarityInstance {
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
+                    &analysis,
                     BOOT_CODE_COSTS,
                     None,
                     |_, _| false,
@@ -393,6 +394,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
+                    &analysis,
                     &*BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| false,
@@ -405,7 +407,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -418,6 +420,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
+                    &analysis,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| false,
@@ -456,7 +459,7 @@ impl ClarityInstance {
         let use_mainnet = self.mainnet;
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -469,6 +472,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
+                    &analysis,
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
@@ -477,7 +481,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
@@ -490,6 +494,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
                     &ast,
+                    &analysis,
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
@@ -498,7 +503,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
@@ -511,6 +516,7 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &ast,
+                    &analysis,
                     &*POX_2_TESTNET_CODE,
                     None,
                     |_, _| false,
@@ -2019,6 +2025,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2072,6 +2079,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2100,6 +2108,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2118,7 +2127,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, _ct_analysis) = tx
+                let (ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2132,6 +2141,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &ct_ast,
+                        &ct_analysis,
                         &contract,
                         None,
                         |_, _| false
@@ -2184,6 +2194,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2244,6 +2255,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2333,6 +2345,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2461,6 +2474,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2837,6 +2851,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,

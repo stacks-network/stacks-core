@@ -1219,6 +1219,7 @@ impl StacksChainState {
                     &contract_id,
                     clarity_version,
                     &contract_ast,
+                    &contract_analysis,
                     &contract_code_str,
                     sponsor,
                     |asset_map, _| {

@@ -25,6 +25,7 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
+use super::analysis::{self, ContractAnalysis};
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -705,6 +706,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &ContractAST,
+        contract_analysis: &ContractAnalysis,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
@@ -720,6 +722,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                     contract_identifier,
                     clarity_version,
                     contract_content,
+                    contract_analysis,
                     contract_string,
                 )
             },
@@ -1262,7 +1265,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version.clone();
 
-        let contract_ast = ast::build_ast_with_rules(
+        let clarity_version = self.contract_context.clarity_version.clone();
+
+        let mut contract_ast = ast::build_ast_with_rules(
             &contract_identifier,
             contract_content,
             self,
@@ -1270,6 +1275,19 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self.global_context.epoch_id,
             ast_rules,
         )?;
+
+        let mut store = MemoryBackingStore::new();
+        let contract_analysis = analysis::run_analysis(
+            &contract_identifier,
+            &mut contract_ast.expressions,
+            &mut store.as_analysis_db(),
+            false,
+            LimitedCostTracker::Free,
+            self.global_context.epoch_id,
+            clarity_version,
+        )
+        .unwrap();
+
         self.initialize_contract_from_ast(
             contract_identifier,
             clarity_version,
@@ -1283,6 +1301,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         contract_version: ClarityVersion,
         contract_content: &ContractAST,
+        contract_analysis: &ContractAnalysis,
         contract_string: &str,
     ) -> Result<()> {
         self.global_context.begin();
@@ -1318,6 +1337,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let result = Contract::initialize_from_ast(
                 contract_identifier.clone(),
                 contract_content,
+                contract_analysis,
                 self.sponsor.clone(),
                 &mut self.global_context,
                 contract_version,

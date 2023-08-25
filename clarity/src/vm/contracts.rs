@@ -28,6 +28,8 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{apply, eval_all, Value};
 
+use super::analysis::ContractAnalysis;
+
 #[derive(Serialize, Deserialize)]
 pub struct Contract {
     pub contract_context: ContractContext,
@@ -39,6 +41,7 @@ impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
         contract: &ContractAST,
+        contract_analysis: &ContractAnalysis,
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
         version: ClarityVersion,
@@ -47,7 +50,7 @@ impl Contract {
 
         if let Some(wasm_module) = contract.wasm_module.as_ref() {
             // Execute the contract via the compiled Wasm module
-            initialize_contract(&wasm_module, global_context, &mut contract_context)?;
+            initialize_contract(&wasm_module, global_context, &mut contract_context, contract_analysis)?;
         } else {
             // Interpret the contract
             eval_all(
