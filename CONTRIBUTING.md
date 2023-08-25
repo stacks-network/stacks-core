@@ -101,7 +101,7 @@ you push your code. Follow these instruction to set it up:
 2. Change the content of `.git/hooks/pre-commit` to be the following
 ```sh
 #!/bin/sh
-git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --check --config group_imports=StdExternalCrate || (
+git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate || (
   echo 'rustfmt failed: run "cargo fmt --all -- --config group_imports=StdExternalCrate"';
   exit 1
 )
