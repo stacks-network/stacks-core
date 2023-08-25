@@ -316,6 +316,7 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_ast: &ContractAST,
+        contract_analysis: &ContractAnalysis,
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
@@ -330,6 +331,7 @@ pub trait TransactionConnection: ClarityConnection {
                         identifier.clone(),
                         clarity_version,
                         contract_ast,
+                        contract_analysis,
                         contract_str,
                         sponsor,
                     )
