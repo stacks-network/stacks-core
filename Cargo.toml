@@ -40,7 +40,7 @@ serde = "1"
 serde_derive = "1"
 sha3 = "0.10.1"
 ripemd = "0.1.1"
-regex = "1"
+regex = "1.9.3"
 mio = "0.6"
 lazy_static = "1.4.0"
 url = "2.1.0"
@@ -55,7 +55,8 @@ libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
-clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "feat/clarity-wasm-runtime"}
+# clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "feat/clarity-wasm-runtime"}
+clar2wasm = { package = "clar2wasm", path = "../clarity-wasm/clar2wasm/." }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

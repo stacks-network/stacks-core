@@ -29,6 +29,7 @@ use serde_json::Error as SerdeJSONErr;
 use std::error;
 
 use std::fmt;
+use std::string::FromUtf8Error;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -111,12 +112,35 @@ pub enum ShortReturnType {
     AssertionFailed(Value),
 }
 
+/// WasmErrors are errors that *should never* occur.
+/// Test executions may trigger these errors, but if they show up in normal
+/// execution, it indicates a bug in the Wasm compiler or runtime.
 #[derive(Debug)]
 pub enum WasmError {
     ModuleNotFound,
+    TopLevelNotFound,
+    MemoryNotFound,
     UnableToLoadModule(wasmtime::Error),
+    UnableToReadIdentifier(FromUtf8Error),
+    UnableToRetrieveIdentifier(i32),
     Runtime(wasmtime::Error),
 }
+
+impl fmt::Display for WasmError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WasmError::ModuleNotFound => write!(f, "Module not found"),
+            WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
+            WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {}", e),
+            WasmError::UnableToReadIdentifier(e) => write!(f, "Unable to read identifier: {}", e),
+            WasmError::UnableToRetrieveIdentifier(id) => write!(f, "Unable to retrieve identifier: {}", id),
+            WasmError::Runtime(e) => write!(f, "Runtime error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for WasmError {}
 
 pub type InterpreterResult<R> = Result<R, Error>;
 
