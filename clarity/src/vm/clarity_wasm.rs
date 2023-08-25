@@ -8,9 +8,11 @@ use crate::vm::{
     types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
     ClarityName, ContractContext, Value,
 };
-use wasmtime::{AsContextMut, Caller, Engine, Linker, Module, Store, Trap};
+use wasmtime::{AsContextMut, Caller, Engine, Linker, Module, Store, Trap, Val};
 
-use super::{analysis::CheckErrors, costs::CostTracker, errors::RuntimeErrorType};
+use super::{
+    analysis::CheckErrors, contracts::Contract, costs::CostTracker, errors::RuntimeErrorType,
+};
 
 pub struct ClarityWasmContext<'a, 'b, 'hooks> {
     /// The global context in which to execute.
@@ -40,15 +42,16 @@ impl<'a, 'b, 'hooks> ClarityWasmContext<'a, 'b, 'hooks> {
 }
 
 pub fn initialize_contract(
-    wasm_module: &[u8],
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
-    let context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
+    let mut context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
     let engine = Engine::default();
-    let module = Module::from_binary(&engine, wasm_module)
-        .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
+    let module = context.contract_context.with_wasm_module(|wasm_module| {
+        Module::from_binary(&engine, wasm_module)
+            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+    })?;
     let mut store = Store::new(&engine, context);
     let mut linker = Linker::new(&engine);
 
@@ -69,6 +72,43 @@ pub fn initialize_contract(
 
     func.call(store.as_context_mut(), &[], &mut results)
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
+
+    Ok(None)
+}
+
+pub fn call_function(
+    contract: &Contract,
+    global_context: &mut GlobalContext,
+    contract_context: &mut ContractContext,
+    contract_analysis: &ContractAnalysis,
+    function_name: &str,
+    args: &[Value],
+) -> Result<Option<Value>, Error> {
+    let mut context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
+    let engine = Engine::default();
+    let module = context.contract_context.with_wasm_module(|wasm_module| {
+        Module::from_binary(&engine, wasm_module)
+            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+    })?;
+    let mut store = Store::new(&engine, context);
+    let mut linker = Linker::new(&engine);
+
+    // Link in the host interface functions.
+    link_define_variable_fn(&mut linker);
+    link_get_variable_fn(&mut linker);
+    link_set_variable_fn(&mut linker);
+    link_log(&mut linker);
+
+    let instance = linker.instantiate(store.as_context_mut(), &module).unwrap();
+
+    // Call the specified function
+    let func = instance
+        .get_func(store.as_context_mut(), function_name)
+        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
+
+    // Convert the args into wasmtime values
+
+    // Call the function
 
     Ok(None)
 }
@@ -414,4 +454,139 @@ fn write_to_wasm(
         _ => panic!("unsupported type"),
     };
     Ok(())
+}
+
+/// Reads an individual value from the Wasm memory buffer and translates it
+/// into a Clarity `Value`.
+fn read_value_from_memory(
+    type_sig: &TypeSignature,
+    index: usize,
+    buffer: &[Val],
+) -> (Value, usize) {
+    match type_sig {
+        TypeSignature::IntType => {
+            let upper = buffer[index].unwrap_i64();
+            let lower = buffer[index + 1].unwrap_i64();
+            (Value::Int(((upper as i128) << 64) | lower as i128), 2)
+        }
+        TypeSignature::UIntType => {
+            let upper = buffer[index].unwrap_i64();
+            let lower = buffer[index + 1].unwrap_i64();
+            (Value::UInt(((upper as u128) << 64) | lower as u128), 2)
+        }
+        TypeSignature::BoolType => (Value::Bool(buffer[index].unwrap_i32() != 0), 1),
+        TypeSignature::OptionalType(optional) => {
+            let (value, increment) = read_value_from_memory(optional, index + 1, buffer);
+            (
+                if buffer[index].unwrap_i32() == 1 {
+                    Value::some(value).unwrap()
+                } else {
+                    Value::none()
+                },
+                increment + 1,
+            )
+        }
+        TypeSignature::ResponseType(response) => {
+            let (ok, increment_ok) = read_value_from_memory(&response.0, index + 1, buffer);
+            let (err, increment_err) =
+                read_value_from_memory(&response.1, index + 1 + increment_ok, buffer);
+            (
+                if buffer[index].unwrap_i32() == 1 {
+                    Value::okay(ok).unwrap()
+                } else {
+                    Value::error(err).unwrap()
+                },
+                index + 1 + increment_ok + increment_err,
+            )
+        }
+        // A `NoType` will be a dummy value that should not be used.
+        TypeSignature::NoType => (Value::none(), 1),
+        _ => panic!("WASM value type not implemented: {:?}", type_sig),
+    }
+}
+
+fn clarity_to_wasm_value(type_sig: &TypeSignature, value: &Value) -> Result<Vec<Val>, Error> {
+    match type_sig {
+        TypeSignature::IntType => {
+            let i = if let Value::Int(inner) = value {
+                inner
+            } else {
+                return Err(Error::Unchecked(CheckErrors::TypeValueError(
+                    type_sig.clone(),
+                    value.clone(),
+                )));
+            };
+            let high = (i >> 64) as u64;
+            let low = (i & 0xffff_ffff_ffff_ffff) as u64;
+            Ok(vec![Val::I64(high as i64), Val::I64(low as i64)])
+        }
+        TypeSignature::UIntType => {
+            let i = if let Value::UInt(inner) = value {
+                inner
+            } else {
+                return Err(Error::Unchecked(CheckErrors::TypeValueError(
+                    type_sig.clone(),
+                    value.clone(),
+                )));
+            };
+            let high = (i >> 64) as u64;
+            let low = (i & 0xffff_ffff_ffff_ffff) as u64;
+            Ok(vec![Val::I64(high as i64), Val::I64(low as i64)])
+        }
+        TypeSignature::BoolType => {
+            let v = if let Value::Bool(inner) = value {
+                inner
+            } else {
+                return Err(Error::Unchecked(CheckErrors::TypeValueError(
+                    type_sig.clone(),
+                    value.clone(),
+                )));
+            };
+            Ok(vec![Val::I32(if *v { 1 } else { 0 })])
+        }
+        TypeSignature::OptionalType(optional) => {
+            let o = if let Value::Optional(inner) = value {
+                inner
+            } else {
+                return Err(Error::Unchecked(CheckErrors::TypeValueError(
+                    type_sig.clone(),
+                    value.clone(),
+                )));
+            };
+            let mut result = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
+            result.extend(clarity_to_wasm_value(
+                optional,
+                o.data
+                    .as_ref()
+                    .map_or(&Value::none(), |boxed_value| &boxed_value),
+            )?);
+            Ok(result)
+        }
+        TypeSignature::ResponseType(response) => {
+            let r = if let Value::Response(inner) = value {
+                inner
+            } else {
+                return Err(Error::Unchecked(CheckErrors::TypeValueError(
+                    type_sig.clone(),
+                    value.clone(),
+                )));
+            };
+            let mut result = vec![Val::I32(if r.committed { 1 } else { 0 })];
+            result.extend(if r.committed {
+                clarity_to_wasm_value(&response.0, &r.data)?
+            } else {
+                vec![Val::I32(0)]
+            });
+            result.extend(if !r.committed {
+                clarity_to_wasm_value(&response.1, &r.data)?
+            } else {
+                vec![Val::I32(0)]
+            });
+
+            Ok(result)
+        }
+        // A `NoType` will be a dummy value that should not be used.
+        TypeSignature::NoType => Ok(vec![]),
+        _ => unimplemented!("Value type not implemented: {:?}", type_sig),
+    }
 }
