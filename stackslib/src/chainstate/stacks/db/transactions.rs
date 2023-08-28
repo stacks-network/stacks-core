@@ -1201,7 +1201,7 @@ impl StacksChainState {
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
                     clarity_version,
-                    &contract_ast,
+                    &mut contract_ast,
                     &contract_analysis,
                     &contract_code_str,
                     sponsor,
