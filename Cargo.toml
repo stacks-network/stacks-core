@@ -7,5 +7,6 @@ members = [
     "clarity",
     "stx-genesis",
     "libstackerdb",
+    "libsigner",
     "stacks-signer",
     "testnet/stacks-node"]
