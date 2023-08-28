@@ -22,6 +22,7 @@ serde_stacker = "0.1"
 stacks-common = { path = "../stacks-common" }
 clarity = { path = "../clarity" }
 libstackerdb = { path = "../libstackerdb" }
+libsigner = { path = "../libsigner" }
 toml = "0.5.6"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-term = "2.6.0"

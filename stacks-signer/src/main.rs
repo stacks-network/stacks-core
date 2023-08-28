@@ -26,10 +26,8 @@ extern crate serde_json;
 extern crate toml;
 
 mod config;
-mod rpc;
 
-use crate::rpc::SignerSession;
-use crate::rpc::StackerDBSession;
+use libsigner::{SignerSession, StackerDBSession};
 use std::env;
 use std::io;
 use std::io::{Read, Write};
@@ -178,8 +176,8 @@ fn handle_get_chunk(mut argv: Vec<String>) {
 
     let mut session = StackerDBSession::new(host.clone(), contract.clone());
     session.connect(host, contract).unwrap();
-    let chunk_opt = session.get_chunk(slot_id, slot_version).unwrap();
-    if let Some(chunk) = chunk_opt {
+    let mut chunk_opt = session.get_chunk(slot_id, slot_version).unwrap();
+    if let Some(chunk) = chunk_opt.take() {
         io::stdout().write(&chunk).unwrap();
     }
     process::exit(0);
