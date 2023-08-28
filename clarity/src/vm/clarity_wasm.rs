@@ -8,10 +8,14 @@ use crate::vm::{
     types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
     ClarityName, ContractContext, Value,
 };
-use wasmtime::{AsContextMut, Caller, Engine, Linker, Module, Store, Trap, Val};
+use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val};
 
 use super::{
-    analysis::CheckErrors, contracts::Contract, costs::CostTracker, errors::RuntimeErrorType,
+    analysis::CheckErrors,
+    contracts::Contract,
+    costs::CostTracker,
+    errors::RuntimeErrorType,
+    types::{CharType, FixedFunction, FunctionType, SequenceData},
 };
 
 pub struct ClarityWasmContext<'a, 'b, 'hooks> {
@@ -46,7 +50,7 @@ pub fn initialize_contract(
     contract_context: &mut ContractContext,
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
-    let mut context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
+    let context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
     let engine = Engine::default();
     let module = context.contract_context.with_wasm_module(|wasm_module| {
         Module::from_binary(&engine, wasm_module)
@@ -77,14 +81,13 @@ pub fn initialize_contract(
 }
 
 pub fn call_function(
-    contract: &Contract,
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
     contract_analysis: &ContractAnalysis,
     function_name: &str,
     args: &[Value],
 ) -> Result<Option<Value>, Error> {
-    let mut context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
+    let context = ClarityWasmContext::new(global_context, contract_context, contract_analysis);
     let engine = Engine::default();
     let module = context.contract_context.with_wasm_module(|wasm_module| {
         Module::from_binary(&engine, wasm_module)
@@ -106,11 +109,54 @@ pub fn call_function(
         .get_func(store.as_context_mut(), function_name)
         .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
 
+    // Access the global stack pointer from the instance
+    let stack_pointer = instance
+        .get_global(store.as_context_mut(), "stack-pointer")
+        .ok_or(Error::Wasm(WasmError::StackPointerNotFound))?;
+    let mut offset = stack_pointer.get(store.as_context_mut()).unwrap_i32();
+
+    let memory = instance
+        .get_memory(store.as_context_mut(), "memory")
+        .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
     // Convert the args into wasmtime values
+    let mut wasm_args = vec![];
+    for arg in args {
+        let (arg_vec, new_offset) =
+            pass_argument_to_wasm(memory, store.as_context_mut(), arg, offset)?;
+        wasm_args.extend(arg_vec);
+        offset = new_offset;
+    }
+
+    // Reserve stack space for the return value, if necessary.
+    let func_type = contract_analysis
+        .get_public_function_type(function_name)
+        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
+    let return_type = match func_type {
+        FunctionType::Fixed(FixedFunction { args: _, returns }) => returns,
+        _ => unreachable!("public functions should only be fixed types"),
+    };
+    let (mut results, offset) = reserve_space_for_return(&mut store, offset, return_type)?;
+
+    // Update the stack pointer after space is reserved for the arguments and
+    // return values.
+    stack_pointer
+        .set(store.as_context_mut(), Val::I32(offset))
+        .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
     // Call the function
+    func.call(store.as_context_mut(), &wasm_args, &mut results)
+        .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
-    Ok(None)
+    // If the function returns a value, translate it into a Clarity `Value`
+    wasm_to_clarity_value(
+        return_type,
+        0,
+        &results,
+        memory,
+        &mut store.as_context_mut(),
+    )
+    .map(|(val, _offset)| val)
 }
 
 fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) {
@@ -414,7 +460,7 @@ fn read_from_wasm(
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_ascii_from_bytes(buffer)
         }
-        _ => panic!("unsupported type"),
+        _ => unimplemented!("type not yet implemented: {:?}", ty),
     }
 }
 
@@ -451,57 +497,109 @@ fn write_to_wasm(
                 .write(caller.borrow_mut(), (offset + 8) as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
         }
-        _ => panic!("unsupported type"),
+        _ => unimplemented!("type not yet implemented: {:?}", ty),
     };
     Ok(())
 }
 
-/// Reads an individual value from the Wasm memory buffer and translates it
-/// into a Clarity `Value`.
-fn read_value_from_memory(
-    type_sig: &TypeSignature,
-    index: usize,
-    buffer: &[Val],
-) -> (Value, usize) {
-    match type_sig {
-        TypeSignature::IntType => {
-            let upper = buffer[index].unwrap_i64();
-            let lower = buffer[index + 1].unwrap_i64();
-            (Value::Int(((upper as i128) << 64) | lower as i128), 2)
+/// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
+/// requires writing into the Wasm memory, write it to the provided `offset`.
+/// Return a vector of `Val`s that can be passed to a Wasm function, and the
+/// offset, adjusted to the next available memory location.
+fn pass_argument_to_wasm(
+    memory: Memory,
+    mut store: impl AsContextMut,
+    value: &Value,
+    offset: i32,
+) -> Result<(Vec<Val>, i32), Error> {
+    match value {
+        Value::UInt(n) => {
+            let high = (n >> 64) as u64;
+            let low = (n & 0xffff_ffff_ffff_ffff) as u64;
+            let buffer = vec![Val::I64(high as i64), Val::I64(low as i64)];
+            Ok((buffer, offset))
         }
-        TypeSignature::UIntType => {
-            let upper = buffer[index].unwrap_i64();
-            let lower = buffer[index + 1].unwrap_i64();
-            (Value::UInt(((upper as u128) << 64) | lower as u128), 2)
+        Value::Int(n) => {
+            let high = (n >> 64) as u64;
+            let low = (n & 0xffff_ffff_ffff_ffff) as u64;
+            let buffer = vec![Val::I64(high as i64), Val::I64(low as i64)];
+            Ok((buffer, offset))
         }
-        TypeSignature::BoolType => (Value::Bool(buffer[index].unwrap_i32() != 0), 1),
+        Value::Bool(b) => Ok((vec![Val::I32(if *b { 1 } else { 0 })], offset)),
+        Value::Optional(o) => {
+            let mut buffer = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
+            let (inner, new_offset) = pass_argument_to_wasm(
+                memory,
+                store,
+                o.data
+                    .as_ref()
+                    .map_or(&Value::none(), |boxed_value| &boxed_value),
+                offset + 1,
+            )?;
+            buffer.extend(inner);
+            Ok((buffer, new_offset))
+        }
+        Value::Response(r) => {
+            let mut buffer = vec![Val::I32(if r.committed { 1 } else { 0 })];
+            let (inner, new_offset) = if r.committed {
+                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
+            } else {
+                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
+            };
+            buffer.extend(inner);
+            Ok((buffer, new_offset))
+        }
+        Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
+            // For a string, write the bytes into the memory, then pass the
+            // offset and length to the Wasm function.
+            let buffer = vec![Val::I32(offset), Val::I32(s.data.len() as i32)];
+            memory
+                .write(store.borrow_mut(), offset as usize, s.data.as_slice())
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            let adjusted_offset = offset + s.data.len() as i32;
+            Ok((buffer, adjusted_offset))
+        }
+        _ => unimplemented!("Value type not yet implemented: {:?}", value),
+    }
+}
+
+/// Reserve space on the Wasm stack for the return value of a function, if
+/// needed, and return a vector of `Val`s that can be passed to `call`, as a
+/// place to store the return value, along with the new offset, which is the
+/// next available memory location.
+fn reserve_space_for_return(
+    store: &mut Store<ClarityWasmContext>,
+    offset: i32,
+    return_type: &TypeSignature,
+) -> Result<(Vec<Val>, i32), Error> {
+    match return_type {
+        TypeSignature::UIntType | TypeSignature::IntType => {
+            Ok((vec![Val::I64(0), Val::I64(0)], offset))
+        }
+        TypeSignature::BoolType => Ok((vec![Val::I32(0)], offset)),
         TypeSignature::OptionalType(optional) => {
-            let (value, increment) = read_value_from_memory(optional, index + 1, buffer);
-            (
-                if buffer[index].unwrap_i32() == 1 {
-                    Value::some(value).unwrap()
-                } else {
-                    Value::none()
-                },
-                increment + 1,
-            )
+            let mut vals = vec![Val::I32(0)];
+            let (opt_vals, adjusted) = reserve_space_for_return(store, offset, optional)?;
+            vals.extend(opt_vals);
+            Ok((vals, adjusted))
         }
         TypeSignature::ResponseType(response) => {
-            let (ok, increment_ok) = read_value_from_memory(&response.0, index + 1, buffer);
-            let (err, increment_err) =
-                read_value_from_memory(&response.1, index + 1 + increment_ok, buffer);
-            (
-                if buffer[index].unwrap_i32() == 1 {
-                    Value::okay(ok).unwrap()
-                } else {
-                    Value::error(err).unwrap()
-                },
-                index + 1 + increment_ok + increment_err,
-            )
+            let mut vals = vec![Val::I32(0)];
+            let (mut subexpr_values, mut adjusted) =
+                reserve_space_for_return(store, offset, &response.0)?;
+            vals.extend(subexpr_values);
+            (subexpr_values, adjusted) = reserve_space_for_return(store, adjusted, &response.1)?;
+            vals.extend(subexpr_values);
+            Ok((vals, adjusted))
         }
-        // A `NoType` will be a dummy value that should not be used.
-        TypeSignature::NoType => (Value::none(), 1),
-        _ => panic!("WASM value type not implemented: {:?}", type_sig),
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            type_length,
+        ))) => {
+            let length: u32 = type_length.into();
+            // Return values will be offset and length
+            Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
+        }
+        _ => unimplemented!("return type not yet implemented: {:?}", return_type),
     }
 }
 
@@ -588,5 +686,93 @@ fn clarity_to_wasm_value(type_sig: &TypeSignature, value: &Value) -> Result<Vec<
         // A `NoType` will be a dummy value that should not be used.
         TypeSignature::NoType => Ok(vec![]),
         _ => unimplemented!("Value type not implemented: {:?}", type_sig),
+    }
+}
+
+/// Convert a Wasm value into a Clarity `Value`. Depending on the type, the
+/// values may be directly passed in the Wasm `Val`s or may be read from the
+/// Wasm memory, via an offset and size.
+/// - `type_sig` is the Clarity type of the value.
+/// - `value_index` is the index of the value in the array of Wasm `Val`s.
+/// - `buffer` is the array of Wasm `Val`s.
+/// - `memory` is the Wasm memory.
+/// - `store` is the Wasm store.
+/// Returns the Clarity `Value` and the number of Wasm `Val`s that were used.
+fn wasm_to_clarity_value(
+    type_sig: &TypeSignature,
+    value_index: usize,
+    buffer: &[Val],
+    memory: Memory,
+    store: &mut impl AsContextMut,
+) -> Result<(Option<Value>, usize), Error> {
+    match type_sig {
+        TypeSignature::IntType => {
+            let upper = buffer[value_index].unwrap_i64();
+            let lower = buffer[value_index + 1].unwrap_i64();
+            Ok((Some(Value::Int(((upper as i128) << 64) | lower as i128)), 2))
+        }
+        TypeSignature::UIntType => {
+            let upper = buffer[value_index].unwrap_i64();
+            let lower = buffer[value_index + 1].unwrap_i64();
+            Ok((
+                Some(Value::UInt(((upper as u128) << 64) | lower as u128)),
+                2,
+            ))
+        }
+        TypeSignature::BoolType => {
+            Ok((Some(Value::Bool(buffer[value_index].unwrap_i32() != 0)), 1))
+        }
+        TypeSignature::OptionalType(optional) => {
+            let (value, increment) =
+                wasm_to_clarity_value(optional, value_index + 1, buffer, memory, store)?;
+            Ok((
+                if buffer[value_index].unwrap_i32() == 1 {
+                    Some(
+                        Value::some(
+                            value.ok_or(Error::Unchecked(CheckErrors::CouldNotDetermineType))?,
+                        )
+                        .unwrap(),
+                    )
+                } else {
+                    Some(Value::none())
+                },
+                increment + 1,
+            ))
+        }
+        TypeSignature::ResponseType(response) => {
+            let (ok, increment_ok) =
+                wasm_to_clarity_value(&response.0, value_index + 1, buffer, memory, store)?;
+            let (err, increment_err) = wasm_to_clarity_value(
+                &response.1,
+                value_index + 1 + increment_ok,
+                buffer,
+                memory,
+                store,
+            )?;
+            Ok((
+                if buffer[value_index].unwrap_i32() == 1 {
+                    Some(Value::okay(ok.ok_or(Error::Unchecked(
+                        CheckErrors::CouldNotDetermineResponseOkType,
+                    ))?)?)
+                } else {
+                    Some(Value::error(err.ok_or(Error::Unchecked(
+                        CheckErrors::CouldNotDetermineResponseErrType,
+                    ))?)?)
+                },
+                value_index + 1 + increment_ok + increment_err,
+            ))
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+            let offset = buffer[value_index].unwrap_i32();
+            let length = buffer[value_index + 1].unwrap_i32();
+            let mut string_buffer: Vec<u8> = vec![0; length as usize];
+            memory
+                .read(store.borrow_mut(), offset as usize, &mut string_buffer)
+                .expect("should be able to read from memory");
+            Ok((Some(Value::string_ascii_from_bytes(string_buffer)?), 2))
+        }
+        // A `NoType` will be a dummy value that should not be used.
+        TypeSignature::NoType => Ok((None, 1)),
+        _ => panic!("WASM value type not implemented: {:?}", type_sig),
     }
 }

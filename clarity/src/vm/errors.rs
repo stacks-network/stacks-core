@@ -123,6 +123,9 @@ pub enum WasmError {
     UnableToLoadModule(wasmtime::Error),
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
+    StackPointerNotFound,
+    UnableToWriteStackPointer(wasmtime::Error),
+    InvalidNoTypeInValue,
     Runtime(wasmtime::Error),
 }
 
@@ -132,10 +135,17 @@ impl fmt::Display for WasmError {
             WasmError::ModuleNotFound => write!(f, "Module not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
-            WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {}", e),
-            WasmError::UnableToReadIdentifier(e) => write!(f, "Unable to read identifier: {}", e),
-            WasmError::UnableToRetrieveIdentifier(id) => write!(f, "Unable to retrieve identifier: {}", id),
-            WasmError::Runtime(e) => write!(f, "Runtime error: {}", e),
+            WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
+            WasmError::UnableToReadIdentifier(e) => write!(f, "Unable to read identifier: {e}"),
+            WasmError::UnableToRetrieveIdentifier(id) => {
+                write!(f, "Unable to retrieve identifier: {id}")
+            }
+            WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
+            WasmError::UnableToWriteStackPointer(e) => {
+                write!(f, "Unable to write stack pointer: {e}")
+            }
+            WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
+            WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
 }
