@@ -138,6 +138,8 @@ jobs:
           - tests::neon_integrations::bad_microblock_pubkey
           - tests::epoch_24::fix_to_pox_contract
           - tests::epoch_24::verify_auto_unlock_behavior
+          - tests::stackerdb::test_stackerdb_load_store
+          - tests::stackerdb::test_stackerdb_event_observer
     steps:
       - name: Checkout the latest code
         id: git_checkout

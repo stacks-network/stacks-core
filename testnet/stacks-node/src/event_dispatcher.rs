@@ -477,8 +477,8 @@ impl StackerDBEventDispatcher for EventDispatcher {
     /// Relay new StackerDB chunks
     fn new_stackerdb_chunks(
         &self,
-        contract_id: &QualifiedContractIdentifier,
-        chunks: &[StackerDBChunkData],
+        contract_id: QualifiedContractIdentifier,
+        chunks: Vec<StackerDBChunkData>,
     ) {
         self.process_new_stackerdb_chunks(contract_id, chunks);
     }
@@ -914,8 +914,8 @@ impl EventDispatcher {
     /// Infallible.
     pub fn process_new_stackerdb_chunks(
         &self,
-        contract_id: &QualifiedContractIdentifier,
-        new_chunks: &[StackerDBChunkData],
+        contract_id: QualifiedContractIdentifier,
+        new_chunks: Vec<StackerDBChunkData>,
     ) {
         let interested_observers: Vec<_> = self
             .registered_observers
@@ -923,7 +923,6 @@ impl EventDispatcher {
             .enumerate()
             .filter(|(obs_id, _observer)| {
                 self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -931,8 +930,8 @@ impl EventDispatcher {
         }
 
         let payload = serde_json::to_value(StackerDBChunksEvent {
-            contract_id: contract_id.clone(),
-            modified_slots: new_chunks.to_vec(),
+            contract_id,
+            modified_slots: new_chunks,
         })
         .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
 
