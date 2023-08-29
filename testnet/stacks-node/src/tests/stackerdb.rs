@@ -264,7 +264,7 @@ fn test_stackerdb_event_observer() {
     let (mut conf, _) = neon_integration_test_conf();
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::StackerDBChunks],
     });
 
     let privks = vec![

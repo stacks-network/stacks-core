@@ -1754,7 +1754,7 @@ impl Relayer {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data]);
                 }
             }
-            for (contract_id, new_chunks) in all_events.iter() {
+            for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
         }
@@ -1815,7 +1815,7 @@ impl Relayer {
         }
 
         if let Some(observer) = event_observer.as_ref() {
-            for (contract_id, new_chunks) in all_events.iter() {
+            for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
         }

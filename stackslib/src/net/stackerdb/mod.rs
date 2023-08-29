@@ -296,8 +296,8 @@ pub trait StackerDBEventDispatcher {
     /// A set of one or more chunks has been obtained by this replica
     fn new_stackerdb_chunks(
         &self,
-        contract_id: &QualifiedContractIdentifier,
-        chunk_info: &[StackerDBChunkData],
+        contract_id: QualifiedContractIdentifier,
+        chunk_info: Vec<StackerDBChunkData>,
     );
 }
 
