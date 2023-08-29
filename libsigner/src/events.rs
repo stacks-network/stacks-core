@@ -40,7 +40,9 @@ use crate::EventError;
 /// Event structure for newly-arrived StackerDB data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StackerDBChunksEvent {
+    /// The contract ID for the StackerDB instance
     pub contract_id: QualifiedContractIdentifier,
+    /// The chunk data for newly-modified slots
     pub modified_slots: Vec<StackerDBChunkData>,
 }
 
@@ -48,6 +50,7 @@ pub struct StackerDBChunksEvent {
 /// The caller calls `send()` and the event receiver loop (which lives in a separate thread) will
 /// terminate.
 pub trait EventStopSignaler {
+    /// Send the stop signal
     fn send(&mut self);
 }
 
@@ -104,6 +107,7 @@ pub trait EventReceiver {
     }
 }
 
+/// Event receiver for StackerDB events
 pub struct StackerDBEventReceiver {
     /// contracts we're listening for
     pub stackerdb_contract_ids: Vec<QualifiedContractIdentifier>,
@@ -155,6 +159,7 @@ pub struct StackerDBStopSignaler {
 }
 
 impl StackerDBStopSignaler {
+    /// Make a new stop signaler
     pub fn new(sig: Arc<AtomicBool>, local_addr: SocketAddr) -> StackerDBStopSignaler {
         StackerDBStopSignaler {
             stop_signal: sig,

@@ -23,8 +23,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-use serde_json;
-
 use crate::{Signer, SignerRunLoop, StackerDBChunksEvent, StackerDBEventReceiver};
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -62,7 +60,7 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
     }
 
     fn get_event_timeout(&self) -> Duration {
-        self.poll_timeout.clone()
+        self.poll_timeout
     }
 
     fn run_one_pass(
@@ -77,9 +75,9 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
         }
 
         if self.events.len() >= self.max_events {
-            return Some(mem::replace(&mut self.events, vec![]));
+            Some(mem::take(&mut self.events))
         } else {
-            return None;
+            None
         }
     }
 }
@@ -98,7 +96,6 @@ fn test_simple_signer() {
     let (res_send, _res_recv) = channel();
     let mut signer = Signer::new(SimpleRunLoop::new(5), ev, cmd_recv, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
-    let thread_endpoint = endpoint.clone();
 
     let mut chunks = vec![];
     for i in 0..5 {
@@ -122,7 +119,7 @@ fn test_simple_signer() {
     let mock_stacks_node = thread::spawn(move || {
         let mut num_sent = 0;
         while num_sent < thread_chunks.len() {
-            let mut sock = match TcpStream::connect(&thread_endpoint) {
+            let mut sock = match TcpStream::connect(endpoint) {
                 Ok(sock) => sock,
                 Err(..) => {
                     sleep_ms(100);
