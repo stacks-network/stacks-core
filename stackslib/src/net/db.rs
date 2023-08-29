@@ -734,7 +734,7 @@ impl PeerDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
 
-        let conn = sqlite_open(path, open_flags, false)?;
+        let conn = sqlite_open(path, open_flags, true)?;
 
         let db = PeerDB {
             conn: conn,
@@ -743,7 +743,28 @@ impl PeerDB {
         Ok(db)
     }
 
-    /// Open a burn database in memory (used for testing)
+    /// Open an existing peer DB
+    pub fn open(path: &str, readwrite: bool) -> Result<PeerDB, db_error> {
+        if fs::metadata(path).is_err() {
+            return Err(db_error::NoDBError);
+        }
+
+        let open_flags = if readwrite {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        };
+        let conn = sqlite_open(path, open_flags, true)?;
+
+        let db = PeerDB {
+            conn: conn,
+            readwrite: readwrite,
+        };
+
+        Ok(db)
+    }
+
+    /// Open a peer database in memory (used for testing)
     #[cfg(test)]
     pub fn connect_memory(
         network_id: u32,
