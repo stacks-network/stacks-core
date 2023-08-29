@@ -163,7 +163,7 @@ impl StackerDBConfig {
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
-    ) -> Result<Vec<(StacksAddress, u64)>, net_error> {
+    ) -> Result<Vec<(StacksAddress, u32)>, net_error> {
         let value = chainstate.eval_read_only(
             burn_dbconn,
             tip,
@@ -179,7 +179,7 @@ impl StackerDBConfig {
                     "Contract {} failed to run `stackerdb-get-signer-slots`: error u{}",
                     contract_id, &err_code
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
@@ -188,7 +188,7 @@ impl StackerDBConfig {
             Ok(ok_val) => ok_val.expect_list(),
         };
 
-        let mut total_num_slots = 0u64;
+        let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
             let slot_data = slot_value.expect_tuple();
@@ -208,21 +208,27 @@ impl StackerDBConfig {
                     "Contract {} stipulated more than maximum number of slots for one signer ({})",
                     contract_id, STACKERDB_INV_MAX
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
             }
-            let num_slots = num_slots_uint as u64;
-            total_num_slots = total_num_slots.saturating_add(num_slots);
+            let num_slots = num_slots_uint as u32;
+            total_num_slots =
+                total_num_slots
+                    .checked_add(num_slots)
+                    .ok_or(net_error::OverflowError(format!(
+                        "Contract {} stipulates more than u32::MAX slots",
+                        &contract_id
+                    )))?;
 
             if total_num_slots > STACKERDB_INV_MAX.into() {
                 let reason = format!(
                     "Contract {} stipulated more than the maximum number of slots",
                     contract_id
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
@@ -233,7 +239,7 @@ impl StackerDBConfig {
             let addr = match signer_principal {
                 PrincipalData::Contract(..) => {
                     let reason = format!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
-                    debug!("{}", &reason);
+                    warn!("{}", &reason);
                     return Err(net_error::InvalidStackerDBContract(
                         contract_id.clone(),
                         reason,
@@ -256,7 +262,7 @@ impl StackerDBConfig {
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
-        signers: Vec<(StacksAddress, u64)>,
+        signers: Vec<(StacksAddress, u32)>,
     ) -> Result<StackerDBConfig, net_error> {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
@@ -269,7 +275,7 @@ impl StackerDBConfig {
                     "Contract {} failed to run `stackerdb-get-config`: err u{}",
                     contract_id, &err_code
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
@@ -289,7 +295,7 @@ impl StackerDBConfig {
                 "Contract {} stipulates a chunk size beyond STACKERDB_MAX_CHUNK_SIZE",
                 contract_id
             );
-            debug!("{}", &reason);
+            warn!("{}", &reason);
             return Err(net_error::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
@@ -306,7 +312,7 @@ impl StackerDBConfig {
                 "Contract {} stipulates a write frequency beyond u64::MAX",
                 contract_id
             );
-            debug!("{}", &reason);
+            warn!("{}", &reason);
             return Err(net_error::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
@@ -323,7 +329,7 @@ impl StackerDBConfig {
                 "Contract {} stipulates a max-write bound beyond u32::MAX",
                 contract_id
             );
-            debug!("{}", &reason);
+            warn!("{}", &reason);
             return Err(net_error::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
@@ -340,7 +346,7 @@ impl StackerDBConfig {
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
                 contract_id
             );
-            debug!("{}", &reason);
+            warn!("{}", &reason);
             return Err(net_error::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
@@ -380,7 +386,7 @@ impl StackerDBConfig {
                         "Contract {} stipulates an addr byte above u8::MAX",
                         contract_id
                     );
-                    debug!("{}", &reason);
+                    warn!("{}", &reason);
                     return Err(net_error::InvalidStackerDBContract(
                         contract_id.clone(),
                         reason,
@@ -393,7 +399,7 @@ impl StackerDBConfig {
                     "Contract {} did not stipulate a full 16-octet IP address",
                     contract_id
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
@@ -405,7 +411,7 @@ impl StackerDBConfig {
                     "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
                     contract_id
                 );
-                debug!("{}", &reason);
+                warn!("{}", &reason);
                 return Err(net_error::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,

@@ -172,7 +172,7 @@ pub struct StackerDBConfig {
     /// maximum chunk size
     pub chunk_size: u64,
     /// list of who writes and how many slots they have
-    pub signers: Vec<(StacksAddress, u64)>,
+    pub signers: Vec<(StacksAddress, u32)>,
     /// minimum wall-clock time between writes to the same slot.
     pub write_freq: u64,
     /// maximum number of times a slot may be written to during a reward cycle.
@@ -197,7 +197,7 @@ impl StackerDBConfig {
     }
 
     /// How many slots are in this DB total?
-    pub fn num_slots(&self) -> u64 {
+    pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
 }
