@@ -28,18 +28,24 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use crate::error::RPCError;
 use crate::http::run_http_request;
 
+/// Trait for connecting to and querying a signer Stacker DB replica
 pub trait SignerSession {
+    /// connect to the replica
     fn connect(
         &mut self,
         host: SocketAddr,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError>;
+    /// query the replica for a list of chunks
     fn list_chunks(&mut self) -> Result<Vec<SlotMetadata>, RPCError>;
+    /// query the replica for zero or more chunks
     fn get_chunks(
         &mut self,
         slots_and_versions: &[(u32, u32)],
     ) -> Result<Vec<Option<Vec<u8>>>, RPCError>;
+    /// query the replica for zero or more latest chunks
     fn get_latest_chunks(&mut self, slot_ids: &[u32]) -> Result<Vec<Option<Vec<u8>>>, RPCError>;
+    /// Upload a chunk to the stacker DB instance
     fn put_chunk(&mut self, chunk: StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError>;
 
     /// Get a single chunk with the given version

@@ -2000,6 +2000,7 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "thiserror",
  "tiny_http",
 ]
 

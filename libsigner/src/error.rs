@@ -14,118 +14,56 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
 use std::io;
 
 /// Errors originating from doing an RPC request to the Stacks node
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum RPCError {
-    IO(io::Error),
+    /// IO error
+    #[error("{0}")]
+    IO(#[from] io::Error),
+    /// Deserialization error
+    #[error("{0}")]
     Deserialize(String),
+    /// RPC request when not connected
+    #[error("Not connected")]
     NotConnected,
+    /// Malformed request
+    #[error("Malformed request: {0}")]
     MalformedRequest(String),
+    /// Malformed response
+    #[error("Malformed response: {0}")]
     MalformedResponse(String),
+    /// HTTP error
+    #[error("HTTP code {0}")]
     HttpError(u32),
 }
 
-impl fmt::Display for RPCError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            RPCError::IO(ref s) => fmt::Display::fmt(s, f),
-            RPCError::Deserialize(ref s) => fmt::Display::fmt(s, f),
-            RPCError::HttpError(ref s) => {
-                write!(f, "HTTP code {}", s)
-            }
-            RPCError::MalformedRequest(ref s) => {
-                write!(f, "Malformed request: {}", s)
-            }
-            RPCError::MalformedResponse(ref s) => {
-                write!(f, "Malformed response: {}", s)
-            }
-            RPCError::NotConnected => {
-                write!(f, "Not connected")
-            }
-        }
-    }
-}
-
-impl error::Error for RPCError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            RPCError::IO(ref s) => Some(s),
-            RPCError::Deserialize(..) => None,
-            RPCError::HttpError(..) => None,
-            RPCError::MalformedRequest(..) => None,
-            RPCError::MalformedResponse(..) => None,
-            RPCError::NotConnected => None,
-        }
-    }
-}
-
-impl From<io::Error> for RPCError {
-    fn from(e: io::Error) -> RPCError {
-        RPCError::IO(e)
-    }
-}
-
 /// Errors originating from receiving event data from the Stacks node
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum EventError {
-    IO(io::Error),
+    /// IO Error
+    #[error("{0}")]
+    IO(#[from] io::Error),
+    /// Deserialization error
+    #[error("{0}")]
     Deserialize(String),
+    /// Malformed request
+    #[error("Malformed request: {0}")]
     MalformedRequest(String),
+    /// Not bound to a port error
+    #[error("Not bound to a port yet")]
     NotBound,
+    /// Listener terminated error
+    #[error("Listener is terminated")]
     Terminated,
+    /// Thread already running error
+    #[error("Thread already running")]
     AlreadyRunning,
+    /// Failed to start thread error
+    #[error("Failed to start thread")]
     FailedToStart,
+    /// Unrecognized event error
+    #[error("Unrecognized event: {0}")]
     UnrecognizedEvent(String),
-}
-
-impl fmt::Display for EventError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            EventError::IO(ref s) => fmt::Display::fmt(s, f),
-            EventError::Deserialize(ref s) => fmt::Display::fmt(s, f),
-            EventError::MalformedRequest(ref s) => {
-                write!(f, "Malformed request: {}", s)
-            }
-            EventError::NotBound => {
-                write!(f, "Not bound to a port yet")
-            }
-            EventError::Terminated => {
-                write!(f, "Listener is terminated")
-            }
-            EventError::AlreadyRunning => {
-                write!(f, "Thread already running")
-            }
-            EventError::FailedToStart => {
-                write!(f, "Failed to start thread")
-            }
-            EventError::UnrecognizedEvent(ref ev) => {
-                write!(f, "Unrecognized event '{}'", &ev)
-            }
-        }
-    }
-}
-
-impl error::Error for EventError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            EventError::IO(ref s) => Some(s),
-            EventError::Deserialize(..) => None,
-            EventError::MalformedRequest(..) => None,
-            EventError::NotBound => None,
-            EventError::Terminated => None,
-            EventError::AlreadyRunning => None,
-            EventError::FailedToStart => None,
-            EventError::UnrecognizedEvent(..) => None,
-        }
-    }
-}
-
-impl From<io::Error> for EventError {
-    fn from(e: io::Error) -> EventError {
-        EventError::IO(e)
-    }
 }

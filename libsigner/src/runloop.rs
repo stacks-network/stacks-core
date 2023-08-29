@@ -204,6 +204,7 @@ impl<
         EV: EventReceiver + Send + 'static,
     > Signer<CMD, R, SL, EV>
 {
+    /// Create a new signer with the given runloop and event receiver.
     pub fn new(
         runloop: SL,
         event_receiver: EV,
