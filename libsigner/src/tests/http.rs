@@ -55,7 +55,7 @@ fn test_decode_http_request_ok() {
             expected_headers.insert(key.to_string(), val.to_string());
         }
 
-        let (verb, path, headers, _) = decode_http_request(data.as_bytes()).unwrap();
+        let (verb, path, headers, _) = decode_http_request(data.as_bytes()).unwrap().destruct();
         assert_eq!(verb, expected_verb.to_string());
         assert_eq!(path, expected_path.to_string());
         assert_eq!(headers, expected_headers);

@@ -30,11 +30,39 @@ use crate::error::RPCError;
 pub const MAX_HTTP_HEADERS: usize = 32;
 pub const MAX_HTTP_HEADER_LEN: usize = 4096;
 
+/// Decoding of the relevant parts of a signer-directed HTTP request from the Stacks node
+#[derive(Debug)]
+pub struct SignerHttpRequest {
+    pub verb: String,
+    pub path: String,
+    pub headers: HashMap<String, String>,
+    pub body_offset: usize,
+}
+
+impl SignerHttpRequest {
+    pub fn new(
+        verb: String,
+        path: String,
+        headers: HashMap<String, String>,
+        body_offset: usize,
+    ) -> SignerHttpRequest {
+        SignerHttpRequest {
+            verb,
+            path,
+            headers,
+            body_offset,
+        }
+    }
+
+    /// Decompose into (verb, path, headers, body-offset)
+    pub fn destruct(self) -> (String, String, HashMap<String, String>, usize) {
+        (self.verb, self.path, self.headers, self.body_offset)
+    }
+}
+
 /// Decode the HTTP request payload into its headers and body.
 /// Returns (verb, path, table of headers, body_offset) on success
-pub fn decode_http_request(
-    payload: &[u8],
-) -> Result<(String, String, HashMap<String, String>, usize), EventError> {
+pub fn decode_http_request(payload: &[u8]) -> Result<SignerHttpRequest, EventError> {
     // realistically, there won't be more than 32 headers
     let mut headers_buf = [httparse::EMPTY_HEADER; MAX_HTTP_HEADERS];
     let mut req = httparse::Request::new(&mut headers_buf);
@@ -95,7 +123,7 @@ pub fn decode_http_request(
             ));
         };
 
-    Ok((verb, path, headers, body_offset))
+    Ok(SignerHttpRequest::new(verb, path, headers, body_offset))
 }
 
 /// Decode the HTTP response payload into its headers and body.

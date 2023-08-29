@@ -51,7 +51,7 @@ pub trait SignerRunLoop<R> {
     /// Run one pass of the event loop, given new StackerDB events discovered since the last pass.
     /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
     /// Returns None to keep running.
-    fn run_one_pass(&mut self, events: Option<StackerDBChunksEvent>) -> Option<R>;
+    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
     /// `event_recv`, polling for up to `self.get_event_timeout()` units of time.  Once it has

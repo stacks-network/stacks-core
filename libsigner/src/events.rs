@@ -198,7 +198,7 @@ impl EventReceiver for StackerDBEventReceiver {
             let mut buf = vec![];
             node_sock.read_to_end(&mut buf)?;
 
-            let (verb, path, headers, body_offset) = decode_http_request(&buf)?;
+            let (verb, path, headers, body_offset) = decode_http_request(&buf)?.destruct();
             if verb != "POST" {
                 return Err(EventError::MalformedRequest(format!(
                     "Unrecognized verb '{}'",

@@ -15,10 +15,6 @@ edition = "2021"
 name = "libsigner"
 path = "./src/libsigner.rs"
 
-[[bin]]
-name = "stackschat"
-path = "demos/stackschat/main.rs"
-
 [dependencies]
 serde = "1"
 serde_derive = "1"
