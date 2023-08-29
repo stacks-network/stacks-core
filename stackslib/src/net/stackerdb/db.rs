@@ -243,7 +243,7 @@ impl<'a> StackerDBTx<'a> {
     pub fn create_stackerdb(
         &self,
         smart_contract: &QualifiedContractIdentifier,
-        slots: &[(StacksAddress, u64)],
+        slots: &[(StacksAddress, u32)],
     ) -> Result<(), net_error> {
         if slots.len() > (STACKERDB_INV_MAX as usize) {
             return Err(net_error::ArrayTooLong);
@@ -308,19 +308,26 @@ impl<'a> StackerDBTx<'a> {
     pub fn reconfigure_stackerdb(
         &self,
         smart_contract: &QualifiedContractIdentifier,
-        slots: &[(StacksAddress, u64)],
+        slots: &[(StacksAddress, u32)],
     ) -> Result<(), net_error> {
         let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
-        let mut slot_id = 0u32;
+        let mut total_slots_read = 0u32;
         for (principal, slot_count) in slots.iter() {
-            for _ in 0..*slot_count {
+            total_slots_read =
+                total_slots_read
+                    .checked_add(*slot_count)
+                    .ok_or(net_error::OverflowError(
+                        "Slot count exceeeds u32::MAX".to_string(),
+                    ))?;
+            let slots_before_principal = total_slots_read - slot_count;
+            for cur_principal_slot in 0..*slot_count {
+                let slot_id = slots_before_principal + cur_principal_slot;
                 if let Some(existing_validation) =
                     self.get_slot_validation(smart_contract, slot_id)?
                 {
                     // this slot already exists.
                     if existing_validation.signer == *principal {
                         // no change
-                        slot_id += 1;
                         continue;
                     }
                 }
@@ -340,7 +347,6 @@ impl<'a> StackerDBTx<'a> {
                 ];
 
                 stmt.execute(args)?;
-                slot_id += 1;
             }
         }
         Ok(())

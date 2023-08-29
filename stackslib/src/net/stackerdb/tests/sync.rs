@@ -124,7 +124,7 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
         };
 
         pks.push(pk);
-        slots.push((addr, 1));
+        slots.push((addr, 1u32));
     }
 
     stackerdb_config.signers = slots.clone();
