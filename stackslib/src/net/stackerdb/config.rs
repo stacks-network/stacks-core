@@ -128,7 +128,7 @@ impl StackerDBConfig {
             } else if let Some(f) = analysis.public_function_types.get(name) {
                 f
             } else {
-                test_debug!("Contract is missing function '{}'", name);
+                warn!("Contract is missing function '{}'", name);
                 return false;
             };
 
@@ -141,12 +141,12 @@ impl StackerDBConfig {
                         .admits_type(epoch, &returns)
                         .unwrap_or(false)
                     {
-                        test_debug!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
+                        warn!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
                         return false;
                     }
                 }
                 _ => {
-                    test_debug!("Contract function '{}' is not a fixed function", name);
+                    warn!("Contract function '{}' is not a fixed function", name);
                     return false;
                 }
             }
@@ -160,7 +160,7 @@ impl StackerDBConfig {
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &ContractId,
         tip: &StacksBlockId,
-    ) -> Result<Vec<(StacksAddress, u64)>, net_error> {
+    ) -> Result<Vec<(StacksAddress, u32)>, net_error> {
         let value = chainstate.eval_read_only(
             burn_dbconn,
             tip,
@@ -172,7 +172,7 @@ impl StackerDBConfig {
         let slot_list = match result {
             Err(err_val) => {
                 let err_code = err_val.expect_u128();
-                debug!(
+                warn!(
                     "Contract {} failed to run `stackerdb-get-signer-slots`: error u{}",
                     contract_id, &err_code
                 );
@@ -181,7 +181,7 @@ impl StackerDBConfig {
             Ok(ok_val) => ok_val.expect_list(),
         };
 
-        let mut total_num_slots = 0u64;
+        let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
             let slot_data = slot_value.expect_tuple();
@@ -197,17 +197,23 @@ impl StackerDBConfig {
                 .expect_u128();
 
             if num_slots_uint > (STACKERDB_INV_MAX as u128) {
-                debug!(
+                warn!(
                     "Contract {} stipulated more than maximum number of slots for one signer ({})",
                     contract_id, STACKERDB_INV_MAX
                 );
                 return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
             }
-            let num_slots = num_slots_uint as u64;
-            total_num_slots = total_num_slots.saturating_add(num_slots);
+            let num_slots = num_slots_uint as u32;
+            total_num_slots =
+                total_num_slots
+                    .checked_add(num_slots)
+                    .ok_or(net_error::OverflowError(format!(
+                        "Contract {} stipulates more than u32::MAX slots",
+                        &contract_id
+                    )))?;
 
             if total_num_slots > STACKERDB_INV_MAX.into() {
-                debug!(
+                warn!(
                     "Contract {} stipulated more than the maximum number of slots",
                     contract_id
                 );
@@ -217,7 +223,7 @@ impl StackerDBConfig {
             // standard principals only
             let addr = match signer_principal {
                 PrincipalData::Contract(..) => {
-                    debug!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
+                    warn!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
                     return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
                 }
                 PrincipalData::Standard(StandardPrincipalData(version, bytes)) => StacksAddress {
@@ -237,7 +243,7 @@ impl StackerDBConfig {
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &ContractId,
         tip: &StacksBlockId,
-        signers: Vec<(StacksAddress, u64)>,
+        signers: Vec<(StacksAddress, u32)>,
     ) -> Result<StackerDBConfig, net_error> {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
@@ -246,7 +252,7 @@ impl StackerDBConfig {
         let config_tuple = match result {
             Err(err_val) => {
                 let err_code = err_val.expect_u128();
-                debug!(
+                warn!(
                     "Contract {} failed to run `stackerdb-get-config`: err u{}",
                     contract_id, &err_code
                 );
@@ -261,7 +267,7 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if chunk_size > STACKERDB_MAX_CHUNK_SIZE as u128 {
-            debug!(
+            warn!(
                 "Contract {} stipulates a chunk size beyond STACKERDB_MAX_CHUNK_SIZE",
                 contract_id
             );
@@ -274,7 +280,7 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if write_freq > u64::MAX as u128 {
-            debug!(
+            warn!(
                 "Contract {} stipulates a write frequency beyond u64::MAX",
                 contract_id
             );
@@ -287,7 +293,7 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if max_writes > u32::MAX as u128 {
-            debug!(
+            warn!(
                 "Contract {} stipulates a max-write bound beyond u32::MAX",
                 contract_id
             );
@@ -300,7 +306,7 @@ impl StackerDBConfig {
             .clone()
             .expect_u128();
         if max_neighbors > usize::MAX as u128 {
-            debug!(
+            warn!(
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
                 contract_id
             );
@@ -336,7 +342,7 @@ impl StackerDBConfig {
             for byte_val in addr_byte_list.into_iter() {
                 let byte = byte_val.expect_u128();
                 if byte > (u8::MAX as u128) {
-                    debug!(
+                    warn!(
                         "Contract {} stipulates an addr byte above u8::MAX",
                         contract_id
                     );
@@ -345,7 +351,7 @@ impl StackerDBConfig {
                 addr_bytes.push(byte as u8);
             }
             if addr_bytes.len() != 16 {
-                debug!(
+                warn!(
                     "Contract {} did not stipulate a full 16-octet IP address",
                     contract_id
                 );
@@ -353,7 +359,7 @@ impl StackerDBConfig {
             }
 
             if port < 1024 || port > ((u16::MAX - 1) as u128) {
-                debug!(
+                warn!(
                     "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
                     contract_id
                 );
@@ -430,13 +436,13 @@ impl StackerDBConfig {
             })?;
 
         if res.is_none() {
-            info!(
+            warn!(
                 "Could not evaluate contract {} at {}",
                 contract_id, &chain_tip_hash
             );
             return Err(net_error::InvalidStackerDBContract(contract_id.clone()));
         } else if let Some(Err(e)) = res {
-            info!(
+            warn!(
                 "Could not use contract {} for StackerDB: {:?}",
                 contract_id, &e
             );
