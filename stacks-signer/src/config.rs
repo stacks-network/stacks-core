@@ -14,85 +14,80 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-use std::fs;
-use std::net::{SocketAddr, ToSocketAddrs};
-
-use serde::Deserialize;
-
-use toml;
-
 use clarity::vm::types::QualifiedContractIdentifier;
+use serde::Deserialize;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use std::{
+    convert::TryFrom,
+    fs,
+    net::{SocketAddr, ToSocketAddrs},
+    path::PathBuf,
+};
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
+/// An error occurred parsing the provided configuration
 pub enum ConfigError {
-    NoSuchConfigFile(String),
+    /// Error occurred reading config file
+    #[error("{0}")]
+    InvalidConfig(String),
+    /// An error occurred parsing the TOML data
+    #[error("{0}")]
     ParseError(String),
+    /// A field was malformed
+    #[error("identifier={0}, value={1}")]
     BadField(String, String),
 }
 
-impl fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ConfigError::NoSuchConfigFile(ref s) => fmt::Display::fmt(s, f),
-            ConfigError::ParseError(ref s) => fmt::Display::fmt(s, f),
-            ConfigError::BadField(ref f1, ref f2) => {
-                write!(f, "identifier={}, value={}", f1, f2)
-            }
-        }
-    }
-}
-
-impl error::Error for ConfigError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            ConfigError::NoSuchConfigFile(..) => None,
-            ConfigError::ParseError(..) => None,
-            ConfigError::BadField(..) => None,
-        }
-    }
-}
-
-pub struct ConfigFile {
+/// The parsed configuration for the signer
+pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
     /// smart contract that controls the target stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
+    /// the private key used to sign blocks, chunks, and transactions
+    pub private_key: StacksPrivateKey,
 }
 
 /// Internal struct for loading up the config file
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct RawConfigFile {
     /// endpoint to stacks node
     pub node_host: String,
     /// contract identifier
     pub stackerdb_contract_id: String,
+    /// the private key used to sign blocks, chunks, and transactions in hexademical format
+    pub private_key: String,
 }
 
 impl RawConfigFile {
     /// load the config from a string
-    pub fn load_from_str(data: &str) -> Result<RawConfigFile, ConfigError> {
+    pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         let config: RawConfigFile =
             toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{:?}", &e)))?;
         Ok(config)
     }
-
-    /// load the config from a file
-    pub fn load_from_file(path: &str) -> Result<RawConfigFile, ConfigError> {
-        let data = fs::read_to_string(path)
-            .map_err(|_| ConfigError::NoSuchConfigFile(path.to_string()))?;
-        Self::load_from_str(&data)
+    /// load the config from a file and parse it
+    pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
+        Self::try_from(&PathBuf::from(path))
     }
 }
 
-impl TryFrom<RawConfigFile> for ConfigFile {
+impl TryFrom<&PathBuf> for RawConfigFile {
+    type Error = ConfigError;
+
+    fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
+        RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
+            ConfigError::InvalidConfig(format!("failed to read config file: {:?}", &e))
+        })?)
+    }
+}
+
+impl TryFrom<RawConfigFile> for Config {
     type Error = ConfigError;
 
     /// Attempt to decode the raw config file's primitive types into our types.
     /// NOTE: network access is required for this to work
-    fn try_from(raw_data: RawConfigFile) -> Result<ConfigFile, Self::Error> {
+    fn try_from(raw_data: RawConfigFile) -> Result<Self, Self::Error> {
         let node_host = raw_data
             .node_host
             .clone()
@@ -114,23 +109,33 @@ impl TryFrom<RawConfigFile> for ConfigFile {
                 )
             })?;
 
-        Ok(ConfigFile {
+        let private_key = StacksPrivateKey::from_hex(&raw_data.private_key)
+            .map_err(|_| ConfigError::BadField("private_key".to_string(), raw_data.private_key))?;
+
+        Ok(Self {
             node_host,
             stackerdb_contract_id,
+            private_key,
         })
     }
 }
 
-impl ConfigFile {
+impl TryFrom<&PathBuf> for Config {
+    type Error = ConfigError;
+    fn try_from(path: &PathBuf) -> Result<Self, ConfigError> {
+        let config_file = RawConfigFile::try_from(path)?;
+        Self::try_from(config_file)
+    }
+}
+
+impl Config {
     /// load the config from a string and parse it
-    pub fn load_from_str(data: &str) -> Result<ConfigFile, ConfigError> {
+    pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         RawConfigFile::load_from_str(data)?.try_into()
     }
 
     /// load the config from a file and parse it
-    pub fn load_from_file(path: &str) -> Result<ConfigFile, ConfigError> {
-        let data = fs::read_to_string(path)
-            .map_err(|_| ConfigError::NoSuchConfigFile(path.to_string()))?;
-        Self::load_from_str(&data)
+    pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
+        Self::try_from(&PathBuf::from(path))
     }
 }
