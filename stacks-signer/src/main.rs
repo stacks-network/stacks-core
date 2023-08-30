@@ -50,7 +50,7 @@ pub struct Cli {
     /// Path to config file
     #[arg(long, value_name = "FILE")]
     config: Option<PathBuf>,
-    /// The stcks node to connect to
+    /// The Stacks node to connect to
     #[clap(long, required_unless_present = "config", conflicts_with = "config")]
     host: Option<SocketAddr>,
     /// The stacker-db contract to use
