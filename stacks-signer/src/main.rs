@@ -51,13 +51,13 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     config: Option<PathBuf>,
     /// The stcks node to connect to
-    #[clap(long, required_unless_present = "config")]
+    #[clap(long, required_unless_present = "config", conflicts_with = "config")]
     host: Option<SocketAddr>,
     /// The stacker-db contract to use
-    #[arg(short, long, value_parser = parse_contract, required_unless_present = "config")]
+    #[arg(short, long, value_parser = parse_contract, required_unless_present = "config", conflicts_with = "config")]
     contract: Option<QualifiedContractIdentifier>,
     /// The Stacks private key to use in hexademical format
-    #[arg(short, long, value_parser = parse_private_key, required_unless_present = "config")]
+    #[arg(short, long, value_parser = parse_private_key, required_unless_present = "config", conflicts_with = "config")]
     private_key: Option<StacksPrivateKey>,
     /// Subcommand action to take
     #[command(subcommand)]
