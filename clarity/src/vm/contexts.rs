@@ -2194,6 +2194,7 @@ mod test {
                 DefineType::Public,
                 &"foo".into(),
                 "testing",
+                TypeSignature::IntType,
             ),
         );
 

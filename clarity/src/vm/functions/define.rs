@@ -152,6 +152,7 @@ fn handle_define_function(
         define_type,
         function_name,
         &env.contract_context.contract_identifier.to_string(),
+        TypeSignature::NoType, // FIXME: this is a placeholder
     );
 
     Ok(DefineResult::Function(function_name.clone(), function))

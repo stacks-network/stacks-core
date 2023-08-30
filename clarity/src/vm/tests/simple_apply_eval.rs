@@ -694,6 +694,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             Private,
             &"with_else".into(),
             &"",
+            TypeSignature::IntType,
         );
 
         let user_function2 = DefinedFunction::new(
@@ -702,6 +703,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             Private,
             &"without_else".into(),
             &"",
+            TypeSignature::IntType,
         );
 
         let context = LocalContext::new();

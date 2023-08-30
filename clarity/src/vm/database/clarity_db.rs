@@ -54,7 +54,7 @@ use stacks_common::consts::{
 use stacks_common::types::chainstate::ConsensusHash;
 
 use super::clarity_store::SpecialCaseHandler;
-use super::key_value_wrapper::ValueResult;
+pub use super::key_value_wrapper::ValueResult;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
