@@ -670,7 +670,12 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[0].clone(),
             Private,
             &"with_else".into(),
+<<<<<<< HEAD
             "",
+=======
+            &"",
+            TypeSignature::IntType,
+>>>>>>> d5d7c4f6c (feat(clar2wasm-runtime): remove `ContractAnalysis` from runtime)
         );
 
         let user_function2 = DefinedFunction::new(
@@ -678,7 +683,12 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[1].clone(),
             Private,
             &"without_else".into(),
+<<<<<<< HEAD
             "",
+=======
+            &"",
+            TypeSignature::IntType,
+>>>>>>> d5d7c4f6c (feat(clar2wasm-runtime): remove `ContractAnalysis` from runtime)
         );
 
         let context = LocalContext::new();
