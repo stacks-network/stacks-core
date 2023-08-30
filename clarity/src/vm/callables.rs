@@ -71,6 +71,7 @@ pub struct DefinedFunction {
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression,
+    return_type: TypeSignature,
 }
 
 /// This enum handles the actual invocation of the method
@@ -128,6 +129,7 @@ impl DefinedFunction {
         define_type: DefineType,
         name: &ClarityName,
         context_name: &str,
+        return_type: TypeSignature,
     ) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
@@ -138,6 +140,7 @@ impl DefinedFunction {
             define_type,
             body,
             arg_types: types,
+            return_type,
         }
     }
 
@@ -358,6 +361,10 @@ impl DefinedFunction {
 
     pub fn get_arg_types(&self) -> &Vec<TypeSignature> {
         &self.arg_types
+    }
+
+    pub fn get_return_type(&self) -> &TypeSignature {
+        &self.return_type
     }
 
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
@@ -711,6 +718,7 @@ mod test {
             DefineType::Public,
             &"foo".into(),
             "testing",
+            TypeSignature::IntType,
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);
         assert_eq!(
