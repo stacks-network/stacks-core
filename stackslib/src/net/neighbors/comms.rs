@@ -76,6 +76,8 @@ pub trait NeighborComms {
     fn add_batch_request(&mut self, naddr: NeighborAddress, rh: ReplyHandleP2P);
     /// Get the number of inflight requests
     fn count_inflight(&self) -> usize;
+    /// Does a given neighbor have an inflight request?
+    fn has_inflight(&self, naddr: &NeighborAddress) -> bool;
     /// Poll for any received messages.
     fn collect_replies(
         &mut self,
@@ -108,7 +110,7 @@ pub trait NeighborComms {
         );
 
         let msg = network
-            .sign_for_peer(&nk, StacksMessageType::Handshake(handshake_data))
+            .sign_for_neighbor(&nk, StacksMessageType::Handshake(handshake_data))
             .map_err(|e| {
                 info!(
                     "{:?}: Failed to sign for peer {:?}",
@@ -120,7 +122,7 @@ pub trait NeighborComms {
             })?;
 
         network
-            .send_message(&nk, msg, network.get_connection_opts().timeout)
+            .send_neighbor_message(&nk, msg, network.get_connection_opts().timeout)
             .map_err(|e| {
                 debug!(
                     "{:?}: Not connected: {:?} ({:?})",
@@ -242,9 +244,9 @@ pub trait NeighborComms {
                 // If the already-connected handle is inbound,
                 // then try to connect to this address anyway in
                 // order to maximize our outbound connections we have.
-                if let Some(convo) = network.get_peer_convo(event_id) {
+                if let Some(convo) = network.get_p2p_convo(event_id) {
                     if !convo.is_outbound() {
-                        debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
+                        test_debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
                                network.get_local_peer(), &nk, &event_id, &handshake_nk, &neighbor_pubkh, &nk);
 
                         self.remove_connecting(network, &nk);
@@ -252,7 +254,7 @@ pub trait NeighborComms {
                             .neighbor_handshake(network, &nk)
                             .and_then(|handle| Ok(Some(handle)));
                     }
-                    debug!(
+                    test_debug!(
                         "{:?}: Already connected to {:?} on event {} (address: {:?})",
                         network.get_local_peer(),
                         &nk,
@@ -272,7 +274,7 @@ pub trait NeighborComms {
                 return Err(net_error::PeerNotConnected);
             }
             Err(e) => {
-                debug!(
+                test_debug!(
                     "{:?}: Failed to check connection to {:?}: {:?}. No handshake sent.",
                     network.get_local_peer(),
                     &nk,
@@ -293,10 +295,12 @@ pub trait NeighborComms {
         &mut self,
         network: &mut PeerNetwork,
         neighbor_addr: &NeighborAddress,
-        neighbor_pubkh: &Hash160,
     ) -> Result<bool, net_error> {
-        let handle_opt =
-            self.neighbor_session_begin_only(network, neighbor_addr, neighbor_pubkh)?;
+        let handle_opt = self.neighbor_session_begin_only(
+            network,
+            neighbor_addr,
+            &neighbor_addr.public_key_hash,
+        )?;
         if let Some(handle) = handle_opt {
             self.add_batch_request(neighbor_addr.clone(), handle);
             return Ok(true);
@@ -318,8 +322,8 @@ pub trait NeighborComms {
         msg_payload: StacksMessageType,
     ) -> Result<ReplyHandleP2P, net_error> {
         let nk = neighbor_addr.to_neighbor_key(network);
-        let msg = network.sign_for_peer(&nk, msg_payload)?;
-        network.send_message(&nk, msg, network.get_connection_opts().timeout)
+        let msg = network.sign_for_neighbor(&nk, msg_payload)?;
+        network.send_neighbor_message(&nk, msg, network.get_connection_opts().timeout)
     }
 
     /// Send a message to a connected neighbor.
@@ -396,6 +400,13 @@ pub trait NeighborComms {
             },
             None => Err(net_error::PeerNotConnected),
         }
+    }
+
+    /// Are we connected already to a neighbor?
+    fn has_neighbor_session<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+        network
+            .get_neighbor_convo(&nk.to_neighbor_key(network))
+            .is_some()
     }
 
     /// Reset all comms
@@ -503,6 +514,13 @@ impl NeighborComms for PeerNetworkComms {
             .as_ref()
             .map(|batch| batch.count_inflight())
             .unwrap_or(0)
+    }
+
+    fn has_inflight(&self, naddr: &NeighborAddress) -> bool {
+        self.ongoing_batch_request
+            .as_ref()
+            .map(|batch| batch.state.contains_key(naddr))
+            .unwrap_or(false)
     }
 
     fn collect_replies(

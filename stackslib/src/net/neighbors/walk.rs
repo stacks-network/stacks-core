@@ -639,12 +639,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         self.new_frontier.clear();
         self.result.clear();
 
-        let cur_pubkh = Hash160::from_node_public_key(&self.cur_neighbor.public_key);
-        if self.comms.neighbor_session_begin(
-            network,
-            &NeighborAddress::from_neighbor(&self.cur_neighbor),
-            &cur_pubkh,
-        )? {
+        if self
+            .comms
+            .neighbor_session_begin(network, &NeighborAddress::from_neighbor(&self.cur_neighbor))?
+        {
             debug!(
                 "{:?}: Handshake sent to {:?}",
                 network.get_local_peer(),
@@ -1003,10 +1001,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             }
 
             // start a session with this neighbor
-            match self
-                .comms
-                .neighbor_session_begin(network, &na, &na.public_key_hash)
-            {
+            match self.comms.neighbor_session_begin(network, &na) {
                 Ok(true) => {
                     debug!(
                         "{:?}: will Handshake with neighbor-of-neighbor {:?} ({})",
@@ -1561,10 +1556,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             );
 
             // start a session with this neighbor
-            match self
-                .comms
-                .neighbor_session_begin(network, &naddr, &naddr.public_key_hash)
-            {
+            match self.comms.neighbor_session_begin(network, &naddr) {
                 Ok(true) => {
                     debug!(
                         "{:?}: Sent pingback handshake to {:?}",

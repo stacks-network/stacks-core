@@ -23,13 +23,10 @@ use std::path::Path;
 
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{
-    SlotMetadata, StackerDBConfig, StackerDBSet, StackerDBTx, STACKERDB_INV_MAX,
+    SlotMetadata, StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX,
 };
 use crate::net::Error as net_error;
-use crate::net::{
-    ContractId, StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkInvData,
-    StackerDBHandshakeData,
-};
+use crate::net::{ContractId, StackerDBChunkData, StackerDBHandshakeData};
 
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
@@ -277,7 +274,6 @@ impl<'a> StackerDBTx<'a> {
     /// Fails if the DB doesn't exist
     pub fn clear_stackerdb_slots(&self, smart_contract: &ContractId) -> Result<(), net_error> {
         let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
-
         let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
         let args: &[&dyn ToSql] = &[&stackerdb_id];
         let mut stmt = self.sql_tx.prepare(&qry)?;
@@ -363,18 +359,13 @@ impl<'a> StackerDBTx<'a> {
                 slot_validation.version,
             ));
         }
-        if slot_validation.write_time + self.config.write_freq >= get_epoch_time_secs() {
-            return Err(net_error::TooFrequentSlotWrites(
-                slot_validation.write_time + self.config.write_freq,
-            ));
-        }
         self.insert_chunk(smart_contract, slot_desc, chunk)
     }
 }
 
-impl StackerDBSet {
+impl StackerDBs {
     /// Instantiate the DB
-    fn instantiate(path: &str, readwrite: bool) -> Result<StackerDBSet, net_error> {
+    fn instantiate(path: &str, readwrite: bool) -> Result<StackerDBs, net_error> {
         let mut create_flag = false;
 
         let open_flags = if path != ":memory:" {
@@ -413,7 +404,10 @@ impl StackerDBSet {
         };
 
         let conn = sqlite_open(path, open_flags, true)?;
-        let mut db = StackerDBSet { conn };
+        let mut db = StackerDBs {
+            conn,
+            path: path.to_string(),
+        };
 
         if create_flag {
             let db_tx = db.tx_begin(StackerDBConfig::noop())?;
@@ -428,13 +422,18 @@ impl StackerDBSet {
 
     /// Connect to a stacker DB, creating it if it doesn't exist and if readwrite is true.
     /// Readwrite is enforced by the underling sqlite connection.
-    pub fn connect(path: &str, readwrite: bool) -> Result<StackerDBSet, net_error> {
+    pub fn connect(path: &str, readwrite: bool) -> Result<StackerDBs, net_error> {
         Self::instantiate(path, readwrite)
     }
 
     #[cfg(test)]
-    pub fn connect_memory() -> StackerDBSet {
+    pub fn connect_memory() -> StackerDBs {
         Self::instantiate(":memory:", true).unwrap()
+    }
+
+    /// Open the StackerDBs again
+    pub fn reopen(&self) -> Result<StackerDBs, net_error> {
+        Self::instantiate(&self.path, true)
     }
 
     /// Open a transaction on the Stacker DB.
