@@ -38,17 +38,17 @@ trait ClarityWasmContext {
 }
 
 /// The context used when making calls into the Wasm module.
-pub struct ClarityWasmRunContext<'a, 'b, 'hooks> {
+pub struct ClarityWasmRunContext<'a, 'b> {
     /// The global context in which to execute.
-    pub global_context: &'b mut GlobalContext<'a, 'hooks>,
+    pub global_context: &'b mut GlobalContext<'a>,
     /// Context for this contract. This will be filled in when running the
     /// top-level expressions, then used when calling functions.
     pub contract_context: &'b mut ContractContext,
 }
 
-impl<'a, 'b, 'hooks> ClarityWasmRunContext<'a, 'b, 'hooks> {
+impl<'a, 'b, 'hooks> ClarityWasmRunContext<'a, 'b> {
     pub fn new(
-        global_context: &'b mut GlobalContext<'a, 'hooks>,
+        global_context: &'b mut GlobalContext<'a>,
         contract_context: &'b mut ContractContext,
     ) -> Self {
         ClarityWasmRunContext {
@@ -58,7 +58,7 @@ impl<'a, 'b, 'hooks> ClarityWasmRunContext<'a, 'b, 'hooks> {
     }
 }
 
-impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
+impl ClarityWasmContext for ClarityWasmRunContext<'_, '_> {
     fn contract_identifier(&self) -> &QualifiedContractIdentifier {
         &self.contract_context.contract_identifier
     }
@@ -99,15 +99,15 @@ impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
 /// The context used when initializing the Wasm module. It embeds the
 /// `ClarityWasmRunContext`, but also includes the contract analysis data for
 /// typing information.
-pub struct ClarityWasmInitContext<'a, 'b, 'hooks> {
-    pub run_context: ClarityWasmRunContext<'a, 'b, 'hooks>,
+pub struct ClarityWasmInitContext<'a, 'b> {
+    pub run_context: ClarityWasmRunContext<'a, 'b>,
     /// Contract analysis data, used for typing information
     pub contract_analysis: &'b ContractAnalysis,
 }
 
-impl<'a, 'b, 'hooks> ClarityWasmInitContext<'a, 'b, 'hooks> {
+impl<'a, 'b, 'hooks> ClarityWasmInitContext<'a, 'b> {
     pub fn new(
-        global_context: &'b mut GlobalContext<'a, 'hooks>,
+        global_context: &'b mut GlobalContext<'a>,
         contract_context: &'b mut ContractContext,
         contract_analysis: &'b ContractAnalysis,
     ) -> Self {
@@ -121,7 +121,7 @@ impl<'a, 'b, 'hooks> ClarityWasmInitContext<'a, 'b, 'hooks> {
     }
 }
 
-impl ClarityWasmContext for ClarityWasmInitContext<'_, '_, '_> {
+impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
     fn contract_identifier(&self) -> &QualifiedContractIdentifier {
         &self.run_context.contract_context.contract_identifier
     }
