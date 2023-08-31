@@ -12,11 +12,13 @@ use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap
 
 use super::{
     analysis::CheckErrors,
+    callables::{DefineType, DefinedFunction},
     contracts::Contract,
     costs::CostTracker,
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata},
     errors::RuntimeErrorType,
     types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData},
+    SymbolicExpression,
 };
 
 trait ClarityWasmContext {
@@ -280,11 +282,85 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
             "clarity",
             "define_function",
             |mut caller: Caller<'_, ClarityWasmInitContext>,
-             identifier: i32,
+             kind: i32,
              name_offset: i32,
-             name_length: i32,
-             value_offset: i32,
-             value_length: i32| {},
+             name_length: i32| {
+                // Read the variable name string from the memory
+                let function_name =
+                    read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let function_cname = ClarityName::try_from(function_name.clone())?;
+
+                // Retrieve the kind of function
+                let (define_type, function_type) = match kind {
+                    0 => (
+                        DefineType::ReadOnly,
+                        caller
+                            .data()
+                            .contract_analysis
+                            .get_read_only_function_type(&function_name)
+                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                                function_name.clone(),
+                            )))?,
+                    ),
+                    1 => (
+                        DefineType::Public,
+                        caller
+                            .data()
+                            .contract_analysis
+                            .get_public_function_type(&function_name)
+                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                                function_name.clone(),
+                            )))?,
+                    ),
+                    2 => (
+                        DefineType::Private,
+                        caller
+                            .data()
+                            .contract_analysis
+                            .get_private_function(&function_name)
+                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                                function_name.clone(),
+                            )))?,
+                    ),
+                    _ => Err(Error::Wasm(WasmError::InvalidFunctionKind(kind)))?,
+                };
+
+                let fixed_type = match function_type {
+                    FunctionType::Fixed(fixed_type) => fixed_type,
+                    _ => Err(Error::Unchecked(CheckErrors::DefineFunctionBadSignature))?,
+                };
+
+                let function = DefinedFunction::new(
+                    fixed_type
+                        .args
+                        .iter()
+                        .map(|arg| (arg.name.clone(), arg.signature.clone()))
+                        .collect(),
+                    // TODO: We don't actually need the body here, so we
+                    // should be able to remove it. For now, this is a
+                    // placeholder.
+                    SymbolicExpression::literal_value(Value::Int(0)),
+                    define_type,
+                    &function_cname,
+                    &caller
+                        .data()
+                        .run_context
+                        .contract_context
+                        .contract_identifier
+                        .to_string(),
+                    fixed_type.returns.clone(),
+                );
+
+                // Insert this function into the context
+                caller
+                    .data_mut()
+                    .run_context
+                    .contract_context
+                    .functions
+                    .insert(function_cname, function);
+
+                Ok(())
+            },
         )
         .unwrap();
 }
