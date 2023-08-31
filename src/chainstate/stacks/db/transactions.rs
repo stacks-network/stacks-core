@@ -504,6 +504,7 @@ impl StacksChainState {
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
+        txid: Txid,
     ) -> bool {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
@@ -532,7 +533,7 @@ impl StacksChainState {
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
                         info!(
                             "Post-condition check failure on STX owned by {}: {:?} {:?} {}",
-                            account_principal, amount_sent_condition, condition_code, amount_sent
+                            account_principal, amount_sent_condition, condition_code, amount_sent; "txid" => %txid
                         );
                         return false;
                     }
@@ -576,7 +577,7 @@ impl StacksChainState {
                         .get_fungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(0);
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
-                        info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
+                        info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent; "txid" => %txid);
                         return false;
                     }
 
@@ -610,7 +611,7 @@ impl StacksChainState {
                         .get_nonfungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
-                        info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
+                        info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code; "txid" => %txid);
                         return false;
                     }
 
@@ -652,18 +653,18 @@ impl StacksChainState {
                                     // each value must be covered
                                     for v in values {
                                         if !nfts.contains(&v) {
-                                            info!("Post-condition check failure: Non-fungible asset {} value {:?} was moved by {} but not checked", &asset_identifier, &v, &principal);
+                                            info!("Post-condition check failure: Non-fungible asset {} value {:?} was moved by {} but not checked", &asset_identifier, &v, &principal; "txid" => %txid);
                                             return false;
                                         }
                                     }
                                 } else {
                                     // no values covered
-                                    info!("Post-condition check failure: No checks for non-fungible asset type {} moved by {}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: No checks for non-fungible asset type {} moved by {}", &asset_identifier, &principal; "txid" => %txid);
                                     return false;
                                 }
                             } else {
                                 // no NFT for this principal
-                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {} by {}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {} by {}", &asset_identifier, &principal; "txid" => %txid);
                                 return false;
                             }
                         }
@@ -673,11 +674,11 @@ impl StacksChainState {
                                 checked_fungible_assets.get(&principal)
                             {
                                 if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                    info!("Post-condition check failure: checks did not cover transfer of {} by {}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: checks did not cover transfer of {} by {}", &asset_identifier, &principal; "txid" => %txid);
                                     return false;
                                 }
                             } else {
-                                info!("Post-condition check failure: No checks for fungible token type {} moved by {}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for fungible token type {} moved by {}", &asset_identifier, &principal; "txid" => %txid);
                                 return false;
                             }
                         }
@@ -900,7 +901,7 @@ impl StacksChainState {
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
                     let msg = format!("Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions");
-                    warn!("{}", &msg);
+                    warn!("{}", &msg; "txid" => %tx.txid());
 
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
@@ -959,6 +960,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            tx.txid(),
                         )
                     },
                 );
@@ -975,7 +977,8 @@ impl StacksChainState {
                               "function_name" => %contract_call.function_name,
                               "function_args" => %VecDisplay(&contract_call.function_args),
                               "return_value" => %return_value,
-                              "cost" => ?total_cost);
+                              "cost" => ?total_cost,
+                              "txid" => %tx.txid());
                         (return_value, asset_map, events)
                     }
                     Err(e) => match handle_clarity_runtime_error(e) {
@@ -984,14 +987,16 @@ impl StacksChainState {
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => ?error);
+                                      "error" => ?error,
+                                      "txid" => %tx.txid());
                             (Value::err_none(), AssetMap::new(), vec![])
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
                             info!("Contract-call aborted by post-condition";
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args));
+                                      "function_args" => %VecDisplay(&contract_call.function_args),
+                                      "txid" => %tx.txid());
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
@@ -1012,7 +1017,8 @@ impl StacksChainState {
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => %check_error);
+                                      "error" => %check_error,
+                                      "txid" => %tx.txid());
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_contract_call(
@@ -1027,7 +1033,8 @@ impl StacksChainState {
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => %check_error);
+                                           "error" => %check_error,
+                                           "txid" => %tx.txid());
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
                                     InterpreterError::Unchecked(check_error),
                                 )));
@@ -1038,7 +1045,8 @@ impl StacksChainState {
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),
-                                       "error" => ?e);
+                                       "error" => ?e,
+                                       "txid" => %tx.txid());
                             return Err(Error::ClarityError(e));
                         }
                     },
@@ -1168,6 +1176,7 @@ impl StacksChainState {
                             &tx.post_condition_mode,
                             origin_account,
                             asset_map,
+                            tx.txid(),
                         )
                     },
                 );
@@ -6557,6 +6566,12 @@ pub mod test {
                 mode,
                 origin,
                 &ft_transfer_2,
+                Txid(
+                    "1232121232121232121232121232121232121232121232121232121232121232"
+                        .as_bytes()
+                        .try_into()
+                        .unwrap(),
+                ),
             );
             if result != expected_result {
                 eprintln!(
@@ -6909,6 +6924,12 @@ pub mod test {
                 mode,
                 origin,
                 &nft_transfer_2,
+                Txid(
+                    "1232121232121232121232121232121232121232121232121232121232121232"
+                        .as_bytes()
+                        .try_into()
+                        .unwrap(),
+                ),
             );
             if result != expected_result {
                 eprintln!(
@@ -7725,6 +7746,12 @@ pub mod test {
                     post_condition_mode,
                     origin_account,
                     asset_map,
+                    Txid(
+                        "1232121232121232121232121232121232121232121232121232121232121232"
+                            .as_bytes()
+                            .try_into()
+                            .unwrap(),
+                    ),
                 );
                 if result != expected_result {
                     eprintln!(

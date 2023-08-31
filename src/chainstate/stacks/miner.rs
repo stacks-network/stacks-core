@@ -556,7 +556,7 @@ impl TransactionResult {
                 // recover original ClarityError
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
                     if let clarity_error::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err);
+                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match &parse_err.err {
                             ParseErrors::ExpressionStackDepthTooDeep
                             | ParseErrors::VaryExpressionStackDepthTooDeep => {
