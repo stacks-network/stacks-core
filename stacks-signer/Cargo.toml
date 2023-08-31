@@ -16,17 +16,19 @@ name = "stacks-signer"
 path = "src/main.rs"
 
 [dependencies]
+clarity = { path = "../clarity" }
+clap = { version = "4.1.1", features = ["derive", "env"] }
+libsigner = { path = "../libsigner" }
+libstackerdb = { path = "../libstackerdb" }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
-stacks-common = { path = "../stacks-common" }
-clarity = { path = "../clarity" }
-libstackerdb = { path = "../libstackerdb" }
-libsigner = { path = "../libsigner" }
-toml = "0.5.6"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
+slog-term = "2.6.0"
+stacks-common = { path = "../stacks-common" }
+thiserror = "1.0"
+toml = "0.5.6"
 
 [dependencies.serde_json]
 version = "1.0"
