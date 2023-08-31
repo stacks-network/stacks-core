@@ -26,6 +26,7 @@ use stacks::net::{
     db::PeerDB,
     p2p::PeerNetwork,
     rpc::RPCHandlerArgs,
+    stackerdb::StackerDBs,
     Error as NetError, PeerAddress,
 };
 use stacks::types::chainstate::TrieHash;
@@ -484,6 +485,9 @@ impl Node {
         }
         let atlasdb = self.make_atlas_db();
 
+        let stackerdbs =
+            StackerDBs::connect(&self.config.get_stacker_db_file_path(), true).unwrap();
+
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
             _ => panic!("Unable to retrieve local peer"),
@@ -495,11 +499,13 @@ impl Node {
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
+            stackerdbs,
             local_peer,
             self.config.burnchain.peer_version,
             burnchain.clone(),
             view,
             self.config.connection_options.clone(),
+            vec![],
             epochs,
         );
         let _join_handle = spawn_peer(

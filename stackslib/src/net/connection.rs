@@ -399,6 +399,7 @@ pub struct ConnectionOptions {
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
     pub disable_inbound_handshakes: bool,
+    pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
 }
 
@@ -487,6 +488,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_walks: false,
             disable_natpunch: false,
             disable_inbound_handshakes: false,
+            disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
         }
     }

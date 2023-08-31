@@ -835,12 +835,17 @@ impl StacksMessageCodec for StackerDBChunkInvData {
             return Err(codec_error::ArrayTooLong);
         }
         write_next(fd, &self.slot_versions)?;
+        write_next(fd, &self.num_outbound_replicas)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkInvData, codec_error> {
         let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
-        Ok(StackerDBChunkInvData { slot_versions })
+        let num_outbound_replicas: u32 = read_next(fd)?;
+        Ok(StackerDBChunkInvData {
+            slot_versions,
+            num_outbound_replicas,
+        })
     }
 }
 
@@ -886,6 +891,26 @@ impl StacksMessageCodec for StackerDBChunkData {
             slot_version,
             sig,
             data,
+        })
+    }
+}
+
+impl StacksMessageCodec for StackerDBPushChunkData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        contract_id_consensus_serialize(fd, &self.contract_id)?;
+        write_next(fd, &self.rc_consensus_hash)?;
+        write_next(fd, &self.chunk_data)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBPushChunkData, codec_error> {
+        let contract_id: ContractId = contract_id_consensus_deserialize(fd)?;
+        let rc_consensus_hash: ConsensusHash = read_next(fd)?;
+        let chunk_data: StackerDBChunkData = read_next(fd)?;
+        Ok(StackerDBPushChunkData {
+            contract_id,
+            rc_consensus_hash,
+            chunk_data,
         })
     }
 }
@@ -937,6 +962,7 @@ impl StacksMessageType {
             StacksMessageType::StackerDBChunkInv(ref _m) => StacksMessageID::StackerDBChunkInv,
             StacksMessageType::StackerDBGetChunk(ref _m) => StacksMessageID::StackerDBGetChunk,
             StacksMessageType::StackerDBChunk(ref _m) => StacksMessageID::StackerDBChunk,
+            StacksMessageType::StackerDBPushChunk(ref _m) => StacksMessageID::StackerDBPushChunk,
         }
     }
 
@@ -968,6 +994,7 @@ impl StacksMessageType {
             StacksMessageType::StackerDBChunkInv(ref _m) => "StackerDBChunkInv",
             StacksMessageType::StackerDBGetChunk(ref _m) => "StackerDBGetChunk",
             StacksMessageType::StackerDBChunk(ref _m) => "StackerDBChunk",
+            StacksMessageType::StackerDBPushChunk(ref _m) => "StackerDBPushChunk",
         }
     }
 
@@ -1058,6 +1085,17 @@ impl StacksMessageType {
                     m.data.len()
                 )
             }
+            StacksMessageType::StackerDBPushChunk(ref m) => {
+                format!(
+                    "StackerDBPushChunk({},{},{},{},{},sz={})",
+                    &m.contract_id,
+                    &m.rc_consensus_hash,
+                    m.chunk_data.slot_id,
+                    m.chunk_data.slot_version,
+                    &m.chunk_data.sig,
+                    m.chunk_data.data.len()
+                )
+            }
         }
     }
 }
@@ -1104,6 +1142,9 @@ impl StacksMessageCodec for StacksMessageID {
                 StacksMessageID::StackerDBGetChunk
             }
             x if x == StacksMessageID::StackerDBChunk as u8 => StacksMessageID::StackerDBChunk,
+            x if x == StacksMessageID::StackerDBPushChunk as u8 => {
+                StacksMessageID::StackerDBPushChunk
+            }
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1145,6 +1186,7 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::StackerDBChunkInv(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBGetChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBChunk(ref m) => write_next(fd, m)?,
+            StacksMessageType::StackerDBPushChunk(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1242,6 +1284,10 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::StackerDBChunk => {
                 let m: StackerDBChunkData = read_next(fd)?;
                 StacksMessageType::StackerDBChunk(m)
+            }
+            StacksMessageID::StackerDBPushChunk => {
+                let m: StackerDBPushChunkData = read_next(fd)?;
+                StacksMessageType::StackerDBPushChunk(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(
@@ -2215,6 +2261,7 @@ pub mod test {
     fn codec_StackerDBChunkInvData() {
         let data = StackerDBChunkInvData {
             slot_versions: vec![0, 1, 2, 3],
+            num_outbound_replicas: 4,
         };
 
         let bytes = vec![
@@ -2223,7 +2270,8 @@ pub mod test {
             0x00, 0x00, 0x00, 0x00, // 1u32
             0x00, 0x00, 0x00, 0x01, // 2u32
             0x00, 0x00, 0x00, 0x02, // 3u32
-            0x00, 0x00, 0x00, 0x03,
+            0x00, 0x00, 0x00, 0x03, // num_outbound_replicas
+            0x00, 0x00, 0x00, 0x04,
         ];
 
         check_codec_and_corruption::<StackerDBChunkInvData>(&data, &bytes);
@@ -2278,6 +2326,45 @@ pub mod test {
         ];
 
         check_codec_and_corruption::<StackerDBChunkData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBPushChunkData() {
+        let data = StackerDBChunkData {
+            slot_id: 2,
+            slot_version: 3,
+            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            data: vec![
+                0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+            ],
+        };
+
+        let push_data = StackerDBPushChunkData {
+            contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+            chunk_data: data,
+        };
+
+        let bytes = vec![
+            // SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN
+            0x16, 0x11, 0x7b, 0x59, 0x1a, 0xdf, 0x7c, 0xae, 0xe4, 0x3b, 0x7e, 0x5d, 0x88, 0x24,
+            0xe8, 0x51, 0xb9, 0x35, 0xbc, 0xa9, 0xae, // len(foo)
+            0x03, // foo
+            0x66, 0x6f, 0x6f, // rc consensus hash
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // slot id
+            0x00, 0x00, 0x00, 0x02, // slot version
+            0x00, 0x00, 0x00, 0x03, // signature
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // length
+            0x00, 0x00, 0x00, 0x0b, // data
+            0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        ];
+
+        check_codec_and_corruption::<StackerDBPushChunkData>(&push_data, &bytes);
     }
 
     #[test]
@@ -2429,6 +2516,7 @@ pub mod test {
             }),
             StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
                 slot_versions: vec![0, 1, 2, 3],
+                num_outbound_replicas: 4,
             }),
             StacksMessageType::StackerDBGetChunk(StackerDBGetChunkData {
                 contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
@@ -2441,6 +2529,16 @@ pub mod test {
                 slot_version: 3,
                 sig: MessageSignature::from_raw(&vec![0x44; 65]),
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
+            }),
+            StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
+                contract_id: ContractId::parse("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.foo").unwrap(),
+                rc_consensus_hash: ConsensusHash([0x01; 20]),
+                chunk_data: StackerDBChunkData {
+                    slot_id: 2,
+                    slot_version: 3,
+                    sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                    data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
+                }
             }),
         ];
 

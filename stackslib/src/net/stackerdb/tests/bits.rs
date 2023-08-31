@@ -16,7 +16,7 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{SlotMetadata, StackerDBSet};
+use crate::net::stackerdb::SlotMetadata;
 use crate::net::StackerDBChunkData;
 
 use clarity::vm::ContractName;

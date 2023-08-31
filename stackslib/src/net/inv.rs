@@ -1410,7 +1410,7 @@ impl PeerNetwork {
             .burnchain
             .reward_cycle_to_block_height(target_pox_reward_cycle);
 
-        let max_reward_cycle = match self.get_convo(nk) {
+        let max_reward_cycle = match self.get_neighbor_convo(nk) {
             Some(convo) => {
                 // only proceed if the remote neighbor has this reward cycle
                 let tip_height = convo.get_burnchain_tip_height();
@@ -1649,7 +1649,7 @@ impl PeerNetwork {
                 || self.burnchain.is_reward_cycle_start(target_block_height)
         );
 
-        let num_blocks = match self.get_convo(nk) {
+        let num_blocks = match self.get_neighbor_convo(nk) {
             Some(convo) => {
                 match self.get_getblocksinv_num_blocks(
                     sortdb,
@@ -1844,9 +1844,9 @@ impl PeerNetwork {
         };
 
         let payload = StacksMessageType::GetPoxInv(getpoxinv);
-        let message = self.sign_for_peer(nk, payload)?;
+        let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
-            .send_message(nk, message, request_timeout)
+            .send_neighbor_message(nk, message, request_timeout)
             .map_err(|e| {
                 debug!("Failed to send GetPoxInv to {:?}: {:?}", &nk, &e);
                 e
@@ -2041,9 +2041,9 @@ impl PeerNetwork {
 
         let num_blocks_expected = getblocksinv.num_blocks;
         let payload = StacksMessageType::GetBlocksInv(getblocksinv);
-        let message = self.sign_for_peer(nk, payload)?;
+        let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
-            .send_message(nk, message, request_timeout)
+            .send_neighbor_message(nk, message, request_timeout)
             .map_err(|e| {
                 debug!("Failed to send GetPoxInv to {:?}: {:?}", &nk, &e);
                 e
@@ -2625,21 +2625,15 @@ impl PeerNetwork {
             &getblocksinv
         );
 
-        let blocks_inv = ConversationP2P::make_getblocksinv_response(
-            &self.local_peer,
-            &self.burnchain,
-            sortdb,
-            chainstate,
-            &mut self.header_cache,
-            &getblocksinv,
-        )
-        .map_err(|e| {
-            debug!(
-                "Failed to load blocks inventory at reward cycle {} ({:?}): {:?}",
-                reward_cycle, &ancestor_sn.consensus_hash, &e
-            );
-            e
-        })?;
+        let blocks_inv =
+            ConversationP2P::make_getblocksinv_response(self, sortdb, chainstate, &getblocksinv)
+                .map_err(|e| {
+                    debug!(
+                        "Failed to load blocks inventory at reward cycle {} ({:?}): {:?}",
+                        reward_cycle, &ancestor_sn.consensus_hash, &e
+                    );
+                    e
+                })?;
 
         match blocks_inv {
             StacksMessageType::BlocksInv(blocks_inv) => {
@@ -3497,13 +3491,7 @@ mod test {
 
         let reply = peer_1
             .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
+                ConversationP2P::make_getpoxinv_response(network, sortdb, &getpoxinv_request)
             })
             .unwrap();
 
@@ -3544,13 +3532,7 @@ mod test {
 
         let reply = peer_1
             .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
+                ConversationP2P::make_getpoxinv_response(network, sortdb, &getpoxinv_request)
             })
             .unwrap();
 
@@ -3582,13 +3564,7 @@ mod test {
 
         let reply = peer_1
             .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
+                ConversationP2P::make_getpoxinv_response(network, sortdb, &getpoxinv_request)
             })
             .unwrap();
 
@@ -3633,11 +3609,9 @@ mod test {
         let reply = peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 ConversationP2P::make_getblocksinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
+                    network,
                     sortdb,
                     chainstate,
-                    &mut network.header_cache,
                     &getblocksinv_request,
                 )
             })
@@ -3687,11 +3661,9 @@ mod test {
         let reply = peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 ConversationP2P::make_getblocksinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
+                    network,
                     sortdb,
                     chainstate,
-                    &mut network.header_cache,
                     &getblocksinv_request,
                 )
             })
@@ -3742,11 +3714,9 @@ mod test {
         let reply = peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 ConversationP2P::make_getblocksinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
+                    network,
                     sortdb,
                     chainstate,
-                    &mut network.header_cache,
                     &getblocksinv_request,
                 )
             })
@@ -3795,11 +3765,9 @@ mod test {
         let reply = peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 ConversationP2P::make_getblocksinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
+                    network,
                     sortdb,
                     chainstate,
-                    &mut network.header_cache,
                     &getblocksinv_request,
                 )
             })
@@ -3833,11 +3801,9 @@ mod test {
         let reply = peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 ConversationP2P::make_getblocksinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
+                    network,
                     sortdb,
                     chainstate,
-                    &mut network.header_cache,
                     &getblocksinv_request,
                 )
             })
