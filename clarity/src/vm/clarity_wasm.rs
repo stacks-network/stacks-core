@@ -46,7 +46,7 @@ pub struct ClarityWasmRunContext<'a, 'b> {
     pub contract_context: &'b mut ContractContext,
 }
 
-impl<'a, 'b, 'hooks> ClarityWasmRunContext<'a, 'b> {
+impl<'a, 'b> ClarityWasmRunContext<'a, 'b> {
     pub fn new(
         global_context: &'b mut GlobalContext<'a>,
         contract_context: &'b mut ContractContext,
@@ -105,7 +105,7 @@ pub struct ClarityWasmInitContext<'a, 'b> {
     pub contract_analysis: &'b ContractAnalysis,
 }
 
-impl<'a, 'b, 'hooks> ClarityWasmInitContext<'a, 'b> {
+impl<'a, 'b> ClarityWasmInitContext<'a, 'b> {
     pub fn new(
         global_context: &'b mut GlobalContext<'a>,
         contract_context: &'b mut ContractContext,
