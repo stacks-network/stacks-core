@@ -521,7 +521,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.1",
+ "stacks-common",
  "stdext",
  "stx-genesis",
  "time 0.2.27",
@@ -662,7 +662,7 @@ name = "clar2wasm"
 version = "0.1.0"
 dependencies = [
  "clap 4.4.0",
- "clarity-vm",
+ "clarity",
  "lazy_static",
  "regex",
  "walrus",
@@ -688,33 +688,9 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common",
  "time 0.2.27",
  "wasmtime",
-]
-
-[[package]]
-name = "clarity-vm"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e381821d03b70f011cf233ab3e1115a93340071010041b3923c9be0eef7c2d"
-dependencies = [
- "integer-sqrt",
- "lazy_static",
- "rand 0.7.3",
- "rand_chacha 0.2.2",
- "regex",
- "rstest",
- "rstest_reuse",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2-asm 0.5.5",
- "slog",
- "stacks-common 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "time 0.2.27",
 ]
 
 [[package]]
@@ -3312,33 +3288,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stacks-common"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe3cb43f95b8604323c93444665182acf4c6b46261c50e1179c14b9c86b312d"
-dependencies = [
- "chrono",
- "curve25519-dalek",
- "ed25519-dalek",
- "lazy_static",
- "libc",
- "percent-encoding",
- "rand 0.7.3",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.2",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "time 0.2.27",
-]
-
-[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -3363,7 +3312,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.6",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common",
  "stx-genesis",
  "tokio",
  "toml",

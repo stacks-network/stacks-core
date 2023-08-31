@@ -126,6 +126,7 @@ pub enum WasmError {
     StackPointerNotFound,
     UnableToWriteStackPointer(wasmtime::Error),
     InvalidNoTypeInValue,
+    InvalidFunctionKind(i32),
     Runtime(wasmtime::Error),
 }
 
@@ -145,6 +146,7 @@ impl fmt::Display for WasmError {
                 write!(f, "Unable to write stack pointer: {e}")
             }
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
+            WasmError::InvalidFunctionKind(kind) => write!(f, "Invalid function kind: {kind}"),
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
