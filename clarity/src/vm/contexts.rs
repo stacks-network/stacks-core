@@ -538,7 +538,7 @@ impl EventBatch {
     }
 }
 
-impl<'a, 'hooks> OwnedEnvironment<'a> {
+impl<'a> OwnedEnvironment<'a> {
     #[cfg(any(test, feature = "testing"))]
     pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
@@ -932,7 +932,7 @@ impl CostTracker for GlobalContext<'_> {
     }
 }
 
-impl<'a, 'b, 'hooks> Environment<'a, 'b> {
+impl<'a, 'b> Environment<'a, 'b> {
     /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
     ///
     /// # Panics
@@ -1583,7 +1583,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b> {
     }
 }
 
-impl<'a, 'hooks> GlobalContext<'a> {
+impl<'a> GlobalContext<'a> {
     // Instantiate a new Global Context
     pub fn new(
         mainnet: bool,
