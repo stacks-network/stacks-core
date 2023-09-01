@@ -37,6 +37,7 @@ use crate::chainstate::stacks::StacksTransaction;
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::LocalPeer;
+use crate::net::stackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use crate::net::Error as net_error;
 use crate::net::*;
 use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
@@ -885,7 +886,7 @@ impl StacksMessageCodec for StackerDBChunkData {
         let slot_id: u32 = read_next(fd)?;
         let slot_version: u32 = read_next(fd)?;
         let sig: MessageSignature = read_next(fd)?;
-        let data: Vec<u8> = read_next(fd)?;
+        let data: Vec<u8> = read_next_at_most(fd, STACKERDB_MAX_CHUNK_SIZE.into())?;
         Ok(StackerDBChunkData {
             slot_id,
             slot_version,
