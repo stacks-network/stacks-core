@@ -180,19 +180,21 @@ pub fn initialize_contract(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
-    link_define_function_fn(&mut linker);
-    link_define_variable_fn(&mut linker);
-    link_get_variable_fn(&mut linker);
-    link_set_variable_fn(&mut linker);
+    link_define_function_fn(&mut linker)?;
+    link_define_variable_fn(&mut linker)?;
+    link_get_variable_fn(&mut linker)?;
+    link_set_variable_fn(&mut linker)?;
     link_log(&mut linker);
 
-    let instance = linker.instantiate(store.as_context_mut(), &module).unwrap();
+    let instance = linker
+        .instantiate(store.as_context_mut(), &module)
+        .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
 
     // Call the `.top-level` function, which contains all top-level expressions
     // from the contract.
     let func = instance
         .get_func(store.as_context_mut(), ".top-level")
-        .expect(".top-level function was not found in the generated WASM binary.");
+        .ok_or(Error::Wasm(WasmError::TopLevelNotFound))?;
     let mut results = [];
 
     func.call(store.as_context_mut(), &[], &mut results)
@@ -218,13 +220,15 @@ pub fn call_function(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
-    link_define_function_fn_error(&mut linker);
-    link_define_variable_fn_error(&mut linker);
-    link_get_variable_fn(&mut linker);
-    link_set_variable_fn(&mut linker);
-    link_log(&mut linker);
+    link_define_function_fn_error(&mut linker)?;
+    link_define_variable_fn_error(&mut linker)?;
+    link_get_variable_fn(&mut linker)?;
+    link_set_variable_fn(&mut linker)?;
+    link_log(&mut linker)?;
 
-    let instance = linker.instantiate(store.as_context_mut(), &module).unwrap();
+    let instance = linker
+        .instantiate(store.as_context_mut(), &module)
+        .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
 
     // Call the specified function
     let func = instance
@@ -235,7 +239,10 @@ pub fn call_function(
     let stack_pointer = instance
         .get_global(store.as_context_mut(), "stack-pointer")
         .ok_or(Error::Wasm(WasmError::StackPointerNotFound))?;
-    let mut offset = stack_pointer.get(store.as_context_mut()).unwrap_i32();
+    let mut offset = stack_pointer
+        .get(store.as_context_mut())
+        .i32()
+        .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
 
     let memory = instance
         .get_memory(store.as_context_mut(), "memory")
@@ -287,7 +294,7 @@ pub fn call_function(
 
 /// Link host interface function, `define_function`, into the Wasm module.
 /// This function is called for all function definitions.
-fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
+fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
@@ -373,11 +380,17 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_function".to_string(),
+                e,
+            ))
+        })
 }
 
 /// When in run-mode (not initialize-mode), this should never be called.
-fn link_define_function_fn_error<T>(linker: &mut Linker<T>)
+fn link_define_function_fn_error<T>(linker: &mut Linker<T>) -> Result<(), Error>
 where
     T: ClarityWasmContext,
 {
@@ -393,12 +406,18 @@ where
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_function".to_string(),
+                e,
+            ))
+        })
 }
 
 /// Link host interface function, `define_variable`, into the Wasm module.
 /// This function is called for all variable definitions (`define-data-var`).
-fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
+fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
@@ -437,18 +456,13 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
                     .run_context
                     .contract_context
                     .persisted_names
-                    .insert(ClarityName::try_from(name.clone()).expect("name should be valid"));
+                    .insert(ClarityName::try_from(name.clone())?);
 
                 caller
                     .data_mut()
                     .run_context
                     .global_context
-                    .add_memory(
-                        value_type
-                            .type_size()
-                            .expect("type size should be realizable")
-                            as u64,
-                    )
+                    .add_memory(value_type.type_size()? as u64)
                     .map_err(|e| Error::from(e))?;
 
                 caller
@@ -485,11 +499,17 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_variable".to_string(),
+                e,
+            ))
+        })
 }
 
 /// When in run-mode (not initialize-mode), this should never be called.
-fn link_define_variable_fn_error<T>(linker: &mut Linker<T>)
+fn link_define_variable_fn_error<T>(linker: &mut Linker<T>) -> Result<(), Error>
 where
     T: ClarityWasmContext,
 {
@@ -509,12 +529,18 @@ where
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_variable".to_string(),
+                e,
+            ))
+        })
 }
 
 /// Link host interface function, `get_variable`, into the Wasm module.
 /// This function is called for all variable lookups (`var-get`).
-fn link_get_variable_fn<T>(linker: &mut Linker<T>)
+fn link_get_variable_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
 where
     T: ClarityWasmContext,
 {
@@ -566,12 +592,18 @@ where
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_variable".to_string(),
+                e,
+            ))
+        })
 }
 
 /// Link host interface function, `set_variable`, into the Wasm module.
 /// This function is called for all variable assignments (`var-set`).
-fn link_set_variable_fn<T>(linker: &mut Linker<T>)
+fn link_set_variable_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
 where
     T: ClarityWasmContext,
 {
@@ -624,18 +656,25 @@ where
                 Ok(())
             },
         )
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "set_variable".to_string(),
+                e,
+            ))
+        })
 }
 
 /// Link host-interface function, `log`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
-fn link_log<T>(linker: &mut Linker<T>) {
+fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
     linker
         .func_wrap("clarity", "log", |_: Caller<'_, T>, param: i64| {
             println!("log: {param}");
         })
-        .unwrap();
+        .map(|_| ())
+        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("log".to_string(), e)))
 }
 
 /// Read an identifier (string) from the WASM memory at `offset` with `length`.
@@ -679,7 +718,7 @@ where
 
     match ty {
         TypeSignature::UIntType => {
-            assert!(
+            debug_assert!(
                 length == 16,
                 "expected uint length to be 16 bytes, found {length}"
             );
@@ -695,7 +734,7 @@ where
             Ok(Value::UInt((high << 64) | low))
         }
         TypeSignature::IntType => {
-            assert!(
+            debug_assert!(
                 length == 16,
                 "expected int length to be 16 bytes, found {length}"
             );
@@ -713,9 +752,8 @@ where
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
             type_length,
         ))) => {
-            assert!(
-                type_length
-                    >= &BufferLength::try_from(length as u32).expect("invalid buffer length"),
+            debug_assert!(
+                type_length >= &BufferLength::try_from(length as u32)?,
                 "expected string length to be less than the type length"
             );
             let mut buffer: Vec<u8> = vec![0; length as usize];
@@ -725,6 +763,20 @@ where
             Value::string_ascii_from_bytes(buffer)
         }
         _ => unimplemented!("type not yet implemented: {:?}", ty),
+    }
+}
+
+fn value_as_i128(value: &Value) -> Result<i128, Error> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+    }
+}
+
+fn value_as_u128(value: &Value) -> Result<u128, Error> {
+    match value {
+        Value::UInt(n) => Ok(*n),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
@@ -747,22 +799,22 @@ where
 
     match ty {
         TypeSignature::IntType => {
-            assert!(
+            debug_assert!(
                 length == 16,
                 "expected int length to be 16 bytes, found {length}"
             );
             let mut buffer: [u8; 8] = [0; 8];
-            let i = value.expect_i128();
+            let i = value_as_i128(&value)?;
             let high = (i >> 64) as u64;
             let low = (i & 0xffff_ffff_ffff_ffff) as u64;
             buffer.copy_from_slice(&low.to_le_bytes());
             memory
                 .write(caller.borrow_mut(), offset as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             buffer.copy_from_slice(&high.to_le_bytes());
             memory
                 .write(caller.borrow_mut(), (offset + 8) as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
         }
         _ => unimplemented!("type not yet implemented: {:?}", ty),
     };
@@ -822,7 +874,7 @@ fn pass_argument_to_wasm(
             let buffer = vec![Val::I32(offset), Val::I32(s.data.len() as i32)];
             memory
                 .write(store.borrow_mut(), offset as usize, s.data.as_slice())
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_offset = offset + s.data.len() as i32;
             Ok((buffer, adjusted_offset))
         }
@@ -892,32 +944,47 @@ fn wasm_to_clarity_value(
 ) -> Result<(Option<Value>, usize), Error> {
     match type_sig {
         TypeSignature::IntType => {
-            let lower = buffer[value_index].unwrap_i64();
-            let upper = buffer[value_index + 1].unwrap_i64();
+            let lower = buffer[value_index]
+                .i64()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let upper = buffer[value_index + 1]
+                .i64()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
             Ok((Some(Value::Int(((upper as i128) << 64) | lower as i128)), 2))
         }
         TypeSignature::UIntType => {
-            let lower = buffer[value_index].unwrap_i64();
-            let upper = buffer[value_index + 1].unwrap_i64();
+            let lower = buffer[value_index]
+                .i64()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let upper = buffer[value_index + 1]
+                .i64()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
             Ok((
                 Some(Value::UInt(((upper as u128) << 64) | lower as u128)),
                 2,
             ))
         }
-        TypeSignature::BoolType => {
-            Ok((Some(Value::Bool(buffer[value_index].unwrap_i32() != 0)), 1))
-        }
+        TypeSignature::BoolType => Ok((
+            Some(Value::Bool(
+                buffer[value_index]
+                    .i32()
+                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    != 0,
+            )),
+            1,
+        )),
         TypeSignature::OptionalType(optional) => {
             let (value, increment) =
                 wasm_to_clarity_value(optional, value_index + 1, buffer, memory, store)?;
             Ok((
-                if buffer[value_index].unwrap_i32() == 1 {
-                    Some(
-                        Value::some(
-                            value.ok_or(Error::Unchecked(CheckErrors::CouldNotDetermineType))?,
-                        )
-                        .unwrap(),
-                    )
+                if buffer[value_index]
+                    .i32()
+                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    == 1
+                {
+                    Some(Value::some(value.ok_or(Error::Unchecked(
+                        CheckErrors::CouldNotDetermineType,
+                    ))?)?)
                 } else {
                     Some(Value::none())
                 },
@@ -935,7 +1002,11 @@ fn wasm_to_clarity_value(
                 store,
             )?;
             Ok((
-                if buffer[value_index].unwrap_i32() == 1 {
+                if buffer[value_index]
+                    .i32()
+                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    == 1
+                {
                     Some(Value::okay(ok.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineResponseOkType,
                     ))?)?)
@@ -948,16 +1019,20 @@ fn wasm_to_clarity_value(
             ))
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
-            let offset = buffer[value_index].unwrap_i32();
-            let length = buffer[value_index + 1].unwrap_i32();
+            let offset = buffer[value_index]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let length = buffer[value_index + 1]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
             let mut string_buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store.borrow_mut(), offset as usize, &mut string_buffer)
-                .expect("should be able to read from memory");
+                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             Ok((Some(Value::string_ascii_from_bytes(string_buffer)?), 2))
         }
         // A `NoType` will be a dummy value that should not be used.
         TypeSignature::NoType => Ok((None, 1)),
-        _ => panic!("WASM value type not implemented: {:?}", type_sig),
+        _ => unimplemented!("Wasm value type not implemented: {:?}", type_sig),
     }
 }
