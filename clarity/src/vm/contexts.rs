@@ -1271,6 +1271,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         result
     }
 
+    /// Initialize a contract from a string of Clarity code.
+    /// This function should only be used for testing and the CLI interface.
+    /// Normal execution reaches the `initialize_contract_from_ast` method
+    /// below.
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
