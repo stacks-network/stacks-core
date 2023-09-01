@@ -145,7 +145,7 @@ use crate::net::p2p::PeerNetwork;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
 
-use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
+use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 
@@ -289,6 +289,16 @@ impl StackerDBSyncResult {
             broken: HashSet::new(),
         }
     }
+}
+
+/// Event dispatcher trait for pushing out new chunk arrival info
+pub trait StackerDBEventDispatcher {
+    /// A set of one or more chunks has been obtained by this replica
+    fn new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        chunk_info: Vec<StackerDBChunkData>,
+    );
 }
 
 impl PeerNetwork {

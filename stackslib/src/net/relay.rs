@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::mem;
 
 use rand::prelude::*;
 use rand::thread_rng;
@@ -44,7 +45,9 @@ use crate::net::http::*;
 use crate::net::p2p::*;
 use crate::net::poll::*;
 use crate::net::rpc::*;
-use crate::net::stackerdb::{StackerDBConfig, StackerDBSyncResult, StackerDBs};
+use crate::net::stackerdb::{
+    StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
+};
 use crate::net::Error as net_error;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
@@ -101,6 +104,39 @@ pub struct ProcessedNetReceipts {
     pub num_new_blocks: u64,
     pub num_new_confirmed_microblocks: u64,
     pub num_new_unconfirmed_microblocks: u64,
+}
+
+/// A trait for implementing both mempool event observer methods and stackerdb methods.
+/// This is required for event observers to fully report on newly-relayed data.
+pub trait RelayEventDispatcher:
+    MemPoolEventDispatcher
+    + StackerDBEventDispatcher
+    + AsMemPoolEventDispatcher
+    + AsStackerDBEventDispatcher
+{
+}
+impl<T: MemPoolEventDispatcher + StackerDBEventDispatcher> RelayEventDispatcher for T {}
+
+/// Trait for upcasting to MemPoolEventDispatcher
+pub trait AsMemPoolEventDispatcher {
+    fn as_mempool_event_dispatcher(&self) -> &dyn MemPoolEventDispatcher;
+}
+
+/// Trait for upcasting to StackerDBEventDispatcher
+pub trait AsStackerDBEventDispatcher {
+    fn as_stackerdb_event_dispatcher(&self) -> &dyn StackerDBEventDispatcher;
+}
+
+impl<T: RelayEventDispatcher> AsMemPoolEventDispatcher for T {
+    fn as_mempool_event_dispatcher(&self) -> &dyn MemPoolEventDispatcher {
+        self
+    }
+}
+
+impl<T: RelayEventDispatcher> AsStackerDBEventDispatcher for T {
+    fn as_stackerdb_event_dispatcher(&self) -> &dyn StackerDBEventDispatcher {
+        self
+    }
 }
 
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
@@ -1701,31 +1737,58 @@ impl Relayer {
         }
     }
 
+    /// Process HTTP-uploaded stackerdb chunks.
+    /// They're already stored by the RPC handler, so just forward events for them.
+    pub fn process_uploaded_stackerdb_chunks(
+        uploaded_chunks: Vec<StackerDBPushChunkData>,
+        event_observer: Option<&dyn StackerDBEventDispatcher>,
+    ) {
+        if let Some(observer) = event_observer {
+            let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+                HashMap::new();
+            for chunk in uploaded_chunks.into_iter() {
+                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
+                    events.push(chunk.chunk_data);
+                } else {
+                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data]);
+                }
+            }
+            for (contract_id, new_chunks) in all_events.into_iter() {
+                observer.new_stackerdb_chunks(contract_id, new_chunks);
+            }
+        }
+    }
+
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
     pub fn process_stacker_db_chunks(
         stackerdbs: &mut StackerDBs,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        sync_results: &[StackerDBSyncResult],
+        sync_results: Vec<StackerDBSyncResult>,
+        event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // sort stacker results by contract, so as to minimize the number of transactions.
-        let mut sync_results_map: HashMap<&QualifiedContractIdentifier, Vec<&StackerDBSyncResult>> =
+        let mut sync_results_map: HashMap<QualifiedContractIdentifier, Vec<StackerDBSyncResult>> =
             HashMap::new();
-        for sync_result in sync_results {
-            let sc = &sync_result.contract_id;
-            if let Some(result_list) = sync_results_map.get_mut(sc) {
+        for sync_result in sync_results.into_iter() {
+            let sc = sync_result.contract_id.clone();
+            if let Some(result_list) = sync_results_map.get_mut(&sc) {
                 result_list.push(sync_result);
             } else {
                 sync_results_map.insert(sc, vec![sync_result]);
             }
         }
 
-        for (sc, sync_results) in sync_results_map.iter() {
-            if let Some(config) = stackerdb_configs.get(sc) {
+        let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+            HashMap::new();
+
+        for (sc, sync_results) in sync_results_map.into_iter() {
+            if let Some(config) = stackerdb_configs.get(&sc) {
                 let tx = stackerdbs.tx_begin(config.clone())?;
-                for sync_result in sync_results {
-                    for chunk in sync_result.chunks_to_store.iter() {
+                for sync_result in sync_results.into_iter() {
+                    for chunk in sync_result.chunks_to_store.into_iter() {
                         let md = chunk.get_slot_metadata();
-                        if let Err(e) = tx.try_replace_chunk(sc, &md, &chunk.data) {
+                        if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             warn!(
                                 "Failed to store chunk for StackerDB";
                                 "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
@@ -1737,6 +1800,12 @@ impl Relayer {
                         } else {
                             debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
+
+                        if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
+                            event_list.push(chunk);
+                        } else {
+                            all_events.insert(sync_result.contract_id.clone(), vec![chunk]);
+                        }
                     }
                 }
                 tx.commit()?;
@@ -1745,6 +1814,11 @@ impl Relayer {
             }
         }
 
+        if let Some(observer) = event_observer.as_ref() {
+            for (contract_id, new_chunks) in all_events.into_iter() {
+                observer.new_stackerdb_chunks(contract_id, new_chunks);
+            }
+        }
         Ok(())
     }
 
@@ -1754,6 +1828,7 @@ impl Relayer {
         stackerdbs: &mut StackerDBs,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         unhandled_messages: &mut HashMap<NeighborKey, Vec<StacksMessage>>,
+        event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
         let mut sync_results = vec![];
@@ -1769,7 +1844,12 @@ impl Relayer {
             });
         }
 
-        Relayer::process_stacker_db_chunks(stackerdbs, stackerdb_configs, &sync_results)
+        Relayer::process_stacker_db_chunks(
+            stackerdbs,
+            stackerdb_configs,
+            sync_results,
+            event_observer,
+        )
     }
 
     /// Given a network result, consume and store all data.
@@ -1791,7 +1871,7 @@ impl Relayer {
         mempool: &mut MemPoolDB,
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
-        event_observer: Option<&dyn MemPoolEventDispatcher>,
+        event_observer: Option<&dyn RelayEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
         let mut num_new_blocks = 0;
         let mut num_new_confirmed_microblocks = 0;
@@ -1891,7 +1971,7 @@ impl Relayer {
                 sortdb,
                 chainstate,
                 mempool,
-                event_observer,
+                event_observer.map(|obs| obs.as_mempool_event_dispatcher()),
             )?;
 
             if new_txs.len() > 0 {
@@ -1920,11 +2000,18 @@ impl Relayer {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 
+        // push events for HTTP-uploaded stacker DB chunks
+        Relayer::process_uploaded_stackerdb_chunks(
+            mem::replace(&mut network_result.uploaded_stackerdb_chunks, vec![]),
+            event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
+        );
+
         // store downloaded stacker DB chunks
         Relayer::process_stacker_db_chunks(
             &mut self.stacker_dbs,
             &network_result.stacker_db_configs,
-            &network_result.stacker_db_sync_results,
+            mem::replace(&mut network_result.stacker_db_sync_results, vec![]),
+            event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
         // store pushed stacker DB chunks
@@ -1932,6 +2019,7 @@ impl Relayer {
             &mut self.stacker_dbs,
             &network_result.stacker_db_configs,
             &mut network_result.unhandled_messages,
+            event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
         let receipts = ProcessedNetReceipts {

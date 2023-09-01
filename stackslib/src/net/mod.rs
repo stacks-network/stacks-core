@@ -2186,6 +2186,7 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>, // chunks we received from the HTTP server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
     pub stacker_db_sync_results: Vec<StackerDBSyncResult>, // chunks for stacker DBs we downloaded
@@ -2217,6 +2218,7 @@ impl NetworkResult {
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
+            uploaded_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
@@ -2249,6 +2251,14 @@ impl NetworkResult {
         self.attachments.len() > 0
     }
 
+    pub fn has_stackerdb_chunks(&self) -> bool {
+        self.stacker_db_sync_results
+            .iter()
+            .fold(0, |acc, x| acc + x.chunks_to_store.len())
+            > 0
+            || self.uploaded_stackerdb_chunks.len() > 0
+    }
+
     pub fn transactions(&self) -> Vec<StacksTransaction> {
         self.pushed_transactions
             .values()
@@ -2263,6 +2273,7 @@ impl NetworkResult {
             || self.has_microblocks()
             || self.has_transactions()
             || self.has_attachments()
+            || self.has_stackerdb_chunks()
     }
 
     pub fn consume_unsolicited(
@@ -2323,6 +2334,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
+                }
+                StacksMessageType::StackerDBPushChunk(chunk_data) => {
+                    self.uploaded_stackerdb_chunks.push(chunk_data);
                 }
                 _ => {
                     // drop
