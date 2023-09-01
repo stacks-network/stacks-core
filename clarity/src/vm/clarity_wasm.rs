@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, collections::HashMap};
+use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::Write};
 
 use crate::vm::{
     analysis::ContractAnalysis,
@@ -178,6 +178,7 @@ pub fn initialize_contract(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
+    link_define_function_fn(&mut linker);
     link_define_variable_fn(&mut linker);
     link_get_variable_fn(&mut linker);
     link_set_variable_fn(&mut linker);
@@ -203,7 +204,7 @@ pub fn call_function(
     contract_context: &mut ContractContext,
     function_name: &str,
     args: &[Value],
-) -> Result<Option<Value>, Error> {
+) -> Result<Value, Error> {
     let context = ClarityWasmRunContext::new(global_context, contract_context);
     let engine = Engine::default();
     let module = context.contract_context.with_wasm_module(|wasm_module| {
@@ -214,6 +215,8 @@ pub fn call_function(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
+    link_define_function_fn_error(&mut linker);
+    link_define_variable_fn_error(&mut linker);
     link_get_variable_fn(&mut linker);
     link_set_variable_fn(&mut linker);
     link_log(&mut linker);
@@ -274,6 +277,9 @@ pub fn call_function(
         &mut store.as_context_mut(),
     )
     .map(|(val, _offset)| val)
+    .and_then(|option_value| {
+        option_value.ok_or_else(|| Error::Wasm(WasmError::ExpectedReturnValue))
+    })
 }
 
 fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
@@ -365,6 +371,26 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
         .unwrap();
 }
 
+/// When in run-mode (not initialize-mode), this should never be called.
+fn link_define_function_fn_error<T>(linker: &mut Linker<T>)
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "define_function",
+            |mut _caller: Caller<'_, T>, _kind: i32, _name_offset: i32, _name_length: i32| {
+                // FIXME: I don't understand why I have to write this like this
+                // instead of just:
+                //   Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .unwrap();
+}
+
 fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
     linker
         .func_wrap(
@@ -449,6 +475,30 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
                     .meta_data_var
                     .insert(ClarityName::from(name.as_str()), data_types);
 
+                Ok(())
+            },
+        )
+        .unwrap();
+}
+
+/// When in run-mode (not initialize-mode), this should never be called.
+fn link_define_variable_fn_error<T>(linker: &mut Linker<T>)
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "define_variable",
+            |mut _caller: Caller<'_, T>,
+             _name_offset: i32,
+             _name_length: i32,
+             _value_offset: i32,
+             _value_length: i32| {
+                // FIXME: I don't understand why I have to write this like this
+                // instead of just:
+                //   Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
                 Ok(())
             },
         )
@@ -623,11 +673,11 @@ where
             memory
                 .read(caller.borrow_mut(), offset as usize, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let high = u64::from_le_bytes(buffer) as u128;
+            let low = u64::from_le_bytes(buffer) as u128;
             memory
                 .read(caller.borrow_mut(), (offset + 8) as usize, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let low = u64::from_le_bytes(buffer) as u128;
+            let high = u64::from_le_bytes(buffer) as u128;
             Ok(Value::UInt((high << 64) | low))
         }
         TypeSignature::IntType => {
@@ -639,11 +689,11 @@ where
             memory
                 .read(caller.borrow_mut(), offset as usize, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let high = u64::from_le_bytes(buffer) as u128;
+            let low = u64::from_le_bytes(buffer) as u128;
             memory
                 .read(caller.borrow_mut(), (offset + 8) as usize, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let low = u64::from_le_bytes(buffer) as u128;
+            let high = u64::from_le_bytes(buffer) as u128;
             Ok(Value::Int(((high << 64) | low) as i128))
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
@@ -691,11 +741,11 @@ where
             let i = value.expect_i128();
             let high = (i >> 64) as u64;
             let low = (i & 0xffff_ffff_ffff_ffff) as u64;
-            buffer.copy_from_slice(&high.to_le_bytes());
+            buffer.copy_from_slice(&low.to_le_bytes());
             memory
                 .write(caller.borrow_mut(), offset as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            buffer.copy_from_slice(&low.to_le_bytes());
+            buffer.copy_from_slice(&high.to_le_bytes());
             memory
                 .write(caller.borrow_mut(), (offset + 8) as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
@@ -719,13 +769,13 @@ fn pass_argument_to_wasm(
         Value::UInt(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
-            let buffer = vec![Val::I64(high as i64), Val::I64(low as i64)];
+            let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
             Ok((buffer, offset))
         }
         Value::Int(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
-            let buffer = vec![Val::I64(high as i64), Val::I64(low as i64)];
+            let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
             Ok((buffer, offset))
         }
         Value::Bool(b) => Ok((vec![Val::I32(if *b { 1 } else { 0 })], offset)),
@@ -805,6 +855,7 @@ where
             // Return values will be offset and length
             Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
         }
+        TypeSignature::NoType => Ok((vec![Val::I32(0)], offset)),
         _ => unimplemented!("return type not yet implemented: {:?}", return_type),
     }
 }
@@ -822,7 +873,7 @@ fn clarity_to_wasm_value(type_sig: &TypeSignature, value: &Value) -> Result<Vec<
             };
             let high = (i >> 64) as u64;
             let low = (i & 0xffff_ffff_ffff_ffff) as u64;
-            Ok(vec![Val::I64(high as i64), Val::I64(low as i64)])
+            Ok(vec![Val::I64(low as i64), Val::I64(high as i64)])
         }
         TypeSignature::UIntType => {
             let i = if let Value::UInt(inner) = value {
@@ -835,7 +886,7 @@ fn clarity_to_wasm_value(type_sig: &TypeSignature, value: &Value) -> Result<Vec<
             };
             let high = (i >> 64) as u64;
             let low = (i & 0xffff_ffff_ffff_ffff) as u64;
-            Ok(vec![Val::I64(high as i64), Val::I64(low as i64)])
+            Ok(vec![Val::I64(low as i64), Val::I64(high as i64)])
         }
         TypeSignature::BoolType => {
             let v = if let Value::Bool(inner) = value {
@@ -913,13 +964,13 @@ fn wasm_to_clarity_value(
 ) -> Result<(Option<Value>, usize), Error> {
     match type_sig {
         TypeSignature::IntType => {
-            let upper = buffer[value_index].unwrap_i64();
-            let lower = buffer[value_index + 1].unwrap_i64();
+            let lower = buffer[value_index].unwrap_i64();
+            let upper = buffer[value_index + 1].unwrap_i64();
             Ok((Some(Value::Int(((upper as i128) << 64) | lower as i128)), 2))
         }
         TypeSignature::UIntType => {
-            let upper = buffer[value_index].unwrap_i64();
-            let lower = buffer[value_index + 1].unwrap_i64();
+            let lower = buffer[value_index].unwrap_i64();
+            let upper = buffer[value_index + 1].unwrap_i64();
             Ok((
                 Some(Value::UInt(((upper as u128) << 64) | lower as u128)),
                 2,
