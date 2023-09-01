@@ -49,7 +49,7 @@ impl Contract {
         if let Some(wasm_module) = contract.wasm_module.take() {
             contract_context.set_wasm_module(wasm_module);
 
-            // Execute the contract via the compiled Wasm module
+            // Initialize the contract via the compiled Wasm module
             initialize_contract(global_context, &mut contract_context, contract_analysis)?;
         } else {
             // Interpret the contract
