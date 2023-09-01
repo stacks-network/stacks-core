@@ -160,6 +160,8 @@ impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
     }
 }
 
+/// Initialize a contract, executing all of the top-level expressions and
+/// registering all of the definitions in the context.
 pub fn initialize_contract(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -199,6 +201,7 @@ pub fn initialize_contract(
     Ok(None)
 }
 
+/// Call a function in the contract.
 pub fn call_function(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -282,6 +285,8 @@ pub fn call_function(
     })
 }
 
+/// Link host interface function, `define_function`, into the Wasm module.
+/// This function is called for all function definitions.
 fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) {
     linker
         .func_wrap(
@@ -391,6 +396,8 @@ where
         .unwrap();
 }
 
+/// Link host interface function, `define_variable`, into the Wasm module.
+/// This function is called for all variable definitions (`define-data-var`).
 fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) {
     linker
         .func_wrap(
@@ -505,6 +512,8 @@ where
         .unwrap();
 }
 
+/// Link host interface function, `get_variable`, into the Wasm module.
+/// This function is called for all variable lookups (`var-get`).
 fn link_get_variable_fn<T>(linker: &mut Linker<T>)
 where
     T: ClarityWasmContext,
@@ -560,6 +569,8 @@ where
         .unwrap();
 }
 
+/// Link host interface function, `set_variable`, into the Wasm module.
+/// This function is called for all variable assignments (`var-set`).
 fn link_set_variable_fn<T>(linker: &mut Linker<T>)
 where
     T: ClarityWasmContext,
@@ -616,6 +627,9 @@ where
         .unwrap();
 }
 
+/// Link host-interface function, `log`, into the Wasm module.
+/// This function is used for debugging the Wasm, and should not be called in
+/// production.
 fn link_log<T>(linker: &mut Linker<T>) {
     linker
         .func_wrap("clarity", "log", |_: Caller<'_, T>, param: i64| {
@@ -857,92 +871,6 @@ where
         }
         TypeSignature::NoType => Ok((vec![Val::I32(0)], offset)),
         _ => unimplemented!("return type not yet implemented: {:?}", return_type),
-    }
-}
-
-fn clarity_to_wasm_value(type_sig: &TypeSignature, value: &Value) -> Result<Vec<Val>, Error> {
-    match type_sig {
-        TypeSignature::IntType => {
-            let i = if let Value::Int(inner) = value {
-                inner
-            } else {
-                return Err(Error::Unchecked(CheckErrors::TypeValueError(
-                    type_sig.clone(),
-                    value.clone(),
-                )));
-            };
-            let high = (i >> 64) as u64;
-            let low = (i & 0xffff_ffff_ffff_ffff) as u64;
-            Ok(vec![Val::I64(low as i64), Val::I64(high as i64)])
-        }
-        TypeSignature::UIntType => {
-            let i = if let Value::UInt(inner) = value {
-                inner
-            } else {
-                return Err(Error::Unchecked(CheckErrors::TypeValueError(
-                    type_sig.clone(),
-                    value.clone(),
-                )));
-            };
-            let high = (i >> 64) as u64;
-            let low = (i & 0xffff_ffff_ffff_ffff) as u64;
-            Ok(vec![Val::I64(low as i64), Val::I64(high as i64)])
-        }
-        TypeSignature::BoolType => {
-            let v = if let Value::Bool(inner) = value {
-                inner
-            } else {
-                return Err(Error::Unchecked(CheckErrors::TypeValueError(
-                    type_sig.clone(),
-                    value.clone(),
-                )));
-            };
-            Ok(vec![Val::I32(if *v { 1 } else { 0 })])
-        }
-        TypeSignature::OptionalType(optional) => {
-            let o = if let Value::Optional(inner) = value {
-                inner
-            } else {
-                return Err(Error::Unchecked(CheckErrors::TypeValueError(
-                    type_sig.clone(),
-                    value.clone(),
-                )));
-            };
-            let mut result = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
-            result.extend(clarity_to_wasm_value(
-                optional,
-                o.data
-                    .as_ref()
-                    .map_or(&Value::none(), |boxed_value| &boxed_value),
-            )?);
-            Ok(result)
-        }
-        TypeSignature::ResponseType(response) => {
-            let r = if let Value::Response(inner) = value {
-                inner
-            } else {
-                return Err(Error::Unchecked(CheckErrors::TypeValueError(
-                    type_sig.clone(),
-                    value.clone(),
-                )));
-            };
-            let mut result = vec![Val::I32(if r.committed { 1 } else { 0 })];
-            result.extend(if r.committed {
-                clarity_to_wasm_value(&response.0, &r.data)?
-            } else {
-                vec![Val::I32(0)]
-            });
-            result.extend(if !r.committed {
-                clarity_to_wasm_value(&response.1, &r.data)?
-            } else {
-                vec![Val::I32(0)]
-            });
-
-            Ok(result)
-        }
-        // A `NoType` will be a dummy value that should not be used.
-        TypeSignature::NoType => Ok(vec![]),
-        _ => unimplemented!("Value type not implemented: {:?}", type_sig),
     }
 }
 
