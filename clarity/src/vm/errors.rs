@@ -123,10 +123,15 @@ pub enum WasmError {
     TopLevelNotFound,
     MemoryNotFound,
     UnableToLoadModule(wasmtime::Error),
+    UnableToLinkHostFunction(String, wasmtime::Error),
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
+    InvalidClarityName(String),
     StackPointerNotFound,
     UnableToWriteStackPointer(wasmtime::Error),
+    UnableToReadMemory(wasmtime::Error),
+    UnableToWriteMemory(wasmtime::Error),
+    ValueTypeMismatch,
     InvalidNoTypeInValue,
     InvalidFunctionKind(i32),
     DefineFunctionCalledInRunMode,
@@ -142,14 +147,21 @@ impl fmt::Display for WasmError {
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
             WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
+            WasmError::UnableToLinkHostFunction(name, e) => {
+                write!(f, "Unable to link host function {name}: {e}")
+            }
             WasmError::UnableToReadIdentifier(e) => write!(f, "Unable to read identifier: {e}"),
             WasmError::UnableToRetrieveIdentifier(id) => {
                 write!(f, "Unable to retrieve identifier: {id}")
             }
+            WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
             WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
             WasmError::UnableToWriteStackPointer(e) => {
                 write!(f, "Unable to write stack pointer: {e}")
             }
+            WasmError::UnableToReadMemory(e) => write!(f, "Unable to read memory: {e}"),
+            WasmError::UnableToWriteMemory(e) => write!(f, "Unable to write memory: {e}"),
+            WasmError::ValueTypeMismatch => write!(f, "Value type mismatch"),
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
             WasmError::InvalidFunctionKind(kind) => write!(f, "Invalid function kind: {kind}"),
             WasmError::DefineFunctionCalledInRunMode => {
