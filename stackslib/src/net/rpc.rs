@@ -24,6 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::sync::mpsc::TrySendError;
 use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
@@ -135,6 +136,7 @@ use crate::{
 
 use crate::util_lib::boot::boot_code_id;
 
+use super::connection::AsyncRequests;
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
@@ -1259,38 +1261,40 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
-    fn handle_validate_block_proposal<W: Write>(
-        http: &mut StacksHttp,
-        fd: &mut W,
-        req: &HttpRequestType,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-        block_proposal: &BlockProposal,
-        //validator_key: Option<&Secp256k1PrivateKey>,
-        //signing_contract: Option<&QualifiedContractIdentifier>,
-        _options: &ConnectionOptions,
-        canonical_stacks_tip_height: u64,
-    ) -> Result<(), net_error> {
-        // TODO: Validate proposal
+    fn handle_validate_block_proposal(
+        metadata: HttpResponseMetadata,
+        block_proposal: BlockProposal,
+        options: &ConnectionOptions,
+    ) -> HttpResponseType {
         // TODO: Reject if proposal is from invalid sender (allow localhost only?)
-        let response_metadata =
-            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
-
-        let response = match block_proposal.validate(chainstate, &sortdb.index_conn()) {
-            Ok(_) => {
-                //let signature = block_proposal.sign(validator_key, signing_contract.clone());
-                let signature = [0; 65];
-                HttpResponseType::BlockProposalValid {
-                    metadata: response_metadata,
-                    signature,
-                }
+        let async_rpc_channel = match options.async_rpc_channel.as_ref() {
+            Some(x) => x,
+            None => {
+                return HttpResponseType::BadRequestJSON(
+                    metadata,
+                    json!("stacks-node is not configured to receive block proposals"),
+                )
             }
-            Err(e) => HttpResponseType::BlockProposalInvalid {
-                metadata: response_metadata,
-                error_message: e.to_string(),
-            },
         };
-        response.send(http, fd)
+
+        if let Err(channel_error) =
+            async_rpc_channel.try_send(AsyncRequests::ValidateBlock(block_proposal))
+        {
+            let error_msg = match channel_error {
+                TrySendError::Full(_) => {
+                    "stacks-node is already processing a block proposal request"
+                }
+                TrySendError::Disconnected(_) => {
+                    "stacks-node disconnected block proposal processing"
+                }
+            };
+            return HttpResponseType::AsyncRpcNotReady {
+                metadata: metadata.clone(),
+                error_message: error_msg.into(),
+            };
+        }
+
+        HttpResponseType::BlockProposalOk { metadata }
     }
 
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
@@ -3057,22 +3061,20 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::BlockProposal(_, ref proposal) => {
+            HttpRequestType::BlockProposal(req_md, proposal) => {
                 //let validator_key = self.connection.options.subnet_validator.as_ref();
                 //let signing_contract = self.connection.options.subnet_signing_contract.as_ref();
-
-                ConversationHttp::handle_validate_block_proposal(
-                    &mut self.connection.protocol,
-                    &mut reply,
-                    &req,
-                    chainstate,
-                    sortdb,
-                    &proposal,
-                    //validator_key,
-                    //signing_contract,
+                let resp_md = HttpResponseMetadata::from_req_metadata(
+                    &req_md,
+                    Some(network.burnchain_tip.canonical_stacks_tip_height),
+                );
+                let response = ConversationHttp::handle_validate_block_proposal(
+                    resp_md,
+                    proposal,
                     &self.connection.options,
-                    network.burnchain_tip.canonical_stacks_tip_height,
-                )?;
+                );
+
+                response.send(&mut self.connection.protocol, &mut reply)?;
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {

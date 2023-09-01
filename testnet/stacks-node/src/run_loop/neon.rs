@@ -4,12 +4,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, Receiver};
 
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
@@ -27,6 +28,7 @@ use stacks::chainstate::coordinator::{
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
+use stacks::net::connection::AsyncRequests;
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
@@ -153,6 +155,9 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
+    /// this channel is used for receiving incoming RPC requests that have to be handled asynchronously
+    ///  by spawning a worker from the main thread.
+    async_rpc_channel: Option<Receiver<AsyncRequests>>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -175,7 +180,7 @@ fn async_safe_write_stderr(msg: &str) {
 
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(mut config: Config) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let pox_watchdog_comms = PoxSyncWatchdogComms::new(should_keep_running.clone());
@@ -187,6 +192,19 @@ impl RunLoop {
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
+
+        let async_rpc_channel = if config.needs_async_request_handler() {
+            // create a sync channel for async RPC requests
+            // only 1 can be handled at a time!
+            let (async_rpc_snd, async_rpc_rcv) = sync_channel(1);
+            config
+                .connection_options
+                .async_rpc_channel
+                .replace(async_rpc_snd);
+            Some(async_rpc_rcv)
+        } else {
+            None
+        };
 
         Self {
             config,
@@ -201,6 +219,7 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
+            async_rpc_channel,
         }
     }
 
@@ -920,6 +939,50 @@ impl RunLoop {
         debug!("Chain-liveness thread exit!");
     }
 
+    fn spawn_async_request_handler(
+        &mut self,
+        globals: Globals,
+    ) -> Result<JoinHandle<()>, &'static str> {
+        let rcv_handle = self
+            .async_rpc_channel
+            .take()
+            .ok_or("async request handler could not start: no rcv handle available")?;
+        let burnchain = self.get_burnchain();
+        let sortdb = burnchain
+            .open_sortition_db(true)
+            .expect("FATAL: could not open sortition DB");
+        let event_dispatcher = self.get_event_dispatcher();
+        let (chain_state_db, _) = StacksChainState::open(
+            self.config.is_mainnet(),
+            self.config.burnchain.chain_id,
+            &self.config.get_chainstate_path_str(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .unwrap();
+
+        let thread = thread::Builder::new()
+            .name("rpc-async-req-handler".into())
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
+            .spawn(move || {
+                while globals.keep_running() {
+                    let req = match rcv_handle.recv_timeout(Duration::from_secs(5)) {
+                        Ok(req) => req,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    };
+
+                    match req {
+                        AsyncRequests::ValidateBlock(proposal) => {
+                            let result = proposal.validate(&chain_state_db, &sortdb.index_conn());
+                            event_dispatcher.process_async_rpc_response(&result.into());
+                        }
+                    }
+                }
+            })
+            .expect("FATAL: failed to spawn async request handler");
+        Ok(thread)
+    }
+
     /// Spawn a thread to drive chain liveness
     fn spawn_chain_liveness_thread(&self, globals: Globals) -> JoinHandle<()> {
         let config = self.config.clone();
@@ -1033,6 +1096,14 @@ impl RunLoop {
 
         // Start the runloop
         debug!("Runloop: Begin run loop");
+        let async_handler = if self.config.needs_async_request_handler() {
+            Some(
+                self.spawn_async_request_handler(globals.clone())
+                    .expect("Failed to spawn the necessary async request handler thread"),
+            )
+        } else {
+            None
+        };
         self.counters.bump_blocks_processed();
 
         let mut sortition_db_height = rc_aligned_height;
@@ -1069,7 +1140,7 @@ impl RunLoop {
                 coordinator_thread_handle.join().unwrap();
                 node.join();
                 liveness_thread.join().unwrap();
-
+                async_handler.map(|x| x.join().unwrap());
                 info!("Exiting stacks-node");
                 break;
             }

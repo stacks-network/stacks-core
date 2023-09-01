@@ -2707,87 +2707,71 @@ pub struct BlockProposal {
     pub total_burn: u64,
 }
 
-impl BlockProposal {
-    /// Sign this proposal with `signing_key`, returning a serialized recoverable
-    /// signature that can be validated by the multiminer contract.
-    /*
-    pub fn sign(
-        &self,
-        signing_key: &Secp256k1PrivateKey,
-        signing_contract: QualifiedContractIdentifier,
-    ) -> [u8; 65] {
-        // when using a 2.0 layer-1, must use a constant
-        // let structured_hash =
-        //     hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
-        //         .expect("Failed to parse hex constant");
-        // when using a 2.1 layer-1, this will need to use the structured data hash
-        let block_hash_buff = Value::buff_from(self.block.block_hash().0.to_vec())
-            .expect("Failed to form Clarity buffer from block hash");
-        let subnet_block_height = Value::UInt(self.block.header.total_work.work.into());
-        let withdrawal_root_buff =
-            Value::buff_from(self.block.header.withdrawal_merkle_root.0.to_vec())
-                .expect("Failed to form Clarity buffer from withdrawal root");
-        let target_tip = Value::buff_from(self.burn_tip.0.to_vec())
-            .expect("Failed to form Clarity buffer from target burnchain tip");
-        let target_height = Value::UInt((self.burn_tip_height - 1).into());
-        let signing_contract = Value::Principal(PrincipalData::Contract(signing_contract));
+/// This enum is used to supply a `reason_code` for validation
+///  rejection responses. This is serialized as an enum with string
+///  type (in jsonschema terminology).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ValidateRejectCode {
+    BadBlockHash,
+    BadTransaction,
+    InvalidBlock,
+    ChainstateError,
+    UnknownParent,
+}
 
-        let data_tuple = Value::Tuple(
-            TupleData::from_data(vec![
-                ("block".into(), block_hash_buff),
-                ("subnet-block-height".into(), subnet_block_height),
-                ("withdrawal-root".into(), withdrawal_root_buff),
-                ("target-tip".into(), target_tip),
-                ("target-height".into(), target_height),
-                ("multi-contract".into(), signing_contract),
-            ])
-            .expect("Failed to construct data tuple for block proposal"),
-        );
+/// This enum is used for serializing the response to block
+/// proposal validation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "Result")]
+pub enum BlockValidateResponse {
+    Ok(BlockValidateOk),
+    Reject(BlockValidateReject),
+}
 
-        let data_hash = Sha256Sum::from_data(&data_tuple.serialize_to_vec());
-        let mut hash_input = hex_bytes(SIP18_DATA_PREFIX_HEX).expect("Bad SIP18 data prefix");
-        hash_input.extend_from_slice(&data_hash.0);
-        let structured_hash = Sha256Sum::from_data(&hash_input);
+/// A response for block proposal validation
+///  that the stacks-node thinks is acceptable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockValidateOk {
+    pub block: StacksBlock,
+    pub cost: ExecutionCost,
+    pub size: u64,
+}
 
-        let msg_signature = signing_key
-            .sign(structured_hash.as_bytes())
-            .expect("Bad message hash");
-        // format the signature vector as Clarity expects
-        let recov_signature = msg_signature
-            .to_secp256k1_recoverable()
-            .expect("Failed to create recoverable signature");
-        let (rec_id, rec_signature_comp) = recov_signature.serialize_compact();
-        let mut signature = [0; 65];
-        signature[..64].copy_from_slice(&rec_signature_comp);
-        signature[64] = u8::try_from(rec_id.to_i32()).unwrap();
+/// A response for block proposal validation
+///  that the stacks-node thinks should be rejected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockValidateReject {
+    pub reason: String,
+    pub reason_code: ValidateRejectCode,
+}
 
-        signature
+impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateResponse {
+    fn from(value: Result<BlockValidateOk, BlockValidateReject>) -> Self {
+        match value {
+            Ok(o) => BlockValidateResponse::Ok(o),
+            Err(e) => BlockValidateResponse::Reject(e),
+        }
     }
-    */
+}
 
-    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
-    ///   returns the assembled block, and the consumed execution budget.
+impl From<Error> for BlockValidateReject {
+    fn from(value: Error) -> Self {
+        BlockValidateReject {
+            reason: format!("Chainstate Error: {}", value),
+            reason_code: ValidateRejectCode::ChainstateError,
+        }
+    }
+}
+
+impl BlockProposal {
+    /// Test this block proposal against the current chain state and
+    /// either accept or reject the proposal.
     pub fn validate(
         &self,
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
-    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+    ) -> Result<BlockValidateOk, BlockValidateReject> {
         let expected_block_hash = self.block.block_hash();
-
-        /*
-        let can_attach = StacksChainState::can_attach(
-            chainstate_handle.db(),
-            &self.parent_block_hash,
-            &self.parent_consensus_hash,
-        )?;
-        if !can_attach {
-            warn!("Rejected proposal";
-                  "reason" => "Block is not attachable",
-                  "parent_block_hash" => %self.parent_block_hash,
-                  "parent_consensus_hash" => %self.parent_consensus_hash);
-            return Err(Error::NoSuchBlockError);
-        }
-        */
 
         let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
             chainstate_handle.db(),
@@ -2799,7 +2783,10 @@ impl BlockProposal {
                       "reason" => "No such parent block",
                       "parent_block_hash" => %self.parent_block_hash,
                       "parent_consensus_hash" => %self.parent_consensus_hash);
-            Error::NoSuchBlockError
+            BlockValidateReject {
+                reason: "No such parent block".into(),
+                reason_code: ValidateRejectCode::UnknownParent,
+            }
         })?;
 
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
@@ -2826,21 +2813,23 @@ impl BlockProposal {
 
         let ts_start = get_epoch_time_ms();
 
+        let does_cross_epoch = StacksChainState::block_crosses_epoch_boundary(
+            chainstate.db(),
+            &self.parent_consensus_hash,
+            &self.parent_block_hash,
+        )
+        .map_err(Error::from)?;
+
         // check that no microblocks cross an epoch boundary
-        if !self.microblocks_confirmed.is_empty()
-            && StacksChainState::block_crosses_epoch_boundary(
-                chainstate.db(),
-                &self.parent_consensus_hash,
-                &self.parent_block_hash,
-            )?
-        {
+        if !self.microblocks_confirmed.is_empty() && does_cross_epoch {
             warn!("Rejected proposal";
                   "reason" => "Block confirms microblocks across epoch boundary",
                   "parent_block_hash" => %self.parent_block_hash,
                   "parent_consensus_hash" => %self.parent_consensus_hash);
-            return Err(Error::InvalidStacksBlock(
-                "Confirms microblocks across epoch boundary".into(),
-            ));
+            return Err(BlockValidateReject {
+                reason: "Confirms microblocks across epoch boundary".into(),
+                reason_code: ValidateRejectCode::InvalidBlock,
+            });
         }
 
         // Setup the MinerEpochInfo that would normally be done by pre_epoch_begin
@@ -2872,7 +2861,11 @@ impl BlockProposal {
                     "txid" => %tx.txid(),
                     "tx_error" => %e,
                 );
-                return Err(e);
+
+                return Err(BlockValidateReject {
+                    reason: "Transaction included with invalidating error".into(),
+                    reason_code: ValidateRejectCode::BadTransaction,
+                });
             }
         }
 
@@ -2896,9 +2889,10 @@ impl BlockProposal {
                 "computed_block_hash" => %computed_block_hash,
                 "block_hash" => %expected_block_hash,
             );
-            return Err(Error::InvalidStacksBlock(
-                "Withdrawal root is not as expected".into(),
-            ));
+            return Err(BlockValidateReject {
+                reason: "Block hash is not as expected".into(),
+                reason_code: ValidateRejectCode::BadBlockHash,
+            });
         }
 
         info!(
@@ -2917,6 +2911,10 @@ impl BlockProposal {
             })
         );
 
-        Ok((block, consumed, size))
+        Ok(BlockValidateOk {
+            block,
+            cost: consumed,
+            size,
+        })
     }
 }

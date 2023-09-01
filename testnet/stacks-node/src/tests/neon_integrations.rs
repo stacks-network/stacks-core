@@ -25,6 +25,8 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::miner::BlockValidateResponse;
+use stacks::chainstate::stacks::miner::ValidateRejectCode;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, BlockProposal, TransactionErrorEvent,
     TransactionEvent, TransactionSuccessEvent,
@@ -190,11 +192,12 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use stacks::chainstate::stacks::miner::BlockValidateResponse;
     use tokio;
     use warp;
     use warp::Filter;
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
+    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, PATH_ASYNC_RPC_RESPONSE};
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -207,6 +210,7 @@ pub mod test_observer {
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
         pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref ASYNC_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
     }
 
     async fn handle_burn_block(
@@ -228,6 +232,15 @@ pub mod test_observer {
     ) -> Result<impl warp::Reply, Infallible> {
         let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
         microblock_events.push(microblocks);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_async_response(
+        response: BlockValidateResponse,
+    ) -> Result<impl warp::Reply, Infallible> {
+        eprintln!("handling async response!");
+        let mut async_responses = ASYNC_RESPONSES.lock().unwrap();
+        async_responses.push(response);
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -351,6 +364,10 @@ pub mod test_observer {
         MINED_MICROBLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_async_responses() -> Vec<BlockValidateResponse> {
+        ASYNC_RESPONSES.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -385,6 +402,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mined_microblock);
+        let async_rpc_response = warp::path(PATH_ASYNC_RPC_RESPONSE)
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_async_response);
 
         info!("Spawning warp server");
         warp::serve(
@@ -395,7 +416,8 @@ pub mod test_observer {
                 .or(new_attachments)
                 .or(new_microblocks)
                 .or(mined_blocks)
-                .or(mined_microblocks),
+                .or(mined_microblocks)
+                .or(async_rpc_response),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -416,6 +438,7 @@ pub mod test_observer {
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
+        ASYNC_RESPONSES.lock().unwrap().clear();
     }
 }
 
@@ -10658,12 +10681,18 @@ fn test_competing_miners_build_on_same_chain(
 
 #[test]
 #[ignore]
-fn test_block_proposal() {
+fn block_proposal_endpoint() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
-    let (conf, _) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+    conf.node.support_block_proposals = true;
 
     // Start bitcoind
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -10687,6 +10716,7 @@ fn test_block_proposal() {
     // Start Stacks node
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(None, 0));
 
@@ -10731,6 +10761,8 @@ fn test_block_proposal() {
 
     eprintln!("{proposal:?}");
 
+    let current_response_len = test_observer::get_async_responses().len();
+
     // Send POST request
     let res = client
         .post(&path)
@@ -10739,8 +10771,30 @@ fn test_block_proposal() {
         .send()
         .expect("Failed to POST");
 
-    // Response should be error with code 406
-    assert_eq!(res.status().as_u16(), 406);
+    // response should be 202 Accepted
+    assert_eq!(res.status().as_u16(), 202);
+
+    let start_time = Instant::now();
+    while current_response_len >= test_observer::get_async_responses().len() {
+        assert!(
+            start_time.elapsed() <= Duration::from_secs(30),
+            "Took over 30 seconds to process invalid block proposal request"
+        );
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    let last_proposal_result: BlockValidateResponse = test_observer::get_async_responses()
+        .last()
+        .cloned()
+        .unwrap();
+    let last_proposal_reject = match last_proposal_result {
+        BlockValidateResponse::Ok(_) => panic!("First proposal should be invalid"),
+        BlockValidateResponse::Reject(x) => x,
+    };
+    assert_eq!(
+        last_proposal_reject.reason_code,
+        ValidateRejectCode::UnknownParent
+    );
 
     // Construct valid block proposal
     let tip_info = get_chain_info(&conf);
@@ -10819,6 +10873,7 @@ fn test_block_proposal() {
 
     eprintln!("{proposal:?}");
 
+    let current_response_len = test_observer::get_async_responses().len();
     // Send POST request
     let res = client
         .post(&path)
@@ -10827,8 +10882,33 @@ fn test_block_proposal() {
         .send()
         .expect("Failed to POST");
 
-    // Response should be HTTP OK
-    assert_eq!(res.status().as_u16(), 200);
+    // response should be 202 Accepted
+    assert_eq!(res.status().as_u16(), 202);
+
+    let start_time = Instant::now();
+    while current_response_len >= test_observer::get_async_responses().len() {
+        assert!(
+            start_time.elapsed() <= Duration::from_secs(30),
+            "Took over 30 seconds to process invalid block proposal request"
+        );
+        thread::sleep(Duration::from_secs(5));
+    }
+
+    let last_proposal_result: BlockValidateResponse = test_observer::get_async_responses()
+        .last()
+        .cloned()
+        .unwrap();
+    let last_proposal_ok = match last_proposal_result {
+        BlockValidateResponse::Ok(x) => x,
+        BlockValidateResponse::Reject(_) => panic!("Second proposal should be valid"),
+    };
+    assert_eq!(
+        last_proposal_ok.block.block_hash(),
+        proposal.block.block_hash()
+    );
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 }
 
 // TODO: this needs to run as a smoke test, since they take too long to run in CI

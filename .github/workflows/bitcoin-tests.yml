@@ -110,6 +110,7 @@ jobs:
           - tests::neon_integrations::test_problematic_microblocks_are_not_mined
           - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
           - tests::neon_integrations::push_boot_receipts
+          - tests::neon_integrations::block_proposal_endpoint
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205

@@ -1143,13 +1143,18 @@ impl HttpResponsePreamble {
         }
     }
 
-    pub fn ok_JSON_from_md<W: Write>(
+    fn ok_JSON_from_md<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
+        Self::ok_JSON_with_status(fd, md, 200)
+    }
+
+    fn ok_JSON_with_status<W: Write>(
         fd: &mut W,
         md: &HttpResponseMetadata,
+        status_code: u16,
     ) -> Result<(), codec_error> {
         HttpResponsePreamble::new_serialized(
             fd,
-            200,
+            status_code,
             "OK",
             md.content_length.clone(),
             &HttpContentType::JSON,
@@ -4107,6 +4112,7 @@ impl HttpResponseType {
             402 => "Payment Required",
             403 => "Forbidden",
             404 => "Not Found",
+            429 => "Too Many Requests",
             500 => "Internal Server Error",
             503 => "Service Temporarily Unavailable",
             _ => "Error",
@@ -4164,7 +4170,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(md, ..) => md,
             HttpResponseType::OptionsPreflight(md) => md,
             HttpResponseType::TransactionFeeEstimation(md, _) => md,
-            HttpResponseType::BlockProposalValid { metadata, .. } => metadata,
+            HttpResponseType::BlockProposalOk { metadata, .. } => metadata,
             // errors
             HttpResponseType::BadRequestJSON(md, _) => md,
             HttpResponseType::BadRequest(md, _) => md,
@@ -4175,7 +4181,7 @@ impl HttpResponseType {
             HttpResponseType::ServerError(md, _) => md,
             HttpResponseType::ServiceUnavailable(md, _) => md,
             HttpResponseType::Error(md, ..) => md,
-            HttpResponseType::BlockProposalInvalid { metadata, .. } => metadata,
+            HttpResponseType::AsyncRpcNotReady { metadata, .. } => metadata,
         }
     }
 
@@ -4501,22 +4507,26 @@ impl HttpResponseType {
             HttpResponseType::Error(_, error_code, msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
-            HttpResponseType::BlockProposalValid {
-                metadata,
-                signature,
-            } => {
-                HttpResponsePreamble::ok_JSON_from_md(fd, metadata)?;
-                let signature_hex = format!("0x{}", to_hex(signature));
-                HttpResponseType::send_json(protocol, metadata, fd, &signature_hex)?;
+            HttpResponseType::BlockProposalOk { metadata } => {
+                // 202 Accepted
+                HttpResponsePreamble::ok_JSON_with_status(fd, metadata, 202)?;
+                HttpResponseType::send_json(
+                    protocol,
+                    metadata,
+                    fd,
+                    &"Proposal submitted for validation",
+                )?;
             }
-            HttpResponseType::BlockProposalInvalid {
+            HttpResponseType::AsyncRpcNotReady {
                 metadata,
                 error_message,
             } => {
+                // 429 Too Many Requests
+                let e_code = 429;
                 HttpResponsePreamble::new_serialized(
                     fd,
-                    406,
-                    HttpResponseType::error_reason(406),
+                    e_code,
+                    HttpResponseType::error_reason(e_code),
                     metadata.content_length.clone(),
                     &HttpContentType::JSON,
                     metadata.request_id,
@@ -4646,8 +4656,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::ServiceUnavailable(..) => "HTTP(503)",
                 HttpResponseType::Error(..) => "HTTP(other)",
                 HttpResponseType::TransactionFeeEstimation(..) => "HTTP(TransactionFeeEstimation)",
-                HttpResponseType::BlockProposalValid { .. } => "HTTP(BlockProposalValid)",
-                HttpResponseType::BlockProposalInvalid { .. } => "HTTP(BlockProposalInalid)",
+                HttpResponseType::BlockProposalOk { .. } => "HTTP(BlockProposalOk)",
+                HttpResponseType::AsyncRpcNotReady { .. } => "HTTP(AsyncRpcNotReady)",
             },
         }
     }

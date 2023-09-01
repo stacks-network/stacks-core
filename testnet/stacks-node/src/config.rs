@@ -456,6 +456,13 @@ impl Config {
         }
     }
 
+    /// Does this stacks-node config handle any RPC requests that
+    ///  use the async request handler (i.e., block proposals) to
+    ///  handle the request in a separate thread?
+    pub fn needs_async_request_handler(&self) -> bool {
+        self.node.support_block_proposals
+    }
+
     /// Load up a Burnchain and apply config settings to it.
     /// Use this over the Burnchain constructors.
     /// Panics if we are unable to instantiate a burnchain (e.g. becase we're using an unrecognized
@@ -708,6 +715,9 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    support_block_proposals: node
+                        .support_block_proposals
+                        .unwrap_or(default_node_config.support_block_proposals),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1515,6 +1525,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    /// Should this node support the block proposal endpoint?
+    pub support_block_proposals: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1793,6 +1805,7 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            support_block_proposals: false,
         }
     }
 
@@ -1999,6 +2012,8 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    /// Should this node support the block proposal endpoint?
+    pub support_block_proposals: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
