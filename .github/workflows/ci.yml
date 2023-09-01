@@ -128,7 +128,7 @@ jobs:
   docker-alpine:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Alpine (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
+    uses: jbencin/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@ci/pass-without-dockerhub-credentials
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -147,7 +147,7 @@ jobs:
   docker-debian:
     if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Debian (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
+    uses: jbencin/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@ci/pass-without-dockerhub-credentials
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -167,7 +167,7 @@ jobs:
   build-branch:
     if: ${{ inputs.tag == '' }}
     name: Docker Debian (Source)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    uses: jbencin/stacks-blockchain/.github/workflows/image-build-debian-source.yml@ci/pass-without-dockerhub-credentials
     needs:
       - rustfmt
       - leaked-cred-test
