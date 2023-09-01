@@ -127,6 +127,8 @@ pub enum WasmError {
     UnableToWriteStackPointer(wasmtime::Error),
     InvalidNoTypeInValue,
     InvalidFunctionKind(i32),
+    DefineFunctionCalledInRunMode,
+    ExpectedReturnValue,
     Runtime(wasmtime::Error),
 }
 
@@ -147,6 +149,10 @@ impl fmt::Display for WasmError {
             }
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
             WasmError::InvalidFunctionKind(kind) => write!(f, "Invalid function kind: {kind}"),
+            WasmError::DefineFunctionCalledInRunMode => {
+                write!(f, "Define function called in run mode")
+            }
+            WasmError::ExpectedReturnValue => write!(f, "Expected return value"),
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
