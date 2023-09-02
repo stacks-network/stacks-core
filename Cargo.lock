@@ -1483,6 +1483,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "libstackerdb"
+version = "0.0.1"
+dependencies = [
+ "clarity",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_stacker",
+ "sha2 0.10.6",
+ "stacks-common",
+]
+
+[[package]]
 name = "link-cplusplus"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2692,6 +2705,7 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "libc",
+ "libstackerdb",
  "mio 0.6.23",
  "nix",
  "percent-encoding",

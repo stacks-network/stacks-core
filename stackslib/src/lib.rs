@@ -95,6 +95,8 @@ pub mod net;
 #[macro_use]
 pub extern crate clarity;
 
+pub extern crate libstackerdb;
+
 pub use clarity::vm;
 
 #[macro_use]

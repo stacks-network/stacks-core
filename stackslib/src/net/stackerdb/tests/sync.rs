@@ -16,7 +16,8 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
+use libstackerdb::SlotMetadata;
 
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;
@@ -43,11 +44,10 @@ use rand::RngCore;
 use crate::net::relay::Relayer;
 use crate::net::test::TestPeer;
 use crate::net::test::TestPeerConfig;
-use crate::net::ContractIdExtension;
-
-use crate::net::ContractId;
 
 use crate::util_lib::test::with_timeout;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 const BASE_PORT: u16 = 33000;
 
@@ -84,7 +84,9 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
-    config.stacker_dbs.push(ContractId::from_parts(addr, name));
+    config
+        .stacker_dbs
+        .push(QualifiedContractIdentifier::new(addr.into(), name));
     config.stacker_db_configs.push(Some(stackerdb_config));
 
     config.stacker_dbs.len() - 1
@@ -244,13 +246,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -259,13 +263,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -359,13 +365,15 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -374,13 +382,15 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -493,13 +503,15 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                     Relayer::process_stacker_db_chunks(
                         &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
-                        &res.stacker_db_sync_results,
+                        res.stacker_db_sync_results,
+                        None,
                     )
                     .unwrap();
                     Relayer::process_pushed_stacker_db_chunks(
                         &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
                         &mut res.unhandled_messages,
+                        None,
                     )
                     .unwrap();
                 }

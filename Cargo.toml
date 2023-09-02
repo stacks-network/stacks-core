@@ -6,6 +6,7 @@ members = [
     "pox-locking",
     "clarity",
     "stx-genesis",
+    "libstackerdb",
     "testnet/stacks-node"]
 
 # Use a bit more than default optimization for

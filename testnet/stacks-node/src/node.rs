@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
-use std::{collections::HashSet, env};
+use std::{collections::HashMap, collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
 use stacks::chainstate::burn::ConsensusHash;
@@ -505,7 +505,7 @@ impl Node {
             burnchain.clone(),
             view,
             self.config.connection_options.clone(),
-            vec![],
+            HashMap::new(),
             epochs,
         );
         let _join_handle = spawn_peer(

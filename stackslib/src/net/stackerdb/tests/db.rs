@@ -17,10 +17,9 @@
 use std::fs;
 use std::path::Path;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
+use libstackerdb::SlotMetadata;
 
-use crate::net::ContractId;
-use crate::net::ContractIdExtension;
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;
 
@@ -36,6 +35,8 @@ use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 fn setup_test_path(path: &str) {
     let dirname = Path::new(path).parent().unwrap().to_str().unwrap();
@@ -75,11 +76,12 @@ fn test_stackerdb_create_list_delete() {
 
     // databases with one chunk
     tx.create_stackerdb(
-        &ContractId::from_parts(
+        &QualifiedContractIdentifier::new(
             StacksAddress {
                 version: 0x01,
                 bytes: Hash160([0x01; 20]),
-            },
+            }
+            .into(),
             ContractName::try_from("db1").unwrap(),
         ),
         &[(
@@ -92,11 +94,12 @@ fn test_stackerdb_create_list_delete() {
     )
     .unwrap();
     tx.create_stackerdb(
-        &ContractId::from_parts(
+        &QualifiedContractIdentifier::new(
             StacksAddress {
                 version: 0x02,
                 bytes: Hash160([0x02; 20]),
-            },
+            }
+            .into(),
             ContractName::try_from("db2").unwrap(),
         ),
         &[(
@@ -109,11 +112,12 @@ fn test_stackerdb_create_list_delete() {
     )
     .unwrap();
     tx.create_stackerdb(
-        &ContractId::from_parts(
+        &QualifiedContractIdentifier::new(
             StacksAddress {
                 version: 0x03,
                 bytes: Hash160([0x03; 20]),
-            },
+            }
+            .into(),
             ContractName::try_from("db3").unwrap(),
         ),
         &[(
@@ -134,25 +138,28 @@ fn test_stackerdb_create_list_delete() {
     assert_eq!(
         dbs,
         vec![
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x01,
                     bytes: Hash160([0x01; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db1").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -162,11 +169,12 @@ fn test_stackerdb_create_list_delete() {
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     if let net_error::StackerDBExists(..) = tx
         .create_stackerdb(
-            &ContractId::from_parts(
+            &QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x01,
                     bytes: Hash160([0x01; 20]),
-                },
+                }
+                .into(),
                 ContractName::try_from("db1").unwrap(),
             ),
             &[],
@@ -184,25 +192,28 @@ fn test_stackerdb_create_list_delete() {
     assert_eq!(
         dbs,
         vec![
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x01,
                     bytes: Hash160([0x01; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db1").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -215,11 +226,12 @@ fn test_stackerdb_create_list_delete() {
 
     // remove a db
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.delete_stackerdb(&ContractId::from_parts(
+    tx.delete_stackerdb(&QualifiedContractIdentifier::new(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
-        },
+        }
+        .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -231,18 +243,20 @@ fn test_stackerdb_create_list_delete() {
     assert_eq!(
         dbs,
         vec![
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -255,11 +269,12 @@ fn test_stackerdb_create_list_delete() {
 
     // deletion is idempotent
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    tx.delete_stackerdb(&ContractId::from_parts(
+    tx.delete_stackerdb(&QualifiedContractIdentifier::new(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
-        },
+        }
+        .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -271,18 +286,20 @@ fn test_stackerdb_create_list_delete() {
     assert_eq!(
         dbs,
         vec![
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x02,
                     bytes: Hash160([0x02; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db2").unwrap()
             ),
-            ContractId::from_parts(
+            QualifiedContractIdentifier::new(
                 StacksAddress {
                     version: 0x03,
                     bytes: Hash160([0x03; 20])
-                },
+                }
+                .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -299,11 +316,12 @@ fn test_stackerdb_prepare_clear_slots() {
     let path = "/tmp/test_stackerdb_prepare_clear_slots.sqlite";
     setup_test_path(path);
 
-    let sc = ContractId::from_parts(
+    let sc = QualifiedContractIdentifier::new(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
-        },
+        }
+        .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -409,11 +427,12 @@ fn test_stackerdb_insert_query_chunks() {
     let path = "/tmp/test_stackerdb_insert_query_chunks.sqlite";
     setup_test_path(path);
 
-    let sc = ContractId::from_parts(
+    let sc = QualifiedContractIdentifier::new(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
-        },
+        }
+        .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -477,11 +496,13 @@ fn test_stackerdb_insert_query_chunks() {
         assert_eq!(slot_metadata.signature, chunk_data.sig);
 
         // should fail -- stale version
-        if let Err(net_error::StaleChunk(db_version, given_version)) =
-            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        if let Err(net_error::StaleChunk {
+            supplied_version,
+            latest_version,
+        }) = tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
         {
-            assert_eq!(db_version, 1);
-            assert_eq!(given_version, 1);
+            assert_eq!(supplied_version, 1);
+            assert_eq!(latest_version, 1);
         } else {
             panic!("Did not get StaleChunk");
         }
@@ -489,11 +510,13 @@ fn test_stackerdb_insert_query_chunks() {
         // should fail -- too many writes version
         chunk_data.slot_version = db_config.max_writes + 1;
         chunk_data.sign(&pk).unwrap();
-        if let Err(net_error::TooManySlotWrites(db_max, cur_version)) =
-            tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
+        if let Err(net_error::TooManySlotWrites {
+            supplied_version,
+            max_writes,
+        }) = tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
         {
-            assert_eq!(db_max, db_config.max_writes);
-            assert_eq!(cur_version, 1);
+            assert_eq!(max_writes, db_config.max_writes);
+            assert_eq!(supplied_version, 1);
         } else {
             panic!("Did not get TooManySlotWrites");
         }
@@ -559,11 +582,12 @@ fn test_reconfigure_stackerdb() {
     let path = "/tmp/test_stackerdb_reconfigure.sqlite";
     setup_test_path(path);
 
-    let sc = ContractId::from_parts(
+    let sc = QualifiedContractIdentifier::new(
         StacksAddress {
             version: 0x01,
             bytes: Hash160([0x01; 20]),
-        },
+        }
+        .into(),
         ContractName::try_from("db1").unwrap(),
     );
 

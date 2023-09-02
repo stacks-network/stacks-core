@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -75,7 +75,7 @@ use crate::net::relay::*;
 use crate::net::relay::*;
 use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
-use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
+use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
@@ -95,6 +95,7 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::{PoxId, SortitionId};
 
 use clarity::vm::ast::ASTRules;
+use clarity::vm::types::QualifiedContractIdentifier;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -318,9 +319,10 @@ pub struct PeerNetwork {
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
     // peer stacker DB state machines
-    pub stacker_db_syncs: Option<HashMap<ContractId, StackerDBSync<PeerNetworkComms>>>,
+    pub stacker_db_syncs:
+        Option<HashMap<QualifiedContractIdentifier, StackerDBSync<PeerNetworkComms>>>,
     // configuration state for stacker DBs (loaded at runtime from smart contracts)
-    pub stacker_db_configs: HashMap<ContractId, StackerDBConfig>,
+    pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     // handle to all stacker DB state
     pub stackerdbs: StackerDBs,
 
@@ -387,7 +389,10 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
-        stacker_db_syncs: Vec<StackerDBSync<PeerNetworkComms>>,
+        stacker_db_syncs: HashMap<
+            QualifiedContractIdentifier,
+            (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
+        >,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
@@ -406,9 +411,11 @@ impl PeerNetwork {
         let first_burn_header_hash = burnchain.first_block_hash.clone();
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
+        let mut stacker_db_configs = HashMap::new();
         let mut stacker_db_sync_map = HashMap::new();
-        for stacker_db_sync in stacker_db_syncs.into_iter() {
-            stacker_db_sync_map.insert(stacker_db_sync.smart_contract_id.clone(), stacker_db_sync);
+        for (contract_id, (stacker_db_config, stacker_db_sync)) in stacker_db_syncs.into_iter() {
+            stacker_db_configs.insert(contract_id.clone(), stacker_db_config);
+            stacker_db_sync_map.insert(contract_id.clone(), stacker_db_sync);
         }
 
         let mut network = PeerNetwork {
@@ -473,7 +480,7 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: HashMap::new(),
+            stacker_db_configs: stacker_db_configs,
             stackerdbs: stackerdbs,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
@@ -639,6 +646,20 @@ impl PeerNetwork {
         &self.stackerdbs
     }
 
+    /// Get StackerDBs transaction
+    pub fn stackerdbs_tx_begin<'a>(
+        &'a mut self,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+    ) -> Result<StackerDBTx<'a>, net_error> {
+        if let Some(config) = self.stacker_db_configs.get(stackerdb_contract_id) {
+            return self
+                .stackerdbs
+                .tx_begin(config.clone())
+                .map_err(net_error::from);
+        }
+        Err(net_error::NoSuchStackerDB(stackerdb_contract_id.clone()))
+    }
+
     /// Get a ref to the walk pingbacks --
     pub fn get_walk_pingbacks(&self) -> &HashMap<NeighborAddress, NeighborPingback> {
         &self.walk_pingbacks
@@ -671,7 +692,10 @@ impl PeerNetwork {
 
     /// Count up the number of outbound StackerDB replicas we talk to,
     /// given the contract ID that controls it.
-    pub fn count_outbound_stackerdb_replicas(&self, contract_id: &ContractId) -> usize {
+    pub fn count_outbound_stackerdb_replicas(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> usize {
         let mut count = 0;
         for (_, convo) in self.peers.iter() {
             if !convo.is_outbound() {
@@ -5150,18 +5174,63 @@ impl PeerNetwork {
     }
 
     /// Set the stacker DB configs
-    pub fn set_stacker_db_configs(&mut self, configs: HashMap<ContractId, StackerDBConfig>) {
+    pub fn set_stacker_db_configs(
+        &mut self,
+        configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    ) {
         self.stacker_db_configs = configs;
     }
 
     /// Obtain a copy of the stacker DB configs
-    pub fn get_stacker_db_configs_owned(&self) -> HashMap<ContractId, StackerDBConfig> {
+    pub fn get_stacker_db_configs_owned(
+        &self,
+    ) -> HashMap<QualifiedContractIdentifier, StackerDBConfig> {
         self.stacker_db_configs.clone()
     }
 
     /// Obtain a ref to the stacker DB configs
-    pub fn get_stacker_db_configs(&self) -> &HashMap<ContractId, StackerDBConfig> {
+    pub fn get_stacker_db_configs(&self) -> &HashMap<QualifiedContractIdentifier, StackerDBConfig> {
         &self.stacker_db_configs
+    }
+
+    /// Create or reconfigure a StackerDB.
+    /// Fails only if the underlying DB fails
+    fn create_or_reconfigure_stackerdb(
+        &mut self,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        new_config: &StackerDBConfig,
+    ) -> Result<(), db_error> {
+        debug!("Reconfiguring StackerDB {}...", stackerdb_contract_id);
+        let tx = self.stackerdbs.tx_begin(new_config.clone())?;
+        match tx.reconfigure_stackerdb(stackerdb_contract_id, &new_config.signers) {
+            Ok(..) => {}
+            Err(net_error::NoSuchStackerDB(..)) => {
+                // need to create it first
+                info!(
+                    "Creating local replica of StackerDB {}",
+                    stackerdb_contract_id
+                );
+                test_debug!(
+                    "Creating local replica of StackerDB {} with config {:?}",
+                    stackerdb_contract_id,
+                    &new_config
+                );
+                if let Err(e) = tx.create_stackerdb(stackerdb_contract_id, &new_config.signers) {
+                    warn!(
+                        "Failed to create StackerDB replica {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to reconfigure StackerDB replica {}: {:?}",
+                    stackerdb_contract_id, &e
+                );
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Refresh view of burnchain, if needed.
@@ -5175,7 +5244,7 @@ impl PeerNetwork {
         &mut self,
         indexer: &B,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
@@ -5259,6 +5328,39 @@ impl PeerNetwork {
             self.last_anchor_block_txid = ih
                 .get_last_selected_anchor_block_txid()?
                 .unwrap_or(Txid([0x00; 32]));
+
+            // refresh stackerdb configs
+            let mut new_stackerdb_configs = HashMap::new();
+            let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+            for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
+                let new_config = match StackerDBConfig::from_smart_contract(
+                    chainstate,
+                    sortdb,
+                    &stackerdb_contract_id,
+                ) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        warn!(
+                            "Failed to load StackerDB config for {}: {:?}",
+                            &stackerdb_contract_id, &e
+                        );
+                        StackerDBConfig::noop()
+                    }
+                };
+                if new_config != stackerdb_config && new_config.signers.len() > 0 {
+                    if let Err(e) =
+                        self.create_or_reconfigure_stackerdb(&stackerdb_contract_id, &new_config)
+                    {
+                        warn!(
+                            "Failed to create or reconfigure StackerDB {}: DB error {:?}",
+                            &stackerdb_contract_id, &e
+                        );
+                    }
+                }
+                new_stackerdb_configs.insert(stackerdb_contract_id.clone(), new_config);
+            }
+
+            self.stacker_db_configs = new_stackerdb_configs;
         }
 
         if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
@@ -5803,7 +5905,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
-            vec![],
+            HashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p

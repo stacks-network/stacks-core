@@ -53,6 +53,7 @@ libc = "0.2.82"
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
+libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 
 [target.'cfg(unix)'.dependencies]
