@@ -4891,10 +4891,9 @@ impl StacksChainState {
                         receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch21 => {
+                    StacksEpochId::Epoch21 | StacksEpochId::Epoch30 => {
                         panic!("No defined transition from Epoch21 forward")
                     },
-                    StacksEpochId::Epoch30 => todo!()
                 }
             }
         }

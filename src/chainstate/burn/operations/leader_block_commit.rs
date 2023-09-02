@@ -43,7 +43,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::core::{StacksEpoch, StacksEpochId};
+use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_3_0_MARKER};
 use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER};
 use crate::net::Error as net_error;
 use crate::types::chainstate::TrieHash;
@@ -754,7 +754,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
             StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
-            StacksEpochId::Epoch30 => todo!()
+            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER)
         }
     }
 
