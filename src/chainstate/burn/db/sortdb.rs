@@ -3004,6 +3004,8 @@ impl SortitionDB {
             }
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
             StacksEpochId::Epoch21 => version == "5",
+            // I'm assuming 3.0 will have a new database version?
+            StacksEpochId::Epoch30 => todo!()
         }
     }
 
@@ -9999,7 +10001,11 @@ pub mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_block_header.block_hash,
-            StacksEpoch::all(0, 0, 0),
+            StacksEpoch::all(
+                0, 
+                0, 
+                0, 
+                0),
         )
         .unwrap();
 

@@ -1053,6 +1053,7 @@ simulating a miner.
             first_burnchain_block_height,
             u64::max_value(),
             u64::max_value(),
+            u64::max_value()
         );
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
@@ -1142,6 +1143,7 @@ simulating a miner.
             first_burnchain_block_height,
             u64::max_value(),
             u64::max_value(),
+            u64::max_value()
         );
 
         let (p2p_new_sortition_db, _) = burnchain

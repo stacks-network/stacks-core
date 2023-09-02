@@ -754,6 +754,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
             StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
+            StacksEpochId::Epoch30 => todo!()
         }
     }
 
@@ -768,6 +769,9 @@ impl LeaderBlockCommitOp {
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
         let intended_sortition = match epoch_id {
+            StacksEpochId::Epoch30 => {
+                todo!()
+            }
             StacksEpochId::Epoch21 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
@@ -1868,7 +1872,11 @@ mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_burn_hash,
-            StacksEpoch::all(0, 0, first_block_height),
+            StacksEpoch::all(
+                0, 
+                0, 
+                first_block_height, 
+                first_block_height + 100),
         )
         .unwrap();
         let block_ops = vec![

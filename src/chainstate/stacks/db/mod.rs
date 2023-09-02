@@ -222,6 +222,8 @@ impl DBConfig {
                 self.version == "2" || self.version == "3" || self.version == "4"
             }
             StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
+            // TODO: I'm assuming there will be a new db version with nakamoto?
+            StacksEpochId::Epoch30 => todo!()
         }
     }
 }

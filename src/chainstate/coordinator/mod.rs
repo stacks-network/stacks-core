@@ -2992,7 +2992,8 @@ impl<
                                 {
                                     return Ok(Some(pox_anchor));
                                 }
-                            }
+                            },
+                            StacksEpochId::Epoch30 => todo!()
                         }
                     }
                 }

@@ -281,7 +281,11 @@ pub fn setup_states_2_1(
         pox_consts,
         initial_balances,
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::all(
+            0, 
+            0, 
+            0, 
+            0)),
     )
 }
 
@@ -972,7 +976,11 @@ fn missed_block_commits_2_05() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 1000000)),
+        Some(StacksEpoch::all(
+            0, 
+            0, 
+            1000000,
+            2000000)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -1288,7 +1296,11 @@ fn missed_block_commits_2_1() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::all(
+            0, 
+            0, 
+            0, 
+            0)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -1628,7 +1640,11 @@ fn late_block_commits_2_1() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 0, 0)),
+        Some(StacksEpoch::all(
+            0, 
+            0, 
+            0, 
+            0)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -4618,6 +4634,7 @@ fn test_epoch_verify_active_pox_contract() {
             first_block_ht,
             first_block_ht + 4,
             first_block_ht + 8,
+            first_block_ht + 16
         )),
     );
 
@@ -5206,7 +5223,11 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         pox_consts.clone(),
         None,
         StacksEpochId::Epoch20,
-        Some(StacksEpoch::all(0, 5, epoch_switch_ht)),
+        Some(StacksEpoch::all(
+            0, 
+            5, 
+            epoch_switch_ht, 
+            80)),
     );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());

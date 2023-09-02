@@ -71,6 +71,7 @@ pub enum StacksEpochId {
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
     Epoch21 = 0x0200a,
+    Epoch30 = 0x03000,
 }
 
 impl StacksEpochId {
@@ -86,6 +87,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch20 => write!(f, "2.0"),
             StacksEpochId::Epoch2_05 => write!(f, "2.05"),
             StacksEpochId::Epoch21 => write!(f, "2.1"),
+            StacksEpochId::Epoch30 => write!(f, "3.0"),
         }
     }
 }

@@ -4893,7 +4893,8 @@ impl StacksChainState {
                     }
                     StacksEpochId::Epoch21 => {
                         panic!("No defined transition from Epoch21 forward")
-                    }
+                    },
+                    StacksEpochId::Epoch30 => todo!()
                 }
             }
         }
@@ -5489,6 +5490,7 @@ impl StacksChainState {
                     cur_epoch.start_height,
                 )
             }
+            StacksEpochId::Epoch30 => todo!()
         }
     }
 
