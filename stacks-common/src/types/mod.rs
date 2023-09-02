@@ -101,6 +101,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
             x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
             x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
+            x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
             _ => Err("Invalid epoch"),
         }
     }

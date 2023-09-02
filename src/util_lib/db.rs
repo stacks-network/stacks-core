@@ -387,8 +387,12 @@ where
 {
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
-    let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
-
+    let result = stmt.query_and_then(
+        sql_args, 
+        |row| {
+            T::from_row(row) 
+        }
+    )?;
     result.collect()
 }
 

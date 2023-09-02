@@ -302,6 +302,7 @@ pub fn setup_states_with_epochs(
     let mut others = vec![];
 
     for path in paths.iter() {
+        trace!("Processing path '{}'", path);
         let burnchain = get_burnchain(path, pox_consts.clone());
         let epochs = epochs_opt.clone().unwrap_or(StacksEpoch::unit_test(
             stacks_epoch_id,
@@ -1644,7 +1645,7 @@ fn late_block_commits_2_1() {
             0, 
             0, 
             0, 
-            0)),
+            10_000)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -4623,6 +4624,7 @@ fn test_epoch_verify_active_pox_contract() {
     ];
 
     let first_block_ht = burnchain_conf.first_block_height;
+
     setup_states_with_epochs(
         &[path],
         &vrf_keys,
@@ -4639,8 +4641,8 @@ fn test_epoch_verify_active_pox_contract() {
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
-
-    coord.handle_new_burnchain_block().unwrap();
+    
+    coord.handle_new_burnchain_block().unwrap(); // here
 
     let sort_db = get_sortition_db(path, pox_consts.clone());
 

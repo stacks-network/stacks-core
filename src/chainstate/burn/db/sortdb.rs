@@ -606,7 +606,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "5";
+pub const SORTITION_DB_VERSION: &'static str = "6";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -857,6 +857,8 @@ const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
 ];
+
+const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -2843,6 +2845,7 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         let epochs = StacksEpoch::validate_epochs(epochs);
         for epoch in epochs.into_iter() {
+            debug!("adding epoch: {:?}", epoch);
             let args: &[&dyn ToSql] = &[
                 &(epoch.epoch_id as u32),
                 &u64_to_sql(epoch.start_height)?,
@@ -3005,7 +3008,7 @@ impl SortitionDB {
             StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
             StacksEpochId::Epoch21 => version == "5",
             // I'm assuming 3.0 will have a new database version?
-            StacksEpochId::Epoch30 => todo!()
+            StacksEpochId::Epoch30 => version == "6",
         }
     }
 
@@ -3086,6 +3089,18 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_6(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_6 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["6"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3127,6 +3142,10 @@ impl SortitionDB {
                     } else if version == "4" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_5(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "5" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_6(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -4716,7 +4735,7 @@ impl SortitionDB {
         pox_constants: &PoxConstants,
     ) -> Result<u64, db_error> {
         let epochs = SortitionDB::get_stacks_epochs(conn)?;
-
+        
         for epoch in epochs {
             if epoch.epoch_id == StacksEpochId::Epoch2_05 {
                 return Ok(pox_constants

@@ -291,7 +291,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 4] = [
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 5] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -316,15 +316,22 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_30.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_0
+        }
     ];
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 4] = [
+    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 5] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -349,10 +356,17 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2000,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 3000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: 3000,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_30.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_0
+        }
     ];
 }
 
@@ -380,6 +394,8 @@ fn test_ord_for_stacks_epoch() {
     assert_eq!(epochs[2].cmp(&epochs[0]), Ordering::Greater);
     assert_eq!(epochs[2].cmp(&epochs[1]), Ordering::Greater);
     assert_eq!(epochs[1].cmp(&epochs[0]), Ordering::Greater);
+    assert_eq!(epochs[3].cmp(&epochs[2]), Ordering::Greater);
+    assert_eq!(epochs[4].cmp(&epochs[3]), Ordering::Greater);
 }
 
 #[test]
@@ -418,6 +434,18 @@ fn test_ord_for_stacks_epoch_id() {
     );
     assert_eq!(
         StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch10),
+        Ordering::Greater
+    );
+    assert_eq!(
+        StacksEpochId::Epoch21.cmp(&StacksEpochId::Epoch2_05),
+        Ordering::Greater
+    );
+    assert_eq!(
+        StacksEpochId::Epoch21.cmp(&StacksEpochId::Epoch30),
+        Ordering::Less
+    );
+    assert_eq!(
+        StacksEpochId::Epoch30.cmp(&StacksEpochId::Epoch21),
         Ordering::Greater
     );
 }
@@ -810,21 +838,21 @@ impl StacksEpochExtension for StacksEpoch {
                 start_height: epoch_2_0_block_height,
                 end_height: epoch_2_05_block_height,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: epoch_2_05_block_height,
                 end_height: epoch_2_1_block_height,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0, // Shouldn't this be PEER_VERSION_EPOCH_2_05?
+                network_epoch: PEER_VERSION_EPOCH_2_05,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: epoch_2_1_block_height,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: epoch_3_0_block_height,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0, // Shouldn't this be PEER_VERSION_EPOCH_2_1?
+                network_epoch: PEER_VERSION_EPOCH_2_1,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch30,

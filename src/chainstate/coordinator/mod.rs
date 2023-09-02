@@ -2108,8 +2108,6 @@ impl<
         &mut self,
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
-        debug!("Handle new burnchain block");
-
         let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
         // first, see if the canonical affirmation map has changed.  If so, this will wind back the
@@ -2124,6 +2122,7 @@ impl<
                 )),
             None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
         };
+
         let cur_epoch = SortitionDB::get_stacks_epoch(
             self.sortition_db.conn(),
             before_canonical_snapshot.block_height,
