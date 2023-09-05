@@ -10743,7 +10743,7 @@ fn test_block_proposal() {
     let burn_tip_height = parent_stacks_header.burn_header_height;
 
     // Put block builder in code block so any database locks expire at the end
-    let valid_block = {
+    let block = {
         let mut builder = StacksBlockBuilder::make_block_builder(
             false, // chainstate.mainnet,
             &parent_stacks_header,
@@ -10777,26 +10777,12 @@ fn test_block_proposal() {
         let _consumed = builder.epoch_finish(epoch_tx);
         block
     };
-    let microblock_pubkey_hash = valid_block.header.microblock_pubkey_hash.clone(); // ???
-
-    // Construct empty/invalid block proposal
-    let invalid_proposal = BlockProposal {
-        parent_block_hash: BlockHeaderHash::from_bytes(&[0xAA; 32]).unwrap(),
-        parent_consensus_hash: ConsensusHash::from_bytes(&[0xAA; 20]).unwrap(),
-        block: StacksBlock::genesis_block(),
-        microblocks_confirmed: vec![],
-        burn_tip: BurnchainHeaderHash::from_bytes(&[0xAA; 32]).unwrap(),
-        burn_tip_height: 0,
-        is_mainnet: false,
-        microblock_pubkey_hash: Hash160::from_data(&[0xAA, 20]),
-        total_burn: 0,
-    };
+    let microblock_pubkey_hash = block.header.microblock_pubkey_hash.clone(); // ???
 
     // Construct a valid proposal. Make alterations to this to test failure cases
-    let valid_proposal = BlockProposal {
-        parent_block_hash: stacks_tip_hash,
+    let proposal = BlockProposal {
         parent_consensus_hash: parent_stacks_header.consensus_hash,
-        block: valid_block,
+        block,
         microblocks_confirmed: vec![],
         burn_tip,
         burn_tip_height,
@@ -10808,27 +10794,55 @@ fn test_block_proposal() {
     const HTTP_OK: u16 = 200;
     const HTTP_ERR: u16 = 406;
     let test_cases = [
-        (invalid_proposal, HTTP_ERR),
-        // Try with invalid parent_block_hash
         (
+            "Try with genesis block",
             BlockProposal {
-                parent_block_hash: BlockHeaderHash::from_bytes(&[0xAA; 32]).unwrap(),
-                ..valid_proposal.clone()
+                block: StacksBlock::genesis_block(),
+                ..proposal.clone()
             },
             HTTP_ERR,
         ),
-        // Try with invalid consensus_hash
         (
+            "Try with invalid parent block",
             BlockProposal {
-                parent_consensus_hash: ConsensusHash::from_bytes(&[0x00; 20]).unwrap(),
-                ..valid_proposal.clone()
+                block: StacksBlock {
+                    header: StacksBlockHeader {
+                        parent_block: BlockHeaderHash::from_bytes(&[0x11; 32]).unwrap(),
+                        ..proposal.block.header.clone()
+                    },
+                    ..proposal.block.clone()
+                },
+                ..proposal.clone()
             },
             HTTP_ERR,
         ),
-        (valid_proposal, HTTP_OK),
+        (
+            "Try with invalid VRF proof",
+            BlockProposal {
+                block: StacksBlock {
+                    header: StacksBlockHeader {
+                        proof: stacks::util::vrf::VRFProof::empty(),
+                        ..proposal.block.header.clone()
+                    },
+                    ..proposal.block.clone()
+                },
+                ..proposal.clone()
+            },
+            HTTP_ERR,
+        ),
+        (
+            "Try with invalid consensus_hash",
+            BlockProposal {
+                parent_consensus_hash: ConsensusHash::from_bytes(&[0x22; 20]).unwrap(),
+                ..proposal.clone()
+            },
+            HTTP_ERR,
+        ),
+        ("Try valid proposal", proposal, HTTP_OK),
     ];
 
-    for (proposal, response) in test_cases {
+    for (description, proposal, response) in test_cases {
+        eprintln!("test_block_proposal(): {description}");
         eprintln!("{proposal:?}");
 
         // Send POST request

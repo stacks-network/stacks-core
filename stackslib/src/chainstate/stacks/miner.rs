@@ -26,11 +26,27 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread::ThreadId;
 
+use clarity::vm::analysis::{CheckError, CheckErrors};
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::types::TypeSignature;
+use serde::Deserialize;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::*;
+
 use crate::burnchains::PrivateKey;
 use crate::burnchains::PublicKey;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
@@ -41,41 +57,25 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
-use crate::net::relay::Relayer;
-use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
-use clarity::vm::database::BurnStateDB;
-use serde::Deserialize;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::vrf::*;
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::SetupBlockResult;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
+use crate::net::relay::Relayer;
+use crate::net::Error as net_error;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use clarity::vm::analysis::{CheckError, CheckErrors};
-use clarity::vm::ast::errors::ParseErrors;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
+use crate::types::StacksPublicKeyBuffer;
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -2677,9 +2677,6 @@ impl StacksBlockBuilder {
 /// Represents a block proposed to the `v2/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockProposal {
-    /// This is the identifier for the parent L2 block of this
-    /// proposed block.
-    pub parent_block_hash: BlockHeaderHash,
     pub parent_consensus_hash: ConsensusHash,
     /// Block
     pub block: StacksBlock,
@@ -2702,8 +2699,7 @@ pub struct BlockProposal {
     ///  microblocks.
     pub microblock_pubkey_hash: Hash160,
     /// This is the total burn amount up to this block, used in the
-    ///  Stacks header. In subnets, this is just an incrementing
-    ///  value.
+    ///  Stacks header
     pub total_burn: u64,
 }
 
@@ -2792,19 +2788,19 @@ impl BlockProposal {
         let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
             chainstate_handle.db(),
             &self.parent_consensus_hash,
-            &self.parent_block_hash,
+            &self.block.header.parent_block,
         )?
         .ok_or_else(|| {
             warn!("Rejected proposal";
                       "reason" => "No such parent block",
-                      "parent_block_hash" => %self.parent_block_hash,
+                      "parent_block" => %self.block.header.parent_block,
                       "parent_consensus_hash" => %self.parent_consensus_hash);
             Error::NoSuchBlockError
         })?;
 
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
-            &self.parent_block_hash,
+            &self.block.header.parent_block,
             parent_stacks_header.stacks_block_height,
         );
 
@@ -2831,12 +2827,12 @@ impl BlockProposal {
             && StacksChainState::block_crosses_epoch_boundary(
                 chainstate.db(),
                 &self.parent_consensus_hash,
-                &self.parent_block_hash,
+                &self.block.header.parent_block,
             )?
         {
             warn!("Rejected proposal";
                   "reason" => "Block confirms microblocks across epoch boundary",
-                  "parent_block_hash" => %self.parent_block_hash,
+                  "parent_block" => %self.block.header.parent_block,
                   "parent_consensus_hash" => %self.parent_consensus_hash);
             return Err(Error::InvalidStacksBlock(
                 "Confirms microblocks across epoch boundary".into(),
@@ -2866,7 +2862,7 @@ impl BlockProposal {
                 warn!(
                     "Rejected proposal";
                     "reason" => "Transaction included with invalidating error",
-                    "parent_block_hash" => %tip_block_hash,
+                    "parent_block" => %tip_block_hash,
                     "parent_consensus_hash" => %tip_consensus_hash,
                     "block_hash" => %expected_block_hash,
                     "txid" => %tx.txid(),
