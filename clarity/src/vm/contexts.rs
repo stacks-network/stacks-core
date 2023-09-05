@@ -957,10 +957,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 
     /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
-    pub fn nest_as_principal<'c>(
-        &'c mut self,
-        sender: PrincipalData,
-    ) -> Environment<'c, 'b> {
+    pub fn nest_as_principal<'c>(&'c mut self, sender: PrincipalData) -> Environment<'c, 'b> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -971,10 +968,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         )
     }
 
-    pub fn nest_with_caller<'c>(
-        &'c mut self,
-        caller: PrincipalData,
-    ) -> Environment<'c, 'b> {
+    pub fn nest_with_caller<'c>(&'c mut self, caller: PrincipalData) -> Environment<'c, 'b> {
         Environment::new(
             self.global_context,
             self.contract_context,
