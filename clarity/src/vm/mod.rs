@@ -624,7 +624,7 @@ mod test {
             DefineType::Private,
             &"do_work".into(),
             "",
-            TypeSignature::IntType,
+            Some(TypeSignature::IntType),
         );
 
         let context = LocalContext::new();
