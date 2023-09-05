@@ -72,7 +72,10 @@ pub struct DefinedFunction {
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression,
-    return_type: TypeSignature,
+    /// Return type of the function
+    /// This field is unused in the interpreter, and set to `None`.
+    /// When using the Wasm runtime, it should contain the return type.
+    return_type: Option<TypeSignature>,
 }
 
 /// This enum handles the actual invocation of the method
@@ -130,7 +133,7 @@ impl DefinedFunction {
         define_type: DefineType,
         name: &ClarityName,
         context_name: &str,
-        return_type: TypeSignature,
+        return_type: Option<TypeSignature>,
     ) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
@@ -360,7 +363,7 @@ impl DefinedFunction {
         &self.arg_types
     }
 
-    pub fn get_return_type(&self) -> &TypeSignature {
+    pub fn get_return_type(&self) -> &Option<TypeSignature> {
         &self.return_type
     }
 
@@ -723,7 +726,7 @@ mod test {
             DefineType::Public,
             &"foo".into(),
             "testing",
-            TypeSignature::IntType,
+            Some(TypeSignature::IntType),
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);
         assert_eq!(
