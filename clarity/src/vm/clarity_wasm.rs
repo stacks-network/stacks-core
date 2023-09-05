@@ -265,6 +265,8 @@ pub fn call_function(
         .get(function_name)
         .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?
         .get_return_type()
+        .as_ref()
+        .ok_or(Error::Wasm(WasmError::ExpectedReturnValue))?
         .clone();
     let (mut results, offset) = reserve_space_for_return(&mut store, offset, &return_type)?;
 
@@ -366,7 +368,7 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Resul
                         .contract_context
                         .contract_identifier
                         .to_string(),
-                    fixed_type.returns.clone(),
+                    Some(fixed_type.returns.clone()),
                 );
 
                 // Insert this function into the context
