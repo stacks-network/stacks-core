@@ -592,6 +592,7 @@ where
 
                 let value = result.map(|data| data.value)?;
 
+                // TODO: @Brice: why are we writing to memory in a get-function?
                 write_to_wasm(
                     &mut caller,
                     &data_types.value_type,
@@ -755,6 +756,8 @@ fn value_as_u128(value: &Value) -> Result<u128, Error> {
 
 /// Write a value to the Wasm memory at `offset` with `length` given the
 /// provided Clarity `TypeSignature`.'
+// TODO: @Brice: Why do we need both TypeSignature and Value here? Should be able to simply use the Value?
+// And why do we pass in length? That should rather be a return value?
 fn write_to_wasm<T>(
     caller: &mut Caller<'_, T>,
     ty: &TypeSignature,
