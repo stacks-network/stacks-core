@@ -26,7 +26,7 @@ use super::{
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata},
     errors::RuntimeErrorType,
     types::{
-        CharType, FixedFunction, FunctionType, OptionalData, PrincipalData,
+        CallableData, CharType, FixedFunction, FunctionType, OptionalData, PrincipalData,
         QualifiedContractIdentifier, SequenceData,
     },
     SymbolicExpression,
@@ -811,7 +811,9 @@ where
 /// `TypeSignature`. More documentation regarding how values are serialized
 /// can be found in the `pass_argument_to_wasm` function.
 fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Value, Error> {
-    let length = buffer.len();
+    let type_marker = buffer[0];
+    let value = buffer[1..].to_vec();
+    let length: usize = value.len();
 
     match ty {
         TypeSignature::UIntType => {
@@ -820,11 +822,11 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
                 "expected uint length to be 16 bytes, found {length}"
             );
 
-            let low_bytes: [u8; 8] = buffer[0..7]
+            let low_bytes: [u8; 8] = value[0..7]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
 
-            let high_bytes: [u8; 8] = buffer[8..15]
+            let high_bytes: [u8; 8] = value[8..15]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
 
@@ -839,11 +841,11 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
                 "expected int length to be 16 bytes, found {length}"
             );
 
-            let low_bytes: [u8; 8] = buffer[0..7]
+            let low_bytes: [u8; 8] = value[0..7]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
 
-            let high_bytes: [u8; 8] = buffer[8..15]
+            let high_bytes: [u8; 8] = value[8..15]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
 
@@ -858,10 +860,10 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
                 "Expected buffer length to be 1 for bool, received {length}"
             );
 
-            let val = buffer[0];
+            let val = value[0];
 
             debug_assert!(
-                buffer[0] == 1 || buffer[0] == 0,
+                value[0] == 1 || value[0] == 0,
                 "Expected boolean value to be 1 or 0, received {val}"
             );
 
@@ -879,8 +881,8 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             );
 
             match subtype {
-                StringSubtype::ASCII(_) => Value::string_ascii_from_bytes(buffer),
-                StringSubtype::UTF8(_) => Value::string_utf8_from_bytes(buffer),
+                StringSubtype::ASCII(_) => Value::string_ascii_from_bytes(value),
+                StringSubtype::UTF8(_) => Value::string_utf8_from_bytes(value),
             }
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => {
@@ -890,35 +892,35 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             );
 
             Ok(Value::Sequence(SequenceData::Buffer(BuffData {
-                data: buffer,
+                data: value,
             })))
         }
         TypeSignature::ResponseType(r) => {
             // Read the first byte (indicator). 1/true = Ok, 0/false = Err.
-            let result = if buffer[0] == 1 { true } else { false };
+            let result = if value[0] == 1 { true } else { false };
             // Grab the remainer of the buffer.
-            let rest = &buffer[1..length - 1];
+            let rest = &value[1..length - 1];
 
             if result {
                 // If Ok, we will deserialize using the Ok `TypeSignature` (position 0 in the tuple).
                 deserialize_clarity_value(rest.to_vec(), &r.0)
             } else {
                 // Otherwise if Err, we deserialize using the Err `TypeSignature` (position 1 in the tuple).
-                deserialize_clarity_value(buffer, &r.1)
+                deserialize_clarity_value(rest.to_vec(), &r.1)
             }
         }
         TypeSignature::OptionalType(o) => {
             // Read the first byte (indicator). 1/true = Some, 0/false = None.
-            let some = if buffer[0] == 1 { true } else { false };
+            let some = if value[0] == 1 { true } else { false };
 
             if some {
                 // If Some, grab the remainder of the buffer and deserialize using the Option `TypeSignature`.
                 // Note that there are no additional bytes if the value is None, so we only do this if we
                 // have a Some indicator above.
-                let rest = &buffer[1..length - 1];
-                let value = deserialize_clarity_value(rest.to_vec(), &o)?;
+                let rest = &value[1..length - 1];
+                let val = deserialize_clarity_value(rest.to_vec(), &o)?;
                 Ok(Value::Optional(OptionalData {
-                    data: Some(Box::new(value)),
+                    data: Some(Box::new(val)),
                 }))
             } else {
                 // The indicator signals a None value, so we simply return None.
@@ -926,7 +928,7 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             }
         }
         TypeSignature::PrincipalType => {
-            let type_indicator = buffer[0];
+            let type_indicator = value[0];
 
             debug_assert!(
                 [1, 2].contains(&type_indicator),
@@ -934,12 +936,12 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             );
 
             // Extract the standard principal data from the buffer.
-            let standard_principal_data: [u8; 20] = buffer[2..22]
+            let standard_principal_data: [u8; 20] = value[2..22]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
 
             let standard_principal = StandardPrincipalData(
-                buffer[1],               // Version
+                value[1],                // Version
                 standard_principal_data, // Data
             );
 
@@ -951,14 +953,14 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             }
 
             // Parse out the contract name length
-            let name_len_bytes: [u8; 2] = buffer[23..24]
+            let name_len_bytes: [u8; 2] = value[23..24]
                 .try_into()
                 .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
             let name_len = u16::from_le_bytes(name_len_bytes) as usize;
 
             let mut name: &[u8] = &[];
             if name_len > 0 {
-                name = &buffer[25..25 + name_len];
+                name = &value[25..25 + name_len];
             }
 
             // Convert the name to a string
@@ -998,12 +1000,39 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
     }
 }
 
+/// Gets the type indicator value for the provided `Value`. This indicator is used to
+/// prefix serialized values so that the type can be known during deserialization, especially
+/// in the cases where multiple possible types are allowed in a `TypeSignature`.
+fn get_type_indicator_for_clarity_value(value: &Value) -> u8 {
+    match value {
+        Value::UInt(_) => 1,
+        Value::Int(_) => 2,
+        Value::Bool(_) => 3,
+        Value::Optional(_) => 4,
+        Value::Response(_) => 5,
+        Value::Sequence(SequenceData::String(CharType::ASCII(_))) => 6,
+        Value::Sequence(SequenceData::String(CharType::UTF8(_))) => 7,
+        Value::Sequence(SequenceData::Buffer(_)) => 8,
+        Value::Sequence(SequenceData::List(_)) => 9,
+        Value::Principal(PrincipalData::Standard(_)) => 10,
+        Value::Principal(PrincipalData::Contract(_)) => 11,
+        Value::CallableContract(_) => 12,
+        Value::Tuple(_) => 13,
+    }
+}
+
 /// Convert a Clarity 'Value' into a byte buffer. This is intended to be used
 /// together with `pass_argument_to_wasm` for generating the buffer to be written
 /// to WASM linear memory. More documentation regarding how values are serialized
 /// can be found in the `pass_argument_to_wasm` function.
 fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
-    let mut result: Vec<u8> = Vec::<u8>::new();
+    // Allocate a vector with a reasonably large capacity to avoid reallocations
+    // in the majority of cases.
+    let mut result: Vec<u8> = Vec::<u8>::with_capacity(64);
+
+    // Insert the type marker.
+    result.insert(0, get_type_indicator_for_clarity_value(value));
+
     match value {
         Value::UInt(n) => {
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
@@ -1018,16 +1047,16 @@ fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
             result.extend_from_slice(&high.to_le_bytes());
         }
         Value::Bool(b) => {
-            result.insert(0, if *b { 1 } else { 0 });
+            result.insert(1, if *b { 1 } else { 0 });
         }
         Value::Optional(o) => {
-            result.insert(0, if o.data.is_some() { 1 } else { 0 });
+            result.insert(1, if o.data.is_some() { 1 } else { 0 });
             if let Some(data) = &o.data {
                 result.append(&mut serialize_clarity_value(&data)?);
             }
         }
         Value::Response(r) => {
-            result.insert(0, if r.committed { 1 } else { 0 });
+            result.insert(1, if r.committed { 1 } else { 0 });
             result.append(&mut serialize_clarity_value(&r.data)?);
         }
         Value::Sequence(SequenceData::String(char_type)) => match char_type {
@@ -1058,17 +1087,17 @@ fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
             match principal_type {
                 PrincipalData::Standard(std) => {
                     // Write an indicator signalling that this is a Standard Principal (1).
-                    result.insert(0, 1);
+                    result.insert(1, 1);
                     // Write the version
-                    result.insert(1, std.0);
+                    result.insert(2, std.0);
                     // Write the principal data
                     result.extend_from_slice(&std.1);
                 }
                 PrincipalData::Contract(ctr) => {
                     // Write an indicator signalling that this is a Contract Principal (2).
-                    result.insert(0, 2);
+                    result.insert(1, 2);
                     // Write the version
-                    result.insert(1, ctr.issuer.0);
+                    result.insert(2, ctr.issuer.0);
                     // Write the principal data for the issuer
                     result.extend_from_slice(&ctr.issuer.1);
 
@@ -1082,7 +1111,7 @@ fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
         }
         Value::CallableContract(ctr) => {
             // Write the contract identifier principal version.
-            result.insert(0, ctr.contract_identifier.issuer.0);
+            result.insert(1, ctr.contract_identifier.issuer.0);
             // Write the contract identifier principal data.
             result.extend_from_slice(&ctr.contract_identifier.issuer.1);
 
