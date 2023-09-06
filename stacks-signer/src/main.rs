@@ -27,21 +27,22 @@ extern crate serde_json;
 extern crate toml;
 
 mod config;
+mod crypto;
+mod runloop;
+mod stacks_client;
 
-use crate::config::Config;
+use crate::{config::Config, crypto::frost::Coordinator as FrostCoordinator, runloop::RunLoop};
 use clap::Parser;
-use libsigner::{SignerSession, StackerDBSession};
+use clarity::vm::types::QualifiedContractIdentifier;
+use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
+use libstackerdb::StackerDBChunkData;
+use runloop::RunLoopCommand;
+use stacks_common::types::chainstate::StacksPrivateKey;
 use std::{
     io::{self, Read, Write},
     net::SocketAddr,
     path::PathBuf,
 };
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use stacks_common::types::chainstate::StacksPrivateKey;
-
-use libstackerdb::StackerDBChunkData;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -75,6 +76,14 @@ pub enum Command {
     ListChunks,
     /// Upload a chunk to the stacker-db instance
     PutChunk(PutChunkArgs),
+    /// Run DKG and sign the message through the stacker-db instance
+    DkgSign(SignArgs),
+    /// Sign the message through the stacker-db instance
+    Sign(SignArgs),
+    /// Run a DKG round through the stacker-db instance
+    Dkg,
+    /// Run the signer, waiting for events from the stacker-db instance
+    Run,
 }
 
 /// Arguments for the get-chunk command
@@ -106,6 +115,14 @@ pub struct PutChunkArgs {
     #[arg(long)]
     slot_version: u32,
     /// The data to upload
+    #[arg(required = false, value_parser = parse_data)]
+    data: Vec<u8>,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the dkg-sign and sign command
+pub struct SignArgs {
+    /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
     data: Vec<u8>,
 }
@@ -152,14 +169,28 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
         }
     }
 }
+
+fn spawn_running_signer(
+    path: &PathBuf,
+    command: RunLoopCommand,
+) -> RunningSigner<StackerDBEventReceiver, ()> {
+    let config = Config::try_from(path).unwrap();
+    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
+    let mut signer: Signer<(), RunLoop<FrostCoordinator>, StackerDBEventReceiver> =
+        Signer::new(runloop, ev);
+    let endpoint = config.node_host;
+    signer.spawn(endpoint).unwrap()
+}
+
 fn main() {
     let cli = Cli::parse();
-    let (host, contract, private_key) = if let Some(config) = cli.config {
-        let config = Config::try_from(&config).unwrap();
+    let (host, contract, private_key) = if let Some(config) = &cli.config {
+        let config = Config::try_from(config).unwrap();
         (
             config.node_host,
             config.stackerdb_contract_id,
-            config.private_key,
+            config.stacks_private_key,
         )
     } else {
         (
@@ -184,10 +215,48 @@ fn main() {
             println!("{}", serde_json::to_string(&chunk_list).unwrap());
         }
         Command::PutChunk(args) => {
-            let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
+            let mut chunk =
+                StackerDBChunkData::new(args.slot_id, args.slot_version, args.data.clone());
             chunk.sign(&private_key).unwrap();
             let chunk_ack = session.put_chunk(chunk).unwrap();
             println!("{}", serde_json::to_string(&chunk_ack).unwrap());
         }
+        Command::Dkg => {
+            if let Some(config) = &cli.config {
+                let _running_signer = spawn_running_signer(config, RunLoopCommand::Dkg);
+            } else {
+                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
+                panic!("dkg is currently only supported when using a config file");
+            }
+        }
+        Command::DkgSign(args) => {
+            if let Some(config) = &cli.config {
+                let _running_signer =
+                    spawn_running_signer(config, RunLoopCommand::DkgSign { message: args.data });
+            } else {
+                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
+                panic!("dkg-sign is currently only supported when using a config file");
+            }
+        }
+        Command::Sign(args) => {
+            if let Some(config) = &cli.config {
+                let _running_signer =
+                    spawn_running_signer(config, RunLoopCommand::Sign { message: args.data });
+            } else {
+                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
+                panic!("dkg-sign is currently only supported when using a config file");
+            }
+        }
+        Command::Run => {
+            if let Some(config) = &cli.config {
+                let _running_signer = spawn_running_signer(config, RunLoopCommand::Run);
+            } else {
+                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
+                panic!("dkg-sign is currently only supported when using a config file");
+            }
+        }
     }
 }
+
+#[cfg(test)]
+pub mod tests;

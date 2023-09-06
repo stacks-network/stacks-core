@@ -1,0 +1,31 @@
+# This file is just to keep track of private and public keys of signers used in tests and in the default deployed contract
+signers = [
+    {
+        stacks_address = "ST2S05M62W9J94F6Z2YEPKSMMHHFCSAEVVCF01WWE",
+        stacks_private_key = "03c1e0ec2a869e4f0214a2f0d2653bbe993e2fc028b41af4f3056723f72b94778e",
+        stacks_public_key = "41f19c45968b069110e064881fe5eac93e1d183dcbce575ae635fb1db3030bda01",
+        ecdsa_private_key = "8PdTCUUd9SvW1HHjosqwTJk4Ct9iRsguu7EwqG52SmJJ",
+        ecdsa_public_key = "22t2a1z8vkZgZF9gekHBNyT7s2bugRHsPmGwS7Pm5MnEx",
+    },
+    {
+        stacks_address = "STB1HK64HJKE3TKW4JJ9KV9FG78DDFNADQZVVNJT",
+        stacks_public_key = "02baba8a8ea89b6cb46fe11227a26e50151a914640926f3a2bbdbe037cd69fe59e",
+        stacks_private_key = "b612f5ab0af6b540f19907f41b9070469a015b3b874e671e39aa390cb4815a8501",
+        ecdsa_private_key = "Dfv8AobctbL4AP12STiAcuiHtPrgkU7NRoihk8qR29uL"
+        ecdsa_public_key = "25hwd38Ynr4dMqnfe5ssC8KN8sKPDbSTJa2GkaPZJkVwj",
+    },
+    {
+        stacks_address = "ST3DHSJ3YRGRPRD5MA457YPD7N2Y2E7RQRH6T5E36",
+        stacks_public_key = "03ea842c35964629086154717f02960b791cdc2278b4fd48e92c2d25c289754135",
+        stacks_private_key = "660299ed73625b9ab328f158d4d77af6942778de83f4739d165bb7eda1d9d40e01",
+        ecdsa_private_key = "D4rspwxdXb4XNQrC4PLkVBo5mHGFVrStY8RopYUGa5sv"
+        ecdsa_public_key = "sdAKXq6rv4tkCW8Vd8Km2DTSG4mAKMnij92vvdqsCBg9",
+    },
+    {
+        stacks_address = "STWVA0RJYMNJW7RRXMGQ4TBNCFQYPGVK7Z7P5EVY",
+        stacks_public_key = "03ddf86619e497456f3cd31c3ba6a618546474b93c3121a141fe44c5161de9d175",
+        stacks_private_key = "2374fa45e32342aee5ad27b819ba6bfe8553646aea4c7fb1c2e92d60680e8adc01",
+        ecdsa_private_key = "gCb6CLqoNXV3LTEKW9toCtBxxLvcM5jwNU5rLosVCRy"
+        ecdsa_public_key = "eAk931xsKvpS8v5Cfk3G48g7pgGdSA58FLaEA8KG3SPx",
+    }
+]
