@@ -79,7 +79,10 @@ impl Coordinator {
                         return Ok((None, None));
                     } else if self.state == State::Idle {
                         // We are done with the DKG round! Return the operation result
-                        return Ok((None, Some(OperationResult::Dkg(self.aggregate_public_key))));
+                        return Ok((
+                            None,
+                            Some(OperationResult::Dkg(self.aggregate_public_key.clone())),
+                        ));
                     }
                 }
             }

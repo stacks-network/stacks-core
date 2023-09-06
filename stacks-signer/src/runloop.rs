@@ -29,6 +29,7 @@ pub enum RunLoopCommand {
 }
 
 /// The RunLoop state
+#[derive(PartialEq, Debug)]
 pub enum State {
     /// The runloop is idle
     Idle,
@@ -40,6 +41,8 @@ pub enum State {
     Sign,
     /// The runloop has finished a signing round
     SignDone,
+    /// The runloop is exiting
+    Exit,
     /// The runloop is waiting for messages
     Run,
 }
@@ -61,8 +64,8 @@ pub struct RunLoop<C> {
 }
 
 impl<C: Coordinatable> RunLoop<C> {
-    /// Helper function to execute a command
-    fn execute_command(&mut self) {
+    /// Helper function to check the current state and execute commands accordingly
+    fn execute_dkg_sign(&mut self) {
         match (&self.command, &self.state) {
             (RunLoopCommand::Run, State::Idle) => {
                 info!("Starting runloop");
@@ -72,6 +75,10 @@ impl<C: Coordinatable> RunLoop<C> {
                 info!("Starting DKG");
                 let _ = self.coordinator.start_distributed_key_generation();
                 self.state = State::Dkg;
+            }
+            (RunLoopCommand::Dkg, State::DkgDone) => {
+                info!("Done DKG");
+                self.state = State::Exit;
             }
             (RunLoopCommand::DkgSign { message }, State::Idle) => {
                 info!("Starting DKG");
@@ -85,10 +92,57 @@ impl<C: Coordinatable> RunLoop<C> {
                 let _ = self.coordinator.start_signing_message(message);
                 self.state = State::Sign
             }
+            (RunLoopCommand::DkgSign { message }, State::SignDone)
+            | (RunLoopCommand::Sign { message }, State::SignDone) => {
+                info!("Done Signing Message: {:?}", message);
+                self.state = State::Exit;
+            }
             _ => {}
         }
     }
+
+    /// Process the event as both a signer and a coordinator
+    fn process_event(
+        &mut self,
+        event: &StackerDBChunksEvent,
+    ) -> (Vec<Message>, Vec<OperationResult>) {
+        // Determine the current coordinator id and public key for verification
+        let (coordinator_id, coordinator_public_key) =
+            calculate_coordinator(&self.signing_round.public_keys);
+        // Filter out invalid messages
+        let inbound_messages: Vec<Message> = event
+            .modified_slots
+            .iter()
+            .filter_map(|chunk| {
+                let message = bincode::deserialize::<Message>(&chunk.data).ok()?;
+                if verify_msg(
+                    &message,
+                    &self.signing_round.public_keys,
+                    coordinator_public_key,
+                ) {
+                    Some(message)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // First process all messages as a signer
+        let mut outbound_messages =
+            process_inbound_messages(&mut self.signing_round, inbound_messages.clone())
+                .unwrap_or_default();
+        // If the signer is the coordinator, then next process the message as the coordinator
+        let (messages, results) = if self.signing_round.signer.signer_id == coordinator_id {
+            self.coordinator
+                .process_inbound_messages(inbound_messages)
+                .unwrap_or_default()
+        } else {
+            (vec![], vec![])
+        };
+        outbound_messages.extend(messages);
+        (outbound_messages, results)
+    }
 }
+
 impl RunLoop<FrostCoordinator> {
     pub fn new(config: &Config, command: RunLoopCommand) -> Self {
         // TODO: should this be a config option?
@@ -195,75 +249,31 @@ impl<C: Coordinatable> SignerRunLoop<()> for RunLoop<C> {
     }
 
     fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<()> {
-        self.execute_command();
-        let old_aggregate_public_key = self.coordinator.get_aggregate_public_key();
+        // TODO: we should potentially trigger shares outside of the runloop. This may be temporary?
+        self.execute_dkg_sign();
         if let Some(event) = event {
-            // Determine the current coordinator id and public key for verification
-            let (coordinator_id, coordinator_public_key) =
-                calculate_coordinator(&self.signing_round.public_keys);
-            // Filter out invalid messages
-            let inbound_messages: Vec<Message> = event
-                .modified_slots
-                .iter()
-                .filter_map(|chunk| {
-                    let message = bincode::deserialize::<Message>(&chunk.data).ok()?;
-                    if verify_msg(
-                        &message,
-                        &self.signing_round.public_keys,
-                        coordinator_public_key,
-                    ) {
-                        Some(message)
-                    } else {
-                        None
+            let (outbound_messages, operation_results) = self.process_event(&event);
+            for msg in outbound_messages {
+                let _ = self
+                    .stacks_client
+                    .send_message(self.signing_round.signer.signer_id, msg);
+            }
+            // TODO: cleanup this logic.
+            for operation_result in operation_results {
+                match operation_result {
+                    OperationResult::Dkg(_public_key) => {
+                        self.state = State::DkgDone;
                     }
-                })
-                .collect();
-            // First process all messages as a signer
-            let mut outbound_messages =
-                process_inbound_messages(&mut self.signing_round, inbound_messages.clone()).ok();
-            // If the signer is the coordinator, then next process the message as the coordinator
-            let outbound_coordinator = if self.signing_round.signer.signer_id == coordinator_id {
-                self.coordinator
-                    .process_inbound_messages(inbound_messages)
-                    .ok()
-            } else {
-                None
-            };
-
-            if let Some((outbound_coordinator_messages, coordinator_operation_results)) =
-                outbound_coordinator
-            {
-                if let Some(messages) = outbound_messages.as_mut() {
-                    messages.extend(outbound_coordinator_messages)
-                }
-                for operation_result in coordinator_operation_results {
-                    match operation_result {
-                        OperationResult::Dkg(_public_key) => {
-                            self.state = State::DkgDone;
-                        }
-                        OperationResult::Sign(_signature, _proof) => {
-                            self.state = State::SignDone;
-                        }
+                    OperationResult::Sign(_signature, _proof) => {
+                        self.state = State::SignDone;
                     }
                 }
             }
-            if let Some(messages) = outbound_messages {
-                for msg in messages {
-                    let _ = self
-                        .stacks_client
-                        .send_message(self.signing_round.signer.signer_id, msg);
-                }
+            // Determine if we need to trigger Sign or Exit.
+            self.execute_dkg_sign();
+            if self.state == State::Exit {
+                return Some(());
             }
-        }
-
-        let new_aggregate_public_key = self.coordinator.get_aggregate_public_key();
-        // TODO: check if we have finished signing if command is DkgSign or Sign. If so, trigger exit
-        if self.command == RunLoopCommand::Dkg
-            && old_aggregate_public_key != new_aggregate_public_key
-        {
-            info!("New Aggregate Public Key: {}", new_aggregate_public_key);
-            // We generated a new DKG key as requested. Trigger exit.
-            return Some(());
         }
         None
     }
