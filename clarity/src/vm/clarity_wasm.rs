@@ -17,7 +17,7 @@ use super::{
     costs::CostTracker,
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata},
     errors::RuntimeErrorType,
-    types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData, PrincipalData},
+    types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData, PrincipalData, OptionalData},
     SymbolicExpression,
 };
 
@@ -793,6 +793,8 @@ where
     Ok(())
 }
 
+/// Deserializes a Clarity `Value` from the provided buffer using the given
+/// `TypeSignature`.
 fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Value, Error> {
     let length = buffer.len();
 
@@ -859,13 +861,30 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
 
             Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buffer })))
         }
+        TypeSignature::ResponseType(r) => {
+            let result = if buffer[0] == 1 { true } else { false };
+            let rest = &buffer[1..length - 1];
+            if result {
+                deserialize_clarity_value(rest.to_vec(), &r.0)
+            } else {
+                deserialize_clarity_value(buffer, &r.1)
+            }
+        }
+        TypeSignature::OptionalType(o) => {
+            let some = if buffer[0] == 1 { true } else { false };
+            if some {
+                let rest = &buffer[1..length - 1];
+                let value = deserialize_clarity_value(rest.to_vec(), &o)?;
+                Ok(Value::Optional(OptionalData { data: Some(Box::new(value))}))
+            } else {
+                Ok(Value::Optional(OptionalData { data: None }))
+            }
+        }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ResponseType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
@@ -874,7 +893,8 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
 
 /// Convert a Clarity 'Value' into a byte buffer. This is intended to be used
 /// together with `pass_argument_to_wasm` for generating the buffer to be written
-/// to WASM linear memory.
+/// to WASM linear memory. More documentation regarding how values are serialized
+/// can be found in the `pass_argument_to_wasm` function.
 fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
     let mut result: Vec<u8> = Vec::<u8>::new();
     match value {
