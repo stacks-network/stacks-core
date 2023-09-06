@@ -14,16 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-use std::convert::TryFrom;
-
-use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use crate::vm::errors::{CheckErrors, Error, ShortReturnType};
 use crate::vm::execute;
 use crate::vm::types::{
-    ListData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TupleTypeSignature, TypeSignature, Value,
+    ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::ClarityName;
 

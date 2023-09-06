@@ -207,8 +207,8 @@ fn make_json_logger() -> Logger {
                       }),
     );
 
-    let drain = Mutex::new(slog_json::Json::default(std::io::stderr())).map(slog::Fuse);
-    let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).fuse();
+    let drain = Mutex::new(slog_json::Json::default(std::io::stderr()));
+    let filtered_drain = slog::LevelFilter::new(drain, get_loglevel()).ignore_res();
     slog::Logger::root(filtered_drain, def_keys)
 }
 
@@ -227,7 +227,7 @@ fn make_logger() -> Logger {
         let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
         let atty = isatty(Stream::Stderr);
         let drain = TermFormat::new(decorator, pretty_print, debug, atty);
-        let logger = Logger::root(drain.fuse(), o!());
+        let logger = Logger::root(drain.ignore_res(), o!());
         logger
     }
 }
@@ -241,7 +241,7 @@ fn make_logger() -> Logger {
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
         let isatty = isatty(Stream::Stdout);
         let drain = TermFormat::new(plain, false, debug, isatty);
-        let logger = Logger::root(drain.fuse(), o!());
+        let logger = Logger::root(drain.ignore_res(), o!());
         logger
     }
 }

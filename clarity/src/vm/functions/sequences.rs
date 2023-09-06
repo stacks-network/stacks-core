@@ -47,7 +47,7 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    Value::list_from(args)
+    Value::cons_list(args, env.epoch())
 }
 
 pub fn special_filter(
@@ -169,7 +169,7 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    Value::list_from(mapped_results)
+    Value::cons_list(mapped_results, env.epoch())
 }
 
 pub fn special_append(
@@ -196,11 +196,14 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::list_from(vec![element]);
+                return Value::cons_list(vec![element], env.epoch());
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
             {
+                let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
+                    .ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
+
                 let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
                 Ok(Value::Sequence(SequenceData::List(ListData {
@@ -225,7 +228,7 @@ pub fn special_concat_v200(
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
-    let mut other_wrapped_seq = eval(&args[1], env, context)?;
+    let other_wrapped_seq = eval(&args[1], env, context)?;
 
     runtime_cost(
         ClarityCostFunction::Concat,
@@ -233,9 +236,9 @@ pub fn special_concat_v200(
         u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?,
     )?;
 
-    match (&mut wrapped_seq, &mut other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
-            seq.append(env.epoch(), other_seq)
+    match (&mut wrapped_seq, other_wrapped_seq) {
+        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
+            seq.concat(env.epoch(), other_seq)
         }
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
@@ -251,17 +254,17 @@ pub fn special_concat_v205(
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
-    let mut other_wrapped_seq = eval(&args[1], env, context)?;
+    let other_wrapped_seq = eval(&args[1], env, context)?;
 
-    match (&mut wrapped_seq, &mut other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
+    match (&mut wrapped_seq, other_wrapped_seq) {
+        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
             runtime_cost(
                 ClarityCostFunction::Concat,
                 env,
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.append(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq)
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
@@ -383,7 +386,8 @@ pub fn special_slice(
                     env,
                     (right_position - left_position) * seq.element_size(),
                 )?;
-                let seq_value = seq.slice(left_position as usize, right_position as usize)?;
+                let seq_value =
+                    seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
                 Value::some(seq_value)
             }
             _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),

@@ -26,21 +26,11 @@ use crate::vm::analysis::{type_check, CheckError};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_trait_checker(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
-
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_defining_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -88,7 +78,7 @@ fn test_dynamic_dispatch_by_defining_trait(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
@@ -114,7 +104,7 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
@@ -141,7 +131,7 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 10 uint)) (response uint uint))))";
@@ -165,7 +155,7 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 5 uint)) (response uint uint))))";
@@ -184,7 +174,7 @@ fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion, #[case] epoc
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 5 uint)) (response uint uint))))";
@@ -203,7 +193,7 @@ fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion, #[case] epoc
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_complete_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
@@ -226,7 +216,7 @@ fn test_complete_impl_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_complete_impl_trait_mixing_readonly(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -252,7 +242,7 @@ fn test_complete_impl_trait_mixing_readonly(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_get_trait_reference_from_tuple(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -305,7 +295,7 @@ fn test_get_trait_reference_from_tuple(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_defining_and_impl_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -348,7 +338,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_define_map_storing_trait_references(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -375,7 +365,7 @@ fn test_define_map_storing_trait_references(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (<trait-2>) (response uint uint))))
@@ -399,7 +389,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoc
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let dispatching_contract_src = "(use-trait trait-2 .target-contract.trait-2)
         (define-trait trait-1 (
@@ -450,7 +440,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_unknown_method(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -503,7 +493,7 @@ fn test_dynamic_dispatch_unknown_method(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_nested_literal_implicitly_compliant(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -571,7 +561,7 @@ fn test_nested_literal_implicitly_compliant(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_passing_trait_reference_instances(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -609,7 +599,7 @@ fn test_passing_trait_reference_instances(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_passing_nested_trait_reference_instances(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -648,7 +638,7 @@ fn test_passing_nested_trait_reference_instances(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_collision_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -687,7 +677,7 @@ fn test_dynamic_dispatch_collision_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_collision_defined_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -716,7 +706,7 @@ fn test_dynamic_dispatch_collision_defined_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_collision_imported_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -756,7 +746,7 @@ fn test_dynamic_dispatch_collision_imported_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_importing_non_existant_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -828,7 +818,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_importing_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -895,7 +885,7 @@ fn test_dynamic_dispatch_importing_trait(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_including_nested_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1002,7 +992,7 @@ fn test_dynamic_dispatch_including_nested_trait(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_including_wrong_nested_trait(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1121,7 +1111,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_mismatched_args(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1175,7 +1165,7 @@ fn test_dynamic_dispatch_mismatched_args(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_mismatched_returns(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1229,7 +1219,7 @@ fn test_dynamic_dispatch_mismatched_returns(
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1265,7 +1255,7 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1298,7 +1288,7 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Sta
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1332,7 +1322,7 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: S
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1400,7 +1390,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1478,7 +1468,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_contract_of_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1499,7 +1489,7 @@ fn test_contract_of_good(#[case] version: ClarityVersion, #[case] epoch: StacksE
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1628,7 +1618,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     }
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_return_trait_with_contract_of(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1678,7 +1668,7 @@ fn test_return_trait_with_contract_of(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_return_trait_with_contract_of_wrapped_in_begin(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1728,7 +1718,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_return_trait_with_contract_of_wrapped_in_let(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -1778,7 +1768,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
     .unwrap();
 }
 
-#[apply(test_clarity_versions_trait_checker)]
+#[apply(test_clarity_versions)]
 fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let trait_contract_src = "(define-trait my-trait
         ((hello (int) (response uint uint)))

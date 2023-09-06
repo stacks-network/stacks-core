@@ -179,12 +179,15 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
                 env,
                 context.depth(),
             )?;
-            if let Some(value) = context
-                .lookup_variable(name)
-                .or_else(|| env.contract_context.lookup_variable(name))
-            {
+            if let Some(value) = context.lookup_variable(name) {
                 runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
                 Ok(value.clone())
+            } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
+                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
+                let (value, _) =
+                    Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value), value)
+                        .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
+                Ok(value)
             } else if let Some(callable_data) = context.lookup_callable_contract(name) {
                 if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
                     Ok(callable_data.contract_identifier.clone().into())
@@ -406,7 +409,7 @@ pub fn eval_all(
                     global_context.add_memory(value.size() as u64)?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type)?;
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
 
                     contract_context.meta_data_var.insert(name, data_type);
                 },

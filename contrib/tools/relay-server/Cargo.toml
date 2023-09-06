@@ -3,6 +3,8 @@ name = "relay-server"
 version = "0.0.1"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "relay-server"
+path = "src/main.rs"
 
 [dependencies]

@@ -237,6 +237,9 @@ pub enum Value {
     Optional(OptionalData),
     Response(ResponseData),
     CallableContract(CallableData),
+    // NOTE: any new value variants which may contain _other values_ (i.e.,
+    //  compound values like `Optional`, `Tuple`, `Response`, or `Sequence(List)`)
+    //  must be handled in the value sanitization routine!
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -459,12 +462,11 @@ impl SequenceData {
         Ok(())
     }
 
-    pub fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut SequenceData) -> Result<()> {
+    pub fn concat(&mut self, epoch: &StacksEpochId, other_seq: SequenceData) -> Result<()> {
         match (self, other_seq) {
-            (
-                SequenceData::List(ref mut inner_data),
-                SequenceData::List(ref mut other_inner_data),
-            ) => inner_data.append(epoch, other_inner_data),
+            (SequenceData::List(ref mut inner_data), SequenceData::List(other_inner_data)) => {
+                inner_data.append(epoch, other_inner_data)
+            }
             (
                 SequenceData::Buffer(ref mut inner_data),
                 SequenceData::Buffer(ref mut other_inner_data),
@@ -482,7 +484,12 @@ impl SequenceData {
         Ok(())
     }
 
-    pub fn slice(self, left_position: usize, right_position: usize) -> Result<Value> {
+    pub fn slice(
+        self,
+        epoch: &StacksEpochId,
+        left_position: usize,
+        right_position: usize,
+    ) -> Result<Value> {
         let empty_seq = left_position == right_position;
 
         let result = match self {
@@ -500,7 +507,7 @@ impl SequenceData {
                 } else {
                     data.data[left_position..right_position].to_vec()
                 };
-                Value::list_from(data)
+                Value::cons_list(data, epoch)
             }
             SequenceData::String(CharType::ASCII(data)) => {
                 let data = if empty_seq {
@@ -906,7 +913,15 @@ impl Value {
         })))
     }
 
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
+    pub fn cons_list_unsanitized(list_data: Vec<Value>) -> Result<Value> {
+        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        Ok(Value::Sequence(SequenceData::List(ListData {
+            data: list_data,
+            type_signature: type_sig,
+        })))
+    }
+
+    pub fn cons_list(list_data: Vec<Value>, epoch: &StacksEpochId) -> Result<Value> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         // Aaron: at this point, we've _already_ allocated memory for this type.
@@ -914,6 +929,14 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        let list_data_opt: Option<_> = list_data
+            .into_iter()
+            .map(|item| {
+                Value::sanitize_value(epoch, type_sig.get_list_item_type(), item)
+                    .map(|(value, _did_sanitize)| value)
+            })
+            .collect();
+        let list_data = list_data_opt.ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
             type_signature: type_sig,
@@ -1184,13 +1207,18 @@ impl ListData {
         self.data.len().try_into().unwrap()
     }
 
-    fn append(&mut self, epoch: &StacksEpochId, other_seq: &mut ListData) -> Result<()> {
+    fn append(&mut self, epoch: &StacksEpochId, other_seq: ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
         let entry_type = TypeSignature::factor_out_no_type(epoch, &entry_type_a, &entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
+        for item in other_seq.data.into_iter() {
+            let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
+                .ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
+            self.data.push(item);
+        }
+
         self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
-        self.data.append(&mut other_seq.data);
         Ok(())
     }
 }
@@ -1465,6 +1493,7 @@ impl TupleData {
         Ok(t)
     }
 
+    /// Return the number of fields in this tuple value
     pub fn len(&self) -> u64 {
         self.data_map.len() as u64
     }

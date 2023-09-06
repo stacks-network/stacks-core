@@ -430,6 +430,13 @@ pub struct SymbolicExpression {
 
     #[cfg(feature = "developer-mode")]
     pub span: Span,
+
+    #[cfg(feature = "developer-mode")]
+    pub pre_comments: Vec<(String, Span)>,
+    #[cfg(feature = "developer-mode")]
+    pub end_line_comment: Option<String>,
+    #[cfg(feature = "developer-mode")]
+    pub post_comments: Vec<(String, Span)>,
 }
 
 impl SymbolicExpression {
@@ -437,8 +444,11 @@ impl SymbolicExpression {
     fn cons() -> SymbolicExpression {
         SymbolicExpression {
             id: 0,
-            span: Span::zero(),
             expr: SymbolicExpressionType::AtomValue(Value::Bool(false)),
+            span: Span::zero(),
+            pre_comments: vec![],
+            end_line_comment: None,
+            post_comments: vec![],
         }
     }
     #[cfg(not(feature = "developer-mode"))]

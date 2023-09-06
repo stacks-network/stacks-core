@@ -1160,7 +1160,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                     let value = arg.match_atom_value()
                         .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
                                                                                   tx_name)))?;
-                    Ok(value.clone())
+                    // sanitize contract-call inputs in epochs >= 2.4
+                    // testing todo: ensure sanitize_value() preserves trait callability!
+                    let expected_type = TypeSignature::type_of(value);
+                    let (sanitized_value, _) = Value::sanitize_value(
+                        self.epoch(),
+                        &expected_type,
+                        value.clone(),
+                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+
+                    Ok(sanitized_value)
                 })
                 .collect();
 

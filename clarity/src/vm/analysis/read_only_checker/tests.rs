@@ -25,19 +25,9 @@ use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{CheckError, CheckErrors};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_read_only_checker(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
 
 #[test]
 fn test_argument_count_violations() {
@@ -197,7 +187,7 @@ fn test_nested_writing_closure() {
     }
 }
 
-#[apply(test_clarity_versions_read_only_checker)]
+#[apply(test_clarity_versions)]
 fn test_contract_call_read_only_violations(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,

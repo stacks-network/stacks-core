@@ -139,7 +139,7 @@
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::collections::HashMap;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::mem;
@@ -151,6 +151,8 @@ use std::{thread, thread::JoinHandle};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks::burnchains::BurnchainSigner;
 use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -179,7 +181,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_1_MARKER;
+use stacks::core::STACKS_EPOCH_2_4_MARKER;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -187,14 +189,15 @@ use stacks::cost_estimates::{CostEstimator, FeeEstimator};
 use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
+    atlas::{AtlasConfig, AtlasDB},
     db::{LocalPeer, PeerDB},
     dns::DNSClient,
     dns::DNSResolver,
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
+    stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs},
+    Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
@@ -212,8 +215,8 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
+use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
@@ -1323,7 +1326,7 @@ impl BlockMinerThread {
             apparent_sender: sender,
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            memo: vec![STACKS_EPOCH_2_4_MARKER],
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
@@ -1591,6 +1594,7 @@ impl BlockMinerThread {
     fn load_and_vet_parent_microblocks(
         &mut self,
         chain_state: &mut StacksChainState,
+        sortdb: &SortitionDB,
         mem_pool: &mut MemPoolDB,
         parent_block_info: &mut ParentStacksBlockInfo,
     ) -> Option<Vec<StacksMicroblock>> {
@@ -1659,6 +1663,7 @@ impl BlockMinerThread {
                     // anchored block.
                     if let Err(e) = mem_pool.miner_submit(
                         chain_state,
+                        sortdb,
                         &parent_consensus_hash,
                         &stacks_parent_header.anchored_header.block_hash(),
                         &poison_microblock_tx,
@@ -1755,6 +1760,7 @@ impl BlockMinerThread {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        unprocessed_block_deadline: u64,
     ) -> bool {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
@@ -1763,13 +1769,21 @@ impl BlockMinerThread {
             .get_stacks_chain_tip(sortdb)
             .expect("FATAL: could not query canonical Stacks chain tip")
         {
-            let has_unprocessed =
-                StacksChainState::has_higher_unprocessed_blocks(chainstate.db(), stacks_tip.height)
-                    .expect("FATAL: failed to query staging blocks");
+            // if a block hasn't been processed within some deadline seconds of receipt, don't block
+            //  mining
+            let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
+            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
+                chainstate.db(),
+                stacks_tip.height,
+                process_deadline,
+            )
+            .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                let highest_unprocessed_opt =
-                    StacksChainState::get_highest_unprocessed_block(chainstate.db())
-                        .expect("FATAL: failed to query staging blocks");
+                let highest_unprocessed_opt = StacksChainState::get_highest_unprocessed_block(
+                    chainstate.db(),
+                    process_deadline,
+                )
+                .expect("FATAL: failed to query staging blocks");
 
                 if let Some(highest_unprocessed) = highest_unprocessed_opt {
                     let highest_unprocessed_block_sn_opt =
@@ -1886,6 +1900,7 @@ impl BlockMinerThread {
         // target it to the microblock tail in parent_block_info
         let microblocks_opt = self.load_and_vet_parent_microblocks(
             &mut chain_state,
+            &burn_db,
             &mut mem_pool,
             &mut parent_block_info,
         );
@@ -2005,8 +2020,12 @@ impl BlockMinerThread {
                 .expect("FATAL: mutex poisoned")
                 .is_blocked();
 
-            let has_unprocessed =
-                Self::unprocessed_blocks_prevent_mining(&self.burnchain, &burn_db, &chain_state);
+            let has_unprocessed = Self::unprocessed_blocks_prevent_mining(
+                &self.burnchain,
+                &burn_db,
+                &chain_state,
+                self.config.miner.unprocessed_block_deadline_secs,
+            );
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
@@ -2971,6 +2990,7 @@ impl RelayerThread {
             &self.burnchain,
             self.sortdb_ref(),
             self.chainstate_ref(),
+            self.config.miner.unprocessed_block_deadline_secs,
         );
         if has_unprocessed {
             debug!(
@@ -3521,8 +3541,6 @@ pub struct PeerThread {
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
     poll_timeout: u64,
-    /// receiver for attachments discovered by the chains coordinator thread
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     /// handle to the sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// handle to the chainstate DB (optional so we can take/replace it)
@@ -3574,11 +3592,7 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(
-        runloop: &RunLoop,
-        mut net: PeerNetwork,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
-    ) -> PeerThread {
+    pub fn new(runloop: &RunLoop, mut net: PeerNetwork) -> PeerThread {
         let config = runloop.config().clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
@@ -3608,7 +3622,6 @@ impl PeerThread {
             net: Some(net),
             globals: runloop.get_globals(),
             poll_timeout,
-            attachments_rx,
             sortdb: Some(sortdb),
             chainstate: Some(chainstate),
             mempool: Some(mempool),
@@ -3690,17 +3703,6 @@ impl PeerThread {
             self.poll_timeout
         };
 
-        let mut expected_attachments = match self.attachments_rx.try_recv() {
-            Ok(expected_attachments) => {
-                debug!("Atlas: received attachments: {:?}", &expected_attachments);
-                expected_attachments
-            }
-            _ => {
-                debug!("Atlas: attachment channel is empty");
-                HashSet::new()
-            }
-        };
-
         // move over unconfirmed state obtained from the relayer
         self.with_chainstate(|p2p_thread, sortdb, chainstate, _mempool| {
             let _ = Relayer::setup_unconfirmed_state_readonly(chainstate, sortdb);
@@ -3736,7 +3738,6 @@ impl PeerThread {
                     ibd,
                     poll_ms,
                     &handler_args,
-                    &mut expected_attachments,
                 )
             })
         });
@@ -3891,7 +3892,11 @@ impl StacksNode {
     /// * bootstrap nodes
     /// Returns the instantiated PeerDB
     /// Panics on failure.
-    fn setup_peer_db(config: &Config, burnchain: &Burnchain) -> PeerDB {
+    fn setup_peer_db(
+        config: &Config,
+        burnchain: &Burnchain,
+        stackerdb_contract_ids: &[QualifiedContractIdentifier],
+    ) -> PeerDB {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
@@ -3911,8 +3916,7 @@ impl StacksNode {
             "Failed to parse socket: {}",
             &config.node.p2p_address
         ));
-        let node_privkey =
-            StacksNode::make_node_private_key_from_seed(&config.node.local_peer_seed);
+        let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_file_path(),
@@ -3924,8 +3928,9 @@ impl StacksNode {
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
-            &vec![],
+            &[],
             Some(&initial_neighbors),
+            stackerdb_contract_ids,
         )
         .map_err(|e| {
             eprintln!(
@@ -4008,13 +4013,90 @@ impl StacksNode {
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
-            SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
+            SortitionDB::get_burnchain_view(&sortdb.index_conn(), &burnchain, &sortition_tip)
+                .unwrap()
         };
-
-        let peerdb = Self::setup_peer_db(config, &burnchain);
 
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+        let mut chainstate =
+            open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
+
+        let mut stackerdb_machines = HashMap::new();
+        for stackerdb_contract_id in config.node.stacker_dbs.iter() {
+            // attempt to load the config
+            let (instantiate, stacker_db_config) = match StackerDBConfig::from_smart_contract(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_contract_id,
+            ) {
+                Ok(c) => (true, c),
+                Err(e) => {
+                    warn!(
+                        "Failed to load StackerDB config for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    (false, StackerDBConfig::noop())
+                }
+            };
+            let mut stackerdbs =
+                StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+            if instantiate {
+                match stackerdbs.get_stackerdb_id(stackerdb_contract_id) {
+                    Ok(..) => {
+                        // reconfigure
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to reconfigure StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(NetError::NoSuchStackerDB(..)) => {
+                        // instantiate replica
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to instantiate StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(e) => {
+                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
+                    }
+                }
+            }
+            let stacker_db_sync = match StackerDBSync::new(
+                stackerdb_contract_id.clone(),
+                &stacker_db_config,
+                PeerNetworkComms::new(),
+                stackerdbs,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    continue;
+                }
+            };
+
+            stackerdb_machines.insert(
+                stackerdb_contract_id.clone(),
+                (stacker_db_config, stacker_db_sync),
+            );
+        }
+
+        let stackerdb_contract_ids: Vec<_> =
+            stackerdb_machines.keys().map(|sc| sc.clone()).collect();
+        let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -4024,11 +4106,13 @@ impl StacksNode {
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
+            stackerdbs,
             local_peer,
             config.burnchain.peer_version,
             burnchain,
             view,
             config.connection_options.clone(),
+            stackerdb_machines,
             epochs,
         );
 
@@ -4061,7 +4145,11 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+        should_keep_running: Arc<AtomicBool>,
+    ) {
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
@@ -4088,7 +4176,7 @@ impl StacksNode {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        let indexer = make_bitcoin_indexer(&p2p_thread.config);
+        let indexer = make_bitcoin_indexer(&p2p_thread.config, Some(should_keep_running));
 
         // receive until we can't reach the receiver thread
         loop {
@@ -4125,19 +4213,38 @@ impl StacksNode {
         info!("P2P thread exit!");
     }
 
+    /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
+    ///
+    /// This variable is used for prometheus monitoring (which only
+    /// runs when the feature flag `monitoring_prom` is activated).
+    /// The address is set using the single-signature BTC address
+    /// associated with `keychain`'s public key. This address always
+    /// assumes Epoch-2.1 rules for the miner address: if the
+    /// node is configured for segwit, then the miner address generated
+    /// is a segwit address, otherwise it is a p2pkh.
+    ///
+    fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
+        let public_key = keychain.get_pub_key();
+        let miner_addr = relayer_thread
+            .bitcoin_controller
+            .get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr_str = addr2str(&miner_addr);
+        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
+            warn!("Failed to set global burnchain signer: {:?}", &e);
+            e
+        });
+    }
+
     pub fn spawn(
         runloop: &RunLoop,
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
-        // attachments receiver endpoint for the p2p thread, so the chains coordinator can feed it
-        // attachments it discovers
-        attachments_receiver: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
-        let atlas_config = AtlasConfig::default(config.is_mainnet());
+        let atlas_config = config.atlas.clone();
         let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
@@ -4147,24 +4254,20 @@ impl StacksNode {
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         Self::setup_ast_size_precheck(&config, &mut sortdb);
 
         let _ = Self::setup_mempool_db(&config);
 
         let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
-        let relayer = Relayer::from_p2p(&mut p2p_net);
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
+            .expect("FATAL: failed to connect to stacker DB");
+
+        let relayer = Relayer::from_p2p(&mut p2p_net, stackerdbs);
 
         let local_peer = p2p_net.local_peer.clone();
-
-        let burnchain_signer = keychain.get_burnchain_signer();
-        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
-            Err(e) => {
-                warn!("Failed to set global burnchain signer: {:?}", &e);
-            }
-            _ => {}
-        }
 
         // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
@@ -4182,6 +4285,9 @@ impl StacksNode {
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
+
+        StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
+
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
@@ -4191,8 +4297,9 @@ impl StacksNode {
             })
             .expect("FATAL: failed to start relayer thread");
 
+        let should_keep_running_clone = globals.should_keep_running.clone();
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
-        let p2p_thread = PeerThread::new(runloop, p2p_net, attachments_receiver);
+        let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name(format!(
@@ -4201,7 +4308,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher, should_keep_running_clone);
             })
             .expect("FATAL: failed to start p2p thread");
 

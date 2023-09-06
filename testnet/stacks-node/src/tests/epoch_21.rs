@@ -39,6 +39,7 @@ use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha256Sum;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
@@ -114,6 +115,8 @@ fn advance_to_2_1(
         u64::max_value() - 2,
         u64::max_value() - 1,
         u32::max_value(),
+        u32::MAX,
+        u32::MAX,
     ));
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -431,9 +434,12 @@ fn transition_adds_burn_block_height() {
                             .unwrap(),
                         )
                         .unwrap();
-                        let clarity_value =
-                            Value::deserialize_read(&mut &clarity_serialized_value[..], None)
-                                .unwrap();
+                        let clarity_value = Value::deserialize_read(
+                            &mut &clarity_serialized_value[..],
+                            None,
+                            false,
+                        )
+                        .unwrap();
                         let pair = clarity_value.expect_tuple();
                         let height = pair.get("height").unwrap().clone().expect_u128() as u64;
                         let bhh_opt =
@@ -608,6 +614,8 @@ fn transition_fixes_bitcoin_rigidity() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::max_value(),
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1050,6 +1058,8 @@ fn transition_adds_get_pox_addr_recipients() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height,
+        u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1256,9 +1266,12 @@ fn transition_adds_get_pox_addr_recipients() {
                             .unwrap(),
                         )
                         .unwrap();
-                        let clarity_value =
-                            Value::deserialize_read(&mut &clarity_serialized_value[..], None)
-                                .unwrap();
+                        let clarity_value = Value::deserialize_read(
+                            &mut &clarity_serialized_value[..],
+                            None,
+                            false,
+                        )
+                        .unwrap();
                         let pair = clarity_value.expect_tuple();
                         let burn_block_height =
                             pair.get("burn-height").unwrap().clone().expect_u128() as u64;
@@ -1351,6 +1364,8 @@ fn transition_adds_mining_from_segwit() {
         u64::MAX,
         u64::MAX,
         v1_unlock_height,
+        u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1514,6 +1529,8 @@ fn transition_removes_pox_sunset() {
         (sunset_start_rc * reward_cycle_len - 1).into(),
         (sunset_end_rc * reward_cycle_len).into(),
         (epoch_21 as u32) + 1,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1794,6 +1811,8 @@ fn transition_empty_blocks() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         (epoch_2_1 + 1) as u32,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1968,7 +1987,7 @@ fn transition_empty_blocks() {
 }
 
 /// Check to see if there are stragglers between a set of nodes syncing
-fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
+pub fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms: u64) {
     loop {
         let mut straggler = false;
         let mut stacks_tip_ch = None;
@@ -2121,8 +2140,7 @@ fn test_pox_reorgs_three_flaps() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -2151,6 +2169,8 @@ fn test_pox_reorgs_three_flaps() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -2656,8 +2676,7 @@ fn test_pox_reorg_one_flap() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -2686,6 +2705,8 @@ fn test_pox_reorg_one_flap() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3079,8 +3100,7 @@ fn test_pox_reorg_flap_duel() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3109,6 +3129,8 @@ fn test_pox_reorg_flap_duel() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3512,8 +3534,7 @@ fn test_pox_reorg_flap_reward_cycles() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3542,6 +3563,8 @@ fn test_pox_reorg_flap_reward_cycles() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3939,8 +3962,7 @@ fn test_pox_missing_five_anchor_blocks() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3969,6 +3991,8 @@ fn test_pox_missing_five_anchor_blocks() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4338,8 +4362,7 @@ fn test_sortition_divergence_pre_21() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -4368,6 +4391,8 @@ fn test_sortition_divergence_pre_21() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4700,7 +4725,7 @@ fn trait_invocation_cross_epoch() {
 
     test_observer::spawn();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
     let mut initial_balances = vec![InitialBalance {
         address: spender_addr.clone(),
         amount: 200_000_000,
@@ -4717,8 +4742,6 @@ fn trait_invocation_cross_epoch() {
     epochs[3].start_height = epoch_2_1;
     conf.burnchain.epochs = Some(epochs);
 
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
     let reward_cycle_len = 2000;
@@ -4732,6 +4755,8 @@ fn trait_invocation_cross_epoch() {
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
         u32::max_value(),
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4976,6 +5001,8 @@ fn test_v1_unlock_height_with_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -5236,6 +5263,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 

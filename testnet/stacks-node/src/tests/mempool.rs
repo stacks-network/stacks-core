@@ -19,6 +19,7 @@ use stacks::net::Error as NetError;
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::database::NULL_BURN_STATE_DB;
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
@@ -108,6 +109,7 @@ fn mempool_setup_chainstate() {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let header_hash = chain_tip.block.block_hash();
             let consensus_hash = chain_tip.metadata.consensus_hash;
+            let sortdb = tenure.open_fake_sortdb();
 
             if round == 1 {
                 eprintln!("Tenure in 1 started!");
@@ -118,6 +120,7 @@ fn mempool_setup_chainstate() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx1,
@@ -132,6 +135,7 @@ fn mempool_setup_chainstate() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx2,
@@ -151,6 +155,7 @@ fn mempool_setup_chainstate() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx3,
@@ -170,6 +175,7 @@ fn mempool_setup_chainstate() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
@@ -189,6 +195,7 @@ fn mempool_setup_chainstate() {
                     .mem_pool
                     .submit_raw(
                         &mut chainstate_copy,
+                        &sortdb,
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
@@ -230,7 +237,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap();
 
                 let tx_bytes = make_contract_call(
@@ -245,14 +258,26 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap();
 
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap();
 
                 // bad signature
@@ -260,7 +285,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(
@@ -296,7 +327,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
 
                 assert!(if let MemPoolRejection::BadAddressVersionByte = e {
@@ -319,7 +356,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 assert!(if let MemPoolRejection::BadAddressVersionByte = e {
                     true
@@ -332,7 +375,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::FeeTooLow(0, _) = e {
@@ -346,7 +395,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::BadNonces(_) = e {
@@ -360,7 +415,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
@@ -375,7 +436,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
@@ -392,7 +459,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::BadAddressVersionByte = e {
@@ -419,7 +492,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::BadTransactionVersion = e {
@@ -433,7 +512,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::TransferAmountMustBePositive = e {
@@ -447,7 +532,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
@@ -460,7 +551,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NotEnoughFunds(100700, 99500) = e {
@@ -481,7 +578,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NoSuchContract = e {
@@ -502,7 +605,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NoSuchPublicFunction = e {
@@ -523,7 +632,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::BadFunctionArgument(_) = e {
@@ -537,7 +652,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::ContractAlreadyExists(_) = e {
@@ -566,7 +687,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(
@@ -597,7 +724,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::InvalidMicroblocks = e {
@@ -629,7 +762,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(
@@ -644,7 +783,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e {
@@ -696,7 +841,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap();
 
                 let contract_id = QualifiedContractIdentifier::new(
@@ -717,7 +868,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap();
 
                 let contract_id = QualifiedContractIdentifier::new(
@@ -738,7 +895,13 @@ fn mempool_setup_chainstate() {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
-                    .will_admit_mempool_tx(consensus_hash, block_hash, &tx, tx_bytes.len() as u64)
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &tx,
+                        tx_bytes.len() as u64,
+                    )
                     .unwrap_err();
                 assert!(if let MemPoolRejection::BadFunctionArgument(_) = e {
                     true

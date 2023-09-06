@@ -9,6 +9,7 @@ use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use super::operations::BurnchainOpSigner;
 
@@ -123,6 +124,11 @@ impl Keychain {
                "pubkey_hash" => %Hash160::from_node_public_key(&StacksPublicKey::from_private(&sk)).to_string()
         );
         sk
+    }
+
+    pub fn get_pub_key(&self) -> Secp256k1PublicKey {
+        let sk = self.get_secret_key();
+        StacksPublicKey::from_private(&sk)
     }
 
     /// Get the Stacks address for the inner secret state

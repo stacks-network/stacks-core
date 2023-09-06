@@ -10,7 +10,6 @@ use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use crate::vm::eval;
 use crate::vm::execute;
 use crate::vm::execute_with_parameters;
 use crate::vm::functions::principals::PrincipalConstructErrorCode;
@@ -23,10 +22,7 @@ use crate::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, TypeSignature, BUFF_1, BUFF_20,
 };
-use crate::vm::ClarityVersion;
-use crate::vm::{
-    CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-};
+use crate::vm::{eval, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {

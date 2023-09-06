@@ -33,7 +33,7 @@ extern crate rstest;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
-extern crate rstest_reuse;
+pub extern crate rstest_reuse;
 
 #[macro_use]
 extern crate stacks_common;
