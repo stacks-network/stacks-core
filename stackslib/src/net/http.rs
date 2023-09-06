@@ -29,18 +29,40 @@ use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::representations::MAX_STRING_LEN;
+use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
+use clarity::vm::{
+    representations::{
+        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
+    },
+    types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
+    ClarityName, ContractName, Value,
+};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::retry::RetryReader;
 use time;
 use url::{form_urlencoded, Url};
 
+use super::FeeRateEstimateRequestBody;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+};
+use crate::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
 };
 use crate::deps::httparse;
 use crate::net::atlas::Attachment;
@@ -73,31 +95,7 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
-use clarity::vm::{
-    representations::{
-        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-    },
-    types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
-    ClarityName, ContractName, Value,
-};
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::retry::RetryReader;
-
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
-    MAX_PAYLOAD_LEN,
-};
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
-
-use super::FeeRateEstimateRequestBody;
 
 const MAX_BLOCK_PROPOSAL_LENGTH: u32 = 1024 * 1024 * 15;
 pub const PATH_STR_POST_BLOCK_PROPOSAL: &'static str = "/v2/block_proposal";
@@ -4937,6 +4935,13 @@ impl StacksHttp {
             Ok(message)
         }
     }
+
+    pub fn is_loopback(&self) -> bool {
+        match self.peer_addr {
+            SocketAddr::V4(addr) => addr.ip().is_loopback(),
+            SocketAddr::V6(addr) => addr.ip().is_loopback(),
+        }
+    }
 }
 
 impl ProtocolFamily for StacksHttp {
@@ -5164,7 +5169,13 @@ mod test {
 
     use rand;
     use rand::RngCore;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::hash::Sha512Trunc256Sum;
 
+    use super::*;
     use crate::burnchains::Txid;
     use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use crate::chainstate::stacks::test::make_codec_test_block;
@@ -5181,14 +5192,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::RPCNeighbor;
     use crate::net::RPCNeighborsInfo;
-    use stacks_common::util::hash::to_hex;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::hash::MerkleTree;
-    use stacks_common::util::hash::Sha512Trunc256Sum;
-
-    use stacks_common::types::chainstate::StacksAddress;
-
-    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {
