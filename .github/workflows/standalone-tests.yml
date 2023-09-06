@@ -32,7 +32,7 @@ jobs:
   ## Runs every time
   create-cache:
     name: Create Test Cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/create_cache.yml@master
+    uses: ./.github/workflows/create_cache.yml
 
   #####################################################
   ## Runs when:
@@ -50,7 +50,7 @@ jobs:
     name: Stacks Blockchain Tests
     needs:
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   ## Runs when:
   ##   either or of the following is true:
@@ -67,7 +67,7 @@ jobs:
     name: Bitcoin Tests
     needs:
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   #####################################################
   ## Runs when:
@@ -83,7 +83,7 @@ jobs:
     name: Atlas Tests
     needs:
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   ## Runs when:
   ##   either or of the following is true:
@@ -98,7 +98,7 @@ jobs:
     name: Epoch Tests
     needs:
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   ## Runs when:
   ##   either or of the following is true:
@@ -113,4 +113,4 @@ jobs:
     name: Slow Tests
     needs:
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
