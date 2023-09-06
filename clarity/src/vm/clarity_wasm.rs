@@ -5,7 +5,7 @@ use crate::vm::{
     ast::ContractAST,
     contexts::GlobalContext,
     errors::{Error, WasmError},
-    types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
+    types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature, BuffData},
     ClarityName, ContractContext, Value,
 };
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val};
@@ -571,7 +571,7 @@ where
                     &data_types,
                 );
 
-                let result_size = match &result {
+                let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
                     Err(_e) => data_types.value_type.size() as u64,
                 };
@@ -716,72 +716,16 @@ where
         .and_then(|export| export.into_memory())
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-    match ty {
-        TypeSignature::UIntType => {
-            debug_assert!(
-                length == 16,
-                "expected uint length to be 16 bytes, found {length}"
-            );
-            let mut buffer: [u8; 8] = [0; 8];
-            memory
-                .read(caller.borrow_mut(), offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let low = u64::from_le_bytes(buffer) as u128;
-            memory
-                .read(caller.borrow_mut(), (offset + 8) as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let high = u64::from_le_bytes(buffer) as u128;
-            Ok(Value::UInt((high << 64) | low))
-        }
-        TypeSignature::IntType => {
-            debug_assert!(
-                length == 16,
-                "expected int length to be 16 bytes, found {length}"
-            );
-            let mut buffer: [u8; 8] = [0; 8];
-            memory
-                .read(caller.borrow_mut(), offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let low = u64::from_le_bytes(buffer) as u128;
-            memory
-                .read(caller.borrow_mut(), (offset + 8) as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            let high = u64::from_le_bytes(buffer) as u128;
-            Ok(Value::Int(((high << 64) | low) as i128))
-        }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(subtype)) => {
-            let type_length = match subtype {
-                StringSubtype::ASCII(len) => u32::from(len),
-                StringSubtype::UTF8(len) => u32::from(len)
-            };
+    // Allocate a buffer of `length` size to read the memory into.
+    let mut buffer = Vec::<u8>::with_capacity(length as usize);
 
-            debug_assert!(
-                type_length >= length as u32,
-                "Expected string length to be less than the type length"
-            );
+    // Read the memory at `offset` into `buffer`.
+    memory
+        .read(caller.borrow_mut(), offset as usize, &mut buffer)
+        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
 
-            let mut buffer: Vec<u8> = vec![0; length as usize];
-            memory
-                .read(caller, offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-
-            match subtype {
-                StringSubtype::ASCII(_) => Value::string_ascii_from_bytes(buffer),
-                StringSubtype::UTF8(_) => Value::string_utf8_from_bytes(buffer)
-            }
-        }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ResponseType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
-    }
+    // Deserialize the clarity value from the read memory.
+    deserialize_clarity_value(buffer, ty)
 }
 
 fn value_as_i128(value: &Value) -> Result<i128, Error> {
@@ -847,6 +791,85 @@ where
         TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
     };
     Ok(())
+}
+
+fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Value, Error> {
+    let length = buffer.len();
+
+    match ty {
+        TypeSignature::UIntType => {
+            debug_assert!(
+                length == 16,
+                "expected uint length to be 16 bytes, found {length}"
+            );
+
+            let low_bytes: [u8; 8] = buffer[0..7]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            let high_bytes: [u8; 8] = buffer[8..15]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            let low = u64::from_le_bytes(low_bytes) as u128;
+            let high = u64::from_le_bytes(high_bytes) as u128;
+
+            Ok(Value::UInt((high << 64) | low))
+        }
+        TypeSignature::IntType => {
+            debug_assert!(
+                length == 16,
+                "expected int length to be 16 bytes, found {length}"
+            );
+            
+            let low_bytes: [u8; 8] = buffer[0..7]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            let high_bytes: [u8; 8] = buffer[8..15]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            let low = u64::from_le_bytes(low_bytes) as u128;
+            let high = u64::from_le_bytes(high_bytes) as u128;
+
+            Ok(Value::Int(((high << 64) | low) as i128))
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(subtype)) => {
+            let type_length = match subtype {
+                StringSubtype::ASCII(len) => u32::from(len),
+                StringSubtype::UTF8(len) => u32::from(len)
+            };
+
+            debug_assert!(
+                type_length >= length as u32,
+                "Expected string length to be less than the type length"
+            );
+
+            match subtype {
+                StringSubtype::ASCII(_) => Value::string_ascii_from_bytes(buffer),
+                StringSubtype::UTF8(_) => Value::string_utf8_from_bytes(buffer)
+            }
+        }
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => {
+            debug_assert!(
+                length as u32 == u32::from(b),
+                "Expected buffer length to be {b} but received {length}."
+            );
+
+            Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: buffer })))
+        }
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ResponseType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
+    }
 }
 
 /// Convert a Clarity 'Value' into a byte buffer. This is intended to be used
