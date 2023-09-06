@@ -36,7 +36,7 @@ jobs:
       inputs.tag != '' && 
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     name: Build Binaries
-    uses: stacks-network/stacks-blockchain/.github/workflows/create-source-binary.yml@master
+    uses: ./.github/workflows/create-source-binary.yml
     with:
       tag: ${{ inputs.tag }}
       arch: ${{ inputs.arch }}
@@ -99,7 +99,7 @@ jobs:
       inputs.tag != '' && 
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     name: Docker Image (Binary)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-binary.yml@master
+    uses: ./.github/workflows/image-build-binary.yml
     needs:
       - build-binaries
       - create-release

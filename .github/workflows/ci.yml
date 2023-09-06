@@ -98,7 +98,7 @@ jobs:
     name: Create Release
     needs:
       - rustfmt
-    uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
+    uses: ./.github/workflows/github-release.yml
     with:
       tag: ${{ inputs.tag }}
       arch: >-
@@ -127,7 +127,7 @@ jobs:
         )
       )
     name: Docker Image (Source)
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    uses: ./.github/workflows/image-build-debian-source.yml
     needs:
       - rustfmt
     secrets: inherit
@@ -167,7 +167,7 @@ jobs:
     name: Create Test Cache
     needs:
       - rustfmt
-    uses: stacks-network/stacks-blockchain/.github/workflows/create_cache.yml@master
+    uses: ./.github/workflows/create_cache.yml
 
   ######################################################################################
   ## Tests to run regularly
@@ -190,7 +190,7 @@ jobs:
     needs:
       - rustfmt
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   bitcoin-tests:
     if: |
@@ -205,7 +205,7 @@ jobs:
     needs:
       - rustfmt
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    uses: ./.github/workflows/image-build-debian-source.yml
 
   ######################################################################################
   ## Test to run on a tagged release
@@ -218,7 +218,7 @@ jobs:
     needs:
       - rustfmt
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   epoch-tests:
     if: inputs.tag != ''
@@ -226,7 +226,7 @@ jobs:
     needs:
       - rustfmt
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
 
   slow-tests:
     if: inputs.tag != ''
@@ -234,4 +234,4 @@ jobs:
     needs:
       - rustfmt
       - create-cache
-    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
+    uses: ./.github/workflows/build-source-binary.yml
