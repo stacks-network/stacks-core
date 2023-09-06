@@ -33,6 +33,7 @@ stacks_common = { package = "stacks-common", path = "../stacks-common/.", option
 rstest = "0.11.0"
 rstest_reuse = "0.1.3"
 wasmtime = "11.0.0"
+clar2wasm = { package = "clar2wasm", path = "../../clarity-wasm/clar2wasm/." }
 
 [dependencies.serde_json]
 version = "1.0"

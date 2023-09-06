@@ -31,6 +31,7 @@ extern crate lazy_static;
 extern crate integer_sqrt;
 extern crate regex;
 extern crate time;
+extern crate clar2wasm;
 
 #[cfg(any(test, feature = "log"))]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]

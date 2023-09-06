@@ -137,6 +137,7 @@ pub enum WasmError {
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     Runtime(wasmtime::Error),
+    UnableToSerializeClarityType
 }
 
 impl fmt::Display for WasmError {
@@ -169,6 +170,7 @@ impl fmt::Display for WasmError {
             }
             WasmError::ExpectedReturnValue => write!(f, "Expected return value"),
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
+            WasmError::UnableToSerializeClarityType => write!(f, "Unable to serialize clarity type to byte buffer")
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::Write};
+use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::{Write, Read}};
 
 use crate::vm::{
     analysis::ContractAnalysis,
@@ -17,7 +17,7 @@ use super::{
     costs::CostTracker,
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata},
     errors::RuntimeErrorType,
-    types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData},
+    types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData, PrincipalData},
     SymbolicExpression,
 };
 
@@ -184,7 +184,7 @@ pub fn initialize_contract(
     link_define_variable_fn(&mut linker)?;
     link_get_variable_fn(&mut linker)?;
     link_set_variable_fn(&mut linker)?;
-    link_log(&mut linker);
+    link_log(&mut linker)?;
 
     let instance = linker
         .instantiate(store.as_context_mut(), &module)
@@ -749,31 +749,38 @@ where
             let high = u64::from_le_bytes(buffer) as u128;
             Ok(Value::Int(((high << 64) | low) as i128))
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            type_length,
-        ))) => {
+        TypeSignature::SequenceType(SequenceSubtype::StringType(subtype)) => {
+            let type_length = match subtype {
+                StringSubtype::ASCII(len) => u32::from(len),
+                StringSubtype::UTF8(len) => u32::from(len)
+            };
+
             debug_assert!(
-                type_length >= &BufferLength::try_from(length as u32)?,
-                "expected string length to be less than the type length"
+                type_length >= length as u32,
+                "Expected string length to be less than the type length"
             );
+
             let mut buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(caller, offset as usize, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-            Value::string_ascii_from_bytes(buffer)
+
+            match subtype {
+                StringSubtype::ASCII(_) => Value::string_ascii_from_bytes(buffer),
+                StringSubtype::UTF8(_) => Value::string_utf8_from_bytes(buffer)
+            }
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ResponseType(r) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ResponseType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
     }
 }
 
@@ -828,18 +835,116 @@ where
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
         }
         TypeSignature::UIntType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::SequenceType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ResponseType(sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::SequenceType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ResponseType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
     };
     Ok(())
+}
+
+/// Convert a Clarity 'Value' into a byte buffer. This is intended to be used
+/// together with `pass_argument_to_wasm` for generating the buffer to be written
+/// to WASM linear memory.
+fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
+    let mut result: Vec<u8> = Vec::<u8>::new();
+    match value {
+        Value::UInt(n) => {
+            let low = (n & 0xffff_ffff_ffff_ffff) as u64;
+            let high = (n >> 64) as u64;
+            result.extend_from_slice(&low.to_le_bytes());
+            result.extend_from_slice(&high.to_le_bytes())
+        }
+        Value::Int(n) => {
+            let low = (n & 0xffff_ffff_ffff_ffff) as u64;
+            let high = (n >> 64) as u64;
+            result.extend_from_slice(&low.to_le_bytes());
+            result.extend_from_slice(&high.to_le_bytes());
+        }
+        Value::Bool(b) => {
+            result.insert(0, if *b { 1 } else { 0 });
+        }
+        Value::Optional(o) => {
+            result.insert(0, if o.data.is_some() { 1 } else { 0 });
+            if let Some(data) = &o.data {
+                result.append(&mut serialize_clarity_value(&data)?);
+            }
+        }
+        Value::Response(r) => {
+            result.insert(0, if r.committed { 1 } else { 0 });
+            result.append(&mut serialize_clarity_value(&r.data)?);
+        }
+        Value::Sequence(SequenceData::String(char_type)) => {
+            match char_type {
+                CharType::ASCII(s) => {
+                    result.extend_from_slice(&s.data);
+                }
+                CharType::UTF8(s) => {
+                    let mut data = s.data
+                        .iter()
+                        .flat_map(|s| s.iter())
+                        .map(|e| *e)
+                        .collect::<Vec<u8>>();
+
+                    result.append(&mut data);
+                }
+            }
+        }
+        Value::Sequence(SequenceData::Buffer(b)) => {
+            result.extend_from_slice(&b.data);
+        }
+        Value::Sequence(SequenceData::List(l)) => {
+            for item in &l.data {
+                let mut data = serialize_clarity_value(item)?;
+                result.append(&mut data);
+            }
+        }
+        Value::Principal(principal_type) => {
+            match principal_type {
+                PrincipalData::Standard(std) => {
+                    result.extend_from_slice(&std.0.to_le_bytes());
+                    result.extend_from_slice(&std.1);
+                }
+                PrincipalData::Contract(ctr) => {
+                    result.extend_from_slice(&ctr.issuer.0.to_le_bytes());
+                    result.extend_from_slice(&ctr.issuer.1);
+                    
+                    let name_bytes = ctr.name.as_bytes();
+                    result.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+                    result.extend_from_slice(name_bytes);
+                }
+            }
+        }
+        Value::CallableContract(ctr) => {
+            result.extend_from_slice(&ctr.contract_identifier.issuer.0.to_le_bytes());
+            result.extend_from_slice(&ctr.contract_identifier.issuer.1);
+            let ctr_name_bytes = ctr.contract_identifier.name.as_bytes();
+            result.extend_from_slice(&(ctr_name_bytes.len() as u32).to_le_bytes());
+            result.extend_from_slice(ctr_name_bytes);
+
+            if let Some(trait_id) = &ctr.trait_identifier {
+                result.extend_from_slice(&trait_id.contract_identifier.issuer.0.to_le_bytes());
+                result.extend_from_slice(&trait_id.contract_identifier.issuer.1);
+                
+                let trait_name_bytes = trait_id.name.as_bytes();
+                result.extend_from_slice(&(trait_name_bytes.len() as u32).to_le_bytes());
+                result.extend_from_slice(trait_name_bytes);
+            }
+        }
+        Value::Tuple(tuple) => {
+            for val in &tuple.data_map {
+                let mut data = serialize_clarity_value(&val.1)?;
+                result.append(&mut data);
+            }
+        }
+    }
+    Ok(result)
 }
 
 /// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
@@ -848,64 +953,98 @@ where
 /// offset, adjusted to the next available memory location.
 fn pass_argument_to_wasm(
     memory: Memory,
-    mut store: impl AsContextMut,
+    store: impl AsContextMut,
     value: &Value,
     offset: i32,
 ) -> Result<(Vec<Val>, i32), Error> {
+    // Pre-allocate a vec with a capacity of 4 to avoid reallocations
+    let mut buffer = Vec::<Val>::with_capacity(4);
+    let mut new_offset = offset as usize;
+    let mut data: Option<Box<Vec<u8>>> = None;
+
     match value {
         Value::UInt(n) => {
-            let high = (n >> 64) as u64;
+            // u128's are passed as two i64's to WASM, the first containing the low-bits,
+            // the second containing the high-bits.
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
-            let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset))
+            let high = (n >> 64) as u64;
+            buffer.extend_from_slice(&[Val::I64(low as i64), Val::I64(high as i64)]);
         }
         Value::Int(n) => {
-            let high = (n >> 64) as u64;
+            // i128's are passed as two i64's to WASM, the first containing the low-bits,
+            // the second containing the high-bits.
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
-            let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset))
+            let high = (n >> 64) as u64;
+            buffer.extend_from_slice(&[Val::I64(low as i64), Val::I64(high as i64)]);
         }
-        Value::Bool(b) => Ok((vec![Val::I32(if *b { 1 } else { 0 })], offset)),
+        Value::Bool(b) => {
+            // Booleans are expressed as a single value, 1 = true, 0 = false.
+            buffer.extend_from_slice(&[Val::I32(if *b { 1 } else { 0 })]);
+        }
         Value::Optional(o) => {
-            let mut buffer = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
-            let (inner, new_offset) = pass_argument_to_wasm(
-                memory,
-                store,
-                o.data
-                    .as_ref()
-                    .map_or(&Value::none(), |boxed_value| &boxed_value),
-                offset + 1,
-            )?;
-            buffer.extend(inner);
-            Ok((buffer, new_offset))
+            // Indicator for Some = 1, None = 0.
+            buffer.insert(0, Val::I32(if o.data.is_some() { 1 } else { 0 }));
+            
+            // If the optional data is `Some`, serialize the value (recursively) and write to
+            // memory at the current offset. If the optional data is `None`, no memory
+            // will be written and this will be indicated by the `Val(0)` above.
+            if let Some(val) = o.data.clone() {
+                data = Some(Box::new(serialize_clarity_value(&val)?));
+            }
         }
         Value::Response(r) => {
-            let mut buffer = vec![Val::I32(if r.committed { 1 } else { 0 })];
-            let (inner, new_offset) = if r.committed {
-                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
-            } else {
-                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
-            };
-            buffer.extend(inner);
-            Ok((buffer, new_offset))
+            // Indicator for Ok = 1, Err = 0.
+            buffer.insert(0, Val::I32(if r.committed { 1 } else { 0 }));
+            
+            // Regardless whether or not the response is Ok or Err, the value will be
+            // serialized and written to memory. The indicator above must be used to
+            // determine the type of value contained in memory.
+            data = Some(Box::new(serialize_clarity_value(&r.data)?));
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
-            // For a string, write the bytes into the memory, then pass the
-            // offset and length to the Wasm function.
-            let buffer = vec![Val::I32(offset), Val::I32(s.data.len() as i32)];
-            memory
-                .write(store.borrow_mut(), offset as usize, s.data.as_slice())
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_offset = offset + s.data.len() as i32;
-            Ok((buffer, adjusted_offset))
+            // Strings will always be written to memory.
+            data = Some(Box::new(s.data.clone()));
         }
-        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Sequence(SequenceData::Buffer(b)) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Sequence(SequenceData::List(l)) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Principal(p) => todo!("Value type not yet implemented: {:?}", value),
-        Value::CallableContract(c) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Tuple(t) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => {
+            // For a UTF8 string we need to flatten the input (a vec of vecs, each character is four
+            // bytes) prior to writing it to linear memory.
+            let bytes = s.data.clone()
+                .into_iter()
+                .flat_map(|s| s)
+                .collect::<Vec<u8>>();
+
+            // Strings will always be written to memory.
+            data = Some(Box::new(bytes));
+        }
+        Value::Sequence(SequenceData::Buffer(b)) => {
+            // This is basically the exact same thing as an ASCII string, it just works
+            // directly with bytes.
+            data = Some(Box::new(b.data.clone()));
+        }
+        // The following types will always be fully serialized to WASM memory from their
+        // root type (the incoming `Value` to this function).
+        Value::Sequence(SequenceData::List(_))
+        | Value::Principal(_)
+        | Value::CallableContract(_)
+        | Value::Tuple(_) => {
+            data = Some(Box::new(serialize_clarity_value(value)?));
+        }
     }
+
+    // If `data` is Some, this indicates that the value needs to be written to memory.
+    // For values written to WASM memory, we follow the convention of passing two `Val(i32)`'s,
+    // The first which indicates the memory offset, the second indicates the length in bytes of
+    // the value in memory.
+    if let Some(mem) = data {
+        memory
+            .write(store, offset as usize, &mem)
+            .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+        new_offset += mem.len();
+        buffer.extend_from_slice(&[Val::I32(offset), Val::I32(mem.len() as i32)]);
+    }
+
+    // Return the Val buffer (arguments passed to functions) and the next available memory offset.
+    Ok((buffer, new_offset as i32))
 }
 
 /// Reserve space on the Wasm stack for the return value of a function, if
@@ -948,14 +1087,14 @@ where
             // Return values will be offset and length
             Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::CallableType(subtype) => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::ListUnionType(subtypes) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::CallableType(_) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::ListUnionType(_) => todo!("Return type not yet implemented: {:?}", return_type),
         TypeSignature::PrincipalType => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::TraitReferenceType(trait_id) => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::TupleType(type_sig) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::TraitReferenceType(_) => todo!("Return type not yet implemented: {:?}", return_type),
+        TypeSignature::TupleType(_) => todo!("Return type not yet implemented: {:?}", return_type),
     }
 }
 
@@ -1066,13 +1205,13 @@ fn wasm_to_clarity_value(
         }
         // A `NoType` will be a dummy value that should not be used.
         TypeSignature::NoType => Ok((None, 1)),
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => todo!("Wasm value type not implemented: {:?}", type_sig),
         TypeSignature::PrincipalType => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::TupleType(t) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::TraitReferenceType(t) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::ListUnionType(lu) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::CallableType(c) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::TupleType(_) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::TraitReferenceType(_) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::ListUnionType(_) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::CallableType(_) => todo!("Wasm value type not implemented: {:?}", type_sig),
     }
 }
