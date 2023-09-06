@@ -1722,11 +1722,10 @@ impl HttpResponseMetadata {
         }
     }
 
-    fn from_http_request_type(
-        req: &HttpRequestType,
+    fn from_req_metadata(
+        metadata: &HttpRequestMetadata,
         canonical_stacks_tip_height: Option<u64>,
     ) -> HttpResponseMetadata {
-        let metadata = req.metadata();
         HttpResponseMetadata::new(
             metadata.version,
             HttpResponseMetadata::make_request_id(),
@@ -1734,6 +1733,14 @@ impl HttpResponseMetadata {
             metadata.keep_alive,
             canonical_stacks_tip_height,
         )
+    }
+
+    fn from_http_request_type(
+        req: &HttpRequestType,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpResponseMetadata {
+        let metadata = req.metadata();
+        Self::from_req_metadata(metadata, canonical_stacks_tip_height)
     }
 }
 
@@ -1778,11 +1785,10 @@ pub enum HttpResponseType {
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String),
-    BlockProposalValid {
+    BlockProposalOk {
         metadata: HttpResponseMetadata,
-        signature: [u8; 65],
     },
-    BlockProposalInvalid {
+    AsyncRpcNotReady {
         metadata: HttpResponseMetadata,
         error_message: String,
     },

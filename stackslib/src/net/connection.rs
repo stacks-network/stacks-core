@@ -34,6 +34,7 @@ use std::sync::mpsc::TrySendError;
 use mio;
 use mio::net as mio_net;
 
+use crate::chainstate::stacks::miner::BlockProposal;
 use crate::codec::StacksMessageCodec;
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
@@ -318,7 +319,14 @@ struct ConnectionOutbox<P: ProtocolFamily> {
     inflight: VecDeque<ReceiverNotify<P>>,
 }
 
+/// Long running requests that the RPC handler
+///  submits to the node's main thread for handling.
 #[derive(Debug, Clone, PartialEq)]
+pub enum AsyncRequests {
+    ValidateBlock(BlockProposal),
+}
+
+#[derive(Debug, Clone)]
 pub struct ConnectionOptions {
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
@@ -383,6 +391,9 @@ pub struct ConnectionOptions {
     pub mempool_max_tx_query: u64,
     /// how long a mempool sync is allowed to take, in total, before timing out
     pub mempool_sync_timeout: u64,
+
+    /// a channel for submitting long-running tasks to the stacks-node
+    pub async_rpc_channel: Option<SyncSender<AsyncRequests>>,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -471,6 +482,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
+            async_rpc_channel: None,
 
             // no faults on by default
             disable_neighbor_walk: false,

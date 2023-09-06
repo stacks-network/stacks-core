@@ -33,7 +33,7 @@ use super::config::{EventKeyType, EventObserverConfig};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::miner::TransactionEvent;
+use stacks::chainstate::stacks::miner::{BlockValidateResponse, TransactionEvent};
 use stacks::chainstate::stacks::TransactionPayload;
 
 #[derive(Debug, Clone)]
@@ -63,6 +63,7 @@ pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
+pub const PATH_ASYNC_RPC_RESPONSE: &str = "async_rpc_response";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -85,7 +86,33 @@ pub struct MinedMicroblockEvent {
 }
 
 impl EventObserver {
+    pub fn send_async_rpc_response(&self, response: &BlockValidateResponse) {
+        let payload = match serde_json::to_value(response) {
+            Ok(body) => body,
+            Err(err) => {
+                error!(
+                    "Event dispatcher: async RPC serialization failed. {:?}",
+                    err
+                );
+                return;
+            }
+        };
+
+        // async RPC responses should retry a fixed number of times, and then the node
+        //  should continue: these responses are "droppable" events.
+        self.inner_send_payload(&payload, PATH_ASYNC_RPC_RESPONSE, Some(3))
+    }
+
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+        self.inner_send_payload(payload, path, None)
+    }
+
+    fn inner_send_payload(
+        &self,
+        payload: &serde_json::Value,
+        path: &str,
+        max_attempts: Option<usize>,
+    ) {
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {
@@ -108,7 +135,9 @@ impl EventObserver {
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
+        let mut attempts = 0;
         loop {
+            attempts += 1;
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
             req.append_header("Content-Type", "application/json");
@@ -144,6 +173,13 @@ impl EventObserver {
                     );
                 }
             }
+
+            if let Some(max_attempts) = max_attempts {
+                if attempts >= max_attempts {
+                    break;
+                }
+            }
+
             sleep(backoff);
         }
     }
@@ -877,6 +913,13 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_microblock(&payload);
+        }
+    }
+
+    /// Send the response to an async RPC call to all registered observers
+    pub fn process_async_rpc_response(&self, response: &BlockValidateResponse) {
+        for observer in self.registered_observers.iter() {
+            observer.send_async_rpc_response(&response);
         }
     }
 
