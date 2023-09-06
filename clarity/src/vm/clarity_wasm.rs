@@ -973,14 +973,28 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
                 },
             )))
         }
-        TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => {
+        TypeSignature::SequenceType(SequenceSubtype::ListType(list)) => {
             todo!("type not yet implemented: {:?}", ty)
         }
-        TypeSignature::CallableType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(_) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(_) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(callable) => {
+            todo!("type not yet implemented: {:?}", ty)
+        }
+        TypeSignature::ListUnionType(union) => {
+            // TODO: We probably need to include a type marker during serialization to be able to determine the correct
+            // type for this case.
+
+            // TODO: Assert that the type in the buffer is one of the allowed types.
+            todo!("type not yet implemented: {:?}", ty)
+        }
+        TypeSignature::TupleType(_) => {
+            todo!("type not yet implemented: {:?}", ty)
+        }
+        TypeSignature::NoType => {
+            unimplemented!("NoType is not supported, this should never be reached.")
+        }
+        TypeSignature::TraitReferenceType(_) => {
+            unimplemented!("TraitReferenceType is not supported, this should never be reached.")
+        }
     }
 }
 
