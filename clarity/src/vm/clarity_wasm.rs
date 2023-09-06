@@ -10,8 +10,11 @@ use crate::vm::{
     ast::ContractAST,
     contexts::GlobalContext,
     errors::{Error, WasmError},
-    types::{BuffData, BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
-    ClarityName, ContractContext, Value,
+    types::{
+        BuffData, BufferLength, SequenceSubtype, StandardPrincipalData, StringSubtype,
+        TypeSignature,
+    },
+    ClarityName, ContractContext, ContractName, Value,
 };
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val};
 
@@ -920,7 +923,52 @@ fn deserialize_clarity_value(buffer: Vec<u8>, ty: &TypeSignature) -> Result<Valu
             }
         }
         TypeSignature::PrincipalType => {
-            todo!()
+            let type_indicator = buffer[0];
+
+            debug_assert!(
+                [1, 2].contains(&type_indicator),
+                "Expected principal type indicator to be 1 (standard) or 2 (contract), got {type_indicator}"
+            );
+
+            // Extract the standard principal data from the buffer.
+            let standard_principal_data: [u8; 20] = buffer[2..22]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            let standard_principal = StandardPrincipalData(
+                buffer[1],               // Version
+                standard_principal_data, // Data
+            );
+
+            // If this is a standard principal, then we are done and can return.
+            if type_indicator == 1 {
+                return Ok(Value::Principal(PrincipalData::Standard(
+                    standard_principal,
+                )));
+            }
+
+            // Parse out the contract name length
+            let name_len_bytes: [u8; 2] = buffer[23..24]
+                .try_into()
+                .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let name_len = u16::from_le_bytes(name_len_bytes) as usize;
+
+            let mut name: &[u8] = &[];
+            if name_len > 0 {
+                name = &buffer[25..25 + name_len];
+            }
+
+            // Convert the name to a string
+            let name_str =
+                std::str::from_utf8(name).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?;
+
+            // Return the contract principal
+            Ok(Value::Principal(PrincipalData::Contract(
+                QualifiedContractIdentifier {
+                    issuer: standard_principal,
+                    name: name_str.into(),
+                },
+            )))
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => {
             todo!("type not yet implemented: {:?}", ty)
@@ -996,6 +1044,7 @@ fn serialize_clarity_value(value: &Value) -> Result<Vec<u8>, Error> {
                     result.insert(0, 1);
                     // Write the version
                     result.insert(1, std.0);
+                    // Write the principal data
                     result.extend_from_slice(&std.1);
                 }
                 PrincipalData::Contract(ctr) => {
