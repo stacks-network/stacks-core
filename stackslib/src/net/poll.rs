@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -343,9 +343,11 @@ impl NetworkState {
             })?;
 
         if cfg!(test) {
-            // edge-trigger torture test
-            stream.set_send_buffer_size(32).unwrap();
-            stream.set_recv_buffer_size(32).unwrap();
+            if std::env::var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST") != Ok("1".to_string()) {
+                // edge-trigger torture test
+                stream.set_send_buffer_size(32).unwrap();
+                stream.set_recv_buffer_size(32).unwrap();
+            }
         }
 
         test_debug!("New socket connected to {:?}: {:?}", addr, &stream);

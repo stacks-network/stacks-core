@@ -524,92 +524,6 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-/// Interface for streaming data
-pub trait Streamer {
-    fn offset(&self) -> u64;
-    fn add_bytes(&mut self, nw: u64);
-}
-
-/// Opaque structure for streaming block, microblock, and header data from disk
-#[derive(Debug, PartialEq, Clone)]
-pub enum StreamCursor {
-    Block(BlockStreamData),
-    Microblocks(MicroblockStreamData),
-    Headers(HeaderStreamData),
-    MempoolTxs(TxStreamData),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct BlockStreamData {
-    /// index block hash of the block to download
-    index_block_hash: StacksBlockId,
-    /// offset into whatever is being read (the blob, or the file in the chunk store)
-    offset: u64,
-    /// total number of bytes read.
-    total_bytes: u64,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct MicroblockStreamData {
-    /// index block hash of the block to download
-    index_block_hash: StacksBlockId,
-    /// microblock blob row id
-    rowid: Option<i64>,
-    /// offset into whatever is being read (the blob, or the file in the chunk store)
-    offset: u64,
-    /// total number of bytes read.
-    total_bytes: u64,
-
-    /// length prefix
-    num_items_buf: [u8; 4],
-    num_items_ptr: usize,
-
-    /// microblock pointer
-    microblock_hash: BlockHeaderHash,
-    parent_index_block_hash: StacksBlockId,
-
-    /// unconfirmed state
-    seq: u16,
-    unconfirmed: bool,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct HeaderStreamData {
-    /// index block hash of the block to download
-    index_block_hash: StacksBlockId,
-    /// offset into whatever is being read (the blob, or the file in the chunk store)
-    offset: u64,
-    /// total number of bytes read.
-    total_bytes: u64,
-    /// number of headers requested
-    num_headers: u32,
-
-    /// header buffer data
-    header_bytes: Option<Vec<u8>>,
-    end_of_stream: bool,
-    corked: bool,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct TxStreamData {
-    /// Mempool sync data requested
-    pub tx_query: MemPoolSyncData,
-    /// last txid loaded
-    pub last_randomized_txid: Txid,
-    /// serialized transaction buffer that's being sent
-    pub tx_buf: Vec<u8>,
-    pub tx_buf_ptr: usize,
-    /// number of transactions visited in the DB so far
-    pub num_txs: u64,
-    /// maximum we can visit in the query
-    pub max_txs: u64,
-    /// height of the chain at time of query
-    pub height: u64,
-    /// Are we done sending transactions, and are now in the process of sending the trailing page
-    /// ID?
-    pub corked: bool,
-}
-
 pub const CHAINSTATE_VERSION: &'static str = "3";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
@@ -1825,6 +1739,24 @@ impl StacksChainState {
             ASTRules::PrecheckSize,
         );
         result.unwrap()
+    }
+
+    /// Checked eval-read-only
+    pub fn eval_read_only(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_id_bhh: &StacksBlockId,
+        contract: &QualifiedContractIdentifier,
+        code: &str,
+    ) -> Result<Value, clarity_error> {
+        self.clarity_state.eval_read_only(
+            parent_id_bhh,
+            &HeadersDBConn(self.state_index.sqlite_conn()),
+            burn_dbconn,
+            contract,
+            code,
+            ASTRules::PrecheckSize,
+        )
     }
 
     pub fn db(&self) -> &DBConn {

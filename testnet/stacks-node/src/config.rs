@@ -718,6 +718,14 @@ impl Config {
                     support_block_proposals: node
                         .support_block_proposals
                         .unwrap_or(default_node_config.support_block_proposals),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .unwrap_or(vec![])
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1252,6 +1260,12 @@ impl Config {
         path.to_str().expect("Unable to produce path").to_string()
     }
 
+    pub fn get_stacker_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("stacker_db.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
+    }
+
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
             address: PrincipalData::parse_standard_principal(&address)
@@ -1527,6 +1541,8 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// Should this node support the block proposal endpoint?
     pub support_block_proposals: bool,
+    /// stacker DBs we replicate
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -1806,6 +1822,7 @@ impl NodeConfig {
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             support_block_proposals: false,
+            stacker_dbs: vec![],
         }
     }
 
@@ -2014,6 +2031,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Should this node support the block proposal endpoint?
     pub support_block_proposals: Option<bool>,
+    /// Stacker DBs we replicate
+    pub stacker_dbs: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -2092,6 +2111,7 @@ pub enum EventKeyType {
     BurnchainBlocks,
     MinedBlocks,
     MinedMicroblocks,
+    StackerDBChunks,
 }
 
 impl EventKeyType {
@@ -2114,6 +2134,10 @@ impl EventKeyType {
 
         if raw_key == "microblocks" {
             return Some(EventKeyType::Microblocks);
+        }
+
+        if raw_key == "stackerdb" {
+            return Some(EventKeyType::StackerDBChunks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

@@ -197,7 +197,9 @@ pub mod test_observer {
     use warp;
     use warp::Filter;
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, PATH_ASYNC_RPC_RESPONSE};
+    use crate::event_dispatcher::{
+        MinedBlockEvent, MinedMicroblockEvent, StackerDBChunksEvent, PATH_ASYNC_RPC_RESPONSE,
+    };
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -206,6 +208,8 @@ pub mod test_observer {
         pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
+            Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
         pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
@@ -241,6 +245,18 @@ pub mod test_observer {
         eprintln!("handling async response!");
         let mut async_responses = ASYNC_RESPONSES.lock().unwrap();
         async_responses.push(response);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_stackerdb_chunks(
+        chunks: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        debug!(
+            "Got stackerdb chunks: {}",
+            serde_json::to_string(&chunks).unwrap()
+        );
+        let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
+        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -368,6 +384,10 @@ pub mod test_observer {
         ASYNC_RESPONSES.lock().unwrap().clone()
     }
 
+    pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
+        NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -406,6 +426,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_async_response);
+        let new_stackerdb_chunks = warp::path!("stackerdb_chunks")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_stackerdb_chunks);
 
         info!("Spawning warp server");
         warp::serve(
@@ -417,7 +441,8 @@ pub mod test_observer {
                 .or(new_microblocks)
                 .or(mined_blocks)
                 .or(mined_microblocks)
-                .or(async_rpc_response),
+                .or(async_rpc_response)
+                .or(new_stackerdb_chunks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -432,13 +457,16 @@ pub mod test_observer {
     }
 
     pub fn clear() {
-        ATTACHMENTS.lock().unwrap().clear();
-        BURN_BLOCKS.lock().unwrap().clear();
         NEW_BLOCKS.lock().unwrap().clear();
+        MINED_BLOCKS.lock().unwrap().clear();
+        MINED_MICROBLOCKS.lock().unwrap().clear();
+        NEW_MICROBLOCKS.lock().unwrap().clear();
+        NEW_STACKERDB_CHUNKS.lock().unwrap().clear();
+        BURN_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
-        MINED_BLOCKS.lock().unwrap().clear();
         ASYNC_RESPONSES.lock().unwrap().clear();
+        ATTACHMENTS.lock().unwrap().clear();
     }
 }
 

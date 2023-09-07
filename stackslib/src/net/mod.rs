@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -105,6 +105,10 @@ pub use self::http::StacksHttp;
 
 use crate::core::StacksEpoch;
 
+use libstackerdb::{
+    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
+};
+
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
 /// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
@@ -141,11 +145,18 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+pub mod stream;
+
+use crate::net::stackerdb::StackerDBConfig;
+use crate::net::stackerdb::StackerDBSync;
+use crate::net::stackerdb::StackerDBSyncResult;
+use crate::net::stackerdb::StackerDBs;
+
+pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
+pub use crate::net::stream::StreamCursor;
 
 #[cfg(test)]
 pub mod tests;
-
-use crate::net::stackerdb::StackerDBSyncResult;
 
 #[derive(Debug)]
 pub enum Error {
@@ -257,8 +268,41 @@ pub enum Error {
     ExpectedEndOfStream,
     /// burnchain error
     BurnchainError(burnchain_error),
+    /// chunk is stale
+    StaleChunk {
+        supplied_version: u32,
+        latest_version: u32,
+    },
+    /// no such slot
+    NoSuchSlot(QualifiedContractIdentifier, u32),
+    /// no such DB
+    NoSuchStackerDB(QualifiedContractIdentifier),
+    /// stacker DB exists
+    StackerDBExists(QualifiedContractIdentifier),
+    /// slot signer is wrong
+    BadSlotSigner(StacksAddress, u32),
+    /// too many writes to a slot
+    TooManySlotWrites {
+        supplied_version: u32,
+        max_writes: u32,
+    },
+    /// too frequent writes to a slot
+    TooFrequentSlotWrites(u64),
+    /// Invalid control smart contract for a Stacker DB
+    InvalidStackerDBContract(QualifiedContractIdentifier, String),
     /// state machine step took too long
     StepTimeout,
+    /// stacker DB chunk is too big
+    StackerDBChunkTooBig(usize),
+}
+
+impl From<libstackerdb_error> for Error {
+    fn from(e: libstackerdb_error) -> Self {
+        match e {
+            libstackerdb_error::SigningError(s) => Error::SigningError(s),
+            libstackerdb_error::VerifyingError(s) => Error::VerifyingError(s),
+        }
+    }
 }
 
 impl From<codec_error> for Error {
@@ -360,7 +404,52 @@ impl fmt::Display for Error {
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
+            Error::StaleChunk {
+                supplied_version,
+                latest_version,
+            } => {
+                write!(
+                    f,
+                    "Stale DB chunk (supplied={},latest={})",
+                    supplied_version, latest_version
+                )
+            }
+            Error::NoSuchSlot(ref addr, ref slot_id) => {
+                write!(f, "No such DB slot ({},{})", addr, slot_id)
+            }
+            Error::NoSuchStackerDB(ref addr) => {
+                write!(f, "No such StackerDB {}", addr)
+            }
+            Error::StackerDBExists(ref addr) => {
+                write!(f, "StackerDB already exists: {}", addr)
+            }
+            Error::BadSlotSigner(ref addr, ref slot_id) => {
+                write!(f, "Bad DB slot signer ({},{})", addr, slot_id)
+            }
+            Error::TooManySlotWrites {
+                supplied_version,
+                max_writes,
+            } => {
+                write!(
+                    f,
+                    "Too many slot writes (max={},given={})",
+                    max_writes, supplied_version
+                )
+            }
+            Error::TooFrequentSlotWrites(ref deadline) => {
+                write!(f, "Too frequent slot writes (deadline={})", deadline)
+            }
+            Error::InvalidStackerDBContract(ref contract_id, ref reason) => {
+                write!(
+                    f,
+                    "Invalid StackerDB control smart contract {}: {}",
+                    contract_id, reason
+                )
+            }
             Error::StepTimeout => write!(f, "State-machine step took too long"),
+            Error::StackerDBChunkTooBig(ref sz) => {
+                write!(f, "StackerDB chunk size is too big ({})", sz)
+            }
         }
     }
 }
@@ -422,7 +511,16 @@ impl error::Error for Error {
             Error::Transient(ref _s) => None,
             Error::ExpectedEndOfStream => None,
             Error::BurnchainError(ref e) => Some(e),
+            Error::StaleChunk { .. } => None,
+            Error::NoSuchSlot(..) => None,
+            Error::NoSuchStackerDB(..) => None,
+            Error::StackerDBExists(..) => None,
+            Error::BadSlotSigner(..) => None,
+            Error::TooManySlotWrites { .. } => None,
+            Error::TooFrequentSlotWrites(..) => None,
+            Error::InvalidStackerDBContract(..) => None,
             Error::StepTimeout => None,
+            Error::StackerDBChunkTooBig(..) => None,
         }
     }
 }
@@ -468,6 +566,12 @@ impl From<rusqlite::Error> for Error {
 impl From<burnchain_error> for Error {
     fn from(e: burnchain_error) -> Self {
         Error::BurnchainError(e)
+    }
+}
+
+impl From<clarity_error> for Error {
+    fn from(e: clarity_error) -> Self {
+        Error::ClarityError(e)
     }
 }
 
@@ -890,6 +994,8 @@ pub mod NackErrorCodes {
     pub const Throttled: u32 = 3;
     pub const InvalidPoxFork: u32 = 4;
     pub const InvalidMessage: u32 = 5;
+    pub const NoSuchDB: u32 = 6;
+    pub const StaleVersion: u32 = 7;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -920,41 +1026,6 @@ pub enum MemPoolSyncData {
     TxTags([u8; 32], Vec<TxTag>),
 }
 
-/// Make QualifiedContractIdentifier usable to the networking code
-pub trait QualifiedContractIdentifierExtension {
-    fn new(addr: StacksAddress, name: ContractName) -> Self;
-    fn address(&self) -> StacksAddress;
-    fn name(&self) -> ContractName;
-    fn parse(txt: &str) -> Option<Self>
-    where
-        Self: Sized;
-}
-
-impl QualifiedContractIdentifierExtension for QualifiedContractIdentifier {
-    fn new(addr: StacksAddress, name: ContractName) -> QualifiedContractIdentifier {
-        let id_addr = StandardPrincipalData(addr.version, addr.bytes.0);
-        QualifiedContractIdentifier::new(id_addr, name)
-    }
-
-    fn address(&self) -> StacksAddress {
-        StacksAddress {
-            version: self.issuer.0,
-            bytes: Hash160(self.issuer.1.clone()),
-        }
-    }
-
-    fn name(&self) -> ContractName {
-        self.name.clone()
-    }
-
-    fn parse(txt: &str) -> Option<QualifiedContractIdentifier> {
-        QualifiedContractIdentifier::parse(txt).ok()
-    }
-}
-
-/// short-hand type alias
-pub type ContractId = QualifiedContractIdentifier;
-
 /// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBHandshakeData {
@@ -962,14 +1033,14 @@ pub struct StackerDBHandshakeData {
     pub rc_consensus_hash: ConsensusHash,
     /// list of smart contracts that we index.
     /// there can be as many as 256 entries.
-    pub smart_contracts: Vec<ContractId>,
+    pub smart_contracts: Vec<QualifiedContractIdentifier>,
 }
 
 /// Request for a chunk inventory
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBGetChunkInvData {
     /// smart contract being used to determine chunk quantity and order
-    pub contract_id: ContractId,
+    pub contract_id: QualifiedContractIdentifier,
     /// consensus hash of the sortition that started this reward cycle
     pub rc_consensus_hash: ConsensusHash,
 }
@@ -979,33 +1050,33 @@ pub struct StackerDBGetChunkInvData {
 pub struct StackerDBChunkInvData {
     /// version vector of chunks available.
     /// The max-length is a protocol constant.
-    pub chunk_versions: Vec<u32>,
+    pub slot_versions: Vec<u32>,
+    /// number of outbound replicas the sender is connected to
+    pub num_outbound_replicas: u32,
 }
 
 /// Request for a stacker DB chunk.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBGetChunkData {
-    /// smart contract being used to determine chunk quantity and order
-    pub contract_id: ContractId,
+    /// smart contract being used to determine slot quantity and order
+    pub contract_id: QualifiedContractIdentifier,
     /// consensus hash of the sortition that started this reward cycle
     pub rc_consensus_hash: ConsensusHash,
-    /// chunk ID (i.e. the ith bit)
-    pub chunk_id: u32,
-    /// last-seen chunk version
-    pub chunk_version: u32,
+    /// slot ID
+    pub slot_id: u32,
+    /// last-seen slot version
+    pub slot_version: u32,
 }
 
-/// Stacker DB chunk reply to a StackerDBGetChunkData
+/// Stacker DB chunk push
 #[derive(Debug, Clone, PartialEq)]
-pub struct StackerDBChunkData {
-    /// chunk ID (i.e. the ith bit)
-    pub chunk_id: u32,
-    /// chunk version (a lamport clock)
-    pub chunk_version: u32,
-    /// signature from the stacker over (reward cycle consensus hash, chunk id, chunk version, chunk sha512/256)
-    pub sig: MessageSignature,
-    /// the chunk data
-    pub data: Vec<u8>,
+pub struct StackerDBPushChunkData {
+    /// smart contract being used to determine chunk quantity and order
+    pub contract_id: QualifiedContractIdentifier,
+    /// consensus hash of the sortition that started this reward cycle
+    pub rc_consensus_hash: ConsensusHash,
+    /// the pushed chunk
+    pub chunk_data: StackerDBChunkData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1042,6 +1113,7 @@ pub enum StacksMessageType {
     StackerDBChunkInv(StackerDBChunkInvData),
     StackerDBGetChunk(StackerDBGetChunkData),
     StackerDBChunk(StackerDBChunkData),
+    StackerDBPushChunk(StackerDBPushChunkData),
 }
 
 /// Peer address variants
@@ -1196,6 +1268,9 @@ pub struct RPCPeerInfoData {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stackerdbs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1547,10 +1622,17 @@ pub struct RPCNeighbor {
     pub port: u16,
     pub public_key_hash: Hash160,
     pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stackerdbs: Option<Vec<QualifiedContractIdentifier>>,
 }
 
 impl RPCNeighbor {
-    pub fn from_neighbor_key_and_pubkh(nk: NeighborKey, pkh: Hash160, auth: bool) -> RPCNeighbor {
+    pub fn from_neighbor_key_and_pubkh(
+        nk: NeighborKey,
+        pkh: Hash160,
+        auth: bool,
+        stackerdbs: Vec<QualifiedContractIdentifier>,
+    ) -> RPCNeighbor {
         RPCNeighbor {
             network_id: nk.network_id,
             peer_version: nk.peer_version,
@@ -1558,6 +1640,7 @@ impl RPCNeighbor {
             port: nk.port,
             public_key_hash: pkh,
             authenticated: auth,
+            stackerdbs: Some(stackerdbs),
         }
     }
 }
@@ -1649,7 +1732,21 @@ pub enum HttpRequestType {
         TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
+    /// For miner to validate block
     BlockProposal(HttpRequestMetadata, BlockProposal),
+    /// StackerDB HTTP queries
+    GetStackerDBMetadata(HttpRequestMetadata, QualifiedContractIdentifier),
+    GetStackerDBChunk(
+        HttpRequestMetadata,
+        QualifiedContractIdentifier,
+        u32,
+        Option<u32>,
+    ),
+    PostStackerDBChunk(
+        HttpRequestMetadata,
+        QualifiedContractIdentifier,
+        StackerDBChunkData,
+    ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1775,6 +1872,9 @@ pub enum HttpResponseType {
     MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
+    StackerDBMetadata(HttpResponseMetadata, Vec<SlotMetadata>),
+    StackerDBChunk(HttpResponseMetadata, Vec<u8>),
+    StackerDBChunkAck(HttpResponseMetadata, StackerDBChunkAckData),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -1828,6 +1928,7 @@ pub enum StacksMessageID {
     StackerDBChunkInv = 22,
     StackerDBGetChunk = 23,
     StackerDBChunk = 24,
+    StackerDBPushChunk = 25,
     // reserved
     Reserved = 255,
 }
@@ -2102,6 +2203,7 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>, // chunks we received from the HTTP server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
     pub stacker_db_sync_results: Vec<StackerDBSyncResult>, // chunks for stacker DBs we downloaded
@@ -2109,6 +2211,8 @@ pub struct NetworkResult {
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
     pub burn_height: u64,
+    pub rc_consensus_hash: ConsensusHash,
+    pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
 }
 
 impl NetworkResult {
@@ -2117,6 +2221,8 @@ impl NetworkResult {
         num_inv_sync_passes: u64,
         num_download_passes: u64,
         burn_height: u64,
+        rc_consensus_hash: ConsensusHash,
+        stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
@@ -2129,6 +2235,7 @@ impl NetworkResult {
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
+            uploaded_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
@@ -2136,6 +2243,8 @@ impl NetworkResult {
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
             burn_height,
+            rc_consensus_hash,
+            stacker_db_configs,
         }
     }
 
@@ -2159,6 +2268,14 @@ impl NetworkResult {
         self.attachments.len() > 0
     }
 
+    pub fn has_stackerdb_chunks(&self) -> bool {
+        self.stacker_db_sync_results
+            .iter()
+            .fold(0, |acc, x| acc + x.chunks_to_store.len())
+            > 0
+            || self.uploaded_stackerdb_chunks.len() > 0
+    }
+
     pub fn transactions(&self) -> Vec<StacksTransaction> {
         self.pushed_transactions
             .values()
@@ -2173,6 +2290,7 @@ impl NetworkResult {
             || self.has_microblocks()
             || self.has_transactions()
             || self.has_attachments()
+            || self.has_stackerdb_chunks()
     }
 
     pub fn consume_unsolicited(
@@ -2233,6 +2351,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
+                }
+                StacksMessageType::StackerDBPushChunk(chunk_data) => {
+                    self.uploaded_stackerdb_chunks.push(chunk_data);
                 }
                 _ => {
                     // drop
@@ -2627,7 +2748,10 @@ pub mod test {
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
         /// Which stacker DBs will this peer replicate?
-        pub stacker_dbs: Vec<ContractId>,
+        pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+        /// Stacker DB configurations for each stacker_dbs entry above, if different from
+        /// StackerDBConfig::noop()
+        pub stacker_db_configs: Vec<Option<StackerDBConfig>>,
         /// What services should this peer support?
         pub services: u16,
     }
@@ -2686,6 +2810,7 @@ pub mod test {
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
+                stacker_db_configs: vec![],
                 stacker_dbs: vec![],
                 services: (ServiceFlags::RELAY as u16)
                     | (ServiceFlags::RPC as u16)
@@ -2752,6 +2877,31 @@ pub mod test {
                 self.http_port,
             )
         }
+
+        pub fn get_stacker_db_configs(
+            &self,
+        ) -> HashMap<QualifiedContractIdentifier, StackerDBConfig> {
+            let mut ret = HashMap::new();
+            for (contract_id, config_opt) in
+                self.stacker_dbs.iter().zip(self.stacker_db_configs.iter())
+            {
+                if let Some(config) = config_opt {
+                    ret.insert(contract_id.clone(), config.clone());
+                } else {
+                    ret.insert(contract_id.clone(), StackerDBConfig::noop());
+                }
+            }
+            ret
+        }
+
+        pub fn add_stacker_db(
+            &mut self,
+            contract_id: QualifiedContractIdentifier,
+            config: StackerDBConfig,
+        ) {
+            self.stacker_dbs.push(contract_id);
+            self.stacker_db_configs.push(Some(config));
+        }
     }
 
     pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
@@ -2815,6 +2965,53 @@ pub mod test {
 
             fs::create_dir_all(&test_path).unwrap();
             test_path
+        }
+
+        fn init_stacker_dbs(
+            root_path: &str,
+            peerdb: &PeerDB,
+            stacker_dbs: &[QualifiedContractIdentifier],
+            stacker_db_configs: &[Option<StackerDBConfig>],
+        ) -> HashMap<QualifiedContractIdentifier, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>
+        {
+            let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
+            let mut stacker_db_syncs = HashMap::new();
+            let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
+            for (i, contract_id) in stacker_dbs.iter().enumerate() {
+                let mut db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
+                    if let Some(db_config) = config_opt.as_ref() {
+                        db_config.clone()
+                    } else {
+                        StackerDBConfig::noop()
+                    }
+                } else {
+                    StackerDBConfig::noop()
+                };
+
+                let initial_peers = PeerDB::find_stacker_db_replicas(
+                    peerdb.conn(),
+                    local_peer.network_id,
+                    &contract_id,
+                    10000000,
+                )
+                .unwrap()
+                .into_iter()
+                .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
+                .collect();
+
+                db_config.hint_replicas = initial_peers;
+                let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+                let stacker_db_sync = StackerDBSync::new(
+                    contract_id.clone(),
+                    &db_config,
+                    PeerNetworkComms::new(),
+                    stacker_dbs,
+                )
+                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+
+                stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
+            }
+            stacker_db_syncs
         }
 
         pub fn new_with_observer(
@@ -3034,19 +3231,32 @@ pub mod test {
                 SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
+            let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
+            let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+            let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+            let stacker_dbs = Self::init_stacker_dbs(
+                &test_path,
+                &peerdb,
+                &config.stacker_dbs,
+                &config.stacker_db_configs,
+            );
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
+                p2p_stacker_dbs,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                stacker_dbs,
                 epochs.clone(),
             );
+            peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
-            let relayer = Relayer::from_p2p(&mut peer_network);
+            let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_dbs);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 

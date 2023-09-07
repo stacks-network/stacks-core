@@ -1,64 +1,54 @@
-/*
- copyright: (c) 2013-2020 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::fmt;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::mem;
 use std::net::SocketAddr;
-use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
+use std::{fmt, io, mem, str};
 
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::representations::MAX_STRING_LEN;
-use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
-use clarity::vm::{
-    representations::{
-        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-    },
-    types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
-    ClarityName, ContractName, Value,
+use clarity::vm::representations::{
+    CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN, PRINCIPAL_DATA_REGEX_STRING,
+    STANDARD_PRINCIPAL_REGEX_STRING,
 };
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+    BOUND_VALUE_SERIALIZATION_HEX,
+};
+use clarity::vm::{ClarityName, ContractName, Value};
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
-use serde_json;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::log;
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::retry::RetryReader;
-use time;
+use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::{form_urlencoded, Url};
+use {serde_json, time};
 
 use super::FeeRateEstimateRequestBody;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::{
-    StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    TransactionPayload,
 };
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
@@ -66,35 +56,17 @@ use crate::codec::{
 };
 use crate::deps::httparse;
 use crate::net::atlas::Attachment;
-use crate::net::ClientError;
-use crate::net::Error as net_error;
 use crate::net::Error::ClarityError;
-use crate::net::ExtendedStacksHeader;
-use crate::net::HttpContentType;
-use crate::net::HttpRequestMetadata;
-use crate::net::HttpRequestPreamble;
-use crate::net::HttpRequestType;
-use crate::net::HttpResponseMetadata;
-use crate::net::HttpResponsePreamble;
-use crate::net::HttpResponseType;
-use crate::net::HttpVersion;
-use crate::net::MemPoolSyncData;
-use crate::net::MessageSequence;
-use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
-use crate::net::PeerHost;
-use crate::net::ProtocolFamily;
-use crate::net::StacksHttpMessage;
-use crate::net::StacksHttpPreamble;
-use crate::net::UnconfirmedTransactionResponse;
-use crate::net::UnconfirmedTransactionStatus;
-use crate::net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use crate::net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-use crate::net::HTTP_REQUEST_ID_RESERVED;
-use crate::net::MAX_HEADERS;
-use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
-use crate::net::{CallReadOnlyRequestBody, TipRequest};
-use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use crate::net::{
+    CallReadOnlyRequestBody, ClientError, Error as net_error, ExtendedStacksHeader,
+    GetAttachmentResponse, GetAttachmentsInvResponse, HttpContentType, HttpRequestMetadata,
+    HttpRequestPreamble, HttpRequestType, HttpResponseMetadata, HttpResponsePreamble,
+    HttpResponseType, HttpVersion, MemPoolSyncData, MessageSequence, NeighborAddress, PeerAddress,
+    PeerHost, PostTransactionRequestBody, ProtocolFamily, StackerDBChunkData, StacksHttpMessage,
+    StacksHttpPreamble, TipRequest, UnconfirmedTransactionResponse, UnconfirmedTransactionStatus,
+    HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS, HTTP_REQUEST_ID_RESERVED,
+    MAX_HEADERS, MAX_MICROBLOCKS_UNCONFIRMED,
+};
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 const MAX_BLOCK_PROPOSAL_LENGTH: u32 = 1024 * 1024 * 15;
@@ -164,6 +136,26 @@ lazy_static! {
         Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POST_MEMPOOL_QUERY: Regex =
         Regex::new(r#"^/v2/mempool/query$"#).unwrap();
+    static ref PATH_GET_STACKERDB_METADATA: Regex =
+        Regex::new(&format!(
+            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})$"#,
+            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+        )).unwrap();
+    static ref PATH_GET_STACKERDB_CHUNK: Regex =
+        Regex::new(&format!(
+            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)$"#,
+            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+        )).unwrap();
+    static ref PATH_GET_STACKERDB_VERSIONED_CHUNK: Regex =
+        Regex::new(&format!(
+            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)/(?P<slot_version>[0-9]+)$"#,
+            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+        )).unwrap();
+    static ref PATH_POST_STACKERDB_CHUNK: Regex =
+        Regex::new(&format!(
+            r#"/v2/stackerdb/(?P<address>{})/(?P<contract>{})/chunks$"#,
+            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+        )).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
     static ref PATH_POST_BLOCK_PROPOSAL: Regex = Regex::new(&format!("^{PATH_STR_POST_BLOCK_PROPOSAL}$")).unwrap();
 }
@@ -1624,6 +1616,26 @@ impl HttpRequestType {
                 &PATH_POST_BLOCK_PROPOSAL,
                 &HttpRequestType::parse_post_block_proposal,
             ),
+            (
+                "GET",
+                &PATH_GET_STACKERDB_METADATA,
+                &HttpRequestType::parse_get_stackerdb_metadata,
+            ),
+            (
+                "GET",
+                &PATH_GET_STACKERDB_CHUNK,
+                &HttpRequestType::parse_get_stackerdb_chunk,
+            ),
+            (
+                "GET",
+                &PATH_GET_STACKERDB_VERSIONED_CHUNK,
+                &HttpRequestType::parse_get_stackerdb_versioned_chunk,
+            ),
+            (
+                "POST",
+                &PATH_POST_STACKERDB_CHUNK,
+                &HttpRequestType::parse_post_stackerdb_chunk,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -2437,7 +2449,8 @@ impl HttpRequestType {
         preamble: &HttpRequestPreamble,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
-        let body: PostTransactionRequestBody = serde_json::from_reader(fd)
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let body: PostTransactionRequestBody = serde_json::from_reader(&mut bound_fd)
             .map_err(|_e| net_error::DeserializeError("Failed to parse body".into()))?;
 
         let tx = {
@@ -2722,6 +2735,155 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_get_stackerdb_metadata<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
+            |(preamble, addr, name)| {
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
+                HttpRequestType::GetStackerDBMetadata(preamble, contract_id)
+            },
+        )
+    }
+
+    fn parse_get_stackerdb_chunk<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        let slot_id: u32 = regex
+            .name("slot_id")
+            .ok_or(net_error::DeserializeError(
+                "Failed to match slot ID".to_string(),
+            ))?
+            .as_str()
+            .parse()
+            .map_err(|_| net_error::DeserializeError("Failed to decode slot ID".to_string()))?;
+
+        HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
+            |(preamble, addr, name)| {
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
+                HttpRequestType::GetStackerDBChunk(preamble, contract_id, slot_id, None)
+            },
+        )
+    }
+
+    fn parse_get_stackerdb_versioned_chunk<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body".to_string(),
+            ));
+        }
+
+        let slot_id: u32 = regex
+            .name("slot_id")
+            .ok_or(net_error::DeserializeError(
+                "Failed to match slot ID".to_string(),
+            ))?
+            .as_str()
+            .parse()
+            .map_err(|_| net_error::DeserializeError("Failed to decode slot ID".to_string()))?;
+
+        let version: u32 = regex
+            .name("slot_version")
+            .ok_or(net_error::DeserializeError(
+                "Failed to match slot version".to_string(),
+            ))?
+            .as_str()
+            .parse()
+            .map_err(|_| {
+                net_error::DeserializeError("Failed to decode slot version".to_string())
+            })?;
+
+        HttpRequestType::parse_get_contract_arguments(preamble, regex).map(
+            |(preamble, addr, name)| {
+                let contract_id = QualifiedContractIdentifier::new(addr.into(), name);
+                HttpRequestType::GetStackerDBChunk(preamble, contract_id, slot_id, Some(version))
+            },
+        )
+    }
+
+    fn parse_post_stackerdb_chunk<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-zero-length body for PostStackerDBChunk"
+                    .to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: PostStackerDBChunk body is too big".to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/json
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for stackerdb chunk".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::JSON {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for stackerdb; expected application/json".to_string(),
+                    ));
+                }
+            }
+        };
+
+        let contract_addr = StacksAddress::from_string(&regex["address"]).ok_or_else(|| {
+            net_error::DeserializeError("Failed to parse contract address".into())
+        })?;
+        let contract_name = ContractName::try_from(regex["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        let contract_id = QualifiedContractIdentifier::new(contract_addr.into(), contract_name);
+
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let chunk_data: StackerDBChunkData =
+            serde_json::from_reader(&mut bound_fd).map_err(|_e| {
+                net_error::DeserializeError("Failed to parse StackerDB chunk body".into())
+            })?;
+
+        Ok(HttpRequestType::PostStackerDBChunk(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_id,
+            chunk_data,
+        ))
+    }
+
     fn parse_options_preflight<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2810,6 +2972,9 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::BlockProposal(ref md, ..) => md,
+            HttpRequestType::GetStackerDBMetadata(ref md, ..) => md,
+            HttpRequestType::GetStackerDBChunk(ref md, ..) => md,
+            HttpRequestType::PostStackerDBChunk(ref md, ..) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2843,6 +3008,9 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::BlockProposal(ref mut md, ..) => md,
+            HttpRequestType::GetStackerDBMetadata(ref mut md, ..) => md,
+            HttpRequestType::GetStackerDBChunk(ref mut md, ..) => md,
+            HttpRequestType::PostStackerDBChunk(ref mut md, ..) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -3025,6 +3193,36 @@ impl HttpRequestType {
                 }
                 None => "/v2/mempool/query".to_string(),
             },
+            HttpRequestType::GetStackerDBMetadata(_, contract_id) => format!(
+                "/v2/stackerdb/{}/{}",
+                StacksAddress::from(contract_id.issuer.clone()),
+                &contract_id.name
+            ),
+            HttpRequestType::GetStackerDBChunk(_, contract_id, slot_id, slot_version_opt) => {
+                if let Some(version) = slot_version_opt {
+                    format!(
+                        "/v2/stackerdb/{}/{}/{}/{}",
+                        StacksAddress::from(contract_id.issuer.clone()),
+                        &contract_id.name,
+                        slot_id,
+                        version
+                    )
+                } else {
+                    format!(
+                        "/v2/stackerdb/{}/{}/{}",
+                        StacksAddress::from(contract_id.issuer.clone()),
+                        &contract_id.name,
+                        slot_id
+                    )
+                }
+            }
+            HttpRequestType::PostStackerDBChunk(_, contract_id, ..) => {
+                format!(
+                    "/v2/stackerdb/{}/{}/chunks",
+                    StacksAddress::from(contract_id.issuer.clone()),
+                    &contract_id.name
+                )
+            }
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -3069,6 +3267,13 @@ impl HttpRequestType {
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
+            HttpRequestType::GetStackerDBMetadata(..) => "/v2/stackerdb/:principal/:contract_name",
+            HttpRequestType::GetStackerDBChunk(..) => {
+                "/v2/stackerdb/:principal/:contract_name/:slot_id(/:slot_version)?"
+            }
+            HttpRequestType::PostStackerDBChunk(..) => {
+                "/v2/stackerdb/:principal/:contract_name/chunks"
+            }
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
             HttpRequestType::BlockProposal(..) => PATH_STR_POST_BLOCK_PROPOSAL,
         }
@@ -3243,6 +3448,28 @@ impl HttpRequestType {
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
             }
+            HttpRequestType::PostStackerDBChunk(md, _, request) => {
+                let mut request_body_bytes = vec![];
+                serde_json::to_writer(&mut request_body_bytes, request).map_err(|e| {
+                    net_error::SerializeError(format!(
+                        "Failed to serialize StackerDB POST chunk to JSON: {:?}",
+                        &e
+                    ))
+                })?;
+                HttpRequestPreamble::new_serialized(
+                    fd,
+                    &md.version,
+                    "POST",
+                    &self.request_path(),
+                    &md.peer,
+                    md.keep_alive,
+                    Some(request_body_bytes.len() as u32),
+                    Some(&HttpContentType::JSON),
+                    |fd| stacks_height_headers(fd, md),
+                )?;
+                fd.write_all(&request_body_bytes)
+                    .map_err(net_error::WriteError)?;
+            }
             other_type => {
                 let md = other_type.metadata();
                 let request_path = other_type.request_path();
@@ -3330,6 +3557,7 @@ impl HttpResponseType {
         Ok(resp)
     }
 
+    /// Parse a SIP-003 bytestream.  The first 4 bytes are a big-endian length prefix
     fn parse_bytestream<R: Read, T: StacksMessageCodec>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
@@ -3423,17 +3651,18 @@ impl HttpResponseType {
         })
     }
 
-    fn parse_text<R: Read>(
+    fn parse_raw_bytes<R: Read>(
         preamble: &HttpResponsePreamble,
         fd: &mut R,
         len_hint: Option<usize>,
         max_len: u64,
+        expected_content_type: HttpContentType,
     ) -> Result<Vec<u8>, net_error> {
-        // content-type has to be text/plain
-        if preamble.content_type != HttpContentType::Text {
-            return Err(net_error::DeserializeError(
-                "Invalid content-type: expected text/plain".to_string(),
-            ));
+        if preamble.content_type != expected_content_type {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid content-type: expected {}",
+                expected_content_type
+            )));
         }
         let buf = if preamble.is_chunked() && len_hint.is_none() {
             let mut chunked_fd = HttpChunkedTransferReader::from_reader(fd, max_len);
@@ -3462,6 +3691,24 @@ impl HttpResponseType {
         };
 
         Ok(buf)
+    }
+
+    fn parse_text<R: Read>(
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+        max_len: u64,
+    ) -> Result<Vec<u8>, net_error> {
+        Self::parse_raw_bytes(preamble, fd, len_hint, max_len, HttpContentType::Text)
+    }
+
+    fn parse_bytes<R: Read>(
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+        max_len: u64,
+    ) -> Result<Vec<u8>, net_error> {
+        Self::parse_raw_bytes(preamble, fd, len_hint, max_len, HttpContentType::Bytes)
     }
 
     // len_hint is given by the StacksHttp protocol implementation
@@ -3552,6 +3799,22 @@ impl HttpResponseType {
             (
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpResponseType::parse_post_mempool_query,
+            ),
+            (
+                &PATH_GET_STACKERDB_METADATA,
+                &HttpResponseType::parse_get_stackerdb_metadata,
+            ),
+            (
+                &PATH_GET_STACKERDB_CHUNK,
+                &HttpResponseType::parse_get_stackerdb_chunk,
+            ),
+            (
+                &PATH_GET_STACKERDB_VERSIONED_CHUNK,
+                &HttpResponseType::parse_get_stackerdb_chunk,
+            ),
+            (
+                &PATH_POST_STACKERDB_CHUNK,
+                &HttpResponseType::parse_stackerdb_chunk_response,
             ),
         ];
 
@@ -4103,6 +4366,51 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_get_stackerdb_metadata<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let slot_metadata =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::StackerDBMetadata(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            slot_metadata,
+        ))
+    }
+
+    fn parse_get_stackerdb_chunk<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let chunk =
+            HttpResponseType::parse_bytes(preamble, fd, len_hint, STACKERDB_MAX_CHUNK_SIZE as u64)?;
+        Ok(HttpResponseType::StackerDBChunk(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            chunk,
+        ))
+    }
+
+    fn parse_stackerdb_chunk_response<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let slot_ack =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::StackerDBChunkAck(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            slot_ack,
+        ))
+    }
+
     fn error_reason(code: u16) -> &'static str {
         match code {
             400 => "Bad Request",
@@ -4169,6 +4477,9 @@ impl HttpResponseType {
             HttpResponseType::OptionsPreflight(md) => md,
             HttpResponseType::TransactionFeeEstimation(md, _) => md,
             HttpResponseType::BlockProposalOk { metadata, .. } => metadata,
+            HttpResponseType::StackerDBMetadata(md, ..) => md,
+            HttpResponseType::StackerDBChunk(md, ..) => md,
+            HttpResponseType::StackerDBChunkAck(md, ..) => md,
             // errors
             HttpResponseType::BadRequestJSON(md, _) => md,
             HttpResponseType::BadRequest(md, _) => md,
@@ -4471,6 +4782,42 @@ impl HttpResponseType {
                     None => HttpResponseType::send_bytestream(protocol, md, fd, txs),
                 }?;
             }
+            HttpResponseType::StackerDBMetadata(md, slot_metadata) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, slot_metadata)?;
+            }
+            HttpResponseType::StackerDBChunk(md, chunk, ..) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_text(protocol, md, fd, chunk)?;
+            }
+            HttpResponseType::StackerDBChunkAck(md, ack_data) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, ack_data)?;
+            }
             HttpResponseType::OptionsPreflight(md) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4611,6 +4958,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::MemPoolQuery(..) => "HTTP(MemPoolQuery)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
+                HttpRequestType::GetStackerDBMetadata(..) => "HTTP(GetStackerDBMetadata)",
+                HttpRequestType::GetStackerDBChunk(..) => "HTTP(GetStackerDBChunk)",
+                HttpRequestType::PostStackerDBChunk(..) => "HTTP(PostStackerDBChunk)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(..) => "HTTP(FeeRateEstimate)",
                 HttpRequestType::BlockProposal(..) => "HTTP(BlockProposal)",
@@ -4642,6 +4992,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::UnconfirmedTransaction(..) => "HTTP(UnconfirmedTransaction)",
                 HttpResponseType::MemPoolTxStream(..) => "HTTP(MemPoolTxStream)",
                 HttpResponseType::MemPoolTxs(..) => "HTTP(MemPoolTxs)",
+                HttpResponseType::StackerDBMetadata(..) => "HTTP(StackerDBMetadata)",
+                HttpResponseType::StackerDBChunk(..) => "HTTP(StackerDBChunk)",
+                HttpResponseType::StackerDBChunkAck(..) => "HTTP(StackerDBChunkAck)",
                 HttpResponseType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
@@ -5180,28 +5533,19 @@ mod test {
     use rand;
     use rand::RngCore;
     use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::to_hex;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::hash::MerkleTree;
-    use stacks_common::util::hash::Sha512Trunc256Sum;
+    use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 
     use super::*;
     use crate::burnchains::Txid;
     use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use crate::chainstate::stacks::test::make_codec_test_block;
-    use crate::chainstate::stacks::StacksBlock;
-    use crate::chainstate::stacks::StacksMicroblock;
-    use crate::chainstate::stacks::StacksPrivateKey;
-    use crate::chainstate::stacks::StacksTransaction;
-    use crate::chainstate::stacks::TokenTransferMemo;
-    use crate::chainstate::stacks::TransactionAuth;
-    use crate::chainstate::stacks::TransactionPayload;
-    use crate::chainstate::stacks::TransactionPostConditionMode;
-    use crate::chainstate::stacks::TransactionVersion;
+    use crate::chainstate::stacks::{
+        StacksBlock, StacksMicroblock, StacksPrivateKey, StacksTransaction, TokenTransferMemo,
+        TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+    };
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::test::*;
-    use crate::net::RPCNeighbor;
-    use crate::net::RPCNeighborsInfo;
+    use crate::net::{RPCNeighbor, RPCNeighborsInfo};
 
     /// Simulate reading variable-length segments
     struct SegmentReader {
@@ -6308,6 +6652,7 @@ mod test {
                     )
                     .unwrap(),
                     authenticated: true,
+                    stackerdbs: Some(vec![]),
                 },
                 RPCNeighbor {
                     network_id: 3,
@@ -6322,6 +6667,7 @@ mod test {
                     )
                     .unwrap(),
                     authenticated: false,
+                    stackerdbs: Some(vec![]),
                 },
             ],
             inbound: vec![],

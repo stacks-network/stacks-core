@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -410,6 +410,7 @@ pub struct ConnectionOptions {
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
     pub disable_inbound_handshakes: bool,
+    pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
 }
 
@@ -499,6 +500,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_walks: false,
             disable_natpunch: false,
             disable_inbound_handshakes: false,
+            disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
         }
     }
