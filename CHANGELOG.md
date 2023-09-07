@@ -16,6 +16,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
+- Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 
 ### Fixed
 
