@@ -23,7 +23,6 @@ use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::Value;
-use clar2wasm::wasm_generator::GeneratorError;
 #[cfg(feature = "sqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
@@ -118,7 +117,7 @@ pub enum ShortReturnType {
 /// execution, it indicates a bug in the Wasm compiler or runtime.
 #[derive(Debug)]
 pub enum WasmError {
-    WasmGeneratorError(GeneratorError),
+    WasmGeneratorError(String),
     ModuleNotFound,
     TopLevelNotFound,
     MemoryNotFound,

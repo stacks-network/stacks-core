@@ -1157,7 +1157,7 @@ impl StacksChainState {
 
                 // Compile the contract to Wasm
                 let mut module = compile_contract(&mut contract_analysis)
-                    .map_err(|e| Error::Wasm(WasmError::WasmGeneratorError(e)))?;
+                    .map_err(|e| Error::Wasm(WasmError::WasmGeneratorError(e.message())))?;
                 contract_ast.wasm_module = Some(module.emit_wasm());
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
