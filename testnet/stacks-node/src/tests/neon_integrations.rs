@@ -10827,7 +10827,7 @@ fn block_proposal_endpoint() {
                 block: StacksBlock::genesis_block(),
                 ..proposal.clone()
             },
-            false,
+            Some(ValidateRejectCode::UnknownParent),
         ),
         (
             "Try with invalid parent block",
@@ -10841,7 +10841,7 @@ fn block_proposal_endpoint() {
                 },
                 ..proposal.clone()
             },
-            false,
+            Some(ValidateRejectCode::UnknownParent),
         ),
         (
             "Try with invalid VRF proof",
@@ -10855,7 +10855,7 @@ fn block_proposal_endpoint() {
                 },
                 ..proposal.clone()
             },
-            false,
+            Some(ValidateRejectCode::BadBlockHash),
         ),
         (
             "Try with invalid consensus_hash",
@@ -10863,13 +10863,13 @@ fn block_proposal_endpoint() {
                 parent_consensus_hash: ConsensusHash::from_bytes(&[0x22; 20]).unwrap(),
                 ..proposal.clone()
             },
-            false,
+            Some(ValidateRejectCode::UnknownParent),
         ),
-        ("Try valid proposal", proposal, true),
+        ("Try valid proposal", proposal, None),
     ];
 
-    for (description, proposal, should_be_ok) in test_cases {
-        eprintln!("test_block_proposal(): {description}");
+    for (description, proposal, reject_code) in test_cases {
+        eprintln!("test_block_proposal()::'{description}': Sending proposal...");
         eprintln!("{proposal:?}");
 
         let current_response_len = test_observer::get_async_responses().len();
@@ -10899,24 +10899,26 @@ fn block_proposal_endpoint() {
             .cloned()
             .unwrap();
 
-        if should_be_ok {
-            let last_proposal_ok = match last_proposal_result {
-                BlockValidateResponse::Ok(x) => x,
-                BlockValidateResponse::Reject(_) => panic!("Proposal should be valid"),
-            };
-            assert_eq!(
-                last_proposal_ok.block.block_hash(),
-                proposal.block.block_hash()
-            );
-        } else {
-            let last_proposal_reject = match last_proposal_result {
-                BlockValidateResponse::Ok(_) => panic!("Proposal should be invalid"),
-                BlockValidateResponse::Reject(x) => x,
-            };
-            assert_eq!(
-                last_proposal_reject.reason_code,
-                ValidateRejectCode::UnknownParent
-            );
+        match reject_code {
+            Some(code) => {
+                eprintln!("test_block_proposal()::'{description}': Response rejected: {code:?}");
+                let last_proposal_reject = match last_proposal_result {
+                    BlockValidateResponse::Ok(_) => panic!("Proposal should be invalid"),
+                    BlockValidateResponse::Reject(x) => x,
+                };
+                assert_eq!(last_proposal_reject.reason_code, code);
+            }
+            None => {
+                eprintln!("test_block_proposal()::'{description}': OK");
+                let last_proposal_ok = match last_proposal_result {
+                    BlockValidateResponse::Ok(x) => x,
+                    BlockValidateResponse::Reject(_) => panic!("Proposal should be valid"),
+                };
+                assert_eq!(
+                    last_proposal_ok.block.block_hash(),
+                    proposal.block.block_hash()
+                );
+            }
         }
     }
 

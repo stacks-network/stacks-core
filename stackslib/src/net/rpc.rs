@@ -55,6 +55,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use super::connection::AsyncRequests;
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Burnchain;
@@ -132,8 +133,6 @@ use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
-
-use super::connection::AsyncRequests;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
