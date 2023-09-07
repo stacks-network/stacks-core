@@ -102,6 +102,7 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::test_flash_block_skip_tenure
+          - tests::neon_integrations::test_block_proposal
           - tests::neon_integrations::test_chainwork_first_intervals
           - tests::neon_integrations::test_chainwork_partial_interval
           - tests::neon_integrations::test_problematic_txs_are_not_stored
