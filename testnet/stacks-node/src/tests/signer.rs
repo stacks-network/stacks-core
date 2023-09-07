@@ -148,13 +148,13 @@ fn test_stackerdb_dkg() {
 
     // Setup the neon node
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        panic!("Must set BITCOIND_TEST to \"1\" for signers.rs integration test");
+        return;
     }
 
     let (mut conf, _) = neon_integration_test_conf();
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::StackerDBChunks],
     });
 
     let mut initial_balances = Vec::new();
@@ -242,7 +242,7 @@ fn test_stackerdb_dkg() {
     // Spawn coordinator second
     let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Dkg);
 
-    sleep(Duration::from_secs(10));
+    sleep(Duration::from_secs(5));
     let result = running_coordinator.stop().unwrap();
     assert_eq!(result.len(), 1);
     assert_ne!(result[0], Point::default());
