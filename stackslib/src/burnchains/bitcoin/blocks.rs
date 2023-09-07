@@ -46,7 +46,7 @@ use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::core::StacksEpochId;
 
@@ -565,7 +565,7 @@ mod tests {
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::log;
 
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::BitcoinBlockParser;
 

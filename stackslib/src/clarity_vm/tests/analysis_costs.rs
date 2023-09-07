@@ -39,10 +39,10 @@ use stacks_common::util::hash::hex_bytes;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
-use crate::types::StacksEpochId;
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 
 fn setup_tracked_cost_test(
     use_mainnet: bool,

@@ -1,4 +1,3 @@
-use clarity::types::StacksEpochId;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::errors::{Error, RuntimeErrorType};
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
@@ -6,6 +5,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::database::marf::MarfedKV;

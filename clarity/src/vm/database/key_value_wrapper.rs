@@ -27,7 +27,7 @@ use crate::vm::{StacksEpoch, Value};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};

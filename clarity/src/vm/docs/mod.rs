@@ -2656,16 +2656,16 @@ mod test {
 
     use super::make_json_api_reference;
     use super::{get_input_type_string, make_all_api_reference};
-    use crate::address::AddressHashMode;
-    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
-    use crate::types::Address;
     use crate::vm::analysis::type_check;
+    use crate::vm::database::{ClarityDatabase, MemoryBackingStore};
     use crate::vm::types::TupleData;
-    use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
-    use crate::{
-        types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash},
-        vm::database::{ClarityDatabase, MemoryBackingStore},
+    use crate::vm::StacksEpoch;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, VRFSeed,
     };
+    use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use stacks_common::types::Address;
 
     use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;

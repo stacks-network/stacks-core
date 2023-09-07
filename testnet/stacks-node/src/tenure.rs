@@ -16,9 +16,9 @@ use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::types::chainstate::VRFSeed;
-use stacks::util::hash::Hash160;
-use stacks::util::vrf::VRFProof;
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFProof;
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,

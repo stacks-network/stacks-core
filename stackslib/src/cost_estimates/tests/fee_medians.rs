@@ -24,9 +24,9 @@ use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use crate::cost_estimates::metrics::ProportionalDotProduct;
 use crate::cost_estimates::tests::common::*;
 use crate::cost_estimates::FeeRateEstimate;
-use crate::types::chainstate::StacksAddress;
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+use clarity::vm::Value;
+use stacks_common::types::chainstate::StacksAddress;
 
 /// Returns true iff `b` is within `0.1%` of `a`.
 fn is_close_f64(a: f64, b: f64) -> bool {

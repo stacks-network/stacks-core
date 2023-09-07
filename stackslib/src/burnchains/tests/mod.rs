@@ -40,7 +40,7 @@ use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
 use stacks_common::util::vrf::*;
 
-use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
+use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 

@@ -49,9 +49,9 @@ use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
 use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -62,20 +62,20 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use clarity::vm::analysis::{CheckError, CheckErrors};
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run

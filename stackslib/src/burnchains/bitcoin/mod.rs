@@ -31,7 +31,7 @@ use crate::util_lib::db::Error as db_error;
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
 use stacks_common::util::HexError as btc_hex_error;
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub mod address;
 pub mod bits;

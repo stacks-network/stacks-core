@@ -39,7 +39,6 @@ use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, Stacks
 use crate::chainstate::stacks::Error as chain_error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
@@ -114,6 +113,7 @@ use clarity::vm::{
     ClarityName, ContractName, SymbolicExpression, Value,
 };
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -129,9 +129,11 @@ use stacks_common::util::secp256k1::MessageSignature;
 use crate::clarity_vm::clarity::Error as clarity_error;
 
 use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
-    util::hash::Sha256Sum, version_string,
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, version_string,
 };
+use stacks_common::types;
+use stacks_common::util;
+use stacks_common::util::hash::Sha256Sum;
 
 use crate::util_lib::boot::boot_code_id;
 
@@ -4023,8 +4025,8 @@ mod test {
     use stacks_common::util::pipe::*;
 
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
 

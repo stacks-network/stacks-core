@@ -50,22 +50,22 @@ use crate::net::stackerdb::{
 };
 use crate::net::Error as net_error;
 use crate::net::*;
-use crate::types::chainstate::StacksBlockId;
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::monitoring::update_stacks_tip_height;
-use crate::types::chainstate::{PoxId, SortitionId};
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::StacksEpochId;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;

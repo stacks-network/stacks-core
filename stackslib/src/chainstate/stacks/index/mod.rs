@@ -28,11 +28,11 @@ use crate::util_lib::db::Error as db_error;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::SortitionId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
 pub mod cache;
@@ -98,7 +98,7 @@ pub trait MarfTrieId:
     ClarityMarfTrieId
     + rusqlite::types::ToSql
     + rusqlite::types::FromSql
-    + crate::codec::StacksMessageCodec
+    + stacks_common::codec::StacksMessageCodec
     + std::convert::From<MARFValue>
     + PartialEq
     + Eq

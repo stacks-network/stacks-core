@@ -36,8 +36,8 @@ use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
 
-use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
+use stacks_common::types::chainstate::StacksAddress;
 
 use stacks_common::types::StacksEpochId;
 

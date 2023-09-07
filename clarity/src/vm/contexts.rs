@@ -44,7 +44,7 @@ use crate::vm::types::{
     QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::{eval, is_reserved};
-use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
+use stacks_common::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::version::ClarityVersion;

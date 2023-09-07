@@ -39,8 +39,8 @@ use crate::vm::types::{
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
-use crate::codec::{Error as codec_error, StacksMessageCodec};
 use crate::vm::types::byte_len_of_serialization;
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 
 use super::{ListTypeData, TupleTypeSignature};
 
