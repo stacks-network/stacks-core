@@ -23,8 +23,8 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
-use crate::types::StacksEpochId;
 use crate::vm::database::MemoryBackingStore;
+use stacks_common::types::StacksEpochId;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
 

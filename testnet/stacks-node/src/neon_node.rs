@@ -149,6 +149,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
+use clarity::vm::costs::ExecutionCost;
 use stacks::burnchains::{
     db::BurnchainHeaderReader, Burnchain, BurnchainParameters, BurnchainSigner, Txid,
 };
@@ -176,7 +177,6 @@ use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::core::STACKS_EPOCH_2_4_MARKER;
@@ -196,17 +196,17 @@ use stacks::net::{
     stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs},
     Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags,
 };
-use stacks::types::chainstate::{
+use stacks::util_lib::strings::{UrlString, VecDisplay};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
 };
-use stacks::types::StacksEpochId;
-use stacks::util::get_epoch_time_ms;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
-use stacks::util_lib::strings::{UrlString, VecDisplay};
-use stacks::vm::costs::ExecutionCost;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
@@ -566,7 +566,7 @@ fn fault_injection_long_tenure() {
                     "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
                     tenure_time
                 );
-                stacks::util::sleep_ms(tenure_time);
+                stacks_common::util::sleep_ms(tenure_time);
             }
             Err(_) => {
                 error!("Parse error for STX_TEST_SLOW_TENURE");

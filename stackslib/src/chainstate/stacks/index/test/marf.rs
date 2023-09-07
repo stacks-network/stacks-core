@@ -35,7 +35,7 @@ use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 
-use crate::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use super::*;
 

@@ -32,9 +32,9 @@ use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{StacksAddress, VRFSeed};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
 
 use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};

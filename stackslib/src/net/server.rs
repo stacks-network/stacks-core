@@ -729,7 +729,7 @@ mod test {
 
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use crate::burnchains::*;
     use crate::chainstate::stacks::db::blocks::test::*;
@@ -738,7 +738,7 @@ mod test {
     use crate::chainstate::stacks::Error as chain_error;
     use crate::chainstate::stacks::*;
     use crate::chainstate::stacks::*;
-    use crate::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BlockHeaderHash;
 
     use std::sync::mpsc::sync_channel;
     use std::sync::mpsc::Receiver;

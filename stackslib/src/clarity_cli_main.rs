@@ -23,7 +23,8 @@
 extern crate blockstack_lib;
 extern crate serde_json;
 
-use blockstack_lib::{clarity_cli as clarity, util::log};
+use blockstack_lib::clarity_cli as clarity;
+use stacks_common::util::log;
 use std::env;
 use std::process;
 

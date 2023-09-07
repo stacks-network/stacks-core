@@ -20,18 +20,16 @@ use std::hash::{Hash, Hasher};
 
 use regex::Regex;
 
-use crate::codec::StacksMessageCodec;
-use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
-
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot::boot_code_id;
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc};
 
-use crate::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BlockHeaderHash;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;

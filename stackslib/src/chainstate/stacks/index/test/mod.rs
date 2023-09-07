@@ -39,7 +39,7 @@ use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::BlockHeaderHash;
 use crate::chainstate::stacks::TrieHash;
-use crate::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 pub mod cache;
 pub mod file;

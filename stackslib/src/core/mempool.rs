@@ -78,8 +78,6 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::StacksBlock;
-use crate::codec::Error as codec_error;
-use crate::codec::StacksMessageCodec;
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::metrics::UnitMetric;
@@ -87,8 +85,10 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use crate::util_lib::db::table_exists;
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;

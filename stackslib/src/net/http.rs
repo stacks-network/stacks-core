@@ -91,11 +91,11 @@ use stacks_common::util::retry::RetryReader;
 
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::TransactionPayload;
-use crate::codec::{
+use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 use super::FeeRateEstimateRequestBody;
 

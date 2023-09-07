@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksAddress;
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
     Value,
 };
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksTransactionEvent {

@@ -5839,8 +5839,8 @@ pub mod tests {
     use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::vrf::*;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
 
     use crate::burnchains::affirmation::AffirmationMap;
     use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};

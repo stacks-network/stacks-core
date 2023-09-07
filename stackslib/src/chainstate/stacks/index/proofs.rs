@@ -49,7 +49,7 @@ use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
     TrieMerkleProofType,
 };
-use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
