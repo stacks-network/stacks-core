@@ -11,6 +11,10 @@ readme = "README.md"
 resolver = "2"
 edition = "2021"
 
+[lib]
+name = "stacks_signer"
+path = "src/lib.rs"
+
 [[bin]]
 name = "stacks-signer"
 path = "src/main.rs"

@@ -8,6 +8,7 @@ use p256k1::ecdsa;
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
 use std::time::Duration;
+use wsts::Point;
 
 use crate::{
     config::Config,
@@ -23,9 +24,15 @@ pub enum RunLoopCommand {
     /// Generate a DKG aggregate public key
     Dkg,
     /// Generate a DKG aggregate public key and then sign the message
-    DkgSign { message: Vec<u8> },
+    DkgSign {
+        /// The bytes to sign
+        message: Vec<u8>,
+    },
     /// Sign a message
-    Sign { message: Vec<u8> },
+    Sign {
+        /// The bytes to sign
+        message: Vec<u8>,
+    },
 }
 
 /// The RunLoop state
@@ -73,7 +80,12 @@ impl<C: Coordinatable> RunLoop<C> {
             }
             (RunLoopCommand::Dkg, State::Idle) => {
                 info!("Starting DKG");
-                let _ = self.coordinator.start_distributed_key_generation();
+                if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
+                    let ack = self
+                        .stacks_client
+                        .send_message(self.signing_round.signer.signer_id, msg);
+                    debug!("ACK: {:?}", ack);
+                }
                 self.state = State::Dkg;
             }
             (RunLoopCommand::Dkg, State::DkgDone) => {
@@ -83,13 +95,21 @@ impl<C: Coordinatable> RunLoop<C> {
             (RunLoopCommand::DkgSign { message }, State::Idle) => {
                 info!("Starting DKG");
                 debug!("DKG Required for Message: {:?}", message);
-                let _ = self.coordinator.start_distributed_key_generation();
+                if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
+                    let _ = self
+                        .stacks_client
+                        .send_message(self.signing_round.signer.signer_id, msg);
+                }
                 self.state = State::Dkg;
             }
             (RunLoopCommand::DkgSign { message }, State::DkgDone)
             | (RunLoopCommand::Sign { message }, State::Idle) => {
                 info!("Signing message");
-                let _ = self.coordinator.start_signing_message(message);
+                if let Ok(msg) = self.coordinator.start_signing_message(message) {
+                    let _ = self
+                        .stacks_client
+                        .send_message(self.signing_round.signer.signer_id, msg);
+                }
                 self.state = State::Sign
             }
             (RunLoopCommand::DkgSign { message }, State::SignDone)
@@ -106,6 +126,7 @@ impl<C: Coordinatable> RunLoop<C> {
         &mut self,
         event: &StackerDBChunksEvent,
     ) -> (Vec<Message>, Vec<OperationResult>) {
+        debug!("Processing event: {:?}", event);
         // Determine the current coordinator id and public key for verification
         let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
@@ -144,6 +165,7 @@ impl<C: Coordinatable> RunLoop<C> {
 }
 
 impl RunLoop<FrostCoordinator> {
+    /// Creates new runloop from a config and command
     pub fn new(config: &Config, command: RunLoopCommand) -> Self {
         // TODO: should this be a config option?
         // The threshold is 70% of the shares
@@ -239,7 +261,7 @@ pub fn process_inbound_messages(
     Ok(responses)
 }
 
-impl<C: Coordinatable> SignerRunLoop<()> for RunLoop<C> {
+impl<C: Coordinatable> SignerRunLoop<Vec<Point>> for RunLoop<C> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.event_timeout = timeout;
     }
@@ -248,21 +270,33 @@ impl<C: Coordinatable> SignerRunLoop<()> for RunLoop<C> {
         self.event_timeout
     }
 
-    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<()> {
+    // TODO: update the return type to return any OperationResult
+    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<Vec<Point>> {
         // TODO: we should potentially trigger shares outside of the runloop. This may be temporary?
         self.execute_dkg_sign();
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
+            info!(
+                "Sending {} messages to other stacker-db instances.",
+                outbound_messages.len()
+            );
             for msg in outbound_messages {
-                let _ = self
+                let ack = self
                     .stacks_client
                     .send_message(self.signing_round.signer.signer_id, msg);
+                if let Ok(ack) = ack {
+                    debug!("ACK: {:?}", ack);
+                } else {
+                    warn!("Failed to send message to stacker-db instance: {:?}", ack);
+                }
             }
+            let mut results = vec![];
             // TODO: cleanup this logic.
             for operation_result in operation_results {
                 match operation_result {
-                    OperationResult::Dkg(_public_key) => {
+                    OperationResult::Dkg(public_key) => {
                         self.state = State::DkgDone;
+                        results.push(public_key);
                     }
                     OperationResult::Sign(_signature, _proof) => {
                         self.state = State::SignDone;
@@ -272,7 +306,7 @@ impl<C: Coordinatable> SignerRunLoop<()> for RunLoop<C> {
             // Determine if we need to trigger Sign or Exit.
             self.execute_dkg_sign();
             if self.state == State::Exit {
-                return Some(());
+                return Some(results);
             }
         }
         None

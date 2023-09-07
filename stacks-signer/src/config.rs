@@ -154,10 +154,10 @@ impl TryFrom<RawConfigFile> for Config {
                 )
             })?;
 
-        let message_private_key = Scalar::try_from(raw_data.message_private_key.as_bytes())
-            .map_err(|_| {
+        let message_private_key =
+            Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
                 ConfigError::BadField(
-                    "ecdsa_private_key".to_string(),
+                    "message_private_key".to_string(),
                     raw_data.message_private_key.clone(),
                 )
             })?;
@@ -172,13 +172,15 @@ impl TryFrom<RawConfigFile> for Config {
         let mut public_keys = PublicKeys::default();
         let mut signer_key_ids = SignerKeyIds::default();
         for (i, s) in raw_data.signers.iter().enumerate() {
-            let signer_public_key = ecdsa::PublicKey::try_from(s.public_key.as_bytes())
-                .map_err(|_| ConfigError::BadField("signers".to_string(), s.public_key.clone()))?;
+            let signer_public_key =
+                ecdsa::PublicKey::try_from(s.public_key.as_str()).map_err(|_| {
+                    ConfigError::BadField("signers.public_key".to_string(), s.public_key.clone())
+                })?;
             for key_id in &s.key_ids {
                 //We do not allow a key id of 0.
                 if *key_id == 0 {
                     return Err(ConfigError::BadField(
-                        "signers".to_string(),
+                        "signers.key_ids".to_string(),
                         key_id.to_string(),
                     ));
                 }

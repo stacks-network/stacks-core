@@ -2,7 +2,8 @@ use bincode::Error as BincodeError;
 use frost_signer::{net::Message, signing_round::MessageTypes};
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
-use stacks_common::types::chainstate::StacksPrivateKey;
+use slog::slog_debug;
+use stacks_common::{debug, types::chainstate::StacksPrivateKey};
 
 use crate::config::Config;
 
@@ -55,6 +56,7 @@ impl StacksClient {
         let mut chunk = StackerDBChunkData::new(slot_id(id, &message.msg), 1, message_bytes);
         chunk.sign(&self.stacks_private_key)?;
         let chunk_ack = self.stackerdb_session.put_chunk(chunk)?;
+        debug!("{:?}", chunk_ack.clone());
         Ok(chunk_ack)
     }
 

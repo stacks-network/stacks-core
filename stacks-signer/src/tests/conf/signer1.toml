@@ -3,12 +3,12 @@ stacks_private_key = "03c1e0ec2a869e4f0214a2f0d2653bbe993e2fc028b41af4f3056723f7
 network = "testnet"
 node_host = "127.0.0.1:20443"
 stackerdb_contract_id = ""
-signer_id = 1;
+signer_id = 1
 # This data should be retrieved from .pox contract
 signers =  [
-    {ecdsa_public_key = "22t2a1z8vkZgZF9gekHBNyT7s2bugRHsPmGwS7Pm5MnEx", key_ids = [1, 2, 3, 4]},
-    {ecdsa_public_key = "25hwd38Ynr4dMqnfe5ssC8KN8sKPDbSTJa2GkaPZJkVwj", key_ids = [5, 6, 7, 8]},
-    {ecdsa_public_key = "sdAKXq6rv4tkCW8Vd8Km2DTSG4mAKMnij92vvdqsCBg9", key_ids = [9, 10, 11, 12]}
-    {ecdsa_public_key = "23si1XhLwZsrsMC19gBi5EsK2g4uJo4qCWjRSEP3qdGzi", key_ids = [13, 14, 15, 16]}
-    {ecdsa_public_key = "eAk931xsKvpS8v5Cfk3G48g7pgGdSA58FLaEA8KG3SPx", key_ids = [17, 18, 19, 20]}
+    {public_key = "22t2a1z8vkZgZF9gekHBNyT7s2bugRHsPmGwS7Pm5MnEx", key_ids = [1, 2, 3, 4]},
+    {public_key = "25hwd38Ynr4dMqnfe5ssC8KN8sKPDbSTJa2GkaPZJkVwj", key_ids = [5, 6, 7, 8]},
+    {public_key = "sdAKXq6rv4tkCW8Vd8Km2DTSG4mAKMnij92vvdqsCBg9", key_ids = [9, 10, 11, 12]}
+    {public_key = "23si1XhLwZsrsMC19gBi5EsK2g4uJo4qCWjRSEP3qdGzi", key_ids = [13, 14, 15, 16]}
+    {public_key = "eAk931xsKvpS8v5Cfk3G48g7pgGdSA58FLaEA8KG3SPx", key_ids = [17, 18, 19, 20]}
 ]

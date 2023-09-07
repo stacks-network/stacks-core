@@ -6,12 +6,14 @@ use frost_signer::net::Message;
 use wsts::{bip340::SchnorrProof, common::Signature, Point};
 
 #[derive(thiserror::Error, Debug)]
+/// Error type for the crypto module
 pub enum Error {
+    /// An error occurred in the FROST module
     #[error("An error occurred in the FROST module: {0}")]
     FrostError(#[from] FrostError),
 }
 
-// Result of a DKG or sign operation
+/// Result of a DKG or sign operation
 #[allow(dead_code)]
 pub enum OperationResult {
     /// The DKG result
@@ -30,7 +32,7 @@ pub trait Coordinatable {
     /// Retrieve the aggregate public key
     fn get_aggregate_public_key(&self) -> Point;
     /// Trigger a DKG round
-    fn start_distributed_key_generation(&mut self) -> Result<(), Error>;
-    // Trigger a signing round
-    fn start_signing_message(&mut self, _message: &[u8]) -> Result<(), Error>;
+    fn start_distributed_key_generation(&mut self) -> Result<Message, Error>;
+    /// Trigger a signing round
+    fn start_signing_message(&mut self, _message: &[u8]) -> Result<Message, Error>;
 }

@@ -13,10 +13,12 @@ use wsts::{Point, Scalar};
 #[derive(thiserror::Error, Debug)]
 /// The error type for the coordinator
 pub enum Error {
+    /// A bad state change was made
     #[error("Bad State Change: {0}")]
     BadStateChange(String),
 }
 
+/// The coordinator for the FROST algorithm
 pub struct Coordinator {
     current_dkg_id: u64,
     current_dkg_public_id: u64,
@@ -79,10 +81,7 @@ impl Coordinator {
                         return Ok((None, None));
                     } else if self.state == State::Idle {
                         // We are done with the DKG round! Return the operation result
-                        return Ok((
-                            None,
-                            Some(OperationResult::Dkg(self.aggregate_public_key.clone())),
-                        ));
+                        return Ok((None, Some(OperationResult::Dkg(self.aggregate_public_key))));
                     }
                 }
             }
@@ -196,15 +195,23 @@ impl Coordinator {
 #[derive(Debug, PartialEq)]
 /// Coordinator states
 pub enum State {
+    /// The coordinator is idle
     Idle,
+    /// The coordinator is distributing public shares
     DkgPublicDistribute,
+    /// The coordinator is gathering public shares
     DkgPublicGather,
+    /// The coordinator is distributing private shares
     DkgPrivateDistribute,
+    /// The coordinator is gathering DKG End messages
     DkgEndGather,
 }
 
+/// The state machine trait for the frost coordinator
 pub trait StateMachine {
+    /// Attempt to move the state machine to a new state
     fn move_to(&mut self, state: State) -> Result<(), Error>;
+    /// Check if the state machine can move to a new state
     fn can_move_to(&self, state: &State) -> Result<(), Error>;
 }
 
@@ -268,13 +275,13 @@ impl Coordinatable for Coordinator {
     }
 
     /// Trigger a DKG round
-    fn start_distributed_key_generation(&mut self) -> Result<(), CryptoError> {
-        self.start_dkg_round()?;
-        Ok(())
+    fn start_distributed_key_generation(&mut self) -> Result<Message, CryptoError> {
+        let message = self.start_dkg_round()?;
+        Ok(message)
     }
 
     // Trigger a signing round
-    fn start_signing_message(&mut self, _message: &[u8]) -> Result<(), CryptoError> {
+    fn start_signing_message(&mut self, _message: &[u8]) -> Result<Message, CryptoError> {
         todo!()
     }
 }
@@ -377,7 +384,7 @@ mod test {
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
         let mut coordinator = Coordinator::new(total_signers, message_private_key);
-        coordinator.start_dkg_round().unwrap();
+        coordinator.state = State::DkgPublicDistribute; // Must be in this state before calling start public shares
 
         let result = coordinator.start_public_shares().unwrap();
 
@@ -386,7 +393,7 @@ mod test {
             _ => false,
         });
         assert_eq!(coordinator.state, State::DkgPublicGather);
-        assert_eq!(coordinator.current_dkg_id, 1);
+        assert_eq!(coordinator.current_dkg_id, 0);
     }
 
     #[test]

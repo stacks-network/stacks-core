@@ -26,23 +26,22 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
-mod config;
-mod crypto;
-mod runloop;
-mod stacks_client;
-
-use crate::{config::Config, crypto::frost::Coordinator as FrostCoordinator, runloop::RunLoop};
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use runloop::RunLoopCommand;
 use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_signer::{
+    config::Config,
+    crypto::frost::Coordinator as FrostCoordinator,
+    runloop::{RunLoop, RunLoopCommand},
+};
 use std::{
     io::{self, Read, Write},
     net::SocketAddr,
     path::PathBuf,
 };
+use wsts::Point;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -173,11 +172,11 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 fn spawn_running_signer(
     path: &PathBuf,
     command: RunLoopCommand,
-) -> RunningSigner<StackerDBEventReceiver, ()> {
+) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
     let config = Config::try_from(path).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
-    let mut signer: Signer<(), RunLoop<FrostCoordinator>, StackerDBEventReceiver> =
+    let mut signer: Signer<Vec<Point>, RunLoop<FrostCoordinator>, StackerDBEventReceiver> =
         Signer::new(runloop, ev);
     let endpoint = config.node_host;
     signer.spawn(endpoint).unwrap()
