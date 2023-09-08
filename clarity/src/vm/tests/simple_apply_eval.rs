@@ -31,7 +31,7 @@ use crate::vm::types::signatures::*;
 use crate::vm::types::StacksAddressExtensions;
 use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use crate::vm::types::{PrincipalData, SequenceData};
-use crate::vm::ClarityVersion;
+use crate::vm::{ClarityVersion, execute_v2};
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
 };
@@ -473,6 +473,31 @@ fn test_secp256k1() {
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
+
+#[test]
+fn test_schnorr() {
+    let schnorr_evals = [
+        "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0xaa2e76f4f43042fee4748cb3276cab19d003818fdac5f268099105c55b5ce2bbf0dbf5929d1fb69e94104057a9716c4e0627a7422e14ceabcc5b7ad87247a7c6 0x8957d5fb466977bfe8db3fde6cd6cf05ca52f20d06ab00b95c2913c1fe5f4959)",
+        "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0x624bcccfa2952fa7c304290f99471c0c97c7703366b033d8c3f31bf028428789d28d0ff7247a6d5670df942670ef08ed46ef7dea52f8144ed6651578247f6770 0x93c2ec34cef39b16a438d2dce6cbfb13b0ce5a21958686417caff2acac7d5709)",
+        "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0x668b511b8ffba6397331be5cc13325d435781e6d2afa91217e3b02d3caa7d63a96ec0a7bbbfffe4827a4f3bea598ff0c1174b27225a05f680a83e2eedbe34041 0x7f18fa7a6f7d8c40bc74c81814ff020e797956ee08e36c0ad96dd7c588c46d1c)",
+        "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0x2ea3750ae5b6b19a5e7564616792714b4ecffb36fd133e4711b3661744f5a17b847ca9f2ccf41b30531d7cc0bfd9c55c85e232b5699fc288450099f0c71e4e79 0x59039cfb437f7e627b7f4079270808f57cfeef2dd5cc0327468bebb2d22a5b7b)",
+        "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0x624bcccfa2952fa7c304290f99471c0c97c7703366b033d8c3f31bf028428789d28d0ff7247a6d5670df942670ef08ed46ef7dea52f8144ed6651578247f6770 0x7f18fa7a6f7d8c40bc74c81814ff020e797956ee08e36c0ad96dd7c588c46d1c)",
+    ];
+
+    let expectations = [
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(false),
+    ];
+
+    schnorr_evals
+        .iter()
+        .zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute_v2(program).unwrap().unwrap()));
+}
+
 
 #[test]
 fn test_principal_of_fix() {
