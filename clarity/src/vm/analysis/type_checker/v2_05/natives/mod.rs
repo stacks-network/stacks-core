@@ -743,7 +743,7 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt => unreachable!("Clarity 2 keywords should not show up in 2.05"),
+            | ReplaceAt | SchnorrVerify => unreachable!("Clarity 2 keywords should not show up in 2.05"),
         }
     }
 }

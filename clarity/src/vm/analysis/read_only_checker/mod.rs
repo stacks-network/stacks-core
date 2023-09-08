@@ -297,7 +297,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot
-            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias => {
+            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias | SchnorrVerify => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

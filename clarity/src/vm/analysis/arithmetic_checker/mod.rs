@@ -199,7 +199,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
-            | Keccak256 => {
+            | Keccak256 | SchnorrVerify => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
