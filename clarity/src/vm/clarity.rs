@@ -8,7 +8,7 @@ use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::Error as InterpreterError;
+use crate::vm::errors::{Error as InterpreterError, WasmError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
@@ -18,6 +18,7 @@ pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
+    Wasm(WasmError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
     AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
@@ -34,6 +35,7 @@ impl fmt::Display for Error {
             Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
             Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
+            Error::Wasm(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -47,6 +49,7 @@ impl std::error::Error for Error {
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
             Error::BadTransaction(ref _s) => None,
+            Error::Wasm(ref e) => Some(e),
         }
     }
 }
