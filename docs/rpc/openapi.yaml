@@ -530,3 +530,70 @@ paths:
             type: string
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
+
+  /v2/block_proposal:
+    post:
+      summary: Validate a proposed Stacks block
+      tags:
+        - Mining
+      #operationId: ???
+      description: |
+        Used by miner to validate a proposed Stacks block.
+        
+        **This endpoint will only accept requests over the local loopback network interface.**
+      responses:
+        202:
+          description: Block proposal is valid
+        400:
+          description: Bad request
+        403:
+          description: Request not over loopback interface
+        429:
+          description: Too many requests
+      parameters:
+        - name: parent_consensus_hash
+          in: query
+          required: true
+          description: Consensus Hash
+          schema:
+            type: string
+        - name: block
+          in: query
+          required: true
+          description: Proposed Block. Must match Rust struct `StacksBlock`
+        - name: microblocks_confirmed
+          in: query
+          required: true
+          description: Microblocks confirmed by proposed Block. Must be an array of Rust struct `StacksMicroblock`
+          schema:
+            type: array
+        - name: burn_tip
+          in: query
+          required: true
+          description: Block hash of burnchain tip
+          schema:
+            type: string
+        - name: burn_tip_height
+          in: query
+          required: true
+          description: Height of `burn_tip`
+          schema:
+            type: integer
+        - name: is_mainnet
+          in: query
+          required: true
+          description: True if `mainnet`, false if `testnet`, `devnet`, or other
+          schema:
+            type: boolean
+        - name: microblock_pubkey_hash
+          in: query
+          required: true
+          description: Hash of public key which will be used to sign subsequent microblocks
+          schema:
+            type: string
+        - name: total_burn
+          in: query
+          required: true
+          description: "???"
+          schema:
+            type: integer

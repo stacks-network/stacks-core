@@ -6,7 +6,7 @@ This endpoint is for posting _raw_ transaction data to the node's mempool.
 
 Rejections result in a 400 error, with JSON data in the form:
 
-```
+```json
 {
   "error": "transaction rejected",
   "reason": "BadNonce",
@@ -100,7 +100,7 @@ Returns a
 vector with length up to [Count] that contains a list of the following SIP-003-encoded
 structures:
 
-```
+```rust
 struct ExtendedStacksHeader {
     consensus_hash: ConsensusHash,
     header: StacksBlockHeader,
@@ -114,7 +114,7 @@ Where `StacksBlockId` is a 32-byte byte buffer.
 
 Where `StacksBlockHeader` is the following SIP-003-encoded structure:
 
-```
+```rust
 struct StacksBlockHeader {
     version: u8,
     total_work: StacksWorkScore,
@@ -135,14 +135,14 @@ Where `Hash160` is a 20-byte byte buffer.
 
 Where `StacksWorkScore` and `VRFProof` are the following SIP-003-encoded structures:
 
-```
+```rust
 struct StacksWorkScore {
     burn: u64,
     work: u64,
 }
 ```
 
-```
+```rust
 struct VRFProof {
     Gamma: [u8; 32]
     c: [u8; 16]
@@ -178,7 +178,7 @@ The principal string is either a Stacks address or a Contract identifier (e.g.,
 
 Returns JSON data in the form:
 
-```
+```json
 {
  "balance": "0x100..",
  "nonce": 1,
@@ -204,7 +204,7 @@ Attempt to vetch a data var from a contract. The contract is identified with [St
  
 Returns JSON data in the form:
 
-```
+```json
 {
  "data": "0x01ce...",
  "proof": "0x01ab...",
@@ -221,7 +221,7 @@ Attempt to fetch a constant from a contract. The contract is identified with [St
  [Contract Name] in the URL path. The constant is identified with [Constant Name].
 
 Returns JSON data in the form:
-```
+```json
 {
   "data": "0x01ce...",
 }
@@ -239,7 +239,7 @@ serialization of the key (which should be a Clarity value). Note, this is a _JSO
 
 Returns JSON data in the form:
 
-```
+```json
 {
  "data": "0x01ce...",
  "proof": "0x01ab...",
@@ -263,7 +263,7 @@ Fetch the contract interface for a given contract, identified by [Stacks Address
 
 This returns a JSON object of the form:
 
-```
+```json
 {
   "functions": [
     {
@@ -413,7 +413,7 @@ This returns a JSON object of the form:
 Fetch the source for a smart contract, along with the block height it was
 published in, and the MARF proof for the data.
 
-```
+```json
 {
  "source": "(define-private ...",
  "publish_height": 1,
@@ -432,7 +432,7 @@ Call a read-only public function on a given smart contract.
 The smart contract and function are specified using the URL path. The arguments and
 the simulated `tx-sender` are supplied via the POST body in the following JSON format:
 
-```
+```json
 {
   "sender": "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info",
   "arguments": [ "0x0011...", "0x00231..." ]
@@ -444,7 +444,7 @@ is an array of hex serialized Clarity values.
 
 This endpoint returns a JSON object of the following form:
 
-```
+```json
 {
   "okay": true,
   "result": "0x0011..."
@@ -457,7 +457,7 @@ hex serialization of the Clarity return value.
 If an error occurs in processing the function call, this endpoint returns a 200 response with a JSON
 object of the following form:
 
-```
+```json
 {
   "okay": false,
   "cause": "Unchecked(PublicFunctionNotReadOnly(..."
@@ -469,3 +469,40 @@ object of the following form:
 Determine whether a given trait is implemented within the specified contract (either explicitly or implicitly).
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.
+
+### GET /v2/block_proposal
+
+Used by miner to validate a proposed Stacks block.
+        
+**This endpoint will only accept requests over the local loopback network interface.**
+
+This endpoint takes as input the following struct from `chainstate/stacks/miner.rs`:
+
+```rust
+pub struct BlockProposal {
+    pub parent_consensus_hash: ConsensusHash,
+    /// Block
+    pub block: StacksBlock,
+    /// These are all the microblocks that the proposed block
+    /// will confirm.
+    pub microblocks_confirmed: Vec<StacksMicroblock>,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    pub burn_tip: BurnchainHeaderHash,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    pub burn_tip_height: u32,
+    /// Mainnet flag
+    pub is_mainnet: bool,
+    /// This is the public key hash which will be used to sign subsequent
+    ///  microblocks.
+    pub microblock_pubkey_hash: Hash160,
+    /// This is the total burn amount up to this block, used in the
+    ///  Stacks header
+    pub total_burn: u64,
+}
+```
