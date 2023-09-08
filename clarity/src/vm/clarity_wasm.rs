@@ -413,12 +413,15 @@ where
         .func_wrap(
             "clarity",
             "define_function",
-            |mut _caller: Caller<'_, T>, _kind: i32, _name_offset: i32, _name_length: i32| {
-                // FIXME: I don't understand why I have to write this like this
-                // instead of just:
-                //   Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))
+            |mut _caller: Caller<'_, T>,
+             _kind: i32,
+             _name_offset: i32,
+             _name_length: i32|
+             -> Result<(), _> {
+                // This should be a Anyhow error, but we don't have it as a dependency.
+                // `?` does the trick.
                 let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
-                Ok(())
+                unreachable!();
             },
         )
         .map(|_| ())
