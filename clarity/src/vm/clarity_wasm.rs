@@ -1,13 +1,5 @@
 use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::Write};
 
-use crate::vm::{
-    analysis::ContractAnalysis,
-    ast::ContractAST,
-    contexts::GlobalContext,
-    errors::{Error, WasmError},
-    types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
-    ClarityName, ContractContext, Value,
-};
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val};
 
 use super::{
@@ -19,6 +11,14 @@ use super::{
     errors::RuntimeErrorType,
     types::{CharType, FixedFunction, FunctionType, QualifiedContractIdentifier, SequenceData},
     SymbolicExpression,
+};
+use crate::vm::{
+    analysis::ContractAnalysis,
+    ast::ContractAST,
+    contexts::GlobalContext,
+    errors::{Error, WasmError},
+    types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
+    ClarityName, ContractContext, Value,
 };
 
 trait ClarityWasmContext {
@@ -184,7 +184,7 @@ pub fn initialize_contract(
     link_define_variable_fn(&mut linker)?;
     link_get_variable_fn(&mut linker)?;
     link_set_variable_fn(&mut linker)?;
-    link_log(&mut linker);
+    link_log(&mut linker)?;
 
     let instance = linker
         .instantiate(store.as_context_mut(), &module)
@@ -200,6 +200,17 @@ pub fn initialize_contract(
     func.call(store.as_context_mut(), &[], &mut results)
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
+    // Save the compiled Wasm module into the contract context
+    store
+        .data_mut()
+        .run_context
+        .contract_context
+        .set_wasm_module(
+            module
+                .serialize()
+                .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
+        );
+
     Ok(None)
 }
 
@@ -212,10 +223,12 @@ pub fn call_function(
 ) -> Result<Value, Error> {
     let context = ClarityWasmRunContext::new(global_context, contract_context);
     let engine = Engine::default();
-    let module = context.contract_context.with_wasm_module(|wasm_module| {
-        Module::from_binary(&engine, wasm_module)
-            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
-    })?;
+    let module = context
+        .contract_context
+        .with_wasm_module(|wasm_module| unsafe {
+            Module::deserialize(&engine, wasm_module)
+                .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+        })?;
     let mut store = Store::new(&engine, context);
     let mut linker = Linker::new(&engine);
 

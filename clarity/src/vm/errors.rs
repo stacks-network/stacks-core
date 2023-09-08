@@ -121,6 +121,7 @@ pub enum WasmError {
     ModuleNotFound,
     TopLevelNotFound,
     MemoryNotFound,
+    WasmCompileFailed(wasmtime::Error),
     UnableToLoadModule(wasmtime::Error),
     UnableToLinkHostFunction(String, wasmtime::Error),
     UnableToReadIdentifier(FromUtf8Error),
@@ -145,6 +146,7 @@ impl fmt::Display for WasmError {
             WasmError::ModuleNotFound => write!(f, "Module not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
             WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
             WasmError::UnableToLinkHostFunction(name, e) => {
                 write!(f, "Unable to link host function {name}: {e}")

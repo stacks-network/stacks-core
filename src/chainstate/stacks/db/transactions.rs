@@ -34,6 +34,7 @@ use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn};
 use clarity::vm::ast::ASTRules;
+use clarity::vm::diagnostic::DiagnosableError;
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::StacksMicroblockHeader;
