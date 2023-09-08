@@ -19,14 +19,17 @@ use secp256k1::constants as LibSecp256k1Constants;
 use secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
 use secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
 use secp256k1::ecdsa::Signature as LibSecp256k1Signature;
+use secp256k1::schnorr::Signature as LibSecp256k1SchnorrSignature;
 use secp256k1::Error as LibSecp256k1Error;
 use secp256k1::Message as LibSecp256k1Message;
 use secp256k1::PublicKey as LibSecp256k1PublicKey;
+use secp256k1::XOnlyPublicKey as LibSecp256k1XOnlyPublicKey;
 use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
 
 use crate::types::PrivateKey;
 use crate::types::PublicKey;
+use crate::types::XOnlyPublicKey;
 use crate::util::hash::{hex_bytes, to_hex};
 
 use serde::de::Deserialize;
@@ -49,6 +52,16 @@ pub struct Secp256k1PublicKey {
     )]
     key: LibSecp256k1PublicKey,
     compressed: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub struct Secp256k1XOnlyPublicKey {
+    // serde is broken for secp256k1, so do it ourselves
+    #[serde(
+    serialize_with = "secp256k1_xonly_pubkey_serialize",
+    deserialize_with = "secp256k1_xonly_pubkey_deserialize"
+    )]
+    key: LibSecp256k1XOnlyPublicKey
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -80,10 +93,11 @@ impl MessageSignature {
     pub fn from_raw(sig: &Vec<u8>) -> MessageSignature {
         let mut buf = [0u8; 65];
         if sig.len() < 65 {
-            buf.copy_from_slice(&sig[..]);
+            buf[..sig.len()].copy_from_slice(&sig[..]);
         } else {
             buf.copy_from_slice(&sig[..65]);
         }
+
         MessageSignature(buf)
     }
 
@@ -113,6 +127,13 @@ impl MessageSignature {
         match LibSecp256k1RecoverableSignature::from_compact(&sig_bytes, recid) {
             Ok(sig) => Some(sig),
             Err(_) => None,
+        }
+    }
+
+    pub fn to_secp256k1_schnorr(&self) -> Option<LibSecp256k1SchnorrSignature> {
+        match LibSecp256k1SchnorrSignature::from_slice(&self.0[..64]) {
+            Ok(sig) => Some(sig),
+            Err(_) => None
         }
     }
 }
@@ -202,6 +223,40 @@ impl Secp256k1PublicKey {
     }
 }
 
+impl Secp256k1XOnlyPublicKey {
+    pub fn new() -> Secp256k1XOnlyPublicKey {
+        Secp256k1XOnlyPublicKey::from_private(&Secp256k1PrivateKey::new())
+    }
+
+    pub fn from_hex(hex_string: &str) -> Result<Secp256k1XOnlyPublicKey, &'static str> {
+        let data = hex_bytes(hex_string).map_err(|_e| "Failed to decode hex public key")?;
+        Secp256k1XOnlyPublicKey::from_slice(&data[..]).map_err(|_e| "Invalid xonly public key hex string")
+    }
+
+    pub fn from_slice(data: &[u8]) -> Result<Secp256k1XOnlyPublicKey, &'static str> {
+        match LibSecp256k1XOnlyPublicKey::from_slice(data) {
+            Ok(pubkey_res) => Ok(Secp256k1XOnlyPublicKey {
+                key: pubkey_res
+            }),
+            Err(_e) => Err("Invalid public key: failed to load"),
+        }
+    }
+
+    pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1XOnlyPublicKey {
+        _secp256k1.with(|ctx| {
+            let pubk = LibSecp256k1PublicKey::from_secret_key(&ctx, &privk.key);
+
+            Secp256k1XOnlyPublicKey {
+                key: pubk.x_only_public_key().0
+            }
+        })
+    }
+
+    pub fn to_hex(&self) -> String {
+        to_hex(&self.to_bytes())
+    }
+}
+
 impl PublicKey for Secp256k1PublicKey {
     fn to_bytes(&self) -> Vec<u8> {
         if self.compressed {
@@ -242,6 +297,29 @@ impl PublicKey for Secp256k1PublicKey {
             }
 
             Ok(true)
+        })
+    }
+}
+
+impl XOnlyPublicKey for Secp256k1XOnlyPublicKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.key.serialize().to_vec()
+    }
+
+    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
+        _secp256k1.with(|ctx| {
+            let msg = LibSecp256k1Message::from_slice(data_hash).map_err(|_e| {
+                "Invalid message: failed to decode data hash: must be a 32-byte hash"
+            })?;
+
+            let secp256k1_sig = sig
+                .to_secp256k1_schnorr()
+                .ok_or("Invalid signature: failed to decode signature")?;
+
+            match ctx.verify_schnorr(&secp256k1_sig, &msg, &self.key) {
+                Ok(_) => Ok(true),
+                Err(E) => Ok(false)
+            }
         })
     }
 }
@@ -402,6 +480,38 @@ pub fn secp256k1_verify(
     })
 }
 
+fn secp256k1_xonly_pubkey_serialize<S: serde::Serializer>(
+    pubk: &LibSecp256k1XOnlyPublicKey,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let key_hex = to_hex(&pubk.serialize().to_vec());
+    s.serialize_str(&key_hex.as_str())
+}
+
+fn secp256k1_xonly_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<LibSecp256k1XOnlyPublicKey, D::Error> {
+    let key_hex = String::deserialize(d)?;
+    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
+
+    LibSecp256k1XOnlyPublicKey::from_slice(&key_bytes[..]).map_err(de_Error::custom)
+}
+
+pub fn schnorr_verify(
+    message_arr: &[u8],
+    serialized_signature_arr: &[u8],
+    pubkey_arr: &[u8],
+) -> Result<(), LibSecp256k1Error> {
+
+    _secp256k1.with(|ctx| {
+        let message = LibSecp256k1Message::from_slice(message_arr)?;
+        let expanded_sig = LibSecp256k1SchnorrSignature::from_slice(&serialized_signature_arr[..64])?; // ignore 65th byte if present
+        let pubkey = LibSecp256k1XOnlyPublicKey::from_slice(pubkey_arr)?;
+
+        ctx.verify_schnorr(&expanded_sig, &message, &pubkey)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify() {
+    fn test_secp256k1_verify() {
         let _ctx: Secp256k1<secp256k1::All> = Secp256k1::new();
         let fixtures : Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
             VerifyFixture {
@@ -568,6 +678,142 @@ mod tests {
             let key = Secp256k1PublicKey::from_hex(fixture.public_key).unwrap();
             let signature = MessageSignature::from_raw(&hex_bytes(fixture.signature).unwrap());
             let ver_res = key.verify(&hex_bytes(fixture.data).unwrap(), &signature);
+            match (ver_res, fixture.result) {
+                (Ok(true), Ok(true)) => {}
+                (Ok(false), Ok(false)) => {}
+                (Err(e1), Err(e2)) => assert_eq!(e1, e2),
+                (Err(e1), _) => {
+                    test_debug!("Failed to verify signature: {}", e1);
+                    eprintln!(
+                        "failed fixture (verification: {:?}): {:#?}",
+                        &ver_res, &fixture
+                    );
+                    assert!(false);
+                }
+                (_, _) => {
+                    eprintln!(
+                        "failed fixture (verification: {:?}): {:#?}",
+                        &ver_res, &fixture
+                    );
+                    assert!(false);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_schnorr_verify() {
+        let _ctx: Secp256k1<secp256k1::All> = Secp256k1::new();
+        let fixtures : Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
+            VerifyFixture {
+                public_key: "903336626d211c6a88ae35d210a3958cc99f306ba4646685ca97e22abad8591a",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "c46e79d770b9f5aea40451ac0da0d524ec81500a4b4ea38454f3a429003be9b52ee2de0a52a64b2b1d6fa443a7c87181605f9bba0ab674b4bd12b89621bc4ecc",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "6344ba6755d0dbdc63c5aa1fb511724ddcaa6e85ccdbc986e84586490dbf5c24",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "308755447c5e4b28147031b57c66ad1296032c0ef6aab8a07265f707c86f4597fdf009814470017f0ddc336330cb96720a237c80fa56c3dc0e37f74da3af6c47",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "8b90e9f86cf49331f59f249375367dc0d22cc4a21006be7dfee32b16154ffcd1",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "957dce5ed362b138810182b36888486a3e6639034e3213b673eaab6c3322d3a3793a20557d90fb4c6075d8e782075acb436f83b497cd5b6fbed9f610c6bf4400",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "f2d5c59bf48111223215ab605e96a2c0f35705fa6bf8f1dbbc3c2cb3300b48dc",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "d02a79a3387e25892b3e4961046942c150ffd6999b4bb858677ebd7ff06221c53dc3e843030bba0fa93d147a4d76780d4924c8fbbb5ef02993cbe3871ed8bdc1",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "593bb41d1dc7c4bce98f262c89c9f5851175013ae7dfba2ea0b5e872b8172a3c",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "75ae55876029d7277cf32adb0f0b0476d1f59e0b3de0b6688cb044470d18bd386037f8e8d8a1ef090362d7915990f7f7329efe56b8e34ebc3bfdc5225e2bf3d1",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "30760f874055b09a765952dc8d96120e16402cdbd34ef2617fe9728b08080db6",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "92a381fddc7f23eb3bf7f6a145094aea029b1b097fde26f945e5ed4ea32df49631f4d8295d4df84b170e3250b5779cf395ab21fe16e238f43a78b498f9e91c8d",
+                result: Ok(true),
+            },
+            VerifyFixture {
+                public_key: "c709c155e6de596059c510986ab303ad46c9f8501101a5380856bf12fea81e1c",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "a287c952e54f352aecb36be890716392c36a69e886cb1e96dd6152fe854ae0672e1c5a0f64867e18317b5828dbc13c9ee6bd614767624a56e607c0b7981b2cad", // wrong sig (bad recovery)
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "053c621fb6df223777f912f4bb4493f95edef6e7bfacb0e237a882430c2867fa",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "cf6151aeb7a8a3771468eae5f08c1ce10fe0c3f041b1496a5928361bec83daf7b719c867258b5b14a7b4c2792912e15a7dbf2c506fd9a44e04f1bf35f3720840", // wrong sig (bad recovery)
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "a88e4836571d7f6b680f3d6bf5d6ae35584f8441d2529231605731b54c6cf15c",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "5013e42dd549b25777291bea14fda973e646fbe22915040853db5192fb9d5e31d496d5499ba0f484f9305ae623c1eb1a4453621229fff68f8ea317d586edafbc", // wrong sig (bad recovery)
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "9827c0ae8d0eb4829e8d7e867e64e0b5362e6e8c89248118068b92ccc9c81780",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "b3dbe30c1cad8a533e8f8f5dbe8509be01be7a69475c92a3fe91f6d779c267f198644479b53fad93c660fc628b0cc4dcba10593b094b6c19b9e9f0c034bcec9d", // wrong sig (bad recovery)
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "5c7220c5dd51165134a3d2c3a484990afaab491d946baf286d76b71272161750",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "5d442c1fb9fe01aecc5e9a0770d4a73b90136f50f1daa9d9019fa1cfe007ffe8352eb28474c4313ce9f54f6340f3bae18a2d53878da6bd46c62aea044d3c8e32", // wrong sig (bad recovery)
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "8df1a528a75127ae6db6dfcc33c691592ccc20664882632cffcb91ba76ab066a",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "89cd688914c1ce790628ca84571fd83004f4d6ece403865c4a28f06c6a672b1d2e9658fb8e49760972972b3582319fe5c75b6a24eb201b69d5a73fa4ed2b20a8", // bad s
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "5d98ac1465ba641f31c980efc78b6ce968cd1ea78f1c0bd4542f44fd569984a7",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "7e6cd2b6b1f0a233a5e8f135a1041b0deeb53e39b43f9cebf1a42072a360cea33fb26becf5684ec2e705b6081208875050e4c972453ddbf88f22435d89b329e4", // bad s
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "451bc8bd2342e0637b8c71a16b9f943c1b791f726afdd9bf29ade51fb2c0a417",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "2209d881621da775afe04f9511e9985520a7c4becc57cc5d33842767e3a0796c355cc7fa9e8d5710d669a7e293237b0da59342595835b2e9a7e4e3fa1614ebcf", // bad s
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "e6a9a2db3fcd696e49b1fc0a3e706c356dd4315736465bac4ee994e4e35e0a8f",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "bc9916cdae5fa21f7d4aea7cafa544c8f3fc656b6ef33a98887893249f210d8c454269bb3445ec3bd6bb6e31c327049c8359ac1207a1e186c418243cfe06bfa8", // bad r
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "e3361636d32e10e883734af0573f4452d4f01a55c4f9f36a3d622c45b8e5bfaf",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "e38aff4ed424a62ecbaacc05e0bafb2dadbf91f5d7f3e85ae7a18e01e42b451e1e5efe1568a9383f3a193a5d54f9fa5e13ddd688b33ea82f574201c52a6ee76d", // bad r
+                result: Ok(false),
+            },
+            VerifyFixture {
+                public_key: "a4b470c46bf2e2302422278875e177068c6ff7fe5d6826a48f713bb1128e4e78",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+                signature: "b3484151a37b49f952c4122cfe606eb525b36dde2da0a820ba7c145835399fb95d71ead53c75825dc0be69e860bc507c33dd69bc0f3aa186916eb66ac4f0effa", // bad r
+                result: Ok(false),
+            }
+        ];
+
+        for fixture in fixtures {
+            let key = Secp256k1XOnlyPublicKey::from_hex(fixture.public_key).unwrap();
+            let signature = MessageSignature::from_raw(&hex_bytes(fixture.signature).unwrap());
+            let ver_res = key.verify(&hex_bytes(fixture.data).unwrap(), &signature);
+
             match (ver_res, fixture.result) {
                 (Ok(true), Ok(true)) => {}
                 (Ok(false), Ok(false)) => {}

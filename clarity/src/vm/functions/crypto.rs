@@ -36,7 +36,7 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{schnorr_verify, secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 
 use crate::types::chainstate::StacksAddress;
 
@@ -229,5 +229,61 @@ pub fn special_secp256k1_verify(
 
     Ok(Value::Bool(
         secp256k1_verify(&message, &signature, &pubkey).is_ok(),
+    ))
+}
+
+pub fn special_schnorr_verify(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (schnorr-verify (..))
+    // arg0 => message-hash (buff 32), arg1 => signature (buff 65), arg2 => public-key (buff 33)
+
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Schnorrverify, env, 0)?;
+
+    let param0 = eval(&args[0], env, context)?;
+    let message = match param0 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into());
+            }
+            data
+        }
+        _ => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into()),
+    };
+
+    let param1 = eval(&args[1], env, context)?;
+    let signature = match param1 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() > 65 {
+                return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into());
+            }
+            if data.len() < 64 {
+                return Ok(Value::Bool(false));
+            }
+            if data.len() == 65 && data[64] > 3 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into()),
+    };
+
+    let param2 = eval(&args[2], env, context)?;
+    let pubkey = match param2 {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param2).into());
+            }
+            data
+        }
+        _ => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param2).into()),
+    };
+
+    Ok(Value::Bool(
+        schnorr_verify(&message, &signature, &pubkey).is_ok(),
     ))
 }

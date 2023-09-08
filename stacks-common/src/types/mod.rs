@@ -2,6 +2,7 @@ use crate::address::public_keys_to_address_hash;
 use crate::types::chainstate::StacksPublicKey;
 use crate::util::secp256k1::MessageSignature;
 use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::secp256k1::Secp256k1XOnlyPublicKey;
 use std::convert::TryFrom;
 use std::fmt;
 
@@ -43,6 +44,11 @@ impl StacksPublicKeyBuffer {
 }
 
 pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
+    fn to_bytes(&self) -> Vec<u8>;
+    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
+}
+
+pub trait XOnlyPublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
 }
