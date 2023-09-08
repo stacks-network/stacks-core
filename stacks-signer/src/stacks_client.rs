@@ -3,8 +3,8 @@ use frost_signer::{net::Message, signing_round::MessageTypes};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_warn};
-use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn};
+use slog::{slog_debug, slog_warn, slog_info};
+use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn, info};
 
 use crate::config::Config;
 
@@ -68,6 +68,7 @@ impl StacksClient {
             debug!("Sending a chunk to stackerdb!\n{:?}", chunk.clone());
             let chunk_ack = self.stackerdb_session.put_chunk(chunk)?;
             self.slot_versions.insert(slot_id, slot_version);
+            info!("ACK: {:?}", &chunk_ack);
             if chunk_ack.accepted {
                 debug!("Chunk accepted by stackerdb! ACK: {:?}", chunk_ack);
                 return Ok(chunk_ack);

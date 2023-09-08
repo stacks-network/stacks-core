@@ -109,7 +109,7 @@ fn build_signer_config_tomls(
     for (i, stacks_private_key) in signer_stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
         port += 1;
-        let id = i + 1;
+        let id = i;
         let message_private_key = signer_ecdsa_private_keys[i].to_string();
         let stacks_private_key = stacks_private_key.to_hex();
         let signer_config_toml = format!(
@@ -269,7 +269,7 @@ fn test_stackerdb_dkg() {
     // Spawn all the signers first to listen to the coordinator request for dkg
     for i in 1..num_signers {
         let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run);
-        sleep(Duration::from_secs(1));
+        //sleep(Duration::from_secs(1));
         running_signers.push(running_signer);
     }
     // Spawn coordinator second
