@@ -83,6 +83,7 @@ define_named_enum!(ClarityCostFunction {
     Keccak256("cost_keccak256"),
     Secp256k1recover("cost_secp256k1recover"),
     Secp256k1verify("cost_secp256k1verify"),
+    Schnorrverify("cost_schnorrverify"),
     Print("cost_print"),
     SomeCons("cost_some_cons"),
     OkCons("cost_ok_cons"),

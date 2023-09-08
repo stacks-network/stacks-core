@@ -169,6 +169,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff? u1)",
         FromConsensusBuff => "(from-consensus-buff? bool 0x03)",
         ReplaceAt => "(replace-at? list-bar u0 5)",
+        SchnorrVerify => "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0x37b8419810a3dcd386893ced86a18998086cc960d4b02ccae42fd4c5764f976183a2146766040d66152a887863f4a622b61c4b78a846a20299dd595b93bd7e10 0x2bf892dc72dfd17375ad5400e1bf5e06abb8e00bc73b9d1e3c9abda108081a5e)",
     }
 }
 
