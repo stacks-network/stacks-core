@@ -190,6 +190,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
     ReplaceAt("replace-at?", ClarityVersion::Clarity2),
+    SchnorrVerify("schnorr-verify", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -565,6 +566,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor,
             ),
+            SchnorrVerify => {
+                SpecialFunction("native_schnorr-verify", &crypto::special_schnorr_verify)
+            },
         };
         Some(callable)
     } else {
