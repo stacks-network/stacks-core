@@ -84,7 +84,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     let ack = self
                         .stacks_client
                         .send_message(self.signing_round.signer.signer_id, msg);
-                    debug!("ACK: {:?}", ack);
+                    info!("ACK: {:?}", ack);
                 }
                 self.state = State::Dkg;
             }
@@ -94,7 +94,7 @@ impl<C: Coordinatable> RunLoop<C> {
             }
             (RunLoopCommand::DkgSign { message }, State::Idle) => {
                 info!("Starting DKG");
-                debug!("DKG Required for Message: {:?}", message);
+                info!("DKG Required for Message: {:?}", message);
                 if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
                     let _ = self
                         .stacks_client
@@ -126,7 +126,7 @@ impl<C: Coordinatable> RunLoop<C> {
         &mut self,
         event: &StackerDBChunksEvent,
     ) -> (Vec<Message>, Vec<OperationResult>) {
-        debug!("Processing event: {:?}", event);
+        info!("Processing event: {:?}", event);
         // Determine the current coordinator id and public key for verification
         let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
@@ -285,7 +285,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>> for RunLoop<C> {
                     .stacks_client
                     .send_message(self.signing_round.signer.signer_id, msg);
                 if let Ok(ack) = ack {
-                    debug!("ACK: {:?}", ack);
+                    info!("ACK: {:?}", ack);
                 } else {
                     warn!("Failed to send message to stacker-db instance: {:?}", ack);
                 }
@@ -336,7 +336,7 @@ fn verify_msg(
         }
         MessageTypes::DkgEnd(msg) | MessageTypes::DkgPublicEnd(msg) => {
             if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                debug!("{:?}", public_key.to_bytes());
+                info!("{:?}", public_key.to_bytes());
 
                 if !msg.verify(&m.sig, public_key) {
                     warn!("Received a DkgPublicEnd message with an invalid signature.");

@@ -134,7 +134,7 @@ impl Coordinator {
         match &message.msg {
             MessageTypes::DkgPublicEnd(dkg_end_msg) => {
                 self.ids_to_await.remove(&dkg_end_msg.signer_id);
-                debug!(
+                info!(
                     "DKG_Public_End round #{} from signer #{}. Waiting on {:?}",
                     dkg_end_msg.dkg_id, dkg_end_msg.signer_id, self.ids_to_await
                 );
@@ -143,7 +143,7 @@ impl Coordinator {
                 self.dkg_public_shares
                     .insert(dkg_public_share.party_id, dkg_public_share.clone());
 
-                debug!(
+                info!(
                     "DKG round #{} DkgPublicShare from party #{}",
                     dkg_public_share.dkg_id, dkg_public_share.party_id
                 );
@@ -158,7 +158,7 @@ impl Coordinator {
                 .fold(Point::default(), |s, (_, dps)| s + dps.public_share.A[0]);
             // check to see if aggregate public key has even y
             if key.has_even_y() {
-                debug!("Aggregate public key has even y coord!");
+                info!("Aggregate public key has even y coord!");
                 info!("Aggregate public key: {}", key);
                 self.aggregate_public_key = key;
                 self.move_to(State::DkgPrivateDistribute)?;
@@ -178,7 +178,7 @@ impl Coordinator {
         );
         if let MessageTypes::DkgEnd(dkg_end_msg) = &message.msg {
             self.ids_to_await.remove(&dkg_end_msg.signer_id);
-            debug!(
+            info!(
                 "DKG_End round #{} from signer #{}. Waiting on {:?}",
                 dkg_end_msg.dkg_id, dkg_end_msg.signer_id, self.ids_to_await
             );

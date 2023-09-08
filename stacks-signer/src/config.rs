@@ -57,6 +57,8 @@ pub enum Network {
 pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
+    /// endpoint to the stackerdb receiver
+    pub endpoint: SocketAddr,
     /// smart contract that controls the target stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// The Scalar representation of the private key for signer communication
@@ -87,6 +89,8 @@ struct RawSigners {
 struct RawConfigFile {
     /// endpoint to stacks node
     pub node_host: String,
+    /// endpoint to stackerdb receiver
+    pub endpoint: String,
     /// contract identifier
     pub stackerdb_contract_id: String,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
@@ -146,6 +150,19 @@ impl TryFrom<RawConfigFile> for Config {
                 raw_data.node_host.clone(),
             ))?;
 
+        let endpoint = raw_data
+            .endpoint
+            .clone()
+            .to_socket_addrs()
+            .map_err(|_| {
+                ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
+            })?
+            .next()
+            .ok_or(ConfigError::BadField(
+                "endpoint".to_string(),
+                raw_data.endpoint.clone(),
+            ))?;
+
         let stackerdb_contract_id =
             QualifiedContractIdentifier::parse(&raw_data.stackerdb_contract_id).map_err(|_| {
                 ConfigError::BadField(
@@ -201,6 +218,7 @@ impl TryFrom<RawConfigFile> for Config {
             Duration::from_secs(raw_data.event_timeout.unwrap_or(EVENT_TIMEOUT_SECS));
         Ok(Self {
             node_host,
+            endpoint,
             stackerdb_contract_id,
             message_private_key,
             stacks_private_key,

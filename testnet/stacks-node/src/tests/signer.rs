@@ -60,6 +60,7 @@ fn build_contract(num_signers: u32, signer_stacks_private_keys: &[StacksPrivateK
 fn build_signer_config_tomls(
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
+    node_host: &str,
     contract_id: String,
 ) -> Vec<String> {
     let mut rng = OsRng::default();
@@ -97,7 +98,7 @@ fn build_signer_config_tomls(
     signers_array += "]";
     let mut port = 30000;
     for (i, stacks_private_key) in signer_stacks_private_keys.iter().enumerate() {
-        let node_host = format!("localhost:{}", port);
+        let endpoint = format!("localhost:{}", port);
         port += 1;
         let id = i + 1;
         let message_private_key = signer_ecdsa_private_keys[i].to_string();
@@ -107,6 +108,7 @@ fn build_signer_config_tomls(
 message_private_key = "{message_private_key}"
 stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
+endpoint = "{endpoint}"
 network = "testnet"
 stackerdb_contract_id = "{contract_id}"
 signer_id = {id}
@@ -131,7 +133,7 @@ fn spawn_running_signer(
         stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev);
-    let endpoint = config.node_host;
+    let endpoint = config.endpoint;
     info!(
         "Spawning signer {} on endpoint {}",
         config.signer_id, endpoint
@@ -228,6 +230,7 @@ fn test_stackerdb_dkg() {
     let signer_configs = build_signer_config_tomls(
         num_signers,
         &signer_stacks_private_keys,
+        &conf.node.rpc_bind,
         contract_id.to_string(),
     );
 
@@ -242,7 +245,7 @@ fn test_stackerdb_dkg() {
     // Spawn coordinator second
     let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Dkg);
 
-    sleep(Duration::from_secs(5));
+    sleep(Duration::from_secs(60));
     let result = running_coordinator.stop().unwrap();
     assert_eq!(result.len(), 1);
     assert_ne!(result[0], Point::default());
