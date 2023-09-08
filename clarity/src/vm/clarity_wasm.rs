@@ -586,7 +586,7 @@ where
                     &data_types,
                 );
 
-                let result_size = match &result {
+                let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
                     Err(_e) => data_types.value_type.size() as u64,
                 };
@@ -777,24 +777,24 @@ where
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_ascii_from_bytes(buffer)
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => {
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("type not yet implemented: {:?}", ty)
         }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => {
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
             todo!("type not yet implemented: {:?}", ty)
         }
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => {
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("type not yet implemented: {:?}", ty)
         }
-        TypeSignature::ResponseType(r) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ResponseType(_r) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
     }
 }
 
@@ -849,16 +849,16 @@ where
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
         }
         TypeSignature::UIntType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::SequenceType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ResponseType(sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::SequenceType(_subtype) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ResponseType(_sig) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
     };
     Ok(())
 }
@@ -920,18 +920,18 @@ fn pass_argument_to_wasm(
             let adjusted_offset = offset + s.data.len() as i32;
             Ok((buffer, adjusted_offset))
         }
-        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => {
+        Value::Sequence(SequenceData::String(CharType::UTF8(_s))) => {
             todo!("Value type not yet implemented: {:?}", value)
         }
-        Value::Sequence(SequenceData::Buffer(b)) => {
+        Value::Sequence(SequenceData::Buffer(_b)) => {
             todo!("Value type not yet implemented: {:?}", value)
         }
-        Value::Sequence(SequenceData::List(l)) => {
+        Value::Sequence(SequenceData::List(_l)) => {
             todo!("Value type not yet implemented: {:?}", value)
         }
-        Value::Principal(p) => todo!("Value type not yet implemented: {:?}", value),
-        Value::CallableContract(c) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Tuple(t) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
+        Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
     }
 }
 
@@ -975,26 +975,26 @@ where
             // Return values will be offset and length
             Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => {
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => {
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => {
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::CallableType(subtype) => {
+        TypeSignature::CallableType(_subtype) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::ListUnionType(subtypes) => {
+        TypeSignature::ListUnionType(_subtypes) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
         TypeSignature::PrincipalType => todo!("Return type not yet implemented: {:?}", return_type),
-        TypeSignature::TraitReferenceType(trait_id) => {
+        TypeSignature::TraitReferenceType(_trait_id) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::TupleType(type_sig) => {
+        TypeSignature::TupleType(_type_sig) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
     }
@@ -1107,23 +1107,23 @@ fn wasm_to_clarity_value(
         }
         // A `NoType` will be a dummy value that should not be used.
         TypeSignature::NoType => Ok((None, 1)),
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(s))) => {
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(b)) => {
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::SequenceType(SequenceSubtype::ListType(l)) => {
+        TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
         TypeSignature::PrincipalType => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::TupleType(t) => todo!("Wasm value type not implemented: {:?}", type_sig),
-        TypeSignature::TraitReferenceType(t) => {
+        TypeSignature::TupleType(_t) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::TraitReferenceType(_t) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::ListUnionType(lu) => {
+        TypeSignature::ListUnionType(_lu) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::CallableType(c) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::CallableType(_c) => todo!("Wasm value type not implemented: {:?}", type_sig),
     }
 }
