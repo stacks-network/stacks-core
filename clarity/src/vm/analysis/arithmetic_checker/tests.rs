@@ -316,6 +316,8 @@ fn test_functions_clarity1() {
          Ok(())),
         ("(from-consensus-buff? true 0x03)",
          Ok(())),
+        ("(define-private (foo) (schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0xaa2e76f4f43042fee4748cb3276cab19d003818fdac5f268099105c55b5ce2bbf0dbf5929d1fb69e94104057a9716c4e0627a7422e14ceabcc5b7ad87247a7c6 0x8957d5fb466977bfe8db3fde6cd6cf05ca52f20d06ab00b95c2913c1fe5f4959))",
+         Err(FunctionNotPermitted(NativeFunctions::SchnorrVerify))),
     ];
 
     for (contract, result) in tests.iter() {
@@ -453,6 +455,8 @@ fn test_functions_clarity2() {
          Err(FunctionNotPermitted(NativeFunctions::Sha512))),
         ("(define-private (foo) (sha512/256 0))",
          Err(FunctionNotPermitted(NativeFunctions::Sha512Trunc256))),
+        ("(define-private (foo) (schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 0xaa2e76f4f43042fee4748cb3276cab19d003818fdac5f268099105c55b5ce2bbf0dbf5929d1fb69e94104057a9716c4e0627a7422e14ceabcc5b7ad87247a7c6 0x8957d5fb466977bfe8db3fde6cd6cf05ca52f20d06ab00b95c2913c1fe5f4959))",
+         Err(FunctionNotPermitted(NativeFunctions::SchnorrVerify))),
     ];
 
     for (contract, result) in tests.iter() {
