@@ -677,6 +677,18 @@ fn check_get_burn_block_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
+fn check_schnorr_verify(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(3, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[1], context, &BUFF_64)?;
+    checker.type_check_expects(&args[2], context, &BUFF_33)?;
+    Ok(TypeSignature::BoolType)
+}
+
 impl TypedNativeFunction {
     pub fn type_check_application(
         &self,
@@ -991,6 +1003,7 @@ impl TypedNativeFunction {
             FromConsensusBuff => Special(SpecialNativeFunction(
                 &conversions::check_special_from_consensus_buff,
             )),
+            SchnorrVerify => Special(SpecialNativeFunction(&check_schnorr_verify)),
         }
     }
 }
