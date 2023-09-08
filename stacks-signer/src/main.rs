@@ -40,6 +40,7 @@ use std::{
     io::{self, Read, Write},
     net::SocketAddr,
     path::PathBuf,
+    sync::mpsc,
 };
 use wsts::Point;
 
@@ -171,11 +172,11 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 
 fn spawn_running_signer(
     path: &PathBuf,
-    command: RunLoopCommand,
+    receiver: mpsc::Receiver<RunLoopCommand>,
 ) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
     let config = Config::try_from(path).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
+    let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, receiver);
     let mut signer: Signer<Vec<Point>, RunLoop<FrostCoordinator>, StackerDBEventReceiver> =
         Signer::new(runloop, ev);
     let endpoint = config.node_host;
@@ -222,7 +223,9 @@ fn main() {
         }
         Command::Dkg => {
             if let Some(config) = &cli.config {
-                let _running_signer = spawn_running_signer(config, RunLoopCommand::Dkg);
+                let (sender, recv) = mpsc::channel();
+                let _running_signer = spawn_running_signer(config, recv);
+                sender.send(RunLoopCommand::Dkg).unwrap();
             } else {
                 // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg is currently only supported when using a config file");
@@ -230,8 +233,11 @@ fn main() {
         }
         Command::DkgSign(args) => {
             if let Some(config) = &cli.config {
-                let _running_signer =
-                    spawn_running_signer(config, RunLoopCommand::DkgSign { message: args.data });
+                let (sender, recv) = mpsc::channel();
+                let _running_signer = spawn_running_signer(config, recv);
+                sender
+                    .send(RunLoopCommand::DkgSign { message: args.data })
+                    .unwrap();
             } else {
                 // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");
@@ -239,8 +245,11 @@ fn main() {
         }
         Command::Sign(args) => {
             if let Some(config) = &cli.config {
-                let _running_signer =
-                    spawn_running_signer(config, RunLoopCommand::Sign { message: args.data });
+                let (sender, recv) = mpsc::channel();
+                let _running_signer = spawn_running_signer(config, recv);
+                sender
+                    .send(RunLoopCommand::Sign { message: args.data })
+                    .unwrap();
             } else {
                 // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");
@@ -248,7 +257,8 @@ fn main() {
         }
         Command::Run => {
             if let Some(config) = &cli.config {
-                let _running_signer = spawn_running_signer(config, RunLoopCommand::Run);
+                let (_sender, recv) = mpsc::channel();
+                let _running_signer = spawn_running_signer(config, recv);
             } else {
                 // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");

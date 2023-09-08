@@ -7,7 +7,10 @@ use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
-use std::time::Duration;
+use std::{
+    sync::{mpsc, Mutex},
+    time::Duration,
+};
 use wsts::Point;
 
 use crate::{
@@ -68,6 +71,8 @@ pub struct RunLoop<C> {
     pub command: RunLoopCommand,
     /// The current state
     pub state: State,
+    /// The command receiver
+    pub command_receiver: Mutex<mpsc::Receiver<RunLoopCommand>>,
 }
 
 impl<C: Coordinatable> RunLoop<C> {
@@ -166,7 +171,7 @@ impl<C: Coordinatable> RunLoop<C> {
 
 impl RunLoop<FrostCoordinator> {
     /// Creates new runloop from a config and command
-    pub fn new(config: &Config, command: RunLoopCommand) -> Self {
+    pub fn new(config: &Config, command_receiver: mpsc::Receiver<RunLoopCommand>) -> Self {
         // TODO: should this be a config option?
         // The threshold is 70% of the shares
         let threshold = (config.signer_ids_public_keys.key_ids.len() / 10 * 7)
@@ -202,8 +207,9 @@ impl RunLoop<FrostCoordinator> {
                 config.signer_ids_public_keys.clone(),
             ),
             stacks_client: StacksClient::from(config),
-            command,
+            command: RunLoopCommand::Run,
             state: State::Idle,
+            command_receiver: Mutex::new(command_receiver),
         }
     }
 }
@@ -272,7 +278,10 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>> for RunLoop<C> {
 
     // TODO: update the return type to return any OperationResult
     fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<Vec<Point>> {
-        // TODO: we should potentially trigger shares outside of the runloop. This may be temporary?
+        // Poll for a command to process
+        if let Some(command) = self.command_receiver.lock().unwrap().try_recv().ok() {
+            self.command = command;
+        }
         self.execute_dkg_sign();
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
