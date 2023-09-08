@@ -30,6 +30,7 @@ use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
+use clarity::vm::diagnostic::DiagnosableError;
 use clarity::vm::errors::{Error as InterpreterError, WasmError};
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
