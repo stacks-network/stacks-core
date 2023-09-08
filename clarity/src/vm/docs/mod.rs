@@ -2412,6 +2412,28 @@ If the provided index is out of bounds, this functions returns `none`.
 "#,
 };
 
+const SCHNORRVERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64) | (buff 65), (buff 32)",
+    snippet: "schnorr-verify ${1:message-hash} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(schnorr-verify message-hash signature public-key)",
+    description: "The `schnorr-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+The `message-hash` is the 32 byte `sha256` of the message.
+The signature is 64 bytes.
+The public key is an XOnly public key, which has 32 bytes.
+",
+    example: "(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+ 0xc46e79d770b9f5aea40451ac0da0d524ec81500a4b4ea38454f3a429003be9b52ee2de0a52a64b2b1d6fa443a7c87181605f9bba0ab674b4bd12b89621bc4ecc
+ 0x903336626d211c6a88ae35d210a3958cc99f306ba4646685ca97e22abad8591a) ;; Returns true
+(schnorr-verify 0xb94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+ 0xbe69701137db0ea2c117ba90611761cc0ea64e7b577ff4f3b913c33e9fc8f5f936b9af031ebff94326d5a391ff1a67f2637077d0ec774f45e5b51c46970d5a48
+ 0xff964800596a18148613fbc4ecac1d0f0fec7334e60f3b8ff8df47c1c7d74431) ;; Returns true
+(schnorr-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+ 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ 0xff964800596a18148613fbc4ecac1d0f0fec7334e60f3b8ff8df47c1c7d74431) ;; Returns false"
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2522,6 +2544,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &function, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &function, name),
+        SchnorrVerify => make_for_special(&SCHNORRVERIFY_API, &function)
     }
 }
 
