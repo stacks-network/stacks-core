@@ -72,13 +72,14 @@ impl StacksClient {
                 debug!("Chunk accepted by stackerdb! ACK: {:?}", chunk_ack);
                 return Ok(chunk_ack);
             }
-            if let Some(reason) = chunk_ack.reason {
+            if let Some(reason) = chunk_ack.reason.as_ref() {
                 // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
                 if reason == "Data for this slot and version already exist" {
                     warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
                 } else {
                     warn!("Failed to send message to stackerdb: {}", reason);
-                    return Err(ClientError::PutChunkRejected(reason));
+                    debug!("ACK: {:?}", chunk_ack);
+                    return Err(ClientError::PutChunkRejected(reason.clone()));
                 }
             }
         }

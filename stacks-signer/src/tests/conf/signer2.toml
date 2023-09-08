@@ -1,5 +1,5 @@
 message_private_key = "8PdTCUUd9SvW1HHjosqwTJk4Ct9iRsguu7EwqG52SmJJ"
-stacks_private_key = "b612f5ab0af6b540f19907f41b9070469a015b3b874e671e39aa390cb4815a8501"
+stacks_private_key = "660299ed73625b9ab328f158d4d77af6942778de83f4739d165bb7eda1d9d40e01"
 network = "testnet"
 node_host = "127.0.0.1:20443"
 stackerdb_contract_id = ""

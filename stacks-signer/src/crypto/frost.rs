@@ -6,8 +6,8 @@ use frost_signer::{
     signing_round::{DkgBegin, DkgPublicShare, MessageTypes, Signable},
 };
 use hashbrown::HashSet;
-use slog::{slog_debug, slog_info, slog_warn};
-use stacks_common::{debug, error, info, warn};
+use slog::{slog_info, slog_warn};
+use stacks_common::{error, info, warn};
 use wsts::{Point, Scalar};
 
 #[derive(thiserror::Error, Debug)]

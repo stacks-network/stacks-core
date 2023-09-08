@@ -202,15 +202,9 @@ impl TryFrom<RawConfigFile> for Config {
                 public_keys.key_ids.insert(*key_id, signer_public_key);
             }
             //We start our signer and key IDs from 1 hence the + 1;
-            let signer_key = u32::try_from(i).unwrap() + 1;
+            let signer_key = u32::try_from(i).unwrap();
             public_keys.signers.insert(signer_key, signer_public_key);
             signer_key_ids.insert(signer_key, s.key_ids.clone());
-        }
-        if raw_data.signer_id == 0 {
-            return Err(ConfigError::BadField(
-                "signer_id".to_string(),
-                raw_data.signer_id.to_string(),
-            ));
         }
         let event_timeout =
             Duration::from_secs(raw_data.event_timeout.unwrap_or(EVENT_TIMEOUT_SECS));
