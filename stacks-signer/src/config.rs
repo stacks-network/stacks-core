@@ -154,9 +154,7 @@ impl TryFrom<RawConfigFile> for Config {
             .endpoint
             .clone()
             .to_socket_addrs()
-            .map_err(|_| {
-                ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
-            })?
+            .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
             .ok_or(ConfigError::BadField(
                 "endpoint".to_string(),

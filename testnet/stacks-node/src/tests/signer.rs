@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{env, thread};
 
 use crate::{
-    config::{EventKeyType, EventObserverConfig, InitialBalance},
+    config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance},
     neon,
     tests::{
         bitcoin_regtest::BitcoinCoreController,
@@ -24,6 +24,15 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_signer::runloop::RunLoopCommand;
 
 const SLOTS_PER_USER: u32 = 16;
+
+// Helper struct for holding the btc and stx neon nodes
+#[allow(dead_code)]
+struct RunningNodes {
+    pub btc_regtest_controller: BitcoinRegtestController,
+    pub btcd_controller: BitcoinCoreController,
+    pub join_handle: thread::JoinHandle<()>,
+    pub conf: NeonConfig,
+}
 
 fn build_contract(num_signers: u32, signer_stacks_private_keys: &[StacksPrivateKey]) -> String {
     let mut stackerdb_contract = String::new(); // "
@@ -141,18 +150,11 @@ fn spawn_running_signer(
     signer.spawn(endpoint).unwrap()
 }
 
-#[test]
-fn test_stackerdb_dkg() {
-    let num_signers: u32 = 5;
-    let signer_stacks_private_keys = (0..num_signers)
-        .map(|_| StacksPrivateKey::new())
-        .collect::<Vec<StacksPrivateKey>>();
-
-    // Setup the neon node
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
+fn setup_stx_btc_node(
+    num_signers: u32,
+    signer_stacks_private_keys: &[StacksPrivateKey],
+    stackerdb_contract: &str,
+) -> RunningNodes {
     let (mut conf, _) = neon_integration_test_conf();
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
@@ -190,7 +192,7 @@ fn test_stackerdb_dkg() {
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
-    thread::spawn(move || run_loop.start(None, 0));
+    let join_handle = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop some time to start up!
     eprintln!("Wait for runloop...");
@@ -209,14 +211,13 @@ fn test_stackerdb_dkg() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
     eprintln!("Send contract-publish...");
     let tx = make_contract_publish(
         &signer_stacks_private_keys[0],
         0,
         10_000,
         "hello-world",
-        &stackerdb_contract,
+        stackerdb_contract,
     );
     submit_tx(&http_origin, &tx);
 
@@ -225,12 +226,41 @@ fn test_stackerdb_dkg() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    RunningNodes {
+        btcd_controller,
+        btc_regtest_controller,
+        join_handle,
+        conf,
+    }
+}
+
+#[test]
+fn test_stackerdb_dkg() {
+    let num_signers: u32 = 5;
+    let signer_stacks_private_keys = (0..num_signers)
+        .map(|_| StacksPrivateKey::new())
+        .collect::<Vec<StacksPrivateKey>>();
+
+    // Setup the neon node
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // Build the stackerdb contract
+    let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
+    // Setup the nodes and deploy the contract to it
+    let node = setup_stx_btc_node(
+        num_signers,
+        &signer_stacks_private_keys,
+        &stackerdb_contract,
+    );
+
     // Setup the signer and coordinator configurations
-    let contract_id = conf.node.stacker_dbs[0].clone();
+    let contract_id = node.conf.node.stacker_dbs[0].clone();
     let signer_configs = build_signer_config_tomls(
         num_signers,
         &signer_stacks_private_keys,
-        &conf.node.rpc_bind,
+        &node.conf.node.rpc_bind,
         contract_id.to_string(),
     );
 
