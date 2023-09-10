@@ -570,7 +570,7 @@ where
              name_offset: i32,
              name_length: i32,
              return_offset: i32,
-             return_length: i32| {
+             _return_length: i32| {
                 // Retrieve the variable name for this identifier
                 let var_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
 
@@ -598,13 +598,17 @@ where
                 // runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
 
                 let value = result.map(|data| data.value)?;
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
                 write_to_wasm(
                     &mut caller,
+                    memory,
                     &data_types.value_type,
                     return_offset,
-                    return_length,
-                    value,
+                    &value,
                 )?;
 
                 Ok(())
@@ -817,39 +821,28 @@ fn value_as_u128(value: &Value) -> Result<u128, Error> {
 
 /// Write a value to the Wasm memory at `offset` with `length` given the
 /// provided Clarity `TypeSignature`.'
-fn write_to_wasm<T>(
-    caller: &mut Caller<'_, T>,
+fn write_to_wasm(
+    mut store: impl AsContextMut,
+    memory: Memory,
     ty: &TypeSignature,
     offset: i32,
-    length: i32,
-    value: Value,
-) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
-    let memory = caller
-        .get_export("memory")
-        .and_then(|export| export.into_memory())
-        .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
+    value: &Value,
+) -> Result<i32, Error> {
     match ty {
         TypeSignature::IntType => {
-            debug_assert!(
-                length == 16,
-                "expected int length to be 16 bytes, found {length}"
-            );
             let mut buffer: [u8; 8] = [0; 8];
             let i = value_as_i128(&value)?;
             let high = (i >> 64) as u64;
             let low = (i & 0xffff_ffff_ffff_ffff) as u64;
             buffer.copy_from_slice(&low.to_le_bytes());
             memory
-                .write(caller.borrow_mut(), offset as usize, &buffer)
+                .write(store.as_context_mut(), offset as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             buffer.copy_from_slice(&high.to_le_bytes());
             memory
-                .write(caller.borrow_mut(), (offset + 8) as usize, &buffer)
+                .write(store.as_context_mut(), (offset + 8) as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            Ok(16)
         }
         TypeSignature::UIntType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::SequenceType(_subtype) => todo!("type not yet implemented: {:?}", ty),
@@ -862,8 +855,7 @@ where
         TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
-    };
-    Ok(())
+    }
 }
 
 /// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
@@ -929,8 +921,21 @@ fn pass_argument_to_wasm(
         Value::Sequence(SequenceData::Buffer(_b)) => {
             todo!("Value type not yet implemented: {:?}", value)
         }
-        Value::Sequence(SequenceData::List(_l)) => {
-            todo!("Value type not yet implemented: {:?}", value)
+        Value::Sequence(SequenceData::List(l)) => {
+            let mut buffer = vec![Val::I32(offset)];
+            let mut adjusted_offset = offset;
+            for item in &l.data {
+                let len = write_to_wasm(
+                    store.as_context_mut(),
+                    memory,
+                    l.type_signature.get_list_item_type(),
+                    adjusted_offset,
+                    item,
+                )?;
+                adjusted_offset += len;
+            }
+            buffer.push(Val::I32(adjusted_offset - offset));
+            Ok((buffer, adjusted_offset))
         }
         Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
         Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
