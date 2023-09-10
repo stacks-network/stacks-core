@@ -40,7 +40,7 @@ impl Coordinator {
             dkg_public_shares: Default::default(),
             aggregate_public_key: Point::default(),
             message_private_key,
-            ids_to_await: (1..=total_signers).collect(),
+            ids_to_await: (0..total_signers).collect(),
             state: State::Idle,
         }
     }
@@ -166,7 +166,7 @@ impl Coordinator {
                 warn!("DKG Round #{} Failed: Aggregate public key does not have even y coord, re-running dkg.", self.current_dkg_id);
                 self.move_to(State::DkgPublicDistribute)?;
             }
-            self.ids_to_await = (1..=self.total_signers).collect();
+            self.ids_to_await = (0..self.total_signers).collect();
         }
         Ok(())
     }
@@ -185,7 +185,7 @@ impl Coordinator {
         }
 
         if self.ids_to_await.is_empty() {
-            self.ids_to_await = (1..=self.total_signers).collect();
+            self.ids_to_await = (0..self.total_signers).collect();
             self.move_to(State::Idle)?;
         }
         Ok(())

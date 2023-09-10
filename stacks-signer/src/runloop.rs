@@ -188,7 +188,9 @@ impl RunLoop<FrostCoordinator> {
             .signer_key_ids
             .get(&config.signer_id)
             .unwrap()
-            .clone();
+            .iter()
+            .map(|i| i - 1) // SigningRound::new (unlike SigningRound::from) doesn't do this
+            .collect::<Vec<u32>>();
         RunLoop {
             event_timeout: config.event_timeout,
             coordinator: FrostCoordinator::new(total_signers, config.message_private_key),
