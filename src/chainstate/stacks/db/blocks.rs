@@ -3732,7 +3732,7 @@ impl StacksChainState {
     ) -> Result<Option<StagingBlock>, Error> {
         let sql =
             "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND arrival_time >= ?1 ORDER BY height DESC LIMIT 1";
-        let res = query_row(conn, sql, &[u64_to_sql(deadline)?])?;
+        let res = query_row(conn, sql, [u64_to_sql(deadline)?])?;
         Ok(res)
     }
 
