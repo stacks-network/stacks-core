@@ -95,6 +95,18 @@ impl_stacks_message_codec_for_int!(u32; [0; 4]);
 impl_stacks_message_codec_for_int!(u64; [0; 8]);
 impl_stacks_message_codec_for_int!(i64; [0; 8]);
 
+impl StacksMessageCodec for [u8; 20] {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
+        fd.write_all(self).map_err(Error::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<[u8; 20], Error> {
+        let mut buf = [0u8; 20];
+        fd.read_exact(&mut buf).map_err(Error::ReadError)?;
+        Ok(buf)
+    }
+}
+
 impl StacksMessageCodec for [u8; 32] {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
         fd.write_all(self).map_err(Error::WriteError)

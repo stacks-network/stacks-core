@@ -36,6 +36,7 @@ pub enum CheckErrors {
     ValueOutOfBounds,
     TypeSignatureTooDeep,
     ExpectedName,
+    SupertypeTooLarge,
 
     // match errors
     BadMatchOptionSyntax(Box<CheckErrors>),
@@ -321,6 +322,7 @@ impl DiagnosableError for CheckErrors {
     fn message(&self) -> String {
         match &self {
             CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
+            CheckErrors::SupertypeTooLarge => "supertype of two types is too large".into(),
             CheckErrors::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),

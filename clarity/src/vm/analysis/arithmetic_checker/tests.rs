@@ -29,20 +29,10 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_arith_checker(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
@@ -71,7 +61,7 @@ fn check_good(contract: &str, version: ClarityVersion, epoch: StacksEpochId) {
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
-#[apply(test_clarity_versions_arith_checker)]
+#[apply(test_clarity_versions)]
 fn test_bad_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),

@@ -1,6 +1,10 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use stacks::burnchains::PoxConstants;
+#[cfg(test)]
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -122,5 +126,15 @@ impl<'a> Tenure {
         )
         .unwrap();
         chain_state
+    }
+
+    #[cfg(test)]
+    pub fn open_fake_sortdb(&self) -> SortitionDB {
+        SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            PoxConstants::testnet_default(),
+        )
+        .unwrap()
     }
 }

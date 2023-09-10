@@ -71,11 +71,28 @@ pub enum StacksEpochId {
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
     Epoch21 = 0x0200a,
+    Epoch22 = 0x0200f,
+    Epoch23 = 0x02014,
+    Epoch24 = 0x02019,
 }
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch21
+        StacksEpochId::Epoch24
+    }
+
+    /// Returns whether or not this Epoch should perform
+    ///  Clarity value sanitization
+    pub fn value_sanitizing(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23 => false,
+            StacksEpochId::Epoch24 => true,
+        }
     }
 }
 
@@ -86,6 +103,9 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch20 => write!(f, "2.0"),
             StacksEpochId::Epoch2_05 => write!(f, "2.05"),
             StacksEpochId::Epoch21 => write!(f, "2.1"),
+            StacksEpochId::Epoch22 => write!(f, "2.2"),
+            StacksEpochId::Epoch23 => write!(f, "2.3"),
+            StacksEpochId::Epoch24 => write!(f, "2.4"),
         }
     }
 }
@@ -99,6 +119,9 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
             x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
             x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
+            x if x == StacksEpochId::Epoch22 as u32 => Ok(StacksEpochId::Epoch22),
+            x if x == StacksEpochId::Epoch23 as u32 => Ok(StacksEpochId::Epoch23),
+            x if x == StacksEpochId::Epoch24 as u32 => Ok(StacksEpochId::Epoch24),
             _ => Err("Invalid epoch"),
         }
     }

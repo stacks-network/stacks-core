@@ -56,7 +56,7 @@ impl OutPoint {
     pub fn null() -> OutPoint {
         OutPoint {
             txid: Default::default(),
-            vout: u32::max_value(),
+            vout: u32::MAX,
         }
     }
 

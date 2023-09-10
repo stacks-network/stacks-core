@@ -24,8 +24,11 @@ use stacks::chainstate::stacks::{
 };
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
 use stacks::codec::StacksMessageCodec;
-use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
+use stacks::core::mempool::MemPoolDropReason;
+use stacks::core::mempool::MemPoolEventDispatcher;
+use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
+use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -59,6 +62,7 @@ pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_MINED_BLOCK: &str = "mined_block";
 pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
+pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
@@ -81,6 +85,13 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
+}
+
+/// Event structure for newly-arrived StackerDB data
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StackerDBChunksEvent {
+    pub contract_id: QualifiedContractIdentifier,
+    pub modified_slots: Vec<StackerDBChunkData>,
 }
 
 impl EventObserver {
@@ -335,6 +346,10 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_MICROBLOCK);
     }
 
+    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_STACKERDB_CHUNKS);
+    }
+
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
@@ -393,6 +408,7 @@ impl EventObserver {
             "anchored_cost": anchored_consumed,
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
+            "pox_v2_unlock_height": pox_constants.v2_unlock_height,
         })
     }
 }
@@ -409,6 +425,7 @@ pub struct EventDispatcher {
     any_event_observers_lookup: HashSet<u16>,
     miner_observers_lookup: HashSet<u16>,
     mined_microblocks_observers_lookup: HashSet<u16>,
+    stackerdb_observers_lookup: HashSet<u16>,
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
@@ -450,6 +467,17 @@ impl MemPoolEventDispatcher for EventDispatcher {
             anchor_block_consensus_hash,
             anchor_block,
         );
+    }
+}
+
+impl StackerDBEventDispatcher for EventDispatcher {
+    /// Relay new StackerDB chunks
+    fn new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        chunks: Vec<StackerDBChunkData>,
+    ) {
+        self.process_new_stackerdb_chunks(contract_id, chunks);
     }
 }
 
@@ -518,6 +546,7 @@ impl EventDispatcher {
             microblock_observers_lookup: HashSet::new(),
             miner_observers_lookup: HashSet::new(),
             mined_microblocks_observers_lookup: HashSet::new(),
+            stackerdb_observers_lookup: HashSet::new(),
         }
     }
 
@@ -878,6 +907,36 @@ impl EventDispatcher {
         }
     }
 
+    /// Forward newly-accepted StackerDB chunk metadata to downstream `stackerdb` observers.
+    /// Infallible.
+    pub fn process_new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        new_chunks: Vec<StackerDBChunkData>,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(StackerDBChunksEvent {
+            contract_id,
+            modified_slots: new_chunks,
+        })
+        .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_stackerdb_chunks(&payload);
+        }
+    }
+
     pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -996,6 +1055,9 @@ impl EventDispatcher {
                 EventKeyType::MinedMicroblocks => {
                     self.mined_microblocks_observers_lookup
                         .insert(observer_index);
+                }
+                EventKeyType::StackerDBChunks => {
+                    self.stackerdb_observers_lookup.insert(observer_index);
                 }
             }
         }

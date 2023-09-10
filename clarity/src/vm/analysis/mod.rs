@@ -133,7 +133,12 @@ pub fn run_analysis(
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
-            StacksEpochId::Epoch21 => TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => {
+                TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
+            }
             StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
         }?;
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db)?;

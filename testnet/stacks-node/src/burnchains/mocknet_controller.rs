@@ -13,7 +13,10 @@ use stacks::chainstate::burn::operations::{
     TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
+use stacks::core::{
+    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
+};
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
@@ -100,13 +103,29 @@ impl BurnchainController for MocknetController {
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
         match &self.config.burnchain.epochs {
             Some(epochs) => epochs.clone(),
-            None => vec![StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            }],
+            None => vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 0,
+                    end_height: 1,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch2_05,
+                    start_height: 1,
+                    end_height: 2,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 2,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_1,
+                },
+            ],
         }
     }
 

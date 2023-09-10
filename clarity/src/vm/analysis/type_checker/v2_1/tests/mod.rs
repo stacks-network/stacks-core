@@ -35,6 +35,7 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -49,17 +50,6 @@ use crate::vm::{execute_v2, ClarityName};
 
 mod assets;
 pub mod contracts;
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_type_checker(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-) {
-}
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
@@ -340,7 +330,7 @@ fn test_get_burn_block_info() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
@@ -384,7 +374,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = [
         "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
@@ -406,7 +396,7 @@ fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId)
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
@@ -530,7 +520,7 @@ fn test_tx_sponsor() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(unwrap! (some 1) 2)",
@@ -744,7 +734,7 @@ fn test_at_block() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_trait_reference_unknown(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = [(
         "(+ 1 <kvstore>)",
@@ -1148,7 +1138,7 @@ fn test_element_at() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_eqs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(is-eq (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
@@ -2193,7 +2183,7 @@ fn test_string_to_ints() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_response_inference(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-private (foo (x int)) (err x))
@@ -2323,7 +2313,7 @@ fn test_factorial() {
     mem_type_check(contract).unwrap();
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract = "
          (define-private (foo (id (optional int)))
@@ -3542,7 +3532,7 @@ fn test_let_bind_trait() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_trait_same_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = ["(define-trait trait-foo ((foo () (response uint uint))))
         (define-public (call-foo (f <trait-foo>))
@@ -3588,7 +3578,7 @@ fn test_tuple_arg() {
     }
 }
 
-#[apply(test_clarity_versions_type_checker)]
+#[apply(test_clarity_versions)]
 fn test_list_arg(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-private (foo (l (list 3 int)))

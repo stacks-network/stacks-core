@@ -17,6 +17,7 @@
 use std::convert::TryFrom;
 
 use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -217,7 +218,12 @@ pub fn native_int_to_utf8(value: Value) -> Result<Value> {
 /// If the value cannot fit as serialized into the maximum buffer size,
 /// this returns `none`, otherwise, it will be `(some consensus-serialized-buffer)`
 pub fn to_consensus_buff(value: Value) -> Result<Value> {
-    let clar_buff_serialized = match Value::buff_from(value.serialize_to_vec()) {
+    let mut clar_buff_serialized = vec![];
+    value
+        .serialize_write(&mut clar_buff_serialized)
+        .expect("FATAL: failed to serialize to vec");
+
+    let clar_buff_serialized = match Value::buff_from(clar_buff_serialized) {
         Ok(x) => x,
         Err(_) => return Ok(Value::none()),
     };
@@ -261,7 +267,11 @@ pub fn from_consensus_buff(
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
-    let result = match Value::try_deserialize_bytes_exact(&input_bytes, &type_arg) {
+    let result = match Value::try_deserialize_bytes_exact(
+        &input_bytes,
+        &type_arg,
+        env.epoch().value_sanitizing(),
+    ) {
         Ok(value) => value,
         Err(_) => return Ok(Value::none()),
     };
