@@ -126,7 +126,7 @@ impl<C: Coordinatable> RunLoop<C> {
         &mut self,
         event: &StackerDBChunksEvent,
     ) -> (Vec<Message>, Vec<OperationResult>) {
-        info!("Processing event: {:?}", event);
+        //info!("Processing event: {:?}", event);
         // Determine the current coordinator id and public key for verification
         let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);

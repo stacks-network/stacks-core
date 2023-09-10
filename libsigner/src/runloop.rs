@@ -241,4 +241,49 @@ impl<
 
         Ok(running_signer)
     }
+
+    /// don't bind use passed receiver
+    pub fn spawn_with_receiver(&mut self, bind_addr: SocketAddr, event_recv: Receiver<StackerDBChunksEvent>) -> Result<RunningSigner<EV, R>, EventError> {
+        let mut event_receiver = self
+            .event_receiver
+            .take()
+            .ok_or(EventError::AlreadyRunning)?;
+        let mut signer_loop = self.signer_loop.take().ok_or(EventError::AlreadyRunning)?;
+
+        let (event_send, _) = channel();
+        event_receiver.add_consumer(event_send);
+
+        event_receiver.bind(bind_addr)?;
+        let stop_signaler = event_receiver.get_stop_signaler()?;
+        let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
+
+        // start a thread for the event receiver
+        let event_thread = thread::Builder::new()
+            .name("event_receiver".to_string())
+            .stack_size(THREAD_STACK_SIZE)
+            .spawn(move || event_receiver.main_loop())
+            .map_err(|e| {
+                error!("EventReceiver failed to start: {:?}", &e);
+                EventError::FailedToStart
+            })?;
+
+        // start receiving events and doing stuff with them
+        let runloop_thread = thread::Builder::new()
+            .name("signer_runloop".to_string())
+            .stack_size(THREAD_STACK_SIZE)
+            .spawn(move || signer_loop.main_loop(event_recv, stop_signaler))
+            .map_err(|e| {
+                error!("SignerRunLoop failed to start: {:?}", &e);
+                ret_stop_signaler.send();
+                EventError::FailedToStart
+            })?;
+
+        let running_signer = RunningSigner {
+            signer_join: runloop_thread,
+            event_join: event_thread,
+            stop_signal: ret_stop_signaler,
+        };
+
+        Ok(running_signer)
+    }
 }

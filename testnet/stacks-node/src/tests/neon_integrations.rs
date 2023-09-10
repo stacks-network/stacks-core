@@ -200,7 +200,10 @@ pub fn neon_integration_test_conf_with_seed(seed: Vec<u8>) -> (Config, StacksAdd
 
 pub mod test_observer {
     use std::convert::Infallible;
-    use std::sync::Mutex;
+    use std::sync::{
+        Mutex,
+        mpsc::{channel, Receiver, Sender},
+    };
     use std::thread;
 
     use tokio;
@@ -217,6 +220,8 @@ pub mod test_observer {
         pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
+            Mutex::new(Vec::new());
+        pub static ref STACKERDB_SENDERS: Mutex<Vec<Sender<StackerDBChunksEvent>>> =
             Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -250,11 +255,22 @@ pub mod test_observer {
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
         debug!(
-            "Got stackerdb chunks: {}",
+            "signer_runloop: got stackerdb chunks: {}",
             serde_json::to_string(&chunks).unwrap()
         );
-        let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
+        {
+            let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
+            stackerdb_chunks.push(event.clone());
+        }
+
+        {
+            let mut stackerdb_senders = STACKERDB_SENDERS.lock().unwrap();
+            for i in 0..stackerdb_senders.len() {
+                stackerdb_senders[i].send(event.clone());
+            }
+        }
+
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -443,6 +459,27 @@ pub mod test_observer {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
         });
+    }
+
+    pub fn spawn_receivers(num_signers: u32) -> Vec<Receiver<StackerDBChunksEvent>> {
+        clear();
+        let mut stackerdb_receivers = Vec::new();
+        {
+            let mut stackerdb_senders = STACKERDB_SENDERS.lock().unwrap();
+            
+            for _ in 0..num_signers {
+                let (sender, receiver) = channel();
+                
+                stackerdb_senders.push(sender);
+                stackerdb_receivers.push(receiver);
+            }
+        }
+        thread::spawn(|| {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(serve());
+        });
+
+        stackerdb_receivers
     }
 
     pub fn clear() {
