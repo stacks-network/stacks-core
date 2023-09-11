@@ -18,6 +18,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   Only accessible on local loopback interface.
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
+- Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 
 ### Fixed
 
