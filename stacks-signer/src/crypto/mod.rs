@@ -3,7 +3,7 @@ pub mod frost;
 
 use frost::Error as FrostError;
 use frost_signer::net::Message;
-use wsts::{bip340::SchnorrProof, common::Signature, Point};
+use wsts::{taproot::SchnorrProof, common::Signature, Point};
 
 #[derive(thiserror::Error, Debug)]
 /// Error type for the crypto module

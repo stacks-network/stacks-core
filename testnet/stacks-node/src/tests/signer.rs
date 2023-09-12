@@ -277,7 +277,7 @@ fn test_stackerdb_dkg() {
         running_signers.push(running_signer);
     }
     // Spawn coordinator second
-    let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Dkg, receivers.remove(0));
+    let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]}, receivers.remove(0));
 
     sleep(Duration::from_secs(60));
     let result = running_coordinator.stop().unwrap();

@@ -28,7 +28,7 @@ frost-signer = { git = "https://github.com/Trust-Machines/stacks-sbtc" }
 hashbrown = "0.14"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
-p256k1 = "5.1"
+p256k1 = "5.4"
 rand_core = "0.6"
 serde = "1"
 serde_derive = "1"
@@ -39,7 +39,7 @@ slog-term = "2.6.0"
 stacks-common = { path = "../stacks-common" }
 thiserror = "1.0"
 toml = "0.5.6"
-wsts = "1.2"
+wsts = "2.0"
 
 [dependencies.serde_json]
 version = "1.0"

@@ -193,7 +193,7 @@ impl RunLoop<FrostCoordinator> {
             .collect::<Vec<u32>>();
         RunLoop {
             event_timeout: config.event_timeout,
-            coordinator: FrostCoordinator::new(total_signers, config.message_private_key),
+            coordinator: FrostCoordinator::new(total_signers, total_keys, threshold, config.message_private_key),
             signing_round: SigningRound::new(
                 threshold,
                 total_signers,

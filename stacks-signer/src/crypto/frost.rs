@@ -3,12 +3,22 @@ use std::collections::BTreeMap;
 use crate::crypto::{Coordinatable, Error as CryptoError, OperationResult};
 use frost_signer::{
     net::Message,
-    signing_round::{DkgBegin, DkgPublicShare, MessageTypes, Signable},
+    signing_round::{DkgBegin, DkgPublicShare, MessageTypes, Signable, NonceRequest, NonceResponse, SignatureShareRequest},
 };
 use hashbrown::HashSet;
-use slog::{slog_debug, slog_info, slog_warn};
-use stacks_common::{debug, error, info, warn};
-use wsts::{Point, Scalar};
+use slog::{slog_info, slog_warn};
+use stacks_common::{error, info, warn};
+use wsts::{
+    Point, Scalar,
+    errors::AggregatorError,
+    taproot::{
+        Error as TaprootError, SchnorrProof,
+    },
+    common::{
+        PolyCommitment, PublicNonce, Signature, SignatureShare,
+    },
+    v1,
+};
 
 #[derive(thiserror::Error, Debug)]
 /// The error type for the coordinator
@@ -16,29 +26,74 @@ pub enum Error {
     /// A bad state change was made
     #[error("Bad State Change: {0}")]
     BadStateChange(String),
+    /// SignatureAggregator error
+    #[error("Aggregator: {0}")]
+    Aggregator(AggregatorError),
+    /// Taproot error
+    #[error("Taproot")]
+    Taproot(TaprootError),
+    /// Schnorr proof failed to verify
+    #[error("Schnorr Proof failed to verify")]
+    SchnorrProofFailed,
+}
+
+impl From<AggregatorError> for Error {
+    fn from(err: AggregatorError) -> Self {
+        Error::Aggregator(err)
+    }
+}
+
+impl From<TaprootError> for Error {
+    fn from(err: TaprootError) -> Self {
+        Error::Taproot(err)
+    }
 }
 
 /// The coordinator for the FROST algorithm
 pub struct Coordinator {
     current_dkg_id: u64,
     current_dkg_public_id: u64,
+    current_sign_id: u64,
+    current_sign_nonce_id: u64,
     total_signers: u32, // Assuming the signers cover all id:s in {1, 2, ..., total_signers}
+    total_keys: u32,
+    threshold: u32,
     dkg_public_shares: BTreeMap<u32, DkgPublicShare>,
+    public_nonces: BTreeMap<u32, NonceResponse>,
+    signature_shares: BTreeMap<u32, Vec<SignatureShare>>,
     aggregate_public_key: Point,
+    signature: Signature,
+    schnorr_proof: SchnorrProof,
     message_private_key: Scalar,
     ids_to_await: HashSet<u32>,
+    message: Vec<u8>,
     state: State,
 }
 
 impl Coordinator {
     /// Create a new coordinator
-    pub fn new(total_signers: u32, message_private_key: Scalar) -> Self {
+    pub fn new(total_signers: u32, total_keys: u32, threshold: u32, message_private_key: Scalar) -> Self {
         Self {
             current_dkg_id: 0,
             current_dkg_public_id: 0,
+            current_sign_id: 0,
+            current_sign_nonce_id: 0,
             total_signers,
+            total_keys,
+            threshold,
             dkg_public_shares: Default::default(),
+            public_nonces: Default::default(),
+            signature_shares: Default::default(),
             aggregate_public_key: Point::default(),
+            signature: Signature {
+                R: Default::default(),
+                z: Default::default(),
+            },
+            schnorr_proof: SchnorrProof {
+                r: Default::default(),
+                s: Default::default(),
+            },
+            message: Default::default(),
             message_private_key,
             ids_to_await: (0..total_signers).collect(),
             state: State::Idle,
@@ -84,6 +139,31 @@ impl Coordinator {
                         return Ok((None, Some(OperationResult::Dkg(self.aggregate_public_key))));
                     }
                 }
+                State::NonceRequest => {
+                    let message = self.request_nonces()?;
+                    return Ok((Some(message), None));
+                }
+                State::NonceGather => {
+                    self.gather_nonces(message)?;
+                    if self.state == State::NonceGather {
+                        // We need more data
+                        return Ok((None, None));
+                    }
+                }
+                State::SigShareRequest => {
+                    let message = self.request_sig_shares()?;
+                    return Ok((Some(message), None));
+                }
+                State::SigShareGather => {
+                    self.gather_sig_shares(message)?;
+                    if self.state == State::SigShareGather {
+                        // We need more data
+                        return Ok((None, None));
+                    } else if self.state == State::Idle {
+                        // We are done with the DKG round! Return the operation result
+                        return Ok((None, Some(OperationResult::Sign(Signature { R: self.signature.R, z: self.signature.z }, SchnorrProof{ r: self.schnorr_proof.r, s: self.schnorr_proof.s }))));
+                    }
+                }
             }
         }
     }
@@ -94,6 +174,14 @@ impl Coordinator {
         info!("Starting DKG round #{}", self.current_dkg_id);
         self.move_to(State::DkgPublicDistribute)?;
         self.start_public_shares()
+    }
+
+    /// Start a signing round
+    pub fn start_signing_round(&mut self) -> Result<Message, Error> {
+        self.current_sign_id = self.current_sign_id.wrapping_add(1);
+        info!("Starting signing round #{}", self.current_sign_id);
+        self.move_to(State::NonceRequest)?;
+        self.request_nonces()
     }
 
     fn start_public_shares(&mut self) -> Result<Message, Error> {
@@ -190,6 +278,143 @@ impl Coordinator {
         }
         Ok(())
     }
+
+    fn request_nonces(&mut self) -> Result<Message, Error> {
+        info!(
+            "Sign Round #{} Nonce round #{} Requesting Nonces",
+            self.current_sign_id, self.current_sign_nonce_id, 
+        );
+        let nonce_request = NonceRequest {
+            dkg_id: self.current_dkg_id,
+            sign_id: self.current_sign_id,
+            sign_nonce_id: self.current_sign_nonce_id,
+        };
+        let nonce_request_msg = Message {
+            sig: nonce_request.sign(&self.message_private_key).expect(""),
+            msg: MessageTypes::NonceRequest(nonce_request),
+        };
+        self.ids_to_await = (0..self.total_signers).collect();
+        self.move_to(State::NonceGather)?;
+        Ok(nonce_request_msg)
+    }
+
+    fn gather_nonces(&mut self, message: &Message) -> Result<(), Error> {
+        match &message.msg {
+            MessageTypes::NonceResponse(nonce_response) => {
+                // TODO: check sign_id and sign_nonce_id
+                self.public_nonces
+                    .insert(nonce_response.signer_id, nonce_response.clone());
+                self.ids_to_await.remove(&nonce_response.signer_id);
+                info!(
+                    "Sign round #{} nonce round #{} NonceResponse from signer #{}. Waiting on {:?}",
+                    nonce_response.sign_id, nonce_response.sign_nonce_id, nonce_response.signer_id, self.ids_to_await
+                );
+            }
+            _ => {}
+        }
+        if self.ids_to_await.is_empty() {
+            // Calculate the aggregate nonce
+            let aggregate_nonce = self
+                .dkg_public_shares
+                .iter()
+                .fold(Point::default(), |s, (_, dps)| s + dps.public_share.A[0]);
+            // check to see if aggregate public key has even y
+            if aggregate_nonce.has_even_y() {
+                info!("Aggregate nonce has even y coord!");
+                info!("Aggregate nonce: {}", aggregate_nonce);
+                self.move_to(State::SigShareRequest)?;
+            } else {
+                warn!("Sign Round #{} Nonce Round #{} Failed: Aggregate nonce does not have even y coord, requesting new nonces.", self.current_sign_id, self.current_sign_nonce_id);
+                self.current_sign_nonce_id += 1;
+                self.move_to(State::NonceRequest)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn request_sig_shares(&mut self) -> Result<Message, Error> {
+        info!(
+            "Sign Round #{} Requesting Signature Shares",
+            self.current_sign_id, 
+        );
+        let nonce_responses = (0..self.total_signers).map(|i| self.public_nonces[&i].clone()).collect::<Vec<NonceResponse>>();
+        let sig_share_request = SignatureShareRequest {
+            dkg_id: self.current_dkg_id,
+            sign_id: self.current_sign_id,
+            correlation_id: 0, // TODO: what is this?
+            nonce_responses,
+            message: self.message.clone(),
+        };
+        let sig_share_request_msg = Message {
+            sig: sig_share_request.sign(&self.message_private_key).expect(""),
+            msg: MessageTypes::SignShareRequest(sig_share_request), // TODO: either SigShare or SignatureShare, SignShare is right out
+        };
+        self.ids_to_await = (0..self.total_signers).collect();
+        self.move_to(State::SigShareGather)?;
+        Ok(sig_share_request_msg)
+    }
+
+    fn gather_sig_shares(&mut self, message: &Message) -> Result<(), Error> {
+        match &message.msg {
+            MessageTypes::SignShareResponse(sig_share_response) => {
+                // TODO: check sign_id
+                self.signature_shares
+                    .insert(sig_share_response.signer_id, sig_share_response.signature_shares.clone());
+                self.ids_to_await.remove(&sig_share_response.signer_id);
+                info!(
+                    "Sign round #{} SignShareResponse from signer #{}. Waiting on {:?}",
+                    sig_share_response.sign_id, sig_share_response.signer_id, self.ids_to_await
+                );
+            }
+            _ => {}
+        }
+        if self.ids_to_await.is_empty() {
+            // Calculate the aggregate signature
+            let polys: Vec<PolyCommitment> = self
+                .dkg_public_shares
+                .values()
+                .map(|ps| ps.public_share.clone())
+                .collect();
+
+            let nonce_responses = (0..self.total_signers).map(|i| self.public_nonces[&i].clone()).collect::<Vec<NonceResponse>>();
+
+            let nonces = nonce_responses
+                .iter()
+                .flat_map(|nr| nr.nonces.clone())
+                .collect::<Vec<PublicNonce>>();
+
+            let shares = &self
+                .public_nonces
+                .iter()
+                .flat_map(|(i, _)| self.signature_shares[i].clone())
+                .collect::<Vec<SignatureShare>>();
+
+            info!(
+                "aggregator.sign({:?}, {:?}, {:?})",
+                self.message,
+                nonces.len(),
+                shares.len()
+            );
+
+            let mut aggregator = v1::SignatureAggregator::new(self.total_keys, self.threshold, polys)?;
+
+            let sig = aggregator.sign(&self.message, &nonces, shares)?;
+
+            info!("Signature ({}, {})", sig.R, sig.z);
+
+            let proof = SchnorrProof::new(&sig)?;
+
+            info!("SchnorrProof ({}, {})", proof.r, proof.s);
+
+            if !proof.verify(&self.aggregate_public_key.x(), &self.message) {
+                warn!("SchnorrProof failed to verify!");
+                return Err(Error::SchnorrProofFailed);
+            }
+
+            self.move_to(State::Idle)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -205,6 +430,14 @@ pub enum State {
     DkgPrivateDistribute,
     /// The coordinator is gathering DKG End messages
     DkgEndGather,
+    /// The coordinator is requesting nonces
+    NonceRequest,
+    /// The coordinator is gathering nonces
+    NonceGather,
+    /// The coordinator is requesting signature shares
+    SigShareRequest,
+    /// The coordinator is gathering signature shares
+    SigShareGather,
 }
 
 /// The state machine trait for the frost coordinator
@@ -236,6 +469,10 @@ impl StateMachine for Coordinator {
             }
             State::DkgPrivateDistribute => prev_state == &State::DkgPublicGather,
             State::DkgEndGather => prev_state == &State::DkgPrivateDistribute,
+            State::NonceRequest => prev_state == &State::Idle || prev_state == &State::DkgEndGather || prev_state == &State::NonceGather,
+            State::NonceGather => prev_state == &State::NonceRequest || prev_state == &State::NonceGather,
+            State::SigShareRequest => prev_state == &State::NonceGather,
+            State::SigShareGather => prev_state == &State::SigShareRequest || prev_state == &State::SigShareGather,
         };
         if accepted {
             info!("state change from {:?} to {:?}", prev_state, state);
@@ -281,8 +518,10 @@ impl Coordinatable for Coordinator {
     }
 
     // Trigger a signing round
-    fn start_signing_message(&mut self, _message: &[u8]) -> Result<Message, CryptoError> {
-        todo!()
+    fn start_signing_message(&mut self, message: &[u8]) -> Result<Message, CryptoError> {
+        self.message = message.to_vec();
+        let message = self.start_signing_round()?;
+        Ok(message)
     }
 }
 
@@ -302,7 +541,7 @@ mod test {
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
 
-        let mut coordinator = Coordinator::new(3, message_private_key);
+        let mut coordinator = Coordinator::new(3, 3, 3, message_private_key);
         assert!(coordinator.can_move_to(&State::DkgPublicDistribute).is_ok());
         assert!(coordinator.can_move_to(&State::DkgPublicGather).is_err());
         assert!(coordinator
@@ -349,12 +588,16 @@ mod test {
     #[test]
     fn test_new_coordinator() {
         let total_signers = 10;
+        let total_keys = 40;
+        let threshold = 28;
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
 
-        let coordinator = Coordinator::new(total_signers, message_private_key);
+        let coordinator = Coordinator::new(total_signers, total_keys, threshold, message_private_key);
 
         assert_eq!(coordinator.total_signers, total_signers);
+        assert_eq!(coordinator.total_keys, total_keys);
+        assert_eq!(coordinator.threshold, threshold);
         assert_eq!(coordinator.message_private_key, message_private_key);
         assert_eq!(coordinator.ids_to_await.len(), total_signers as usize);
         assert_eq!(coordinator.state, State::Idle);
@@ -363,9 +606,11 @@ mod test {
     #[test]
     fn test_start_dkg_round() {
         let total_signers = 10;
+        let total_keys = 40;
+        let threshold = 28;
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
-        let mut coordinator = Coordinator::new(total_signers, message_private_key);
+        let mut coordinator = Coordinator::new(total_signers, total_keys, threshold, message_private_key);
 
         let result = coordinator.start_dkg_round();
 
@@ -381,9 +626,11 @@ mod test {
     #[test]
     fn test_start_public_shares() {
         let total_signers = 10;
+        let total_keys = 40;
+        let threshold = 28;
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
-        let mut coordinator = Coordinator::new(total_signers, message_private_key);
+        let mut coordinator = Coordinator::new(total_signers, total_keys, threshold, message_private_key);
         coordinator.state = State::DkgPublicDistribute; // Must be in this state before calling start public shares
 
         let result = coordinator.start_public_shares().unwrap();
@@ -399,9 +646,11 @@ mod test {
     #[test]
     fn test_start_private_shares() {
         let total_signers = 10;
+        let total_keys = 40;
+        let threshold = 28;
         let mut rng = OsRng::default();
         let message_private_key = Scalar::random(&mut rng);
-        let mut coordinator = Coordinator::new(total_signers, message_private_key);
+        let mut coordinator = Coordinator::new(total_signers, total_keys, threshold, message_private_key);
         coordinator.state = State::DkgPrivateDistribute; // Must be in this state before calling start private shares
 
         let message = coordinator.start_private_shares().unwrap();
@@ -459,7 +708,7 @@ mod test {
             })
             .collect::<Vec<SigningRound>>();
 
-        let coordinator = Coordinator::new(total_signers, key_pairs[0].0);
+        let coordinator = Coordinator::new(total_signers, total_keys, threshold, key_pairs[0].0);
         (coordinator, signing_rounds)
     }
 
