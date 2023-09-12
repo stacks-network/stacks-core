@@ -29,6 +29,7 @@ use crate::vm::version::ClarityVersion;
 use crate::vm::{apply, eval_all, Value};
 
 use super::analysis::ContractAnalysis;
+use super::CallStack;
 
 #[derive(Serialize, Deserialize)]
 pub struct Contract {
@@ -52,7 +53,14 @@ impl Contract {
             contract_context.set_wasm_module(wasm_module);
 
             // Initialize the contract via the compiled Wasm module
-            initialize_contract(global_context, &mut contract_context, contract_analysis)?;
+            global_context.execute(|global_context| {
+                initialize_contract(
+                    global_context,
+                    &mut contract_context,
+                    sponsor,
+                    contract_analysis,
+                )
+            })?;
         } else {
             // Interpret the contract
             eval_all(
