@@ -373,6 +373,10 @@ impl DefinedFunction {
         }
     }
 
+    pub fn as_str(&self) -> &str {
+        &self.identifier.identifier
+    }
+
     #[cfg(feature = "developer-mode")]
     pub fn get_span(&self) -> Span {
         self.body.span.clone()
