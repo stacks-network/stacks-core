@@ -27,6 +27,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use super::analysis::{self, ContractAnalysis};
+use super::clarity_wasm::call_function;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -1226,7 +1227,11 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.sponsor.clone(),
             );
 
-            function.execute_apply(args, &mut nested_env)
+            // TODO: This will need to be epoch gated and the old
+            // implementation (below) will need to run on < 3.0.0.
+            call_function(function.as_str(), args, &mut nested_env)
+
+            // function.execute_apply(args, &mut nested_env)
         };
 
         if make_read_only {
@@ -1837,16 +1842,14 @@ impl ContractContext {
         self.wasm_module = Some(wasm_module);
     }
 
-    pub fn with_wasm_module<T>(&mut self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
+    pub fn with_wasm_module<T>(&self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
         let wasm_module = self
             .wasm_module
-            .take()
+            .as_ref()
             .ok_or(crate::vm::errors::Error::Wasm(
                 crate::vm::errors::WasmError::ModuleNotFound,
             ))?;
-        let result = f(wasm_module.as_slice());
-        self.wasm_module = Some(wasm_module);
-        result
+        f(&wasm_module)
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
