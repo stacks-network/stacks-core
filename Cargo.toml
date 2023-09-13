@@ -55,8 +55,7 @@ libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
-# clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "feat/clarity-wasm-runtime"}
-clar2wasm = { package = "clar2wasm", path = "../clarity-wasm/clar2wasm/." }
+clar2wasm = { package = "clar2wasm", path = "../clar2wasm/." }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
