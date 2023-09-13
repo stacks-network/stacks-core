@@ -75,6 +75,7 @@ impl StacksClient {
             }
             if let Some(reason) = chunk_ack.reason {
                 // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
+                // See: https://github.com/stacks-network/stacks-blockchain/issues/3917
                 if reason == "Data for this slot and version already exist" {
                     warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
                 } else {

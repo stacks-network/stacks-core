@@ -227,7 +227,6 @@ fn main() {
             if let Some(config) = &cli.config {
                 let _running_signer = spawn_running_signer(config, RunLoopCommand::Dkg, cmd_recv);
             } else {
-                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg is currently only supported when using a config file");
             }
         }
@@ -236,7 +235,6 @@ fn main() {
                 let _running_signer =
                     spawn_running_signer(config, RunLoopCommand::DkgSign { message: args.data }, cmd_recv);
             } else {
-                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");
             }
         }
@@ -245,7 +243,6 @@ fn main() {
                 let _running_signer =
                     spawn_running_signer(config, RunLoopCommand::Sign { message: args.data }, cmd_recv);
             } else {
-                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");
             }
         }
@@ -253,7 +250,6 @@ fn main() {
             if let Some(config) = &cli.config {
                 let _running_signer = spawn_running_signer(config, RunLoopCommand::Run, cmd_recv);
             } else {
-                // TODO: update this retrieve data from the .pox contract and then --config will not be required for DKG
                 panic!("dkg-sign is currently only supported when using a config file");
             }
         }

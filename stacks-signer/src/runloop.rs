@@ -21,7 +21,7 @@ use crate::{
 pub enum RunLoopCommand {
     /// Wait for an initial command
     Wait,
-    /// Continaully poll for commands to execute
+    /// Start processing events
     Run,
     /// Generate a DKG aggregate public key
     Dkg,
@@ -62,7 +62,9 @@ pub struct RunLoop<C> {
     pub event_timeout: Duration,
     /// the coordinator for inbound messages
     pub coordinator: C,
-    /// TODO: update this to use frost_signer directly instead of the frost signing round
+    /// The signing round used to sign messages
+    // TODO: update this to use frost_signer directly instead of the frost signing round
+    // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
     pub signing_round: SigningRound,
     /// The stacks client
     pub stacks_client: StacksClient,
@@ -74,7 +76,8 @@ pub struct RunLoop<C> {
 
 impl<C: Coordinatable> RunLoop<C> {
     /// Helper function to check the current state and execute commands accordingly
-    fn execute_dkg_sign(&mut self) {
+    /// This will update the state if a command is executed
+    fn update_state(&mut self) {
         match (&self.command, &self.state) {
             (RunLoopCommand::Run, State::Idle) => {
                 info!("Starting runloop");
@@ -169,8 +172,8 @@ impl<C: Coordinatable> RunLoop<C> {
 impl RunLoop<FrostCoordinator> {
     /// Creates new runloop from a config and command
     pub fn new(config: &Config, command: RunLoopCommand) -> Self {
-        // TODO: should this be a config option?
-        // The threshold is 70% of the shares
+        // TODO: this should be a config option
+        // See: https://github.com/stacks-network/stacks-blockchain/issues/3914
         let threshold = (config.signer_ids_public_keys.key_ids.len() / 10 * 7)
             .try_into()
             .unwrap();
@@ -220,6 +223,7 @@ pub fn process_inbound_messages(
     let mut responses = vec![];
     for message in messages {
         // TODO: this code was swiped from frost-signer. Expose it there so we don't have duplicate code
+        // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
         let outbounds = signing_round.process(message.msg)?;
         for out in outbounds {
             let msg = Message {
@@ -275,6 +279,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
     }
 
     // TODO: update the return type to return any OperationResult
+    // See: https://github.com/stacks-network/stacks-blockchain/issues/3916
     fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>, cmd: Option<RunLoopCommand>) -> Option<Vec<Point>> {
         // if we are waiting for a command and get one then set it
         match (&self.command, cmd) {
@@ -283,9 +288,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
             }
             (_, _) => {}
         }
-
-        // TODO: we should potentially trigger shares outside of the runloop. This may be temporary?
-        self.execute_dkg_sign();
+        self.update_state();
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
             info!(
@@ -316,7 +319,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
                 }
             }
             // Determine if we need to trigger Sign or Exit.
-            self.execute_dkg_sign();
+            self.update_state();
             if self.state == State::Exit {
                 return Some(results);
             }
@@ -327,13 +330,15 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
 
 /// Helper function for determining the coordinator public key given the the public keys
 fn calculate_coordinator(public_keys: &PublicKeys) -> (u32, &ecdsa::PublicKey) {
-    // TODO do some sort of VRF here to calculate the public key
+    // TODO: do some sort of VRF here to calculate the public key
+    // See: https://github.com/stacks-network/stacks-blockchain/issues/3915
     // Mockamato just uses the first signer_id as the coordinator for now
     (0, public_keys.signers.get(&0).unwrap())
 }
 
 /// TODO: this should not be here.
 /// Temporary copy paste from frost-signer
+/// See: https://github.com/stacks-network/stacks-blockchain/issues/3913
 fn verify_msg(
     m: &Message,
     public_keys: &PublicKeys,

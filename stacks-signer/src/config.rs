@@ -99,6 +99,8 @@ struct RawConfigFile {
     pub stacks_private_key: String,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
+    // TODO: Optionally retrieve the signers from the pox contract
+    // See: https://github.com/stacks-network/stacks-blockchain/issues/3912
     /// The signers, IDs, and their private keys
     pub signers: Vec<RawSigners>,
     /// The signer ID
