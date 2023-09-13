@@ -12,7 +12,7 @@ use crate::{
         make_contract_publish,
         neon_integrations::{
             neon_integration_test_conf, next_block_and_wait, submit_tx,
-            wait_for_runloop, test_observer,
+            wait_for_runloop,
         },
         to_addr,
     },
@@ -169,13 +169,7 @@ fn setup_stx_btc_node(
             events_keys: vec![EventKeyType::StackerDBChunks],
         });
     }
-    /*
-    conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::StackerDBChunks],
-    });
-    test_observer::spawn();
-     */
+
     let mut initial_balances = Vec::new();
     for i in 0..num_signers {
         initial_balances.push(InitialBalance {
@@ -291,13 +285,14 @@ fn test_stackerdb_dkg() {
         signer_cmd_senders.push(cmd_send);
     }
     // Spawn coordinator second
-    let (_coordinator_cmd_send, coordinator_cmd_recv) = channel();
-    //let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]});
+    let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
+    //let running_coordinator = spawn_running_signer(&signer_configs[0], 
     eprintln!("spawn coordinator");
     let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Wait, coordinator_cmd_recv);
 
     eprintln!("setup node, sleep first to make sure signers are running");
-    sleep(Duration::from_secs(15));
+    sleep(Duration::from_secs(10));
+
     // Setup the nodes and deploy the contract to it
     let _node = setup_stx_btc_node(
         &mut conf,
@@ -306,6 +301,13 @@ fn test_stackerdb_dkg() {
         &stackerdb_contract,
         &signer_configs,
     );
+
+    sleep(Duration::from_secs(5));
+
+    eprintln!("signer_runloop: spawn send dkg-sign command");
+    coordinator_cmd_send.send(RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]}).expect("failed to send command");
+
+    sleep(Duration::from_secs(30));
 
     let result = running_coordinator.stop().unwrap();
     assert_eq!(result.len(), 1);

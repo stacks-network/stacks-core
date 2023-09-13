@@ -30,6 +30,8 @@ use libstackerdb::StackerDBChunkData;
 
 use serde::{Deserialize, Serialize};
 
+use tiny_http::{Server as HttpServer, Request as HttpRequest, Response as HttpResponse, Method as HttpMethod};
+
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
@@ -106,7 +108,7 @@ pub struct StackerDBEventReceiver {
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
-    sock: Option<TcpListener>,
+    http_server: Option<HttpServer>,
     /// channel into which to write newly-discovered data
     out_channels: Vec<Sender<StackerDBChunksEvent>>,
     /// inter-thread stop variable -- if set to true, then the `main_loop` will exit
@@ -119,7 +121,7 @@ impl StackerDBEventReceiver {
     pub fn new(contract_ids: Vec<QualifiedContractIdentifier>) -> StackerDBEventReceiver {
         let stackerdb_receiver = StackerDBEventReceiver {
             stackerdb_contract_ids: contract_ids,
-            sock: None,
+            http_server: None,
             local_addr: None,
             out_channels: vec![],
             stop_signal: Arc::new(AtomicBool::new(false)),
@@ -128,22 +130,22 @@ impl StackerDBEventReceiver {
     }
 
     /// Do something with the socket
-    pub fn with_socket<F, R>(&mut self, todo: F) -> Result<R, EventError>
+    pub fn with_server<F, R>(&mut self, todo: F) -> Result<R, EventError>
     where
-        F: FnOnce(&mut StackerDBEventReceiver, &mut TcpListener) -> R,
+        F: FnOnce(&mut StackerDBEventReceiver, &mut HttpServer) -> R,
     {
         info!("[{:?}] with_socket take sock", self.local_addr);
-        let mut sock = if let Some(s) = self.sock.take() {
+        let mut server = if let Some(s) = self.http_server.take() {
             s
         } else {
             return Err(EventError::NotBound);
         };
 
         info!("[{:?}] with_socket call future", self.local_addr);
-        let res = todo(self, &mut sock);
+        let res = todo(self, &mut server);
 
         info!("[{:?}] with_socket return sock", self.local_addr);
-        self.sock = Some(sock);
+        self.http_server = Some(server);
         Ok(res)
     }
 }
@@ -179,98 +181,56 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Returns the address that was bound.
     /// Errors out if bind(2) fails
     fn bind(&mut self, listener: SocketAddr) -> Result<SocketAddr, EventError> {
-        let srv = TcpListener::bind(listener)?;
-        let bound_addr = srv.local_addr()?;
-        self.sock = Some(srv);
-        self.local_addr = Some(bound_addr.clone());
-        Ok(bound_addr)
+        self.http_server = Some(HttpServer::http(listener).expect("failed to start HttpServer"));
+        self.local_addr = Some(listener);
+        Ok(listener)
     }
 
     /// Wait for the node to post something, and then return it.
     /// Errors are recoverable -- the caller should call this method again even if it returns an
     /// error.
     fn next_event(&mut self) -> Result<StackerDBChunksEvent, EventError> {
-        self.with_socket(|event_receiver, server_sock| {
-            info!("[{:?}] next_event accept", event_receiver.local_addr);
-            let (mut node_sock, _) = server_sock.accept()?;
-            info!("[{:?}] next_event accepted", event_receiver.local_addr);
+        self.with_server(|event_receiver, http_server| {
+            info!("[{:?}] next_event recv request", event_receiver.local_addr);
+            let mut request = http_server.recv()?;
+
+            info!("[{:?}] next_event got request for {}", event_receiver.local_addr, request.url());
 
             // were we asked to terminate?
             if event_receiver.is_stopped() {
+                info!("[{:?}] next_event we were terminated", event_receiver.local_addr);
                 return Err(EventError::Terminated);
             }
 
-            info!("[{:?}] next_event read into buf", event_receiver.local_addr);
-            let mut buf = [0u8; 1024].to_vec();
-            let mut data = vec![];
-            let mut got_request = false;
-            let mut content_length = 0;
-            let mut headers_end = 0;
-            let end = "\r\n\r\n";
-            //node_sock.read_to_end(&mut buf)?;
-            loop {
-                let n = node_sock.read(&mut buf)?;
-                info!("[{:?}] next_event read {} bytes", event_receiver.local_addr, n);
-                data.append(&mut buf[0..n].to_vec());
-
-                if !got_request {
-                    if let Ok(request) = decode_http_request(&data) {
-                        let (verb, path, headers, offset) = request.destruct();
-                        headers_end = offset;
-                        let request = String::from_utf8(data.clone()).expect("bad utf8");
-                        let request_head = &request[0..headers_end];
-
-                        info!("[{:?}] next_event found header end at {}:\n{}\n", event_receiver.local_addr, offset, request_head);
-                        //info!("[{:?}] next_event verb {} path {} offset {} headers {:?}", event_receiver.local_addr, verb, path, offset, &headers);
-
-                        content_length = headers["content-length"].parse::<usize>().expect("failed to parse content-length");
-                        info!("[{:?}] next_event content-length {} len {} capacity {}", event_receiver.local_addr, content_length, data.len(), data.capacity());
-                        let diff = content_length - data.len();
-                        info!("[{:?}] next_event read extra {} bytes", event_receiver.local_addr, diff);
-                        let mut rest = Vec::new();
-                        rest.resize(diff, 0);
-                        info!("[{:?}] next_event rest now {} bytes", event_receiver.local_addr, rest.len());
-                        info!("[{:?}] next_event read remaining {} bytes", event_receiver.local_addr, rest.len());
-                        node_sock.read_exact(&mut rest[..])?;
-                        data.append(&mut rest);
-                        got_request = true;
-
-                        if data.len() != content_length {
-                            warn!("data.len() {} != content_length {}", data.len(), content_length);
-                        }
-
-                        break;
-                    }
-                }
-                
-                if n == 0 {
-                    break;
-                }
-            }
-
-            info!("[{:?}] next_event decode_http_request {} bytes", event_receiver.local_addr, headers_end);
-            let (verb, path, headers, body_offset) = decode_http_request(&data)?.destruct();
-            if verb != "POST" {
+            if request.method() != &HttpMethod::Post {
+                info!("[{:?}] next_event not a post", event_receiver.local_addr);
                 return Err(EventError::MalformedRequest(format!(
-                    "Unrecognized verb '{}'",
-                    &verb
+                    "Unrecognized method '{}'",
+                    &request.method(),
                 )));
             }
-            if path != "/stackerdb_chunks" {
-                return Err(EventError::UnrecognizedEvent(path));
+            if request.url() != "/stackerdb_chunks" {
+                let url = request.url().to_string();
+                request.respond(HttpResponse::empty(200u16)).expect("response failed");                
+                Err(EventError::UnrecognizedEvent(url))
+            } else {
+
+                info!("[{:?}] next_event get body", event_receiver.local_addr);
+                let mut body = String::new();
+                request.as_reader().read_to_string(&mut body).expect("failed to read body");
+
+                info!("[{:?}] next_event body {} bytes", event_receiver.local_addr, body.len());
+
+                let event: StackerDBChunksEvent = serde_json::from_slice(body.as_bytes()).map_err(|e| {
+                    EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
+                })?;
+
+                info!("[{:?}] next_event responding", event_receiver.local_addr);
+                request.respond(HttpResponse::empty(200u16)).expect("response failed");
+                info!("[{:?}] next_event response sent returning event", event_receiver.local_addr);
+
+                Ok(event)
             }
-
-            info!("[{:?}] next_event decode_http_body", event_receiver.local_addr);
-            let body = decode_http_body(&headers, &data[headers_end..])?;
-            let event: StackerDBChunksEvent = serde_json::from_slice(&body).map_err(|e| {
-                EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
-            })?;
-
-            // write response
-            node_sock.write_all("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_bytes())?;
-            node_sock.flush()?;
-
-            Ok(event)
         })?
     }
 
