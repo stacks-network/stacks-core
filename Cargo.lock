@@ -3518,7 +3518,7 @@ dependencies = [
  "stacks-common",
  "thiserror",
  "toml 0.5.11",
- "wsts 1.2.0",
+ "wsts 2.0.0",
 ]
 
 [[package]]

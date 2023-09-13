@@ -1,7 +1,7 @@
 use std::thread::sleep;
 use std::time::Duration;
 use std::{env, thread};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
 
 use crate::{
     config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance},
@@ -11,15 +11,15 @@ use crate::{
         bitcoin_regtest::BitcoinCoreController,
         make_contract_publish,
         neon_integrations::{
-            neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer,
-            wait_for_runloop,
+            neon_integration_test_conf, next_block_and_wait, submit_tx,
+            wait_for_runloop, test_observer,
         },
         to_addr,
     },
     BitcoinRegtestController, BurnchainController,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, StackerDBEventReceiver, StackerDBChunksEvent};
+use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
 use p256k1::{ecdsa, point::Point, scalar::Scalar};
 use rand_core::OsRng;
 use stacks::chainstate::stacks::StacksPrivateKey;
@@ -134,36 +134,48 @@ signer_id = {id}
 fn spawn_running_signer(
     data: &str,
     command: RunLoopCommand,
-    receiver: Receiver<StackerDBChunksEvent>,
+    receiver: Receiver<RunLoopCommand>,
 ) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator> =
         stacks_signer::runloop::RunLoop::new(&config, command);
     let mut signer: Signer<
+        RunLoopCommand,
         Vec<Point>,
         stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator>,
         StackerDBEventReceiver,
-    > = Signer::new(runloop, ev);
+    > = Signer::new(runloop, ev, receiver);
     let endpoint = config.endpoint;
     info!(
         "Spawning signer {} on endpoint {}",
         config.signer_id, endpoint
     );
-    signer.spawn_with_receiver(endpoint, receiver).unwrap()
+    signer.spawn(endpoint).unwrap()
 }
 
 fn setup_stx_btc_node(
+    conf: &mut NeonConfig,
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     stackerdb_contract: &str,
-) -> (RunningNodes, Vec<Receiver<StackerDBChunksEvent>>) {
-    let (mut conf, _) = neon_integration_test_conf();
+    signer_config_tomls: &Vec<String>,
+) -> RunningNodes {
+    for toml in signer_config_tomls {
+        let signer_config = stacks_signer::config::Config::load_from_str(toml).unwrap(); 
+
+        conf.events_observers.push(EventObserverConfig {
+            endpoint: format!("{}", signer_config.endpoint),
+            events_keys: vec![EventKeyType::StackerDBChunks],
+        });
+    }
+    /*
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::StackerDBChunks],
     });
-
+    test_observer::spawn();
+     */
     let mut initial_balances = Vec::new();
     for i in 0..num_signers {
         initial_balances.push(InitialBalance {
@@ -178,16 +190,17 @@ fn setup_stx_btc_node(
         "hello-world".into(),
     ));
 
-    let receivers = test_observer::spawn_receivers(num_signers);
-
+    eprintln!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
+    eprintln!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
+    eprintln!("Bootstraping...");
     btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
@@ -229,12 +242,12 @@ fn setup_stx_btc_node(
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    (RunningNodes {
+    RunningNodes {
         btcd_controller,
         btc_regtest_controller,
         join_handle,
-        conf,
-    }, receivers)
+        conf: conf.clone(),
+    }
 }
 
 #[test]
@@ -248,6 +261,7 @@ fn test_stackerdb_dkg() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+    let (mut conf, _) = neon_integration_test_conf();
 
     // Build the stackerdb contract
     let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
@@ -260,30 +274,39 @@ fn test_stackerdb_dkg() {
     let signer_configs = build_signer_config_tomls(
         num_signers,
         &signer_stacks_private_keys,
-        &node.conf.node.rpc_bind,
+        &conf.node.rpc_bind,
         contract_id.to_string(),
     );
 
     // The test starts here
     let mut running_signers = vec![];
     // Spawn all the signers first to listen to the coordinator request for dkg
+    let mut signer_cmd_senders = Vec::new();
     for i in (1..num_signers).rev() {
-        let receiver = receivers.remove(i as usize);
-        let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Idle, receiver);
+        let (cmd_send, cmd_recv) = channel();
+        eprintln!("spawn signer");
+        let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, cmd_recv);
         //sleep(Duration::from_secs(1));
         running_signers.push(running_signer);
+        signer_cmd_senders.push(cmd_send);
     }
     // Spawn coordinator second
-    let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]}, receivers.remove(0));
+    let (_coordinator_cmd_send, coordinator_cmd_recv) = channel();
+    //let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]});
+    eprintln!("spawn coordinator");
+    let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Wait, coordinator_cmd_recv);
 
+    eprintln!("setup node, sleep first to make sure signers are running");
+    sleep(Duration::from_secs(15));
     // Setup the nodes and deploy the contract to it
-    let (node, mut receivers) = setup_stx_btc_node(
+    let _node = setup_stx_btc_node(
+        &mut conf,
         num_signers,
         &signer_stacks_private_keys,
         &stackerdb_contract,
+        &signer_configs,
     );
 
-    sleep(Duration::from_secs(60));
     let result = running_coordinator.stop().unwrap();
     assert_eq!(result.len(), 1);
     assert_ne!(result[0], Point::default());

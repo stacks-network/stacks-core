@@ -27,9 +27,9 @@ clarity = { path = "../../clarity" }
 stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
+libsigner = { path = "../../libsigner" }
 
 [dev-dependencies]
-
 ring = "0.16.19"
 warp = "0.3.5"
 tokio = "1.15"
@@ -38,7 +38,6 @@ clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer" }
-libsigner = { path = "../../libsigner" }
 rand_core = "0.6"
 p256k1 = "5.4.1"
 wsts = "1.2"

@@ -43,7 +43,7 @@ const STDERR: i32 = 2;
 /// Trait describing the needful components of a top-level runloop.
 /// This is where the signer business logic would go.
 /// Implement this, and you get all the multithreaded setup for free.
-pub trait SignerRunLoop<R> {
+pub trait SignerRunLoop<R, CMD: Send> {
     /// Hint to set how long to wait for new events
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
@@ -51,7 +51,7 @@ pub trait SignerRunLoop<R> {
     /// Run one pass of the event loop, given new StackerDB events discovered since the last pass.
     /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
     /// Returns None to keep running.
-    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<R>;
+    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>, cmd: Option<CMD>) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
     /// `event_recv`, polling for up to `self.get_event_timeout()` units of time.  Once it has
@@ -63,10 +63,13 @@ pub trait SignerRunLoop<R> {
     fn main_loop<EVST: EventStopSignaler>(
         &mut self,
         event_recv: Receiver<StackerDBChunksEvent>,
+        command_recv: Receiver<CMD>,
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
         loop {
             let poll_timeout = self.get_event_timeout();
+            info!("SignerRunLoop::main_loop: poll_timeout {:?}", poll_timeout);
+            info!("SignerRunLoop::main_loop: event_recv");
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -75,7 +78,17 @@ pub trait SignerRunLoop<R> {
                     return None;
                 }
             };
-            if let Some(final_state) = self.run_one_pass(next_event_opt) {
+            info!("SignerRunLoop::main_loop: command_recv");
+            let next_command_opt = match command_recv.recv_timeout(poll_timeout) {
+                Ok(cmd) => Some(cmd),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => {
+                    info!("Command receiver disconnected");
+                    return None;
+                }
+            };
+            info!("SignerRunLoop::main_loop: run_one_pass");
+            if let Some(final_state) = self.run_one_pass(next_event_opt, next_command_opt) {
                 // finished!
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
@@ -86,11 +99,13 @@ pub trait SignerRunLoop<R> {
 }
 
 /// The top-level signer implementation
-pub struct Signer<R, SL: SignerRunLoop<R> + Send + Sync, EV: EventReceiver + Send> {
+pub struct Signer<CMD: Send, R, SL: SignerRunLoop<R, CMD> + Send + Sync, EV: EventReceiver + Send> {
     /// the runloop itself
     signer_loop: Option<SL>,
     /// the event receiver to use
     event_receiver: Option<EV>,
+    /// the command receiver to use
+    command_receiver: Option<Receiver<CMD>>,
     /// marker to permit the R type
     _phantom: PhantomData<R>,
 }
@@ -175,15 +190,17 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
 }
 
 impl<
+        CMD: Send + 'static,
         R: Send + 'static,
-        SL: SignerRunLoop<R> + Send + Sync + 'static,
+        SL: SignerRunLoop<R, CMD> + Send + Sync + 'static,
         EV: EventReceiver + Send + 'static,
-    > Signer<R, SL, EV>
+    > Signer<CMD, R, SL, EV>
 {
-    pub fn new(runloop: SL, event_receiver: EV) -> Signer<R, SL, EV> {
+    pub fn new(runloop: SL, event_receiver: EV, command_receiver: Receiver<CMD>) -> Signer<CMD, R, SL, EV> {
         Signer {
             signer_loop: Some(runloop),
             event_receiver: Some(event_receiver),
+            command_receiver: Some(command_receiver),
             _phantom: PhantomData,
         }
     }
@@ -201,6 +218,10 @@ impl<
     pub fn spawn(&mut self, bind_addr: SocketAddr) -> Result<RunningSigner<EV, R>, EventError> {
         let mut event_receiver = self
             .event_receiver
+            .take()
+            .ok_or(EventError::AlreadyRunning)?;
+        let command_receiver = self
+            .command_receiver
             .take()
             .ok_or(EventError::AlreadyRunning)?;
         let mut signer_loop = self.signer_loop.take().ok_or(EventError::AlreadyRunning)?;
@@ -226,52 +247,7 @@ impl<
         let runloop_thread = thread::Builder::new()
             .name("signer_runloop".to_string())
             .stack_size(THREAD_STACK_SIZE)
-            .spawn(move || signer_loop.main_loop(event_recv, stop_signaler))
-            .map_err(|e| {
-                error!("SignerRunLoop failed to start: {:?}", &e);
-                ret_stop_signaler.send();
-                EventError::FailedToStart
-            })?;
-
-        let running_signer = RunningSigner {
-            signer_join: runloop_thread,
-            event_join: event_thread,
-            stop_signal: ret_stop_signaler,
-        };
-
-        Ok(running_signer)
-    }
-
-    /// don't bind use passed receiver
-    pub fn spawn_with_receiver(&mut self, bind_addr: SocketAddr, event_recv: Receiver<StackerDBChunksEvent>) -> Result<RunningSigner<EV, R>, EventError> {
-        let mut event_receiver = self
-            .event_receiver
-            .take()
-            .ok_or(EventError::AlreadyRunning)?;
-        let mut signer_loop = self.signer_loop.take().ok_or(EventError::AlreadyRunning)?;
-
-        let (event_send, _) = channel();
-        event_receiver.add_consumer(event_send);
-
-        event_receiver.bind(bind_addr)?;
-        let stop_signaler = event_receiver.get_stop_signaler()?;
-        let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
-
-        // start a thread for the event receiver
-        let event_thread = thread::Builder::new()
-            .name("event_receiver".to_string())
-            .stack_size(THREAD_STACK_SIZE)
-            .spawn(move || event_receiver.main_loop())
-            .map_err(|e| {
-                error!("EventReceiver failed to start: {:?}", &e);
-                EventError::FailedToStart
-            })?;
-
-        // start receiving events and doing stuff with them
-        let runloop_thread = thread::Builder::new()
-            .name("signer_runloop".to_string())
-            .stack_size(THREAD_STACK_SIZE)
-            .spawn(move || signer_loop.main_loop(event_recv, stop_signaler))
+            .spawn(move || signer_loop.main_loop(event_recv, command_receiver, stop_signaler))
             .map_err(|e| {
                 error!("SignerRunLoop failed to start: {:?}", &e);
                 ret_stop_signaler.send();

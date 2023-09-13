@@ -40,6 +40,7 @@ use stacks::chainstate::stacks::TransactionPayload;
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 
 use stacks::libstackerdb::StackerDBChunkData;
+
 pub use libsigner::StackerDBChunksEvent;
 
 #[derive(Debug, Clone)]
@@ -116,9 +117,12 @@ impl EventObserver {
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
         loop {
+            let body_str = format!("{}", payload);
+            info!("send_payload {} bytes to {}", body_str.len(), path);
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
             req.append_header("Content-Type", "application/json");
+            info!("send_payload req without body {:?}", req);
             req.set_body(body);
 
             let response = async_std::task::block_on(async {

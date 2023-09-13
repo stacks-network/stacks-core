@@ -17,8 +17,10 @@ use crate::{
 };
 
 /// Which operation to perform
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum RunLoopCommand {
+    /// Wait for an initial command
+    Wait,
     /// Continaully poll for commands to execute
     Run,
     /// Generate a DKG aggregate public key
@@ -263,7 +265,7 @@ pub fn process_inbound_messages(
     Ok(responses)
 }
 
-impl<C: Coordinatable> SignerRunLoop<Vec<Point>> for RunLoop<C> {
+impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.event_timeout = timeout;
     }
@@ -273,7 +275,15 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>> for RunLoop<C> {
     }
 
     // TODO: update the return type to return any OperationResult
-    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>) -> Option<Vec<Point>> {
+    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>, cmd: Option<RunLoopCommand>) -> Option<Vec<Point>> {
+        // if we are waiting for a command and get one then set it
+        match (&self.command, cmd) {
+            (&RunLoopCommand::Wait, Some(command)) => {
+                self.command = command.clone();
+            }
+            (_, _) => {}
+        }
+
         // TODO: we should potentially trigger shares outside of the runloop. This may be temporary?
         self.execute_dkg_sign();
         if let Some(event) = event {

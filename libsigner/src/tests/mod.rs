@@ -19,6 +19,7 @@ mod http;
 use std::io::Write;
 use std::mem;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Duration;
 
@@ -51,7 +52,11 @@ impl SimpleRunLoop {
     }
 }
 
-impl SignerRunLoop<Vec<StackerDBChunksEvent>> for SimpleRunLoop {
+enum Command {
+    Empty,
+}
+
+impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }
@@ -63,6 +68,7 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>> for SimpleRunLoop {
     fn run_one_pass(
         &mut self,
         event: Option<StackerDBChunksEvent>,
+        _cmd: Option<Command>,
     ) -> Option<Vec<StackerDBChunksEvent>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
@@ -87,7 +93,8 @@ fn test_simple_signer() {
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
     )
     .unwrap()]);
-    let mut signer = Signer::new(SimpleRunLoop::new(5), ev);
+    let (_cmd_send, cmd_recv) = channel();
+    let mut signer = Signer::new(SimpleRunLoop::new(5), ev, cmd_recv);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let thread_endpoint = endpoint.clone();
 
