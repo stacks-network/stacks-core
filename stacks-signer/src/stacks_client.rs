@@ -8,7 +8,7 @@ use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn};
 
 use crate::config::Config;
 
-const SLOTS_PER_USER: u32 = 16;
+const SLOTS_PER_USER: u32 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type
