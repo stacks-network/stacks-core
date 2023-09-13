@@ -52,17 +52,17 @@ trait ClarityWasmContext {
 }
 
 /// The context used when making calls into the Wasm module.
-pub struct ClarityWasmRunContext<'a, 'b> {
-    pub env: &'a mut Environment<'a, 'b>,
+pub struct ClarityWasmRunContext<'a, 'b, 'c> {
+    pub env: &'c mut Environment<'a, 'b>,
 }
 
-impl<'a, 'b> ClarityWasmRunContext<'a, 'b> {
-    pub fn new(env: &'a mut Environment<'a, 'b>) -> Self {
+impl<'a, 'b, 'c> ClarityWasmRunContext<'a, 'b, 'c> {
+    pub fn new(env: &'c mut Environment<'a, 'b>) -> Self {
         ClarityWasmRunContext { env }
     }
 }
 
-impl ClarityWasmContext for ClarityWasmRunContext<'_, '_> {
+impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
     fn contract_identifier(&self) -> &QualifiedContractIdentifier {
         &self.env.contract_context.contract_identifier
     }
@@ -301,10 +301,10 @@ pub fn initialize_contract(
 }
 
 /// Call a function in the contract.
-pub fn call_function<'a, 'b>(
+pub fn call_function<'a, 'b, 'c>(
     function_name: &str,
     args: &[Value],
-    env: &'a mut Environment<'a, 'b>,
+    env: &mut Environment<'a, 'b>,
 ) -> Result<Value, Error> {
     let context = ClarityWasmRunContext::new(env);
     let engine = Engine::default();
