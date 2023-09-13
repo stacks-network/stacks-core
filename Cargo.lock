@@ -1253,7 +1253,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
- "wsts 2.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -1277,7 +1277,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ureq",
- "wsts 2.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -1536,16 +1536,6 @@ name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
-
-[[package]]
-name = "hashbrown"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
-dependencies = [
- "ahash 0.8.3",
- "serde",
-]
 
 [[package]]
 name = "hashbrown"
@@ -3476,10 +3466,8 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
- "bincode",
  "chrono",
  "clarity",
- "hashbrown 0.14.0",
  "http-types",
  "lazy_static",
  "libc",
@@ -3487,7 +3475,6 @@ dependencies = [
  "p256k1",
  "pico-args",
  "rand 0.7.3",
- "rand_core 0.6.4",
  "regex",
  "reqwest",
  "ring",
@@ -3503,7 +3490,6 @@ dependencies = [
  "tokio",
  "toml 0.5.11",
  "warp",
- "wsts 1.2.0",
 ]
 
 [[package]]
@@ -3531,7 +3517,7 @@ dependencies = [
  "stacks-common",
  "thiserror",
  "toml 0.5.11",
- "wsts 2.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4659,25 +4645,6 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
-]
-
-[[package]]
-name = "wsts"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44abcb9564cb6b3fc6f75a3883bc740ee37abdc343a6fdd6949e253d49c98f5e"
-dependencies = [
- "bs58 0.4.0",
- "hashbrown 0.13.2",
- "hex",
- "num-traits",
- "p256k1",
- "polynomial",
- "primitive-types",
- "rand_core 0.6.4",
- "serde",
- "sha2 0.10.6",
- "thiserror",
 ]
 
 [[package]]

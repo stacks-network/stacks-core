@@ -38,11 +38,7 @@ clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer" }
-rand_core = "0.6"
 p256k1 = "5.4.1"
-wsts = "1.2"
-bincode = "1.3.3"
-hashbrown = "0.14"
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"

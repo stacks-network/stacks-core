@@ -18,12 +18,11 @@ use crate::{
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
-use p256k1::{ecdsa, point::Point, scalar::Scalar};
-use rand_core::OsRng;
+use p256k1::point::Point;
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_signer::runloop::RunLoopCommand;
-
-const SLOTS_PER_USER: u32 = 16;
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
@@ -32,101 +31,6 @@ struct RunningNodes {
     pub btcd_controller: BitcoinCoreController,
     pub join_handle: thread::JoinHandle<()>,
     pub conf: NeonConfig,
-}
-
-fn build_contract(num_signers: u32, signer_stacks_private_keys: &[StacksPrivateKey]) -> String {
-    let mut stackerdb_contract = String::new(); // "
-    stackerdb_contract += "        ;; stacker DB\n";
-    stackerdb_contract += "        (define-read-only (stackerdb-get-signer-slots)\n";
-    stackerdb_contract += "            (ok (list\n";
-    for i in 0..num_signers {
-        stackerdb_contract += "                {\n";
-        stackerdb_contract += format!(
-            "                    signer: '{},\n",
-            to_addr(&signer_stacks_private_keys[i as usize])
-        )
-        .as_str();
-        stackerdb_contract +=
-            format!("                    num-slots: u{}\n", SLOTS_PER_USER).as_str();
-        stackerdb_contract += "                }\n";
-    }
-    stackerdb_contract += "                )))\n";
-    stackerdb_contract += "\n";
-    stackerdb_contract += "        (define-read-only (stackerdb-get-config)\n";
-    stackerdb_contract += "            (ok {\n";
-    stackerdb_contract += "                chunk-size: u4096,\n";
-    stackerdb_contract += "                write-freq: u0,\n";
-    stackerdb_contract += "                max-writes: u4096,\n";
-    stackerdb_contract += "                max-neighbors: u32,\n";
-    stackerdb_contract += "                hint-replicas: (list )\n";
-    stackerdb_contract += "            }))\n";
-    stackerdb_contract += "    ";
-
-    info!("stackerdb_contract:\n{}\n", &stackerdb_contract);
-    stackerdb_contract
-}
-
-fn build_signer_config_tomls(
-    num_signers: u32,
-    signer_stacks_private_keys: &[StacksPrivateKey],
-    node_host: &str,
-    contract_id: String,
-) -> Vec<String> {
-    let mut rng = OsRng::default();
-    let num_keys: u32 = 20;
-    let keys_per_signer = num_keys / num_signers;
-    let mut key_id: u32 = 1;
-    let mut key_ids = Vec::new();
-    for _ in 0..num_signers {
-        let mut ids = Vec::new();
-        for _ in 0..keys_per_signer {
-            ids.push(format!("{key_id}"));
-            key_id += 1;
-        }
-        key_ids.push(ids.join(", "));
-    }
-    let signer_ecdsa_private_keys = (0..num_signers)
-        .map(|_| Scalar::random(&mut rng))
-        .collect::<Vec<Scalar>>();
-
-    let mut signer_config_tomls = vec![];
-    let mut signers_array = String::new();
-    signers_array += "signers = [";
-    for (i, private_key) in signer_ecdsa_private_keys.iter().enumerate() {
-        let ecdsa_public_key = ecdsa::PublicKey::new(private_key).unwrap().to_string();
-        let ids = key_ids[i].clone();
-        signers_array += &format!(
-            r#"
-            {{public_key = "{ecdsa_public_key}", key_ids = [{ids}]}}
-        "#
-        );
-        if i != signer_ecdsa_private_keys.len() - 1 {
-            signers_array += ",";
-        }
-    }
-    signers_array += "]";
-    let mut port = 30000;
-    for (i, stacks_private_key) in signer_stacks_private_keys.iter().enumerate() {
-        let endpoint = format!("localhost:{}", port);
-        port += 1;
-        let id = i;
-        let message_private_key = signer_ecdsa_private_keys[i].to_string();
-        let stacks_private_key = stacks_private_key.to_hex();
-        let signer_config_toml = format!(
-            r#"
-message_private_key = "{message_private_key}"
-stacks_private_key = "{stacks_private_key}"
-node_host = "{node_host}"
-endpoint = "{endpoint}"
-network = "testnet"
-stackerdb_contract_id = "{contract_id}"
-signer_id = {id}
-{signers_array}
-"#
-        );
-        signer_config_tomls.push(signer_config_toml);
-    }
-    signer_config_tomls
 }
 
 fn spawn_running_signer(
@@ -244,30 +148,34 @@ fn setup_stx_btc_node(
 
 #[test]
 fn test_stackerdb_dkg() {
-    let num_signers: u32 = 5;
-    let signer_stacks_private_keys = (0..num_signers)
-        .map(|_| StacksPrivateKey::new())
-        .collect::<Vec<StacksPrivateKey>>();
-
-    // Setup the neon node
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+    // Generate Signer Data
+    let num_signers: u32 = 5;
+    let num_keys: u32 = 20;
+    let signer_stacks_private_keys = (0..num_signers)
+        .map(|_| StacksPrivateKey::new())
+        .collect::<Vec<StacksPrivateKey>>();
+    let signer_stacks_addresses = signer_stacks_private_keys
+        .iter()
+        .map(|key| to_addr(key).into())
+        .collect::<Vec<StacksAddress>>();
+
+    // Setup the neon node
     let (mut conf, _) = neon_integration_test_conf();
 
     // Build the stackerdb contract
-    let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
-    let contract_id = QualifiedContractIdentifier::new(
-        to_addr(&signer_stacks_private_keys[0]).into(),
-        "hello-world".into(),
-    );
+    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
+    let contract_id =
+        QualifiedContractIdentifier::new(signer_stacks_addresses[0].into(), "hello-world".into());
 
     // Setup the signer and coordinator configurations
     let signer_configs = build_signer_config_tomls(
-        num_signers,
         &signer_stacks_private_keys,
+        num_keys,
         &conf.node.rpc_bind,
-        contract_id.to_string(),
+        &contract_id.to_string(),
     );
 
     // The test starts here
