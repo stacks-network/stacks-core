@@ -24,7 +24,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
+use crate::events::{THREAD_STACK_SIZE, EventReceiver, EventStopSignaler, StackerDBChunksEvent};
 
 use crate::error::EventError;
 
@@ -32,10 +32,6 @@ use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
 use libc;
-
-/// Some libcs, like musl, have a very small stack size.
-/// Make sure it's big enough.
-const THREAD_STACK_SIZE: usize = 128 * 1024 * 1024; // 128 MB
 
 /// stderr fileno
 const STDERR: i32 = 2;
@@ -188,13 +184,10 @@ impl<
         }
     }
 
-    /// This is a helper function to spawn both the runloop and event receiver in their own
-    /// threads.  Advanced signers may not need this method, and instead opt to run the receiver
+    /// This is a helper function to spawn the runloop thread.
+    /// Advanced signers may not need this method, and instead opt to run the receiver
     /// and runloop directly.  However, this method is present to help signer developers to get
     /// their implementations off the ground.
-    ///
-    /// The given `bind_addr` is the server address this event receiver needs to listen on, so the
-    /// stacks node can POST events to it.
     ///
     /// On success, this method consumes the Signer and returns a RunningSigner with the relevant
     /// inter-thread communication primitives for the caller to shut down the system.
@@ -242,30 +235,22 @@ impl<
         Ok(running_signer)
     }
 
-    /// don't bind use passed receiver
-    pub fn spawn_with_receiver(&mut self, bind_addr: SocketAddr, event_recv: Receiver<StackerDBChunksEvent>) -> Result<RunningSigner<EV, R>, EventError> {
+    /// Spawn with an already spawned event receiver
+    pub fn spawn_with_receiver(&mut self) -> Result<RunningSigner<EV, R>, EventError> {
         let mut event_receiver = self
             .event_receiver
             .take()
             .ok_or(EventError::AlreadyRunning)?;
         let mut signer_loop = self.signer_loop.take().ok_or(EventError::AlreadyRunning)?;
 
-        let (event_send, _) = channel();
+        let (event_send, event_recv) = channel();
         event_receiver.add_consumer(event_send);
 
-        event_receiver.bind(bind_addr)?;
         let stop_signaler = event_receiver.get_stop_signaler()?;
         let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
 
-        // start a thread for the event receiver
-        let event_thread = thread::Builder::new()
-            .name("event_receiver".to_string())
-            .stack_size(THREAD_STACK_SIZE)
-            .spawn(move || event_receiver.main_loop())
-            .map_err(|e| {
-                error!("EventReceiver failed to start: {:?}", &e);
-                EventError::FailedToStart
-            })?;
+        // take the join handle for spawned event receiver
+        let event_thread = event_receiver.take_join_handle()?;
 
         // start receiving events and doing stuff with them
         let runloop_thread = thread::Builder::new()

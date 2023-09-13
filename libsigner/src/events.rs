@@ -18,6 +18,8 @@ use std::sync::mpsc::Sender;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::thread::JoinHandle;
 
 use std::net::SocketAddr;
 use std::net::TcpListener;
@@ -32,6 +34,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
+
+/// Some libcs, like musl, have a very small stack size.
+/// Make sure it's big enough.
+pub const THREAD_STACK_SIZE: usize = 128 * 1024 * 1024; // 128 MB
 
 /// Event structure for newly-arrived StackerDB data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -55,6 +61,8 @@ pub trait EventReceiver {
 
     /// Open a server socket to the given socket address.
     fn bind(&mut self, listener: SocketAddr) -> Result<SocketAddr, EventError>;
+    /// Take the join handle, will fail if we didn't spawn the receiver
+    fn take_join_handle(&mut self) -> Result<JoinHandle<()>, EventError>;
     /// Return the next event
     fn next_event(&mut self) -> Result<StackerDBChunksEvent, EventError>;
     /// Add a downstream event consumer
@@ -103,6 +111,8 @@ pub trait EventReceiver {
 pub struct StackerDBEventReceiver {
     /// contracts we're listening for
     pub stackerdb_contract_ids: Vec<QualifiedContractIdentifier>,
+    /// handle that allows us (or someone who takes it) to join the thread
+    pub join_handle: Option<JoinHandle<()>>,
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
@@ -119,6 +129,7 @@ impl StackerDBEventReceiver {
     pub fn new(contract_ids: Vec<QualifiedContractIdentifier>) -> StackerDBEventReceiver {
         let stackerdb_receiver = StackerDBEventReceiver {
             stackerdb_contract_ids: contract_ids,
+            join_handle: None,
             sock: None,
             local_addr: None,
             out_channels: vec![],
@@ -142,6 +153,17 @@ impl StackerDBEventReceiver {
 
         self.sock = Some(sock);
         Ok(res)
+    }
+
+    /// Bind the receiver and spawn a thread to run it
+    pub fn spawn(&mut self, bind_addr: SocketAddr) {
+        self.bind(bind_addr).expect("EventReceiver failed to bind addr");
+
+        self.join_handle = Some(thread::Builder::new()
+            .name("event_receiver".to_string())
+            .stack_size(THREAD_STACK_SIZE)
+            .spawn(move || self.main_loop())
+            .expect("EventReceiver failed to start"));
     }
 }
 
@@ -181,6 +203,10 @@ impl EventReceiver for StackerDBEventReceiver {
         self.sock = Some(srv);
         self.local_addr = Some(bound_addr.clone());
         Ok(bound_addr)
+    }
+
+    fn take_join_handle(&mut self) -> Result<JoinHandle<()>, EventError> {
+        self.join_handle.take().ok_or(EventError::NotBound)
     }
 
     /// Wait for the node to post something, and then return it.

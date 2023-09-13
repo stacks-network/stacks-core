@@ -63,12 +63,12 @@ fn build_contract(num_signers: u32, signer_stacks_private_keys: &[StacksPrivateK
     stackerdb_contract += "                hint-replicas: (list )\n";
     stackerdb_contract += "            }))\n";
     stackerdb_contract += "    ";
-
+    
     info!("stackerdb_contract:\n{}\n", &stackerdb_contract);
     stackerdb_contract
 }
 
-fn build_signer_config_tomls(
+fn build_signer_config_tomls
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     node_host: &str,
@@ -91,6 +91,7 @@ fn build_signer_config_tomls(
         .map(|_| Scalar::random(&mut rng))
         .collect::<Vec<Scalar>>();
 
+    let mut receivers = Vec::new();
     let mut signer_config_tomls = vec![];
     let mut signers_array = String::new();
     signers_array += "signers = [";
@@ -107,6 +108,7 @@ fn build_signer_config_tomls(
         }
     }
     signers_array += "]";
+l
     let mut port = 30000;
     for (i, stacks_private_key) in signer_stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
@@ -134,10 +136,9 @@ signer_id = {id}
 fn spawn_running_signer(
     data: &str,
     command: RunLoopCommand,
-    receiver: Receiver<StackerDBChunksEvent>,
+    ev: StacksDBEventReceiver,
 ) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
-    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator> =
         stacks_signer::runloop::RunLoop::new(&config, command);
     let mut signer: Signer<
@@ -150,19 +151,29 @@ fn spawn_running_signer(
         "Spawning signer {} on endpoint {}",
         config.signer_id, endpoint
     );
-    signer.spawn_with_receiver(endpoint, receiver).unwrap()
+    signer.spawn_with_receiver(endpoint).unwrap()
 }
 
 fn setup_stx_btc_node(
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     stackerdb_contract: &str,
-) -> (RunningNodes, Vec<Receiver<StackerDBChunksEvent>>) {
+    signer_tomls: &Vec<String>,
+) -> (RunningNodes, Vec<StacksDBEventReceiver>) {
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::StackerDBChunks],
-    });
+    let mut receivers = Vec::new();
+    for signer_toml in signer_tomls {
+        let signer_config = stacks_signer::config::Config::load_from_str(data).unwrap();
+        let ev = StackerDBEventReceiver::new(vec![signer_config.stackerdb_contract_id.clone()]);
+
+        ev.bind(signer_config.endpoint);
+        receivers.push(ev);
+
+        conf.events_observers.push(EventObserverConfig {
+            endpoint: signer_config.endpoint,
+            events_keys: vec![EventKeyType::StackerDBChunks],
+        });
+    }
 
     let mut initial_balances = Vec::new();
     for i in 0..num_signers {
@@ -177,8 +188,6 @@ fn setup_stx_btc_node(
         to_addr(&signer_stacks_private_keys[0]).into(),
         "hello-world".into(),
     ));
-
-    let receivers = test_observer::spawn_receivers(num_signers);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -251,13 +260,6 @@ fn test_stackerdb_dkg() {
 
     // Build the stackerdb contract
     let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
-    // Setup the nodes and deploy the contract to it
-    let (node, mut receivers) = setup_stx_btc_node(
-        num_signers,
-        &signer_stacks_private_keys,
-        &stackerdb_contract,
-    );
-
     // Setup the signer and coordinator configurations
     let contract_id = node.conf.node.stacker_dbs[0].clone();
     let signer_configs = build_signer_config_tomls(
@@ -265,6 +267,14 @@ fn test_stackerdb_dkg() {
         &signer_stacks_private_keys,
         &node.conf.node.rpc_bind,
         contract_id.to_string(),
+    );
+
+    // Setup the nodes and deploy the contract to it
+    let (node, mut receivers) = setup_stx_btc_node(
+        num_signers,
+        &signer_stacks_private_keys,
+        &stackerdb_contract,
+        &signer_configs,
     );
 
     // The test starts here
