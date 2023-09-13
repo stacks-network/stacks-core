@@ -3,8 +3,8 @@ use frost_signer::{net::Message, signing_round::MessageTypes};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_warn, slog_info};
-use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn, info};
+use slog::{slog_debug, slog_info, slog_warn};
+use stacks_common::{debug, info, types::chainstate::StacksPrivateKey, warn};
 
 use crate::config::Config;
 

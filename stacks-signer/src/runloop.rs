@@ -198,7 +198,12 @@ impl RunLoop<FrostCoordinator> {
             .collect::<Vec<u32>>();
         RunLoop {
             event_timeout: config.event_timeout,
-            coordinator: FrostCoordinator::new(total_signers, total_keys, threshold, config.message_private_key),
+            coordinator: FrostCoordinator::new(
+                total_signers,
+                total_keys,
+                threshold,
+                config.message_private_key,
+            ),
             signing_round: SigningRound::new(
                 threshold,
                 total_signers,
@@ -280,13 +285,14 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
 
     // TODO: update the return type to return any OperationResult
     // See: https://github.com/stacks-network/stacks-blockchain/issues/3916
-    fn run_one_pass(&mut self, event: Option<StackerDBChunksEvent>, cmd: Option<RunLoopCommand>) -> Option<Vec<Point>> {
+    fn run_one_pass(
+        &mut self,
+        event: Option<StackerDBChunksEvent>,
+        cmd: Option<RunLoopCommand>,
+    ) -> Option<Vec<Point>> {
         // if we are waiting for a command and get one then set it
-        match (&self.command, cmd) {
-            (&RunLoopCommand::Wait, Some(command)) => {
-                self.command = command.clone();
-            }
-            (_, _) => {}
+        if let (&RunLoopCommand::Wait, Some(command)) = (&self.command, cmd) {
+            self.command = command.clone();
         }
         self.update_state();
         if let Some(event) = event {

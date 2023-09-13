@@ -30,7 +30,9 @@ use libstackerdb::StackerDBChunkData;
 
 use serde::{Deserialize, Serialize};
 
-use tiny_http::{Server as HttpServer, Request as HttpRequest, Response as HttpResponse, Method as HttpMethod};
+use tiny_http::{
+    Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
+};
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
@@ -194,11 +196,18 @@ impl EventReceiver for StackerDBEventReceiver {
             info!("[{:?}] next_event recv request", event_receiver.local_addr);
             let mut request = http_server.recv()?;
 
-            info!("[{:?}] next_event got request for {}", event_receiver.local_addr, request.url());
+            info!(
+                "[{:?}] next_event got request for {}",
+                event_receiver.local_addr,
+                request.url()
+            );
 
             // were we asked to terminate?
             if event_receiver.is_stopped() {
-                info!("[{:?}] next_event we were terminated", event_receiver.local_addr);
+                info!(
+                    "[{:?}] next_event we were terminated",
+                    event_receiver.local_addr
+                );
                 return Err(EventError::Terminated);
             }
 
@@ -211,23 +220,37 @@ impl EventReceiver for StackerDBEventReceiver {
             }
             if request.url() != "/stackerdb_chunks" {
                 let url = request.url().to_string();
-                request.respond(HttpResponse::empty(200u16)).expect("response failed");                
+                request
+                    .respond(HttpResponse::empty(200u16))
+                    .expect("response failed");
                 Err(EventError::UnrecognizedEvent(url))
             } else {
-
                 info!("[{:?}] next_event get body", event_receiver.local_addr);
                 let mut body = String::new();
-                request.as_reader().read_to_string(&mut body).expect("failed to read body");
+                request
+                    .as_reader()
+                    .read_to_string(&mut body)
+                    .expect("failed to read body");
 
-                info!("[{:?}] next_event body {} bytes", event_receiver.local_addr, body.len());
+                info!(
+                    "[{:?}] next_event body {} bytes",
+                    event_receiver.local_addr,
+                    body.len()
+                );
 
-                let event: StackerDBChunksEvent = serde_json::from_slice(body.as_bytes()).map_err(|e| {
-                    EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
-                })?;
+                let event: StackerDBChunksEvent =
+                    serde_json::from_slice(body.as_bytes()).map_err(|e| {
+                        EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
+                    })?;
 
                 info!("[{:?}] next_event responding", event_receiver.local_addr);
-                request.respond(HttpResponse::empty(200u16)).expect("response failed");
-                info!("[{:?}] next_event response sent returning event", event_receiver.local_addr);
+                request
+                    .respond(HttpResponse::empty(200u16))
+                    .expect("response failed");
+                info!(
+                    "[{:?}] next_event response sent returning event",
+                    event_receiver.local_addr
+                );
 
                 Ok(event)
             }

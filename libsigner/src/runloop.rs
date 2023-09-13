@@ -67,9 +67,9 @@ pub trait SignerRunLoop<R, CMD: Send> {
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
         loop {
-            let poll_timeout = Duration::from_millis(128);//self.get_event_timeout();
-            //info!("SignerRunLoop::main_loop: poll_timeout {:?}", poll_timeout);
-            //info!("SignerRunLoop::main_loop: event_recv");
+            let poll_timeout = Duration::from_millis(128); //self.get_event_timeout();
+                                                           //info!("SignerRunLoop::main_loop: poll_timeout {:?}", poll_timeout);
+                                                           //info!("SignerRunLoop::main_loop: event_recv");
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -196,7 +196,11 @@ impl<
         EV: EventReceiver + Send + 'static,
     > Signer<CMD, R, SL, EV>
 {
-    pub fn new(runloop: SL, event_receiver: EV, command_receiver: Receiver<CMD>) -> Signer<CMD, R, SL, EV> {
+    pub fn new(
+        runloop: SL,
+        event_receiver: EV,
+        command_receiver: Receiver<CMD>,
+    ) -> Signer<CMD, R, SL, EV> {
         Signer {
             signer_loop: Some(runloop),
             event_receiver: Some(event_receiver),

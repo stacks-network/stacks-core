@@ -178,8 +178,12 @@ fn spawn_running_signer(
     let config = Config::try_from(path).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
-    let mut signer: Signer<RunLoopCommand, Vec<Point>, RunLoop<FrostCoordinator>, StackerDBEventReceiver> =
-        Signer::new(runloop, ev, cmd_recv);
+    let mut signer: Signer<
+        RunLoopCommand,
+        Vec<Point>,
+        RunLoop<FrostCoordinator>,
+        StackerDBEventReceiver,
+    > = Signer::new(runloop, ev, cmd_recv);
     let endpoint = config.node_host;
     signer.spawn(endpoint).unwrap()
 }
@@ -232,16 +236,22 @@ fn main() {
         }
         Command::DkgSign(args) => {
             if let Some(config) = &cli.config {
-                let _running_signer =
-                    spawn_running_signer(config, RunLoopCommand::DkgSign { message: args.data }, cmd_recv);
+                let _running_signer = spawn_running_signer(
+                    config,
+                    RunLoopCommand::DkgSign { message: args.data },
+                    cmd_recv,
+                );
             } else {
                 panic!("dkg-sign is currently only supported when using a config file");
             }
         }
         Command::Sign(args) => {
             if let Some(config) = &cli.config {
-                let _running_signer =
-                    spawn_running_signer(config, RunLoopCommand::Sign { message: args.data }, cmd_recv);
+                let _running_signer = spawn_running_signer(
+                    config,
+                    RunLoopCommand::Sign { message: args.data },
+                    cmd_recv,
+                );
             } else {
                 panic!("dkg-sign is currently only supported when using a config file");
             }

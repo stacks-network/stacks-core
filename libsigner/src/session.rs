@@ -97,7 +97,7 @@ impl StackerDBSession {
         F: FnOnce(&mut StackerDBSession, &mut TcpStream) -> R,
     {
         //if self.sock.is_none() {
-            self.connect_or_reconnect()?;
+        self.connect_or_reconnect()?;
         //}
 
         let mut sock = if let Some(s) = self.sock.take() {

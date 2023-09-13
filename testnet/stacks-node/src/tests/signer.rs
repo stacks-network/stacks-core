@@ -1,18 +1,16 @@
+use std::sync::mpsc::{channel, Receiver};
 use std::thread::sleep;
 use std::time::Duration;
 use std::{env, thread};
-use std::sync::mpsc::{channel, Receiver};
 
 use crate::{
     config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance},
     neon,
-
     tests::{
         bitcoin_regtest::BitcoinCoreController,
         make_contract_publish,
         neon_integrations::{
-            neon_integration_test_conf, next_block_and_wait, submit_tx,
-            wait_for_runloop,
+            neon_integration_test_conf, next_block_and_wait, submit_tx, wait_for_runloop,
         },
         to_addr,
     },
@@ -162,7 +160,7 @@ fn setup_stx_btc_node(
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     for toml in signer_config_tomls {
-        let signer_config = stacks_signer::config::Config::load_from_str(toml).unwrap(); 
+        let signer_config = stacks_signer::config::Config::load_from_str(toml).unwrap();
 
         conf.events_observers.push(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
@@ -263,7 +261,7 @@ fn test_stackerdb_dkg() {
         to_addr(&signer_stacks_private_keys[0]).into(),
         "hello-world".into(),
     );
-    
+
     // Setup the signer and coordinator configurations
     let signer_configs = build_signer_config_tomls(
         num_signers,
@@ -279,16 +277,21 @@ fn test_stackerdb_dkg() {
     for i in (1..num_signers).rev() {
         let (cmd_send, cmd_recv) = channel();
         eprintln!("spawn signer");
-        let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, cmd_recv);
+        let running_signer =
+            spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, cmd_recv);
         //sleep(Duration::from_secs(1));
         running_signers.push(running_signer);
         signer_cmd_senders.push(cmd_send);
     }
     // Spawn coordinator second
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
-    //let running_coordinator = spawn_running_signer(&signer_configs[0], 
+    //let running_coordinator = spawn_running_signer(&signer_configs[0],
     eprintln!("spawn coordinator");
-    let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::Wait, coordinator_cmd_recv);
+    let running_coordinator = spawn_running_signer(
+        &signer_configs[0],
+        RunLoopCommand::Wait,
+        coordinator_cmd_recv,
+    );
 
     eprintln!("setup node, sleep first to make sure signers are running");
     sleep(Duration::from_secs(10));
@@ -305,7 +308,11 @@ fn test_stackerdb_dkg() {
     sleep(Duration::from_secs(5));
 
     eprintln!("signer_runloop: spawn send dkg-sign command");
-    coordinator_cmd_send.send(RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]}).expect("failed to send command");
+    coordinator_cmd_send
+        .send(RunLoopCommand::DkgSign {
+            message: vec![1, 2, 3, 4, 5],
+        })
+        .expect("failed to send command");
 
     sleep(Duration::from_secs(30));
 

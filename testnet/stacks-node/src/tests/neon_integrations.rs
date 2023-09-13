@@ -200,9 +200,7 @@ pub fn neon_integration_test_conf_with_seed(seed: Vec<u8>) -> (Config, StacksAdd
 
 pub mod test_observer {
     use std::convert::Infallible;
-    use std::sync::{
-        Mutex,
-    };
+    use std::sync::Mutex;
     use std::thread;
 
     use tokio;
