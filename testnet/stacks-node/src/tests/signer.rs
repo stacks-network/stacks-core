@@ -251,15 +251,12 @@ fn test_stackerdb_dkg() {
 
     // Build the stackerdb contract
     let stackerdb_contract = build_contract(num_signers, &signer_stacks_private_keys);
-    // Setup the nodes and deploy the contract to it
-    let (node, mut receivers) = setup_stx_btc_node(
-        num_signers,
-        &signer_stacks_private_keys,
-        &stackerdb_contract,
+    let contract_id = QualifiedContractIdentifier::new(
+        to_addr(&signer_stacks_private_keys[0]).into(),
+        "hello-world".into(),
     );
-
+    
     // Setup the signer and coordinator configurations
-    let contract_id = node.conf.node.stacker_dbs[0].clone();
     let signer_configs = build_signer_config_tomls(
         num_signers,
         &signer_stacks_private_keys,
@@ -272,12 +269,19 @@ fn test_stackerdb_dkg() {
     // Spawn all the signers first to listen to the coordinator request for dkg
     for i in (1..num_signers).rev() {
         let receiver = receivers.remove(i as usize);
-        let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, receiver);
+        let running_signer = spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Idle, receiver);
         //sleep(Duration::from_secs(1));
         running_signers.push(running_signer);
     }
     // Spawn coordinator second
     let running_coordinator = spawn_running_signer(&signer_configs[0], RunLoopCommand::DkgSign{message: vec![1, 2, 3, 4, 5]}, receivers.remove(0));
+
+    // Setup the nodes and deploy the contract to it
+    let (node, mut receivers) = setup_stx_btc_node(
+        num_signers,
+        &signer_stacks_private_keys,
+        &stackerdb_contract,
+    );
 
     sleep(Duration::from_secs(60));
     let result = running_coordinator.stop().unwrap();
