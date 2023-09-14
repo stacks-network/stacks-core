@@ -2,6 +2,7 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::sync::Mutex;
 
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::NULL_BURN_STATE_DB;
 use clarity::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
@@ -15,6 +16,7 @@ use stacks::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::StacksEpochId;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -24,15 +26,12 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::{hash::*, secp256k1::*};
 
-use crate::helium::RunLoop;
-use crate::Keychain;
-use clarity::vm::costs::ExecutionCost;
-use stacks::core::StacksEpochId;
-
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
     serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
+use crate::helium::RunLoop;
+use crate::Keychain;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -229,7 +228,11 @@ fn mempool_setup_chainstate() {
                 let consensus_hash = &block_header.consensus_hash;
                 let block_hash = &block_header.anchored_header.block_hash();
 
-                let micro_pubkh = &block_header.anchored_header.microblock_pubkey_hash;
+                let micro_pubkh = &block_header
+                    .anchored_header
+                    .as_stacks_epoch2()
+                    .unwrap()
+                    .microblock_pubkey_hash;
 
                 // let's throw some transactions at it.
                 // first a couple valid ones:

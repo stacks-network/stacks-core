@@ -26,11 +26,33 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread::ThreadId;
 
+use clarity::vm::analysis::{CheckError, CheckErrors};
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::types::TypeSignature;
+use serde::Deserialize;
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::*;
+
 use crate::burnchains::PrivateKey;
 use crate::burnchains::PublicKey;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
@@ -41,41 +63,19 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
-use crate::net::relay::Relayer;
-use crate::net::Error as net_error;
-use clarity::vm::database::BurnStateDB;
-use serde::Deserialize;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::vrf::*;
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::SetupBlockResult;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
-use clarity::vm::analysis::{CheckError, CheckErrors};
-use clarity::vm::ast::errors::ParseErrors;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
-use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
+use crate::net::relay::Relayer;
+use crate::net::Error as net_error;
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -1449,7 +1449,7 @@ impl StacksBlockBuilder {
         pubkh: Hash160,
     ) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),

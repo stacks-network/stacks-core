@@ -24,7 +24,32 @@ use std::sync::{
     Arc, RwLock,
 };
 
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::ClarityVersion;
+use clarity::vm::{
+    costs::{ExecutionCost, LimitedCostTracker},
+    types::PrincipalData,
+    types::QualifiedContractIdentifier,
+    Value,
+};
+use rand::RngCore;
 use rusqlite::Connection;
+use stacks_common::address;
+use stacks_common::address::AddressHashMode;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+};
+use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::vrf::*;
+use stacks_common::{types, util};
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -39,6 +64,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::boot::{PoxStartCycleInfo, POX_3_NAME};
@@ -51,36 +77,8 @@ use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::strings::StacksString;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::{
-    costs::{ExecutionCost, LimitedCostTracker},
-    types::PrincipalData,
-    types::QualifiedContractIdentifier,
-    Value,
-};
-use stacks_common::address;
-use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::util::hash::{to_hex, Hash160};
-use stacks_common::util::vrf::*;
-
-use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use crate::util_lib::boot::boot_code_id;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::ClarityVersion;
-use rand::RngCore;
-use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
-};
-use stacks_common::{types, util};
-
-use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::util_lib::strings::StacksString;
 
 lazy_static! {
     pub static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -241,7 +239,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
     block_hash
 }
 
-fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     let pk = StacksPublicKey::from_private(sk);
     StacksAddress::from_public_keys(
         chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -252,7 +250,7 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     .unwrap()
 }
 
-fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
+pub fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
     let stacks_addr = p2pkh_from(sk);
     PoxAddress::Standard(stacks_addr, Some(AddressHashMode::SerializeP2PKH))
 }

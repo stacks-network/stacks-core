@@ -16,8 +16,12 @@
 
 use std::collections::HashMap;
 
+use clarity::vm::database::clarity_store::*;
+use clarity::vm::database::*;
+use clarity::vm::types::*;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
 use crate::burnchains::Address;
 use crate::chainstate::stacks::db::blocks::*;
@@ -26,15 +30,9 @@ use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::core::StacksEpochId;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::*;
-use clarity::vm::database::clarity_store::*;
-use clarity::vm::database::*;
-use clarity::vm::types::*;
-
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-
-use crate::core::StacksEpochId;
 
 /// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
 /// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
@@ -1067,6 +1065,12 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::StacksAddressExtensions;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::util::hash::*;
+
+    use super::*;
     use crate::burnchains::*;
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
@@ -1074,13 +1078,6 @@ mod test {
     use crate::chainstate::stacks::Error;
     use crate::chainstate::stacks::*;
     use crate::core::StacksEpochId;
-    use clarity::vm::costs::ExecutionCost;
-    use stacks_common::util::hash::*;
-
-    use clarity::vm::types::StacksAddressExtensions;
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
-
-    use super::*;
 
     fn make_dummy_miner_payment_schedule(
         addr: &StacksAddress,
@@ -1151,11 +1148,12 @@ mod test {
     ) -> StacksHeaderInfo {
         let mut new_tip = parent_header_info.clone();
 
-        new_tip.anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
-        new_tip.anchored_header.microblock_pubkey_hash =
-            Hash160::from_data(&parent_header_info.anchored_header.microblock_pubkey_hash.0);
-        new_tip.anchored_header.total_work.work =
-            parent_header_info.anchored_header.total_work.work + 1;
+        let mut anchored_header = new_tip.anchored_header.as_stacks_epoch2().unwrap().clone();
+        anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
+        anchored_header.microblock_pubkey_hash =
+            Hash160::from_data(&anchored_header.microblock_pubkey_hash.0);
+        anchored_header.total_work.work = anchored_header.total_work.work + 1;
+        new_tip.anchored_header = anchored_header.into();
         new_tip.microblock_tail = None;
         new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;
         new_tip.consensus_hash = ConsensusHash(
@@ -1182,9 +1180,12 @@ mod test {
         let mut tx = chainstate.index_tx_begin().unwrap();
         let tip = StacksChainState::advance_tip(
             &mut tx,
-            &parent_header_info.anchored_header,
+            parent_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .unwrap(),
             &parent_header_info.consensus_hash,
-            &new_tip.anchored_header,
+            new_tip.anchored_header.as_stacks_epoch2().unwrap(),
             &new_tip.consensus_hash,
             &new_tip.burn_header_hash,
             new_tip.burn_header_height,
@@ -1199,7 +1200,7 @@ mod test {
             vec![],
             vec![],
             vec![],
-            parent_header_info.anchored_header.total_work.work + 1,
+            parent_header_info.anchored_header.height() + 1,
         )
         .unwrap();
         tx.commit().unwrap();
