@@ -172,7 +172,7 @@ impl RunLoop<FrostCoordinator> {
     pub fn new(config: &Config, command: RunLoopCommand) -> Self {
         // TODO: this should be a config option
         // See: https://github.com/stacks-network/stacks-blockchain/issues/3914
-        let threshold = (config.signer_ids_public_keys.key_ids.len() / 10 * 7)
+        let threshold = ((config.signer_ids_public_keys.key_ids.len() * 7) / 10)
             .try_into()
             .unwrap();
         let total_signers = config
