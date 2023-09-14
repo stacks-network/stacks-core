@@ -2,23 +2,23 @@
         (define-read-only (stackerdb-get-signer-slots)
             (ok (list
                 {
-                    signer: 'ST1RER7KAS4Q81ZTCA025SVSNZ73444NHG4D7BKWC,
+                    signer: 'ST24GDPTR7D9G3GFRR233JMWSD9HA296EXXG5XVGA,
                     num-slots: u10
                 }
                 {
-                    signer: 'ST3WM0P0EWTVRA1EDWS9YFGDKV2A6A8N9TFANTSV9,
+                    signer: 'ST1MR26HR7MMDE847BE2QC1CTNQY4WKN9XDKNPEP3,
                     num-slots: u10
                 }
                 {
-                    signer: 'ST2411R5HEBCKFQ8YKRANVFAJ8B6QNPEG9WHHP5TX,
+                    signer: 'ST110M4DRDXX2RF3W8EY1HCRQ25CS24PGY22DZ004,
                     num-slots: u10
                 }
                 {
-                    signer: 'ST3N2XTMKWPWCGE3MC8EMDEP0C9CRB728M4EDZDNZ,
+                    signer: 'ST69990VH3BVCV39QWT6CJAVVA9QPB1715HTSN75,
                     num-slots: u10
                 }
                 {
-                    signer: 'ST2NHTSBDFQRJSCBKHFRWG5C0DS22G357CNQE1ZQ,
+                    signer: 'STCZSBZJK6C3MMAAW9N9RHSDKRKB9AKGJ2JMVDKN,
                     num-slots: u10
                 }
                 )))

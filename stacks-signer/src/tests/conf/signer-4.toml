@@ -1,19 +1,19 @@
 
-message_private_key = "25sCKA2hhrbYLR9U7RfKtL4hWQiY9cdmntCDww5SB9HA"
-stacks_private_key = "61a2e31072a9cec9b1e5950d7d63e69a8b0e049a7eab43bc5918f7bb1bed8aa601"
-node_host = "127.0.0.1:20444"
+message_private_key = "9hn4j7pm37WyG6WMX25dn8j8v8E2uyTCDRPNrucjDWn1"
+stacks_private_key = "1bfdf386114aacf355fe018a1ec7ac728fa05ca20a6131a70f686291bb9b31ca01"
+node_host = "127.0.0.1:20443"
 endpoint = "localhost:30004"
 network = "testnet"
-stackerdb_contract_id = "ST1RER7KAS4Q81ZTCA025SVSNZ73444NHG4D7BKWC.signers-stackerdb"
+stackerdb_contract_id = "ST11Z60137Y96MF89K1KKRTA3CR6B25WY1Y931668.signers-stackerdb"
 signer_id = 4
 signers = [
-            {public_key = "y2ZGH2FdFYXCP5Tm2y8yGAR6LB2j3yVUTaV4QpbtC7xm", key_ids = [1, 2, 3, 4]}
+            {public_key = "swBaKxfzs4pQne7spxhrkF6AtB34WEcreAkJ8mPcqx3t", key_ids = [1, 2, 3, 4]}
         ,
-            {public_key = "24z7XAnx99SAbeQekcoAM5jQvDyvErF7pSGxNJ9Mqu5uy", key_ids = [5, 6, 7, 8]}
+            {public_key = "yDJhntuJczbss1XGDmyWtG9Wpw5NDqoBBnedxmyhKiFN", key_ids = [5, 6, 7, 8]}
         ,
-            {public_key = "eAsVpTz66qN687yzRPrVosyWhMxewd6rfCC2tt4fDGDf", key_ids = [9, 10, 11, 12]}
+            {public_key = "xNVCph6zd7HLLJcuwrWz1gNbFoPHjXxn7cyRvvTYhP3U", key_ids = [9, 10, 11, 12]}
         ,
-            {public_key = "2BYKuG6a2jizKaoJJFvdyJc8WFqhBu3oZYuxGHCAt8Pgd", key_ids = [13, 14, 15, 16]}
+            {public_key = "p2wFfLEbwGCmxCR5eGa46Ct6i3BVjFrvBixRn7FnCQjA", key_ids = [13, 14, 15, 16]}
         ,
-            {public_key = "cHMPeNTruE17rvvQ1LhD7m9QCna4KZZCYgsAUbkrWHU4", key_ids = [17, 18, 19, 20]}
+            {public_key = "26jpUNnJPvzDJRJg3hfBn5s5MR4eQ4LLTokjrSDzByh4i", key_ids = [17, 18, 19, 20]}
         ]

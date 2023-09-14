@@ -48,7 +48,7 @@ pub struct StackerDBArgs {
     /// The Stacks node to connect to
     #[arg(long)]
     pub host: SocketAddr,
-    /// The stacker-db contract to use
+    /// The stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub contract: QualifiedContractIdentifier,
 }
@@ -120,6 +120,9 @@ pub struct RunDkgArgs {
 #[derive(Parser, Debug, Clone)]
 /// Arguments for the generate-files command
 pub struct GenerateFilesArgs {
+    /// The base arguments
+    #[clap(flatten)]
+    pub db_args: StackerDBArgs,
     #[arg(
         long,
         required_unless_present = "private_keys",
@@ -136,12 +139,6 @@ pub struct GenerateFilesArgs {
     #[arg(long, value_parser = parse_network)]
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    #[arg(long)]
-    /// The name of the contract to use
-    pub contract_name: String,
-    #[arg(long)]
-    /// The stacks node host to use
-    pub host: SocketAddr,
     /// The directory to write the test data files to
     #[arg(long, default_value = ".")]
     pub dir: PathBuf,
