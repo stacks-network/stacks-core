@@ -298,7 +298,7 @@ impl Coordinator {
             } else {
                 warn!("DKG Round #{} Failed: Aggregate public key does not have even y coord, re-running dkg.", self.current_dkg_id);
                 // TODO: SigningRound seems to break if we inc dkg_public_id
-                //self.current_dkg_public_id = self.current_dkg_public_id.wrapping_add(1);
+                // self.current_dkg_public_id = self.current_dkg_public_id.wrapping_add(1);
                 self.move_to(State::DkgPublicDistribute)?;
             }
             self.ids_to_await = (0..self.total_signers).collect();

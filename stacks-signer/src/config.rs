@@ -95,7 +95,8 @@ struct RawConfigFile {
     pub stackerdb_contract_id: String,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
     pub message_private_key: String,
-    /// The hex representation of the signer's Stacks private key
+    /// The hex representation of the signer's Stacks private key used for communicating
+    /// with the Stacks Node, including writing to the Stacker DB instance.
     pub stacks_private_key: String,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
