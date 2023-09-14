@@ -25,6 +25,18 @@ pub enum Error {
     /// A bad state change was made
     #[error("Bad State Change: {0}")]
     BadStateChange(String),
+    /// A bad dkg_id in received message
+    #[error("Bad dkg_id: got {0} expected {1}")]
+    BadDkgId(u64, u64),
+    /// A bad dkg_public_id in received message
+    #[error("Bad dkg_public_id: got {0} expected {1}")]
+    BadDkgPublicId(u64, u64),
+    /// A bad sign_id in received message
+    #[error("Bad sign_id: got {0} expected {1}")]
+    BadSignId(u64, u64),
+    /// A bad sign_nonce_id in received message
+    #[error("Bad sign_nonce_id: got {0} expected {1}")]
+    BadSignNonceId(u64, u64),
     /// SignatureAggregator error
     #[error("Aggregator: {0}")]
     Aggregator(AggregatorError),
@@ -236,20 +248,37 @@ impl Coordinator {
 
     fn gather_public_shares(&mut self, message: &Message) -> Result<(), Error> {
         match &message.msg {
-            MessageTypes::DkgPublicEnd(dkg_end_msg) => {
-                self.ids_to_await.remove(&dkg_end_msg.signer_id);
+            MessageTypes::DkgPublicEnd(dkg_end) => {
+                if dkg_end.dkg_id != self.current_dkg_id {
+                    return Err(Error::BadDkgId(dkg_end.dkg_id, self.current_dkg_id));
+                }
+                self.ids_to_await.remove(&dkg_end.signer_id);
                 info!(
                     "DKG_Public_End round #{} from signer #{}. Waiting on {:?}",
-                    dkg_end_msg.dkg_id, dkg_end_msg.signer_id, self.ids_to_await
+                    dkg_end.dkg_id, dkg_end.signer_id, self.ids_to_await
                 );
             }
             MessageTypes::DkgPublicShare(dkg_public_share) => {
+                if dkg_public_share.dkg_id != self.current_dkg_id {
+                    return Err(Error::BadDkgId(
+                        dkg_public_share.dkg_id,
+                        self.current_dkg_id,
+                    ));
+                }
+                if dkg_public_share.dkg_public_id != self.current_dkg_public_id {
+                    return Err(Error::BadDkgPublicId(
+                        dkg_public_share.dkg_public_id,
+                        self.current_dkg_public_id,
+                    ));
+                }
                 self.dkg_public_shares
                     .insert(dkg_public_share.party_id, dkg_public_share.clone());
 
                 info!(
-                    "DKG round #{} DkgPublicShare from party #{}",
-                    dkg_public_share.dkg_id, dkg_public_share.party_id
+                    "DKG round #{} DKG public round #{} DkgPublicShare from party #{}",
+                    dkg_public_share.dkg_id,
+                    dkg_public_share.dkg_public_id,
+                    dkg_public_share.party_id
                 );
             }
             _ => {}
@@ -268,6 +297,8 @@ impl Coordinator {
                 self.move_to(State::DkgPrivateDistribute)?;
             } else {
                 warn!("DKG Round #{} Failed: Aggregate public key does not have even y coord, re-running dkg.", self.current_dkg_id);
+                // TODO: SigningRound seems to break if we inc dkg_public_id
+                //self.current_dkg_public_id = self.current_dkg_public_id.wrapping_add(1);
                 self.move_to(State::DkgPublicDistribute)?;
             }
             self.ids_to_await = (0..self.total_signers).collect();
@@ -280,11 +311,14 @@ impl Coordinator {
             "DKG Round #{}: waiting for Dkg End from signers {:?}",
             self.current_dkg_id, self.ids_to_await
         );
-        if let MessageTypes::DkgEnd(dkg_end_msg) = &message.msg {
-            self.ids_to_await.remove(&dkg_end_msg.signer_id);
+        if let MessageTypes::DkgEnd(dkg_end) = &message.msg {
+            if dkg_end.dkg_id != self.current_dkg_id {
+                return Err(Error::BadDkgId(dkg_end.dkg_id, self.current_dkg_id));
+            }
+            self.ids_to_await.remove(&dkg_end.signer_id);
             info!(
                 "DKG_End round #{} from signer #{}. Waiting on {:?}",
-                dkg_end_msg.dkg_id, dkg_end_msg.signer_id, self.ids_to_await
+                dkg_end.dkg_id, dkg_end.signer_id, self.ids_to_await
             );
         }
 
@@ -316,7 +350,22 @@ impl Coordinator {
 
     fn gather_nonces(&mut self, message: &Message) -> Result<(), Error> {
         if let MessageTypes::NonceResponse(nonce_response) = &message.msg {
-            // TODO: check sign_id and sign_nonce_id
+            if nonce_response.dkg_id != self.current_dkg_id {
+                return Err(Error::BadDkgId(nonce_response.dkg_id, self.current_dkg_id));
+            }
+            if nonce_response.sign_id != self.current_sign_id {
+                return Err(Error::BadSignId(
+                    nonce_response.sign_id,
+                    self.current_sign_id,
+                ));
+            }
+            if nonce_response.sign_nonce_id != self.current_sign_nonce_id {
+                return Err(Error::BadSignNonceId(
+                    nonce_response.sign_nonce_id,
+                    self.current_sign_nonce_id,
+                ));
+            }
+
             self.public_nonces
                 .insert(nonce_response.signer_id, nonce_response.clone());
             self.ids_to_await.remove(&nonce_response.signer_id);
@@ -372,7 +421,18 @@ impl Coordinator {
 
     fn gather_sig_shares(&mut self, message: &Message) -> Result<(), Error> {
         if let MessageTypes::SignShareResponse(sig_share_response) = &message.msg {
-            // TODO: check sign_id
+            if sig_share_response.dkg_id != self.current_dkg_id {
+                return Err(Error::BadDkgId(
+                    sig_share_response.dkg_id,
+                    self.current_dkg_id,
+                ));
+            }
+            if sig_share_response.sign_id != self.current_sign_id {
+                return Err(Error::BadSignId(
+                    sig_share_response.sign_id,
+                    self.current_sign_id,
+                ));
+            }
             self.signature_shares.insert(
                 sig_share_response.signer_id,
                 sig_share_response.signature_shares.clone(),
