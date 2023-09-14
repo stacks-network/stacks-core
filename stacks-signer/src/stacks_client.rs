@@ -8,7 +8,10 @@ use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn};
 
 use crate::config::Config;
 
-const SLOTS_PER_USER: u32 = 10;
+/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
+/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
+/// Is equal to the number of message types
+pub const SLOTS_PER_USER: u32 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type
