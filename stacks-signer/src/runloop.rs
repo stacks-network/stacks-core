@@ -89,7 +89,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     let ack = self
                         .stacks_client
                         .send_message(self.signing_round.signer.signer_id, msg);
-                    info!("ACK: {:?}", ack);
+                    debug!("ACK: {:?}", ack);
                 }
                 self.state = State::Dkg;
             }
@@ -98,8 +98,7 @@ impl<C: Coordinatable> RunLoop<C> {
                 self.state = State::Exit;
             }
             (RunLoopCommand::DkgSign { message }, State::Idle) => {
-                info!("Starting DKG");
-                info!("DKG Required for Message: {:?}", message);
+                info!("Starting DKG for signing message: {:?}", message);
                 if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
                     let _ = self
                         .stacks_client
@@ -109,7 +108,7 @@ impl<C: Coordinatable> RunLoop<C> {
             }
             (RunLoopCommand::DkgSign { message }, State::DkgDone)
             | (RunLoopCommand::Sign { message }, State::Idle) => {
-                info!("Signing message");
+                info!("Signing message: {:?}", message);
                 if let Ok(msg) = self.coordinator.start_signing_message(message) {
                     let _ = self
                         .stacks_client
@@ -119,7 +118,7 @@ impl<C: Coordinatable> RunLoop<C> {
             }
             (RunLoopCommand::DkgSign { message }, State::SignDone)
             | (RunLoopCommand::Sign { message }, State::SignDone) => {
-                info!("Done Signing Message: {:?}", message);
+                info!("Done signing message: {:?}", message);
                 self.state = State::Exit;
             }
             _ => {}
@@ -131,7 +130,6 @@ impl<C: Coordinatable> RunLoop<C> {
         &mut self,
         event: &StackerDBChunksEvent,
     ) -> (Vec<Message>, Vec<OperationResult>) {
-        //info!("Processing event: {:?}", event);
         // Determine the current coordinator id and public key for verification
         let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
@@ -297,7 +295,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
         self.update_state();
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
-            info!(
+            debug!(
                 "Sending {} messages to other stacker-db instances.",
                 outbound_messages.len()
             );
@@ -306,7 +304,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
                     .stacks_client
                     .send_message(self.signing_round.signer.signer_id, msg);
                 if let Ok(ack) = ack {
-                    info!("ACK: {:?}", ack);
+                    debug!("ACK: {:?}", ack);
                 } else {
                     warn!("Failed to send message to stacker-db instance: {:?}", ack);
                 }
@@ -359,8 +357,6 @@ fn verify_msg(
         }
         MessageTypes::DkgEnd(msg) | MessageTypes::DkgPublicEnd(msg) => {
             if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
-                info!("{:?}", public_key.to_bytes());
-
                 if !msg.verify(&m.sig, public_key) {
                     warn!("Received a DkgPublicEnd message with an invalid signature.");
                     return false;

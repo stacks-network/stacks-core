@@ -182,20 +182,20 @@ fn setup_stx_btc_node(
         "hello-world".into(),
     ));
 
-    eprintln!("Make new BitcoinCoreController");
+    info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    eprintln!("Make new BitcoinRegtestController");
+    info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
-    eprintln!("Bootstraping...");
+    info!("Bootstraping...");
     btc_regtest_controller.bootstrap_chain(201);
 
-    eprintln!("Chain bootstrapped...");
+    info!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -203,23 +203,23 @@ fn setup_stx_btc_node(
     let join_handle = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop some time to start up!
-    eprintln!("Wait for runloop...");
+    info!("Wait for runloop...");
     wait_for_runloop(&blocks_processed);
 
     // First block wakes up the run loop.
-    eprintln!("Mine first block...");
+    info!("Mine first block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
-    eprintln!("Mine second block...");
+    info!("Mine second block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
-    eprintln!("Mine third block...");
+    info!("Mine third block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    eprintln!("Send contract-publish...");
+    info!("Send contract-publish...");
     let tx = make_contract_publish(
         &signer_stacks_private_keys[0],
         0,
@@ -230,7 +230,7 @@ fn setup_stx_btc_node(
     submit_tx(&http_origin, &tx);
 
     // mine it
-    eprintln!("Mine it...");
+    info!("Mine it...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -276,7 +276,7 @@ fn test_stackerdb_dkg() {
     let mut signer_cmd_senders = Vec::new();
     for i in (1..num_signers).rev() {
         let (cmd_send, cmd_recv) = channel();
-        eprintln!("spawn signer");
+        info!("spawn signer");
         let running_signer =
             spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, cmd_recv);
         //sleep(Duration::from_secs(1));
@@ -286,14 +286,14 @@ fn test_stackerdb_dkg() {
     // Spawn coordinator second
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
     //let running_coordinator = spawn_running_signer(&signer_configs[0],
-    eprintln!("spawn coordinator");
+    info!("spawn coordinator");
     let running_coordinator = spawn_running_signer(
         &signer_configs[0],
         RunLoopCommand::Wait,
         coordinator_cmd_recv,
     );
 
-    eprintln!("setup node, sleep first to make sure signers are running");
+    info!("setup node, sleep first to make sure signers are running");
     sleep(Duration::from_secs(10));
 
     // Setup the nodes and deploy the contract to it
@@ -307,14 +307,14 @@ fn test_stackerdb_dkg() {
 
     sleep(Duration::from_secs(5));
 
-    eprintln!("signer_runloop: spawn send dkg-sign command");
+    info!("signer_runloop: spawn send dkg-sign command");
     coordinator_cmd_send
         .send(RunLoopCommand::DkgSign {
             message: vec![1, 2, 3, 4, 5],
         })
         .expect("failed to send command");
 
-    sleep(Duration::from_secs(30));
+    sleep(Duration::from_secs(60));
 
     let result = running_coordinator.stop().unwrap();
     assert_eq!(result.len(), 1);

@@ -136,17 +136,14 @@ impl StackerDBEventReceiver {
     where
         F: FnOnce(&mut StackerDBEventReceiver, &mut HttpServer) -> R,
     {
-        info!("[{:?}] with_socket take sock", self.local_addr);
         let mut server = if let Some(s) = self.http_server.take() {
             s
         } else {
             return Err(EventError::NotBound);
         };
 
-        info!("[{:?}] with_socket call future", self.local_addr);
         let res = todo(self, &mut server);
 
-        info!("[{:?}] with_socket return sock", self.local_addr);
         self.http_server = Some(server);
         Ok(res)
     }
@@ -193,26 +190,14 @@ impl EventReceiver for StackerDBEventReceiver {
     /// error.
     fn next_event(&mut self) -> Result<StackerDBChunksEvent, EventError> {
         self.with_server(|event_receiver, http_server| {
-            info!("[{:?}] next_event recv request", event_receiver.local_addr);
             let mut request = http_server.recv()?;
-
-            info!(
-                "[{:?}] next_event got request for {}",
-                event_receiver.local_addr,
-                request.url()
-            );
 
             // were we asked to terminate?
             if event_receiver.is_stopped() {
-                info!(
-                    "[{:?}] next_event we were terminated",
-                    event_receiver.local_addr
-                );
                 return Err(EventError::Terminated);
             }
 
             if request.method() != &HttpMethod::Post {
-                info!("[{:?}] next_event not a post", event_receiver.local_addr);
                 return Err(EventError::MalformedRequest(format!(
                     "Unrecognized method '{}'",
                     &request.method(),
@@ -220,37 +205,32 @@ impl EventReceiver for StackerDBEventReceiver {
             }
             if request.url() != "/stackerdb_chunks" {
                 let url = request.url().to_string();
+
+                info!(
+                    "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
+                    event_receiver.local_addr,
+                    request.url()
+                );
+
                 request
                     .respond(HttpResponse::empty(200u16))
                     .expect("response failed");
                 Err(EventError::UnrecognizedEvent(url))
             } else {
-                info!("[{:?}] next_event get body", event_receiver.local_addr);
                 let mut body = String::new();
                 request
                     .as_reader()
                     .read_to_string(&mut body)
                     .expect("failed to read body");
 
-                info!(
-                    "[{:?}] next_event body {} bytes",
-                    event_receiver.local_addr,
-                    body.len()
-                );
-
                 let event: StackerDBChunksEvent =
                     serde_json::from_slice(body.as_bytes()).map_err(|e| {
                         EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
                     })?;
 
-                info!("[{:?}] next_event responding", event_receiver.local_addr);
                 request
                     .respond(HttpResponse::empty(200u16))
                     .expect("response failed");
-                info!(
-                    "[{:?}] next_event response sent returning event",
-                    event_receiver.local_addr
-                );
 
                 Ok(event)
             }

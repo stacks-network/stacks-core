@@ -96,9 +96,9 @@ impl StackerDBSession {
     where
         F: FnOnce(&mut StackerDBSession, &mut TcpStream) -> R,
     {
+        // TODO: fix this so we can use persistent connection
         //if self.sock.is_none() {
         self.connect_or_reconnect()?;
-        //}
 
         let mut sock = if let Some(s) = self.sock.take() {
             s

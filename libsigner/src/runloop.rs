@@ -68,8 +68,6 @@ pub trait SignerRunLoop<R, CMD: Send> {
     ) -> Option<R> {
         loop {
             let poll_timeout = Duration::from_millis(128); //self.get_event_timeout();
-                                                           //info!("SignerRunLoop::main_loop: poll_timeout {:?}", poll_timeout);
-                                                           //info!("SignerRunLoop::main_loop: event_recv");
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -78,7 +76,6 @@ pub trait SignerRunLoop<R, CMD: Send> {
                     return None;
                 }
             };
-            //info!("SignerRunLoop::main_loop: command_recv");
             let next_command_opt = match command_recv.recv_timeout(poll_timeout) {
                 Ok(cmd) => Some(cmd),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -87,9 +84,7 @@ pub trait SignerRunLoop<R, CMD: Send> {
                     return None;
                 }
             };
-            //info!("SignerRunLoop::main_loop: run_one_pass");
             if let Some(final_state) = self.run_one_pass(next_event_opt, next_command_opt) {
-                // finished!
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
                 return Some(final_state);
