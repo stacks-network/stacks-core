@@ -142,6 +142,9 @@ pub struct GenerateFilesArgs {
     /// The directory to write the test data files to
     #[arg(long, default_value = ".")]
     pub dir: PathBuf,
+    /// The number of milliseconds to wait when polling for events from the stacker-db instance.
+    #[arg(long)]
+    pub timeout: Option<u64>,
 }
 
 /// Parse the contract ID

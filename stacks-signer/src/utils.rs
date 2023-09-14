@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use p256k1::ecdsa;
 use rand_core::OsRng;
 use slog::slog_debug;
@@ -15,6 +17,7 @@ pub fn build_signer_config_tomls(
     num_keys: u32,
     node_host: &str,
     contract_id: &str,
+    timeout: Option<Duration>,
 ) -> Vec<String> {
     let num_signers = signer_stacks_private_keys.len() as u32;
     let mut rng = OsRng;
@@ -65,7 +68,7 @@ pub fn build_signer_config_tomls(
         let id = i;
         let message_private_key = signer_ecdsa_private_keys[i].to_string();
         let stacks_private_key = stacks_private_key.to_hex();
-        let signer_config_toml = format!(
+        let mut signer_config_toml = format!(
             r#"
 message_private_key = "{message_private_key}"
 stacks_private_key = "{stacks_private_key}"
@@ -77,6 +80,16 @@ signer_id = {id}
 {signers_array}
 "#
         );
+
+        if let Some(timeout) = timeout {
+            let event_timeout_ms = timeout.as_millis();
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+event_timeout = {event_timeout_ms}   
+"#
+            )
+        }
         signer_config_tomls.push(signer_config_toml);
     }
     signer_config_tomls
