@@ -13,6 +13,7 @@ use slog::{slog_info, slog_warn};
 use stacks_common::{error, info, warn};
 use wsts::{
     common::{PolyCommitment, PublicNonce, Signature, SignatureShare},
+    compute,
     errors::AggregatorError,
     taproot::{Error as TaprootError, SchnorrProof},
     v1, Point, Scalar,
@@ -329,10 +330,8 @@ impl Coordinator {
         }
         if self.ids_to_await.is_empty() {
             // Calculate the aggregate nonce
-            let aggregate_nonce = self
-                .dkg_public_shares
-                .iter()
-                .fold(Point::default(), |s, (_, dps)| s + dps.public_share.A[0]);
+            let aggregate_nonce = self.compute_aggregate_nonce();
+
             // check to see if aggregate public key has even y
             if aggregate_nonce.has_even_y() {
                 info!("Aggregate nonce has even y coord!");
@@ -433,6 +432,24 @@ impl Coordinator {
             self.move_to(State::Idle)?;
         }
         Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn compute_aggregate_nonce(&self) -> Point {
+        // XXX this needs to be key_ids for v1 and signer_ids for v2
+        let party_ids = self
+            .public_nonces
+            .values()
+            .flat_map(|pn| pn.key_ids.clone())
+            .collect::<Vec<u32>>();
+        let nonces = self
+            .public_nonces
+            .values()
+            .flat_map(|pn| pn.nonces.clone())
+            .collect::<Vec<PublicNonce>>();
+        let (_, R) = compute::intermediate(&self.message, &party_ids, &nonces);
+
+        R
     }
 }
 
