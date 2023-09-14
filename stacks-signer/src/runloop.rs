@@ -5,8 +5,8 @@ use frost_signer::{
 };
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
-use slog::{slog_info, slog_warn};
-use stacks_common::{info, warn};
+use slog::{slog_debug, slog_info, slog_warn};
+use stacks_common::{debug, info, warn};
 use std::time::Duration;
 use wsts::Point;
 
