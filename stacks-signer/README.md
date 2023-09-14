@@ -132,6 +132,7 @@ Generate the necessary files to run a collection of signers to communicate via s
 - `--private-keys:` A path to a file containing a list of hexadecimal representations of Stacks private keys. Required if `--num-keys` is not set.
 - `--network`: The network to use. One of "mainnet" or "testnet".
 - `--dir`: The directory to write files to. Defaults to the current directory.
+- `--timeout`: Optional timeout in milliseconds to use when polling for updates in the StackerDB runloop.
 
 ## Contributing
 

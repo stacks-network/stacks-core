@@ -27,7 +27,7 @@ use std::{
     time::Duration,
 };
 
-const EVENT_TIMEOUT_SECS: u64 = 5;
+const EVENT_TIMEOUT_MS: u64 = 5000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -106,7 +106,7 @@ struct RawConfigFile {
     pub signers: Vec<RawSigners>,
     /// The signer ID
     pub signer_id: u32,
-    /// The time to wait (in secs) for a response from the stacker-db instance
+    /// The time to wait (in millisecs) for a response from the stacker-db instance
     pub event_timeout: Option<u64>,
 }
 
@@ -210,7 +210,7 @@ impl TryFrom<RawConfigFile> for Config {
             signer_key_ids.insert(signer_key, s.key_ids.clone());
         }
         let event_timeout =
-            Duration::from_secs(raw_data.event_timeout.unwrap_or(EVENT_TIMEOUT_SECS));
+            Duration::from_millis(raw_data.event_timeout.unwrap_or(EVENT_TIMEOUT_MS));
         Ok(Self {
             node_host,
             endpoint,

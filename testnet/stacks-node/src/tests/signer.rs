@@ -176,6 +176,7 @@ fn test_stackerdb_dkg() {
         num_keys,
         &conf.node.rpc_bind,
         &contract_id.to_string(),
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
     );
 
     // The test starts here

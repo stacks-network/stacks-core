@@ -55,6 +55,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::mpsc::{channel, Receiver},
+    time::Duration,
 };
 use wsts::Point;
 
@@ -162,6 +163,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         args.num_keys,
         &args.db_args.host.to_string(),
         &args.db_args.contract.to_string(),
+        args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
