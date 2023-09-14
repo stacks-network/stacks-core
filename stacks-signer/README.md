@@ -123,14 +123,14 @@ Start the signer and handle requests to sign messages and participate in DKG rou
 Generate the necessary files to run a collection of signers to communicate via stacker-db.
 
 ```bash
-./stacks-signer generate-files --num-signers <num_signers> --num-keys <num_keys> --network <network> --contract-name <contract_name> --host <host> --dir <dir>
+./stacks-signer generate-files --host <host> --contract <contract>  --num-signers <num_signers> --num-keys <num_keys> --network <network> --dir <dir>
 ```
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB signer contract.
 - `--num-signers`: The number of signers to generate configuration files for.
 - `--num-keys`: The total number of key ids to distribute among the signers.
 - `--private-keys:` A path to a file containing a list of hexadecimal representations of Stacks private keys. Required if `--num-keys` is not set.
 - `--network`: The network to use. One of "mainnet" or "testnet".
-- `--contract-name`: The contract name to give the generated stacker-db contract.
-- `--host`: The stacks node host to connect to.
 - `--dir`: The directory to write files to. Defaults to the current directory.
 
 ## Contributing

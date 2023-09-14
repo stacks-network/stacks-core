@@ -157,17 +157,11 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         .collect::<Vec<StacksAddress>>();
     // Build the stackerdb contract
     let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
-    debug!("Stacker DB Contract: {}", &stackerdb_contract);
-    let contract_id = QualifiedContractIdentifier::new(
-        signer_stacks_addresses[0].into(),
-        args.contract_name.as_str().into(),
-    );
-    debug!("Contract ID: {}", contract_id);
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
         args.num_keys,
-        &args.host.to_string(),
-        &contract_id.to_string(),
+        &args.db_args.host.to_string(),
+        &args.db_args.contract.to_string(),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
