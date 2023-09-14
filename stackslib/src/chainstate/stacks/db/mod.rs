@@ -22,7 +22,20 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
+use clarity::vm::analysis::analysis_db::AnalysisDatabase;
+use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+};
+use clarity::vm::events::*;
+use clarity::vm::representations::ClarityName;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::TupleData;
+use clarity::vm::Value;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -30,6 +43,9 @@ use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::util;
+use stacks_common::util::hash::to_hex;
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
@@ -38,6 +54,11 @@ use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::nakamoto::{
+    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+};
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
@@ -49,53 +70,33 @@ use crate::chainstate::stacks::index::marf::{
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::*;
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::clarity_vm::clarity::PreCommitClarityBlock;
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
 };
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::net::Error as net_error;
 use crate::net::MemPoolSyncData;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
 };
-use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::analysis::run_analysis;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
-};
-
-use crate::clarity_vm::clarity::PreCommitClarityBlock;
-use clarity::vm::events::*;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
-use clarity::vm::types::TupleData;
-use stacks_common::util;
-use stacks_common::util::hash::to_hex;
-
-use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::HeadersDBConn;
-use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use clarity::vm::Value;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 
 pub mod accounts;
 pub mod blocks;
@@ -163,8 +164,26 @@ pub struct MinerPaymentSchedule {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum StacksBlockHeaderTypes {
+    Epoch2(StacksBlockHeader),
+    Nakamoto(NakamotoBlockHeader),
+}
+
+impl From<StacksBlockHeader> for StacksBlockHeaderTypes {
+    fn from(value: StacksBlockHeader) -> Self {
+        Self::Epoch2(value)
+    }
+}
+
+impl From<NakamotoBlockHeader> for StacksBlockHeaderTypes {
+    fn from(value: NakamotoBlockHeader) -> Self {
+        Self::Nakamoto(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksHeaderInfo {
-    pub anchored_header: StacksBlockHeader,
+    pub anchored_header: StacksBlockHeaderTypes,
     pub microblock_tail: Option<StacksMicroblockHeader>,
     pub stacks_block_height: u64,
     pub index_root: TrieHash,
@@ -230,15 +249,50 @@ impl DBConfig {
     }
 }
 
+impl StacksBlockHeaderTypes {
+    pub fn block_hash(&self) -> BlockHeaderHash {
+        match &self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.block_hash(),
+            StacksBlockHeaderTypes::Nakamoto(x) => x.block_hash(),
+        }
+    }
+
+    pub fn is_first_mined(&self) -> bool {
+        StacksBlockHeader::is_first_block_hash(self.parent())
+    }
+
+    pub fn parent(&self) -> &BlockHeaderHash {
+        match self {
+            StacksBlockHeaderTypes::Epoch2(x) => &x.parent_block,
+            StacksBlockHeaderTypes::Nakamoto(x) => &x.parent,
+        }
+    }
+
+    pub fn height(&self) -> u64 {
+        match self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.total_work.work,
+            StacksBlockHeaderTypes::Nakamoto(x) => x.chain_length,
+        }
+    }
+
+    pub fn as_stacks_epoch2(&self) -> Option<&StacksBlockHeader> {
+        match &self {
+            StacksBlockHeaderTypes::Epoch2(ref x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
 impl StacksHeaderInfo {
     pub fn index_block_hash(&self) -> StacksBlockId {
-        self.anchored_header.index_block_hash(&self.consensus_hash)
+        let block_hash = self.anchored_header.block_hash();
+        StacksBlockId::new(&self.consensus_hash, &block_hash)
     }
 
     pub fn regtest_genesis() -> StacksHeaderInfo {
         let burnchain_params = BurnchainParameters::bitcoin_regtest();
         StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
@@ -257,7 +311,7 @@ impl StacksHeaderInfo {
         first_burnchain_block_timestamp: u64,
     ) -> StacksHeaderInfo {
         StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: root_hash,
@@ -299,13 +353,22 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let burn_header_height: u64 = u64::from_column(row, "burn_header_height")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
-        let stacks_header = StacksBlockHeader::from_row(row)?;
         let anchored_block_size_str: String = row.get_unwrap("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
-        if block_height != stacks_header.total_work.work {
+        let stacks_header: StacksBlockHeaderTypes = {
+            let header_type: HeaderTypeNames = row
+                .get("header_type")
+                .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+            match header_type {
+                HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
+                HeaderTypeNames::Nakamoto => NakamotoBlockHeader::from_row(row)?.into(),
+            }
+        };
+
+        if block_height != stacks_header.height() {
             return Err(db_error::ParseError);
         }
 
@@ -524,7 +587,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "3";
+pub const CHAINSTATE_VERSION: &'static str = "4";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -941,8 +1004,11 @@ impl StacksChainState {
                         }
                     }
                     "3" => {
-                        // done
-                        break;
+                        // migrate to nakamoto 1
+                        info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
                     }
                     _ => {
                         error!(
@@ -2188,7 +2254,7 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
-        header: &StacksBlockHeader,
+        header_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
         if consensus_hash == &FIRST_BURNCHAIN_CONSENSUS_HASH {
             StacksBlockHeader::make_index_block_hash(
@@ -2196,7 +2262,7 @@ impl StacksChainState {
                 &FIRST_STACKS_BLOCK_HASH,
             )
         } else {
-            header.index_block_hash(consensus_hash)
+            StacksBlockId::new(consensus_hash, header_hash)
         }
     }
 
@@ -2274,7 +2340,7 @@ impl StacksChainState {
     }
 
     /// Store all on-burnchain STX operations' txids by index block hash
-    fn store_burnchain_txids(
+    pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,
         burn_stack_stx_ops: Vec<StackStxOp>,
@@ -2351,7 +2417,8 @@ impl StacksChainState {
             new_tip.total_work.work
         );
 
-        let parent_hash = StacksChainState::get_index_hash(parent_consensus_hash, parent_tip);
+        let parent_hash =
+            StacksChainState::get_index_hash(parent_consensus_hash, &parent_tip.block_hash());
 
         // store each indexed field
         test_debug!(
@@ -2373,7 +2440,7 @@ impl StacksChainState {
         );
 
         let new_tip_info = StacksHeaderInfo {
-            anchored_header: new_tip.clone(),
+            anchored_header: new_tip.clone().into(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
             stacks_block_height: new_tip.total_work.work,
@@ -2457,14 +2524,13 @@ impl StacksChainState {
 pub mod test {
     use std::{env, fs};
 
-    use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::*;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use stx_genesis::GenesisData;
 
-    use crate::util_lib::boot::boot_code_test_addr;
-
     use super::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::*;
+    use crate::util_lib::boot::boot_code_test_addr;
 
     pub fn instantiate_chainstate(
         mainnet: bool,

@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::util_lib::db;
-
 use crate::util_lib::db::Error as db_error;
 
 pub trait ChainstateDB {
@@ -25,4 +24,5 @@ pub trait ChainstateDB {
 // needs to come _after_ the macro def above, since they both use this macro
 pub mod burn;
 pub mod coordinator;
+pub mod nakamoto;
 pub mod stacks;

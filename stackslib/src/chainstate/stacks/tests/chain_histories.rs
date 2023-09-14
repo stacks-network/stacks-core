@@ -28,9 +28,18 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+use stacks_common::address::*;
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::sleep_ms;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::tests::*;
@@ -44,31 +53,17 @@ use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::miner::*;
+use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
-use crate::net::test::*;
-use crate::util_lib::db::Error as db_error;
-use clarity::vm::types::*;
-use stacks_common::address::*;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
-
+use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
-use crate::types::chainstate::SortitionId;
+use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
-
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::LimitedCostTracker;
-
-use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::tests::*;
-use crate::core::*;
-
-use stacks_common::util::hash::MerkleTree;
-
-use clarity::vm::clarity::ClarityConnection;
+use crate::util_lib::db::Error as db_error;
 
 fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
     let burnchain_db =
@@ -237,7 +232,7 @@ where
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
-                &chain_tip.anchored_header
+                chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
             ));
         }
 
@@ -421,7 +416,7 @@ where
         assert!(check_block_state_index_root(
             &mut node.chainstate,
             &fork_snapshot.consensus_hash,
-            &chain_tip.anchored_header
+            chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
         ));
 
         sortition_winners.push(miner_1.origin_address().unwrap());
@@ -1833,7 +1828,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -1854,7 +1849,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -2388,7 +2383,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -2409,7 +2404,7 @@ where
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
-                    &chain_tip.anchored_header
+                    chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
                 ));
             }
         }
@@ -2970,7 +2965,7 @@ pub fn mine_smart_contract_block_contract_call_microblock(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+    if burnchain_height > 0 && builder.chain_tip.anchored_header.height() > 0 {
         // find previous contract in this fork
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
@@ -2978,7 +2973,8 @@ pub fn mine_smart_contract_block_contract_call_microblock(
                 ContractName::try_from(
                     format!(
                         "hello-world-{}-{}",
-                        i, builder.chain_tip.anchored_header.total_work.work
+                        i,
+                        builder.chain_tip.anchored_header.height()
                     )
                     .as_str(),
                 )
@@ -3055,7 +3051,7 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+    if burnchain_height > 0 && builder.chain_tip.anchored_header.height() > 0 {
         // find previous contract in this fork
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
@@ -3063,7 +3059,8 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
                 ContractName::try_from(
                     format!(
                         "hello-world-{}-{}",
-                        i, builder.chain_tip.anchored_header.total_work.work
+                        i,
+                        builder.chain_tip.anchored_header.height(),
                     )
                     .as_str(),
                 )

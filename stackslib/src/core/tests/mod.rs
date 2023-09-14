@@ -19,13 +19,42 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::{
+    database::HeadersDB,
+    errors::Error as ClarityError,
+    errors::RuntimeErrorType,
+    test_util::TEST_BURN_STATE_DB,
+    types::{PrincipalData, QualifiedContractIdentifier},
+    ClarityName, ContractName, Value,
+};
+use rand::prelude::*;
+use rand::thread_rng;
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::read_next;
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::sleep_ms;
+use stacks_common::util::vrf::VRFProof;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
+
+use super::MemPoolDB;
 use crate::burnchains::Address;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::test::chainstate_path;
 use crate::chainstate::stacks::db::test::instantiate_chainstate;
 use crate::chainstate::stacks::db::test::instantiate_chainstate_with_balances;
+use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
@@ -36,6 +65,7 @@ use crate::chainstate::stacks::{
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
+use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -53,39 +83,6 @@ use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
 use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
 use crate::util_lib::strings::StacksString;
-use clarity::vm::{
-    database::HeadersDB,
-    errors::Error as ClarityError,
-    errors::RuntimeErrorType,
-    test_util::TEST_BURN_STATE_DB,
-    types::{PrincipalData, QualifiedContractIdentifier},
-    ClarityName, ContractName, Value,
-};
-use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
-use stacks_common::util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
-
-use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
-use crate::{
-    chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
-};
-use clarity::vm::types::StacksAddressExtensions;
-
-use super::MemPoolDB;
-
-use rand::prelude::*;
-use rand::thread_rng;
-
-use stacks_common::codec::read_next;
-use stacks_common::codec::Error as codec_error;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -137,7 +134,7 @@ pub fn make_block(
     );
 
     let new_tip_info = StacksHeaderInfo {
-        anchored_header,
+        anchored_header: anchored_header.into(),
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
         stacks_block_height: block_height,
