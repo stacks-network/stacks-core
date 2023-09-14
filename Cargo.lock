@@ -1242,7 +1242,6 @@ dependencies = [
 [[package]]
 name = "frost-coordinator"
 version = "0.0.1"
-source = "git+https://github.com/Trust-Machines/stacks-sbtc#c17d0fbf717d488ed41186a6e9a4627f9eeeee04"
 dependencies = [
  "backoff",
  "clap 4.4.1",
@@ -1259,7 +1258,6 @@ dependencies = [
 [[package]]
 name = "frost-signer"
 version = "0.0.1"
-source = "git+https://github.com/Trust-Machines/stacks-sbtc#c17d0fbf717d488ed41186a6e9a4627f9eeeee04"
 dependencies = [
  "aes-gcm 0.10.2",
  "backoff",
@@ -4650,8 +4648,6 @@ dependencies = [
 [[package]]
 name = "wsts"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9822f9052b53d23fb9535781ee904e444cb5292788ae2f08e08de27eb765b39c"
 dependencies = [
  "bs58 0.5.0",
  "hashbrown 0.14.0",

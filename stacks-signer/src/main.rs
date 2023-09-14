@@ -45,7 +45,7 @@ use stacks_signer::{
         StackerDBArgs,
     },
     config::{Config, Network},
-    crypto::frost::Coordinator as FrostCoordinator,
+    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
     runloop::{RunLoop, RunLoopCommand},
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
@@ -54,10 +54,9 @@ use std::{
     io::{self, BufRead, Write},
     net::SocketAddr,
     path::PathBuf,
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
-use wsts::Point;
 
 /// Create a new stacker db session
 fn stackerdb_session(host: SocketAddr, contract: QualifiedContractIdentifier) -> StackerDBSession {
@@ -83,16 +82,17 @@ fn spawn_running_signer(
     path: &PathBuf,
     command: RunLoopCommand,
     cmd_recv: Receiver<RunLoopCommand>,
-) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
+    res_send: Sender<Vec<OperationResult>>,
+) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
     let config = Config::try_from(path).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
     let mut signer: Signer<
         RunLoopCommand,
-        Vec<Point>,
+        Vec<OperationResult>,
         RunLoop<FrostCoordinator>,
         StackerDBEventReceiver,
-    > = Signer::new(runloop, ev, cmd_recv);
+    > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.node_host;
     signer.spawn(endpoint).unwrap()
 }
@@ -190,6 +190,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
 fn main() {
     let cli = Cli::parse();
     let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
     match cli.command {
         Command::GetChunk(args) => {
             handle_get_chunk(args);
@@ -205,7 +206,8 @@ fn main() {
         }
         Command::Dkg(args) => {
             debug!("Running DKG...");
-            let _running_signer = spawn_running_signer(&args.config, RunLoopCommand::Dkg, cmd_recv);
+            let _running_signer =
+                spawn_running_signer(&args.config, RunLoopCommand::Dkg, cmd_recv, res_send);
         }
         Command::DkgSign(args) => {
             debug!("Running DKG and Signing round...");
@@ -213,6 +215,7 @@ fn main() {
                 &args.config,
                 RunLoopCommand::DkgSign { message: args.data },
                 cmd_recv,
+                res_send,
             );
         }
         Command::Sign(args) => {
@@ -221,11 +224,13 @@ fn main() {
                 &args.config,
                 RunLoopCommand::Sign { message: args.data },
                 cmd_recv,
+                res_send,
             );
         }
         Command::Run(args) => {
             debug!("Running signer...");
-            let _running_signer = spawn_running_signer(&args.config, RunLoopCommand::Run, cmd_recv);
+            let _running_signer =
+                spawn_running_signer(&args.config, RunLoopCommand::Run, cmd_recv, res_send);
         }
         Command::GenerateFiles(args) => {
             handle_generate_files(args);

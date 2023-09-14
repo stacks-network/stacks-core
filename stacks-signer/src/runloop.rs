@@ -7,9 +7,7 @@ use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
-use std::time::Duration;
-use wsts::Point;
-
+use std::{sync::mpsc::Sender, time::Duration};
 use crate::{
     config::Config,
     crypto::{frost::Coordinator as FrostCoordinator, Coordinatable, OperationResult},
@@ -272,7 +270,7 @@ pub fn process_inbound_messages(
     Ok(responses)
 }
 
-impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> {
+impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop<C> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.event_timeout = timeout;
     }
@@ -287,7 +285,8 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
         &mut self,
         event: Option<StackerDBChunksEvent>,
         cmd: Option<RunLoopCommand>,
-    ) -> Option<Vec<Point>> {
+        res: Sender<Vec<OperationResult>>,
+    ) -> Option<Vec<OperationResult>> {
         // if we are waiting for a command and get one then set it
         if let (&RunLoopCommand::Wait, Some(command)) = (&self.command, cmd) {
             self.command = command.clone();
@@ -309,13 +308,11 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
                     warn!("Failed to send message to stacker-db instance: {:?}", ack);
                 }
             }
-            let mut results = vec![];
             // TODO: cleanup this logic.
-            for operation_result in operation_results {
+            for operation_result in &operation_results {
                 match operation_result {
-                    OperationResult::Dkg(public_key) => {
+                    OperationResult::Dkg(_public_key) => {
                         self.state = State::DkgDone;
-                        results.push(public_key);
                     }
                     OperationResult::Sign(_signature, _proof) => {
                         self.state = State::SignDone;
@@ -324,8 +321,9 @@ impl<C: Coordinatable> SignerRunLoop<Vec<Point>, RunLoopCommand> for RunLoop<C> 
             }
             // Determine if we need to trigger Sign or Exit.
             self.update_state();
+            let _ = res.send(operation_results.clone());
             if self.state == State::Exit {
-                return Some(results);
+                return Some(operation_results);
             }
         }
         None

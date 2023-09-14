@@ -1,5 +1,4 @@
-use std::sync::mpsc::{channel, Receiver};
-use std::thread::sleep;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{env, thread};
 
@@ -18,7 +17,6 @@ use crate::{
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
-use p256k1::point::Point;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_signer::runloop::RunLoopCommand;
@@ -37,17 +35,18 @@ fn spawn_running_signer(
     data: &str,
     command: RunLoopCommand,
     receiver: Receiver<RunLoopCommand>,
-) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
+    sender: Sender<Vec<stacks_signer::crypto::OperationResult>>,
+) -> RunningSigner<StackerDBEventReceiver, Vec<stacks_signer::crypto::OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator> =
         stacks_signer::runloop::RunLoop::new(&config, command);
     let mut signer: Signer<
         RunLoopCommand,
-        Vec<Point>,
+        Vec<stacks_signer::crypto::OperationResult>,
         stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator>,
         StackerDBEventReceiver,
-    > = Signer::new(runloop, ev, receiver);
+    > = Signer::new(runloop, ev, receiver, sender);
     let endpoint = config.endpoint;
     info!(
         "Spawning signer {} on endpoint {}",
@@ -183,27 +182,32 @@ fn test_stackerdb_dkg() {
     let mut running_signers = vec![];
     // Spawn all the signers first to listen to the coordinator request for dkg
     let mut signer_cmd_senders = Vec::new();
+    let mut signer_res_receivers = Vec::new();
     for i in (1..num_signers).rev() {
         let (cmd_send, cmd_recv) = channel();
+        let (res_send, res_recv) = channel();
         info!("spawn signer");
-        let running_signer =
-            spawn_running_signer(&signer_configs[i as usize], RunLoopCommand::Run, cmd_recv);
-        //sleep(Duration::from_secs(1));
+        let running_signer = spawn_running_signer(
+            &signer_configs[i as usize],
+            RunLoopCommand::Run,
+            cmd_recv,
+            res_send,
+        );
         running_signers.push(running_signer);
         signer_cmd_senders.push(cmd_send);
+        signer_res_receivers.push(res_recv);
     }
     // Spawn coordinator second
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
+    let (coordinator_res_send, coordinator_res_recv) = channel();
     //let running_coordinator = spawn_running_signer(&signer_configs[0],
     info!("spawn coordinator");
-    let running_coordinator = spawn_running_signer(
+    let _running_coordinator = spawn_running_signer(
         &signer_configs[0],
         RunLoopCommand::Wait,
         coordinator_cmd_recv,
+        coordinator_res_send,
     );
-
-    info!("setup node, sleep first to make sure signers are running");
-    sleep(Duration::from_secs(10));
 
     // Setup the nodes and deploy the contract to it
     let _node = setup_stx_btc_node(
@@ -214,8 +218,6 @@ fn test_stackerdb_dkg() {
         &signer_configs,
     );
 
-    sleep(Duration::from_secs(5));
-
     info!("signer_runloop: spawn send dkg-sign command");
     coordinator_cmd_send
         .send(RunLoopCommand::DkgSign {
@@ -223,9 +225,31 @@ fn test_stackerdb_dkg() {
         })
         .expect("failed to send command");
 
-    sleep(Duration::from_secs(60));
+    let mut aggregate_group_key = None;
+    let mut frost_signature = None;
+    let mut schnorr_proof = None;
 
-    let result = running_coordinator.stop().unwrap();
-    assert_eq!(result.len(), 1);
-    assert_ne!(result[0], Point::default());
+    loop {
+        let results = coordinator_res_recv.recv().expect("failed to recv results");
+        for result in results {
+            match result {
+                stacks_signer::crypto::OperationResult::Dkg(point) => {
+                    info!("Received aggregate_group_key {point}");
+                    aggregate_group_key = Some(point);
+                }
+                stacks_signer::crypto::OperationResult::Sign(sig, proof) => {
+                    info!("Received Signature ({},{})", &sig.R, &sig.z);
+                    info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                    frost_signature = Some(sig);
+                    schnorr_proof = Some(proof);
+                }
+            }
+        }
+        if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some() {
+            break;
+        }
+    }
+
+    //let result = running_coordinator.stop().unwrap();
+    //assert_eq!(result.len(), 2);
 }

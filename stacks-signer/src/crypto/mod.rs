@@ -15,6 +15,7 @@ pub enum Error {
 
 /// Result of a DKG or sign operation
 #[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub enum OperationResult {
     /// The DKG result
     Dkg(Point),
