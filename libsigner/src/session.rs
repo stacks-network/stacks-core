@@ -97,6 +97,7 @@ impl StackerDBSession {
         F: FnOnce(&mut StackerDBSession, &mut TcpStream) -> R,
     {
         // TODO: fix this so we can use persistent connection
+        // See https://github.com/stacks-network/stacks-blockchain/issues/3922
         //if self.sock.is_none() {
         self.connect_or_reconnect()?;
 
