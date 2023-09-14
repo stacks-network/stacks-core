@@ -7,6 +7,8 @@ use stacks_common::{
 };
 use wsts::Scalar;
 
+use crate::stacks_client::SLOTS_PER_USER;
+
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
@@ -90,7 +92,8 @@ pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> St
         stackerdb_contract += "                {\n";
         stackerdb_contract +=
             format!("                    signer: '{},\n", signer_stacks_address).as_str();
-        stackerdb_contract += format!("                    num-slots: u{}\n", 10).as_str(); // We only have 10 Message Types
+        stackerdb_contract +=
+            format!("                    num-slots: u{}\n", SLOTS_PER_USER).as_str();
         stackerdb_contract += "                }\n";
     }
     stackerdb_contract += "                )))\n";
