@@ -7,7 +7,7 @@ use stacks_common::{
 };
 use wsts::Scalar;
 
-/// Helper function for building a collection of signer config tomls
+/// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
@@ -80,7 +80,7 @@ signer_id = {id}
     signer_config_tomls
 }
 
-/// Helper function for building a stackerdb contract from the provided signer private keys
+/// Helper function for building a stackerdb contract from the provided signer stacks addresses
 pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> String {
     let mut stackerdb_contract = String::new(); // "
     stackerdb_contract += "        ;; stacker DB\n";
