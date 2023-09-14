@@ -91,7 +91,8 @@ impl StacksClient {
     /// Retrieve the total number of slots allocated to a stacker-db writer
     #[allow(dead_code)]
     pub fn slots_per_user(&self) -> u32 {
-        // TODO: retrieve this from the stackerdb instance?
+        // TODO: retrieve this from the stackerdb instance and make it a function of a given signer public key
+        // See: https://github.com/stacks-network/stacks-blockchain/issues/3921
         SLOTS_PER_USER
     }
 }
