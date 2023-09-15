@@ -199,59 +199,66 @@ fn test_stackerdb_dkg() {
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
     let (coordinator_res_send, coordinator_res_recv) = channel();
     info!("spawn coordinator");
-    let _running_coordinator = spawn_signer(
+    let running_coordinator = spawn_signer(
         &signer_configs[0],
         coordinator_cmd_recv,
         coordinator_res_send,
     );
 
-    // Setup the nodes and deploy the contract to it
-    let _node = setup_stx_btc_node(
-        &mut conf,
-        num_signers,
-        &signer_stacks_private_keys,
-        &stackerdb_contract,
-        &signer_configs,
-    );
+    // Let's wrap the node in a lifetime to ensure stopping the signers doesn't cause issues.
+    {
+        // Setup the nodes and deploy the contract to it
+        let _node = setup_stx_btc_node(
+            &mut conf,
+            num_signers,
+            &signer_stacks_private_keys,
+            &stackerdb_contract,
+            &signer_configs,
+        );
 
-    info!("signer_runloop: spawn send commands to do dkg and then sign");
-    coordinator_cmd_send
-        .send(RunLoopCommand::Dkg)
-        .expect("failed to send DKG command");
-    coordinator_cmd_send
-        .send(RunLoopCommand::Sign {
-            message: vec![1, 2, 3, 4, 5],
-        })
-        .expect("failed to send Sign command");
+        let now = std::time::Instant::now();
+        info!("signer_runloop: spawn send commands to do dkg and then sign");
+        coordinator_cmd_send
+            .send(RunLoopCommand::Dkg)
+            .expect("failed to send DKG command");
+        coordinator_cmd_send
+            .send(RunLoopCommand::Sign {
+                message: vec![1, 2, 3, 4, 5],
+            })
+            .expect("failed to send Sign command");
 
-    let mut aggregate_group_key = None;
-    let mut frost_signature = None;
-    let mut schnorr_proof = None;
+        let mut aggregate_group_key = None;
+        let mut frost_signature = None;
+        let mut schnorr_proof = None;
 
-    loop {
-        let results = coordinator_res_recv.recv().expect("failed to recv results");
-        for result in results {
-            match result {
-                OperationResult::Dkg(point) => {
-                    info!("Received aggregate_group_key {point}");
-                    aggregate_group_key = Some(point);
-                }
-                OperationResult::Sign(sig, proof) => {
-                    info!("Received Signature ({},{})", &sig.R, &sig.z);
-                    info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                    frost_signature = Some(sig);
-                    schnorr_proof = Some(proof);
+        loop {
+            let results = coordinator_res_recv.recv().expect("failed to recv results");
+            for result in results {
+                match result {
+                    OperationResult::Dkg(point) => {
+                        info!("Received aggregate_group_key {point}");
+                        aggregate_group_key = Some(point);
+                    }
+                    OperationResult::Sign(sig, proof) => {
+                        info!("Received Signature ({},{})", &sig.R, &sig.z);
+                        info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                        frost_signature = Some(sig);
+                        schnorr_proof = Some(proof);
+                    }
                 }
             }
+            if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some()
+            {
+                break;
+            }
         }
-        if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some() {
-            break;
-        }
+        let elapsed = now.elapsed();
+        info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
     }
-    // for signer in running_signers {
-    //     let result = signer.stop().unwrap();
-    //     assert!(result.is_empty());
-    // }
-    // let result = running_coordinator.stop().unwrap();
-    // assert!(result.is_empty());
+    // Stop the signers
+    for signer in running_signers {
+        assert!(signer.stop().is_none());
+    }
+    // Stop the coordinator
+    assert!(running_coordinator.stop().is_none());
 }
