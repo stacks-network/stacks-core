@@ -167,9 +167,18 @@ impl StackerDBStopSignaler {
 impl EventStopSignaler for StackerDBStopSignaler {
     fn send(&mut self) {
         self.stop_signal.store(true, Ordering::SeqCst);
-
         // wake up the thread so the atomicbool can be checked
-        let _ = TcpStream::connect(&self.local_addr);
+        // This makes me sad...but for now...it works.
+        if let Ok(mut stream) = TcpStream::connect(&self.local_addr) {
+            // We need to send actual data to trigger the event receiver
+            let body = "Yo. Shut this shit down!".to_string();
+            let req = format!(
+                "POST /shutdown HTTP/1.0\r\nContent-Length: {}\r\n\r\n{}",
+                &body.len(),
+                body
+            );
+            stream.write_all(req.as_bytes()).unwrap();
+        }
     }
 }
 
