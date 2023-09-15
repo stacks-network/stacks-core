@@ -7,7 +7,8 @@ use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::{debug, info, warn};
-use std::{sync::mpsc::Sender, time::Duration};
+use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
+
 use crate::{
     config::Config,
     crypto::{frost::Coordinator as FrostCoordinator, Coordinatable, OperationResult},
@@ -17,17 +18,8 @@ use crate::{
 /// Which operation to perform
 #[derive(PartialEq, Clone)]
 pub enum RunLoopCommand {
-    /// Wait for an initial command
-    Wait,
-    /// Start processing events
-    Run,
     /// Generate a DKG aggregate public key
     Dkg,
-    /// Generate a DKG aggregate public key and then sign the message
-    DkgSign {
-        /// The bytes to sign
-        message: Vec<u8>,
-    },
     /// Sign a message
     Sign {
         /// The bytes to sign
@@ -42,16 +34,8 @@ pub enum State {
     Idle,
     /// The runloop is executing a DKG round
     Dkg,
-    /// The runloop has finished a DKG round
-    DkgDone,
     /// The runloop is executing a signing round
     Sign,
-    /// The runloop has finished a signing round
-    SignDone,
-    /// The runloop is exiting
-    Exit,
-    /// The runloop is waiting for messages
-    Run,
 }
 
 /// The runloop for the stacks signer
@@ -66,8 +50,8 @@ pub struct RunLoop<C> {
     pub signing_round: SigningRound,
     /// The stacks client
     pub stacks_client: StacksClient,
-    /// The DKG Command to perform
-    pub command: RunLoopCommand,
+    /// Received Commands that need to be processed
+    pub commands: VecDeque<RunLoopCommand>,
     /// The current state
     pub state: State,
 }
@@ -75,51 +59,38 @@ pub struct RunLoop<C> {
 impl<C: Coordinatable> RunLoop<C> {
     /// Helper function to check the current state and execute commands accordingly
     /// This will update the state if a command is executed
-    fn update_state(&mut self) {
-        match (&self.command, &self.state) {
-            (RunLoopCommand::Run, State::Idle) => {
-                info!("Starting runloop");
-                self.state = State::Run;
-            }
-            (RunLoopCommand::Dkg, State::Idle) => {
-                info!("Starting DKG");
-                if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
-                    let ack = self
-                        .stacks_client
-                        .send_message(self.signing_round.signer.signer_id, msg);
-                    debug!("ACK: {:?}", ack);
+    fn execute_command(&mut self) {
+        match self.state {
+            State::Idle => {
+                if let Some(command) = self.commands.pop_front() {
+                    match command {
+                        RunLoopCommand::Dkg => {
+                            info!("Starting DKG");
+                            if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
+                                let ack = self
+                                    .stacks_client
+                                    .send_message(self.signing_round.signer.signer_id, msg);
+                                debug!("ACK: {:?}", ack);
+                            }
+                            self.state = State::Dkg;
+                        }
+                        RunLoopCommand::Sign { message } => {
+                            info!("Signing message: {:?}", message);
+                            if let Ok(msg) = self.coordinator.start_signing_message(&message) {
+                                let _ = self
+                                    .stacks_client
+                                    .send_message(self.signing_round.signer.signer_id, msg);
+                            }
+                            self.state = State::Sign
+                        }
+                    }
                 }
-                self.state = State::Dkg;
             }
-            (RunLoopCommand::Dkg, State::DkgDone) => {
-                info!("Done DKG");
-                self.state = State::Exit;
+            State::Dkg | State::Sign => {
+                // We cannot execute the next command until the current one is finished...
+                // Do nothing
+                debug!("Waiting for operation to finish");
             }
-            (RunLoopCommand::DkgSign { message }, State::Idle) => {
-                info!("Starting DKG for signing message: {:?}", message);
-                if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
-                    let _ = self
-                        .stacks_client
-                        .send_message(self.signing_round.signer.signer_id, msg);
-                }
-                self.state = State::Dkg;
-            }
-            (RunLoopCommand::DkgSign { message }, State::DkgDone)
-            | (RunLoopCommand::Sign { message }, State::Idle) => {
-                info!("Signing message: {:?}", message);
-                if let Ok(msg) = self.coordinator.start_signing_message(message) {
-                    let _ = self
-                        .stacks_client
-                        .send_message(self.signing_round.signer.signer_id, msg);
-                }
-                self.state = State::Sign
-            }
-            (RunLoopCommand::DkgSign { message }, State::SignDone)
-            | (RunLoopCommand::Sign { message }, State::SignDone) => {
-                info!("Done signing message: {:?}", message);
-                self.state = State::Exit;
-            }
-            _ => {}
         }
     }
 
@@ -165,9 +136,9 @@ impl<C: Coordinatable> RunLoop<C> {
     }
 }
 
-impl RunLoop<FrostCoordinator> {
-    /// Creates new runloop from a config and command
-    pub fn new(config: &Config, command: RunLoopCommand) -> Self {
+impl From<&Config> for RunLoop<FrostCoordinator> {
+    /// Creates new runloop from a config
+    fn from(config: &Config) -> Self {
         // TODO: this should be a config option
         // See: https://github.com/stacks-network/stacks-blockchain/issues/3914
         let threshold = ((config.signer_ids_public_keys.key_ids.len() * 7) / 10)
@@ -210,7 +181,7 @@ impl RunLoop<FrostCoordinator> {
                 config.signer_ids_public_keys.clone(),
             ),
             stacks_client: StacksClient::from(config),
-            command,
+            commands: VecDeque::new(),
             state: State::Idle,
         }
     }
@@ -287,11 +258,11 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {
-        // if we are waiting for a command and get one then set it
-        if let (&RunLoopCommand::Wait, Some(command)) = (&self.command, cmd) {
-            self.command = command.clone();
+        if let Some(command) = cmd {
+            self.commands.push_back(command);
         }
-        self.update_state();
+        // Execute the next command in the queue
+        self.execute_command();
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
             debug!(
@@ -308,23 +279,20 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
                     warn!("Failed to send message to stacker-db instance: {:?}", ack);
                 }
             }
-            // TODO: cleanup this logic.
-            for operation_result in &operation_results {
-                match operation_result {
-                    OperationResult::Dkg(_public_key) => {
-                        self.state = State::DkgDone;
-                    }
-                    OperationResult::Sign(_signature, _proof) => {
-                        self.state = State::SignDone;
+
+            let nmb_results = operation_results.len();
+            if nmb_results > 0 {
+                // We finished our command. Update the state
+                self.state = State::Idle;
+                match res.send(operation_results) {
+                    Ok(_) => debug!("Successfully sent {} operation result(s)", nmb_results),
+                    Err(e) => {
+                        warn!("Failed to send operation results: {:?}", e);
                     }
                 }
             }
-            // Determine if we need to trigger Sign or Exit.
-            self.update_state();
-            let _ = res.send(operation_results.clone());
-            if self.state == State::Exit {
-                return Some(operation_results);
-            }
+            // Determine if we need to trigger Sign
+            self.execute_command();
         }
         None
     }
