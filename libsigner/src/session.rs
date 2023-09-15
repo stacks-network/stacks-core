@@ -28,8 +28,6 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use crate::error::RPCError;
 use crate::http::run_http_request;
 
-use serde_json;
-
 pub trait SignerSession {
     fn connect(
         &mut self,
@@ -87,7 +85,7 @@ impl StackerDBSession {
     /// connect or reconnect to the node
     fn connect_or_reconnect(&mut self) -> Result<(), RPCError> {
         debug!("connect to {}", &self.host);
-        self.sock = Some(TcpStream::connect(self.host.clone())?);
+        self.sock = Some(TcpStream::connect(self.host)?);
         Ok(())
     }
 

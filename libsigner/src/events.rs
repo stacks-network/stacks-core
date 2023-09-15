@@ -121,14 +121,13 @@ impl StackerDBEventReceiver {
     /// Make a new StackerDB event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
     pub fn new(contract_ids: Vec<QualifiedContractIdentifier>) -> StackerDBEventReceiver {
-        let stackerdb_receiver = StackerDBEventReceiver {
+        StackerDBEventReceiver {
             stackerdb_contract_ids: contract_ids,
             http_server: None,
             local_addr: None,
             out_channels: vec![],
             stop_signal: Arc::new(AtomicBool::new(false)),
-        };
-        stackerdb_receiver
+        }
     }
 
     /// Do something with the socket
@@ -169,7 +168,7 @@ impl EventStopSignaler for StackerDBStopSignaler {
         self.stop_signal.store(true, Ordering::SeqCst);
         // wake up the thread so the atomicbool can be checked
         // This makes me sad...but for now...it works.
-        if let Ok(mut stream) = TcpStream::connect(&self.local_addr) {
+        if let Ok(mut stream) = TcpStream::connect(self.local_addr) {
             // We need to send actual data to trigger the event receiver
             let body = "Yo. Shut this shit down!".to_string();
             let req = format!(
@@ -255,17 +254,17 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Return true on success; false on error.
     /// Returning false terminates the event receiver.
     fn forward_event(&mut self, ev: StackerDBChunksEvent) -> bool {
-        if self.out_channels.len() == 0 {
+        if !self.out_channels.is_empty() {
             // nothing to do
             error!("No channels connected to event receiver");
-            return false;
+            false
         } else if self.out_channels.len() == 1 {
             // avoid a clone
             if let Err(e) = self.out_channels[0].send(ev) {
                 error!("Failed to send to signer runloop: {:?}", &e);
                 return false;
             }
-            return true;
+            true
         } else {
             for (i, out_channel) in self.out_channels.iter().enumerate() {
                 if let Err(e) = out_channel.send(ev.clone()) {
@@ -273,7 +272,7 @@ impl EventReceiver for StackerDBEventReceiver {
                     return false;
                 }
             }
-            return true;
+            true
         }
     }
 
@@ -285,10 +284,10 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Get a stopped signaler.  The caller can then use it to terminate the event receiver loop,
     /// even if it's in a different thread.
     fn get_stop_signaler(&mut self) -> Result<StackerDBStopSignaler, EventError> {
-        if let Some(local_addr) = self.local_addr.as_ref() {
+        if let Some(local_addr) = self.local_addr {
             Ok(StackerDBStopSignaler::new(
                 self.stop_signal.clone(),
-                local_addr.clone(),
+                local_addr,
             ))
         } else {
             Err(EventError::NotBound)

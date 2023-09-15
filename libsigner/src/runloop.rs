@@ -31,8 +31,6 @@ use crate::error::EventError;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
-use libc;
-
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
 const THREAD_STACK_SIZE: usize = 128 * 1024 * 1024; // 128 MB
