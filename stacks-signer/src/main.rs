@@ -30,7 +30,7 @@ use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
+use slog::{slog_debug, slog_warn};
 use stacks_common::{
     address::{
         AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -38,11 +38,12 @@ use stacks_common::{
     },
     debug,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+    warn,
 };
 use stacks_signer::{
     cli::{
         Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
-        StackerDBArgs,
+        RunDkgArgs, SignArgs, StackerDBArgs,
     },
     config::{Config, Network},
     crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
@@ -57,6 +58,12 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
+
+struct SpawnedSigner {
+    running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
+    cmd_send: Sender<RunLoopCommand>,
+    res_recv: Receiver<Vec<OperationResult>>,
+}
 
 /// Create a new stacker db session
 fn stackerdb_session(host: SocketAddr, contract: QualifiedContractIdentifier) -> StackerDBSession {
@@ -78,15 +85,13 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
     }
 }
 
-fn spawn_running_signer(
-    path: &PathBuf,
-    command: RunLoopCommand,
-    cmd_recv: Receiver<RunLoopCommand>,
-    res_send: Sender<Vec<OperationResult>>,
-) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
+// Spawn a running signer and return its handle, command sender, and result receiver
+fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
+    let (cmd_send, cmd_recv) = channel();
+    let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
+    let runloop: RunLoop<FrostCoordinator> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
@@ -94,7 +99,52 @@ fn spawn_running_signer(
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.node_host;
-    signer.spawn(endpoint).unwrap()
+    let running_signer = signer.spawn(endpoint).unwrap();
+    SpawnedSigner {
+        running_signer,
+        cmd_send,
+        res_recv,
+    }
+}
+
+// Process a DKG result
+fn process_dkg_result(dkg_res: &[OperationResult]) {
+    if dkg_res.len() != 1 {
+        warn!("Received unexpected number of results: {}", dkg_res.len());
+    }
+    for dkg in dkg_res {
+        match dkg {
+            OperationResult::Dkg(point) => {
+                println!("Received aggregate group key: {point}");
+            }
+            OperationResult::Sign(signature, schnorr_proof) => {
+                panic!(
+                    "Received unexpected signature ({},{}) and schnorr proof ({},{})",
+                    &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+                );
+            }
+        }
+    }
+}
+
+// Process a Sign result
+fn process_sign_result(sign_res: &[OperationResult]) {
+    if sign_res.len() != 1 {
+        warn!("Received unexpected number of results: {}", sign_res.len());
+    }
+    for sign in sign_res {
+        match sign {
+            OperationResult::Dkg(point) => {
+                panic!("Received unexpected aggregate group key: {point}");
+            }
+            OperationResult::Sign(signature, schnorr_proof) => {
+                println!(
+                    "Received good signature ({},{}) and schnorr proof ({},{})",
+                    &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+                );
+            }
+        }
+    }
 }
 
 fn handle_get_chunk(args: GetChunkArgs) {
@@ -125,6 +175,49 @@ fn handle_put_chunk(args: PutChunkArgs) {
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
+}
+
+fn handle_dkg(args: RunDkgArgs) {
+    debug!("Running DKG...");
+    let spawned_signer = spawn_running_signer(&args.config);
+    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
+    let dkg_res = spawned_signer.res_recv.recv().unwrap();
+    process_dkg_result(&dkg_res);
+    spawned_signer.running_signer.stop().unwrap();
+}
+
+fn handle_sign(args: SignArgs) {
+    debug!("Signing message...");
+    let spawned_signer = spawn_running_signer(&args.config);
+    spawned_signer
+        .cmd_send
+        .send(RunLoopCommand::Sign { message: args.data })
+        .unwrap();
+    let sign_res = spawned_signer.res_recv.recv().unwrap();
+    process_sign_result(&sign_res);
+    spawned_signer.running_signer.stop().unwrap();
+}
+
+fn handle_dkg_sign(args: SignArgs) {
+    debug!("Running DKG and signing message...");
+    let spawned_signer = spawn_running_signer(&args.config);
+    // First execute DKG, then sign
+    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
+    spawned_signer
+        .cmd_send
+        .send(RunLoopCommand::Sign { message: args.data })
+        .unwrap();
+    let dkg_res = spawned_signer.res_recv.recv().unwrap();
+    process_dkg_result(&dkg_res);
+    let sign_res = spawned_signer.res_recv.recv().unwrap();
+    process_sign_result(&sign_res);
+    spawned_signer.running_signer.stop().unwrap();
+}
+
+fn handle_run(args: RunDkgArgs) {
+    debug!("Running signer...");
+    let _spawned_signer = spawn_running_signer(&args.config);
+    println!("Signer spawned successfully. Waiting for messages to process.");
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
@@ -189,8 +282,6 @@ fn handle_generate_files(args: GenerateFilesArgs) {
 
 fn main() {
     let cli = Cli::parse();
-    let (_cmd_send, cmd_recv) = channel();
-    let (res_send, _res_recv) = channel();
     match cli.command {
         Command::GetChunk(args) => {
             handle_get_chunk(args);
@@ -205,32 +296,16 @@ fn main() {
             handle_put_chunk(args);
         }
         Command::Dkg(args) => {
-            debug!("Running DKG...");
-            let _running_signer =
-                spawn_running_signer(&args.config, RunLoopCommand::Dkg, cmd_recv, res_send);
+            handle_dkg(args);
         }
         Command::DkgSign(args) => {
-            debug!("Running DKG and Signing round...");
-            let _running_signer = spawn_running_signer(
-                &args.config,
-                RunLoopCommand::DkgSign { message: args.data },
-                cmd_recv,
-                res_send,
-            );
+            handle_dkg_sign(args);
         }
         Command::Sign(args) => {
-            debug!("Signing message...");
-            let _running_signer = spawn_running_signer(
-                &args.config,
-                RunLoopCommand::Sign { message: args.data },
-                cmd_recv,
-                res_send,
-            );
+            handle_sign(args);
         }
         Command::Run(args) => {
-            debug!("Running signer...");
-            let _running_signer =
-                spawn_running_signer(&args.config, RunLoopCommand::Run, cmd_recv, res_send);
+            handle_run(args);
         }
         Command::GenerateFiles(args) => {
             handle_generate_files(args);

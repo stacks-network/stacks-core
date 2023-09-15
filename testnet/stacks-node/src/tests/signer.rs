@@ -19,8 +19,12 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_signer::runloop::RunLoopCommand;
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use stacks_signer::{
+    config::Config as SignerConfig,
+    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
+    runloop::RunLoopCommand,
+    utils::{build_signer_config_tomls, build_stackerdb_contract},
+};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
@@ -31,20 +35,19 @@ struct RunningNodes {
     pub conf: NeonConfig,
 }
 
-fn spawn_running_signer(
+fn spawn_signer(
     data: &str,
-    command: RunLoopCommand,
     receiver: Receiver<RunLoopCommand>,
-    sender: Sender<Vec<stacks_signer::crypto::OperationResult>>,
-) -> RunningSigner<StackerDBEventReceiver, Vec<stacks_signer::crypto::OperationResult>> {
+    sender: Sender<Vec<OperationResult>>,
+) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator> =
-        stacks_signer::runloop::RunLoop::new(&config, command);
+    let runloop: stacks_signer::runloop::RunLoop<FrostCoordinator> =
+        stacks_signer::runloop::RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
-        Vec<stacks_signer::crypto::OperationResult>,
-        stacks_signer::runloop::RunLoop<stacks_signer::crypto::frost::Coordinator>,
+        Vec<OperationResult>,
+        stacks_signer::runloop::RunLoop<FrostCoordinator>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
     let endpoint = config.endpoint;
@@ -63,7 +66,7 @@ fn setup_stx_btc_node(
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     for toml in signer_config_tomls {
-        let signer_config = stacks_signer::config::Config::load_from_str(toml).unwrap();
+        let signer_config = SignerConfig::load_from_str(toml).unwrap();
 
         conf.events_observers.push(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
@@ -187,12 +190,7 @@ fn test_stackerdb_dkg() {
         let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
         info!("spawn signer");
-        let running_signer = spawn_running_signer(
-            &signer_configs[i as usize],
-            RunLoopCommand::Run,
-            cmd_recv,
-            res_send,
-        );
+        let running_signer = spawn_signer(&signer_configs[i as usize], cmd_recv, res_send);
         running_signers.push(running_signer);
         signer_cmd_senders.push(cmd_send);
         signer_res_receivers.push(res_recv);
@@ -200,11 +198,9 @@ fn test_stackerdb_dkg() {
     // Spawn coordinator second
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
     let (coordinator_res_send, coordinator_res_recv) = channel();
-    //let running_coordinator = spawn_running_signer(&signer_configs[0],
     info!("spawn coordinator");
-    let _running_coordinator = spawn_running_signer(
+    let _running_coordinator = spawn_signer(
         &signer_configs[0],
-        RunLoopCommand::Wait,
         coordinator_cmd_recv,
         coordinator_res_send,
     );
@@ -218,12 +214,15 @@ fn test_stackerdb_dkg() {
         &signer_configs,
     );
 
-    info!("signer_runloop: spawn send dkg-sign command");
+    info!("signer_runloop: spawn send commands to do dkg and then sign");
     coordinator_cmd_send
-        .send(RunLoopCommand::DkgSign {
+        .send(RunLoopCommand::Dkg)
+        .expect("failed to send DKG command");
+    coordinator_cmd_send
+        .send(RunLoopCommand::Sign {
             message: vec![1, 2, 3, 4, 5],
         })
-        .expect("failed to send command");
+        .expect("failed to send Sign command");
 
     let mut aggregate_group_key = None;
     let mut frost_signature = None;
@@ -233,11 +232,11 @@ fn test_stackerdb_dkg() {
         let results = coordinator_res_recv.recv().expect("failed to recv results");
         for result in results {
             match result {
-                stacks_signer::crypto::OperationResult::Dkg(point) => {
+                OperationResult::Dkg(point) => {
                     info!("Received aggregate_group_key {point}");
                     aggregate_group_key = Some(point);
                 }
-                stacks_signer::crypto::OperationResult::Sign(sig, proof) => {
+                OperationResult::Sign(sig, proof) => {
                     info!("Received Signature ({},{})", &sig.R, &sig.z);
                     info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                     frost_signature = Some(sig);
@@ -249,7 +248,10 @@ fn test_stackerdb_dkg() {
             break;
         }
     }
-
-    //let result = running_coordinator.stop().unwrap();
-    //assert_eq!(result.len(), 2);
+    // for signer in running_signers {
+    //     let result = signer.stop().unwrap();
+    //     assert!(result.is_empty());
+    // }
+    // let result = running_coordinator.stop().unwrap();
+    // assert!(result.is_empty());
 }
