@@ -254,7 +254,7 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Return true on success; false on error.
     /// Returning false terminates the event receiver.
     fn forward_event(&mut self, ev: StackerDBChunksEvent) -> bool {
-        if !self.out_channels.is_empty() {
+        if self.out_channels.is_empty() {
             // nothing to do
             error!("No channels connected to event receiver");
             false
