@@ -9,7 +9,7 @@ WORKDIR /src
 
 COPY . .
 
-RUN apt-get update && apt-get install -y git
+RUN apt-get update && apt-get install -y git libclang-dev
 
 # Run all the build steps in ramdisk in an attempt to speed things up
 RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
