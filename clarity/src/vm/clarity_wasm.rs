@@ -13,7 +13,7 @@ use super::{
         CharType, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
         SequenceData, StandardPrincipalData,
     },
-    ContractName, Environment, SymbolicExpression,
+    CallStack, ContractName, Environment, SymbolicExpression,
 };
 use crate::vm::{
     analysis::ContractAnalysis,
@@ -49,16 +49,26 @@ trait ClarityWasmContext {
     fn is_in_regtest(&self) -> bool;
     fn is_in_mainnet(&self) -> bool;
     fn get_chain_id(&self) -> u32;
+    fn push_sender(&mut self, sender: PrincipalData);
+    fn pop_sender(&mut self) -> Result<PrincipalData, Error>;
+    fn push_caller(&mut self, caller: PrincipalData);
+    fn pop_caller(&mut self) -> Result<PrincipalData, Error>;
 }
 
 /// The context used when making calls into the Wasm module.
 pub struct ClarityWasmRunContext<'a, 'b, 'c> {
     pub env: &'c mut Environment<'a, 'b>,
+    sender_stack: Vec<PrincipalData>,
+    caller_stack: Vec<PrincipalData>,
 }
 
 impl<'a, 'b, 'c> ClarityWasmRunContext<'a, 'b, 'c> {
     pub fn new(env: &'c mut Environment<'a, 'b>) -> Self {
-        ClarityWasmRunContext { env }
+        ClarityWasmRunContext {
+            env,
+            sender_stack: vec![],
+            caller_stack: vec![],
+        }
     }
 }
 
@@ -143,20 +153,84 @@ impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
     fn get_chain_id(&self) -> u32 {
         self.env.global_context.chain_id
     }
+
+    fn push_sender(&mut self, sender: PrincipalData) {
+        if let Some(current) = self.env.sender.take() {
+            self.sender_stack.push(current);
+        }
+        self.env.sender = Some(sender);
+    }
+
+    fn pop_sender(&mut self) -> Result<PrincipalData, Error> {
+        self.env
+            .sender
+            .take()
+            .ok_or(RuntimeErrorType::NoSenderInContext.into())
+            .map(|sender| {
+                self.env.sender = self.sender_stack.pop();
+                sender
+            })
+    }
+
+    fn push_caller(&mut self, caller: PrincipalData) {
+        if let Some(current) = self.env.caller.take() {
+            self.caller_stack.push(current);
+        }
+        self.env.caller = Some(caller);
+    }
+
+    fn pop_caller(&mut self) -> Result<PrincipalData, Error> {
+        self.env
+            .caller
+            .take()
+            .ok_or(RuntimeErrorType::NoCallerInContext.into())
+            .map(|caller| {
+                self.env.caller = self.caller_stack.pop();
+                caller
+            })
+    }
 }
 
 /// The context used when initializing the Wasm module. It embeds the
 /// `ClarityWasmRunContext`, but also includes the contract analysis data for
 /// typing information.
 pub struct ClarityWasmInitContext<'a, 'b> {
+    // Note that we don't just use `Environment` here because we need the
+    // `ContractContext` to be mutable.
     pub global_context: &'a mut GlobalContext<'b>,
     pub contract_context: &'a mut ContractContext,
+    pub call_stack: &'a mut CallStack,
     pub sender: PrincipalData,
+    sender_stack: Vec<PrincipalData>,
     pub caller: PrincipalData,
+    caller_stack: Vec<PrincipalData>,
     pub sponsor: Option<PrincipalData>,
 
     /// Contract analysis data, used for typing information
     pub contract_analysis: &'a ContractAnalysis,
+}
+
+impl<'a, 'b> ClarityWasmInitContext<'a, 'b> {
+    pub fn new(
+        global_context: &'a mut GlobalContext<'b>,
+        contract_context: &'a mut ContractContext,
+        call_stack: &'a mut CallStack,
+        publisher: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        contract_analysis: &'a ContractAnalysis,
+    ) -> Self {
+        ClarityWasmInitContext {
+            global_context,
+            contract_context,
+            call_stack,
+            sender: publisher.clone(),
+            sender_stack: vec![],
+            caller: publisher,
+            caller_stack: vec![],
+            sponsor,
+            contract_analysis,
+        }
+    }
 }
 
 impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
@@ -233,6 +307,32 @@ impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
     fn get_chain_id(&self) -> u32 {
         self.global_context.chain_id
     }
+
+    fn push_sender(&mut self, sender: PrincipalData) {
+        self.sender_stack
+            .push(std::mem::replace(&mut self.sender, sender));
+    }
+
+    fn pop_sender(&mut self) -> Result<PrincipalData, Error> {
+        let sender = self.sender_stack.pop().ok_or(Error::Runtime(
+            RuntimeErrorType::NoSenderInContext.into(),
+            Some(self.call_stack.make_stack_trace()),
+        ))?;
+        Ok(std::mem::replace(&mut self.sender, sender))
+    }
+
+    fn push_caller(&mut self, caller: PrincipalData) {
+        self.caller_stack
+            .push(std::mem::replace(&mut self.caller, caller));
+    }
+
+    fn pop_caller(&mut self) -> Result<PrincipalData, Error> {
+        let caller = self.caller_stack.pop().ok_or(Error::Runtime(
+            RuntimeErrorType::NoCallerInContext.into(),
+            Some(self.call_stack.make_stack_trace()),
+        ))?;
+        Ok(std::mem::replace(&mut self.caller, caller))
+    }
 }
 
 /// Initialize a contract, executing all of the top-level expressions and
@@ -244,14 +344,15 @@ pub fn initialize_contract(
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
-    let context = ClarityWasmInitContext {
+    let mut call_stack = CallStack::new();
+    let context = ClarityWasmInitContext::new(
         global_context,
         contract_context,
-        sender: publisher.clone(),
-        caller: publisher,
+        &mut call_stack,
+        publisher,
         sponsor,
         contract_analysis,
-    };
+    );
     let engine = Engine::default();
     let module = context.contract_context.with_wasm_module(|wasm_module| {
         Module::from_binary(&engine, wasm_module)
@@ -274,6 +375,8 @@ pub fn initialize_contract(
     link_is_in_regtest_fn(&mut linker)?;
     link_is_in_mainnet_fn(&mut linker)?;
     link_chain_id_fn(&mut linker)?;
+    link_enter_as_contract_fn(&mut linker)?;
+    link_exit_as_contract_fn(&mut linker)?;
     link_log(&mut linker)?;
 
     let instance = linker
@@ -332,6 +435,8 @@ pub fn call_function<'a, 'b, 'c>(
     link_is_in_regtest_fn(&mut linker)?;
     link_is_in_mainnet_fn(&mut linker)?;
     link_chain_id_fn(&mut linker)?;
+    link_enter_as_contract_fn(&mut linker)?;
+    link_exit_as_contract_fn(&mut linker)?;
     link_log(&mut linker)?;
 
     let instance = linker
@@ -1024,6 +1129,59 @@ where
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "chain_id".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `enter_as_contract`, into the Wasm module.
+/// This function is called before processing the inner-expression of
+/// `as-contract`.
+fn link_enter_as_contract_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "enter_as_contract",
+            |mut caller: Caller<'_, T>| {
+                let contract_principal: PrincipalData =
+                    caller.data().contract_identifier().clone().into();
+                caller.data_mut().push_sender(contract_principal.clone());
+                caller.data_mut().push_caller(contract_principal);
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "enter_as_contract".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `exit_as_contract`, into the Wasm module.
+/// This function is after before processing the inner-expression of
+/// `as-contract`, and is used to restore the caller and sender.
+fn link_exit_as_contract_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "exit_as_contract",
+            |mut caller: Caller<'_, T>| {
+                caller.data_mut().pop_sender()?;
+                caller.data_mut().pop_caller()?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "exit_as_contract".to_string(),
                 e,
             ))
         })
