@@ -5,6 +5,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use lazy_static::__Deref;
+use rand_chacha::rand_core::block;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{Connection, OptionalExtension, ToSql};
 use stacks_common::codec::Error as CodecError;
@@ -321,7 +322,7 @@ impl NakamotoChainState {
 
                      header_type,
                      version, chain_length, btc_spent, parent,
-                     burn_view, signature, tx_merkle_root, state_index_root
+                     burn_view, signature, tx_merkle_root, state_index_root,
 
                      block_hash,
                      index_block_hash,
@@ -329,7 +330,7 @@ impl NakamotoChainState {
                      total_tenure_cost,
                      parent_block_id,
                      affirmation_weight)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             args
         )?;
 
@@ -347,7 +348,7 @@ impl NakamotoChainState {
         new_burn_header_hash: &BurnchainHeaderHash,
         new_burnchain_height: u32,
         new_burnchain_timestamp: u64,
-        block_reward: &MinerPaymentSchedule,
+        block_reward: Option<&MinerPaymentSchedule>,
         user_burns: &[StagingUserBurnSupport],
         mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
@@ -413,11 +414,13 @@ impl NakamotoChainState {
             total_tenure_cost,
             affirmation_weight,
         )?;
-        StacksChainState::insert_miner_payment_schedule(
-            headers_tx.deref_mut(),
-            block_reward,
-            user_burns,
-        )?;
+        if let Some(block_reward) = block_reward {
+            StacksChainState::insert_miner_payment_schedule(
+                headers_tx.deref_mut(),
+                block_reward,
+                user_burns,
+            )?;
+        }
         StacksChainState::store_burnchain_txids(
             headers_tx.deref(),
             &index_block_hash,
@@ -539,6 +542,9 @@ impl NakamotoChainState {
             .expect("Failed to get parent SortitionID from ConsensusHash");
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
+        // TODO: this must be updated to either:
+        //   (A) use the TENURE HEIGHT -- i.e., count of tenures, rather than count of stacks blocks
+        //   (B) use BURNCHAIN HEIGHT
         let (latest_matured_miners, matured_miner_parent) = {
             let latest_miners = StacksChainState::get_scheduled_block_rewards(
                 chainstate_tx.deref_mut(),
@@ -774,7 +780,7 @@ impl NakamotoChainState {
             pox_constants,
             &parent_chain_tip,
             burn_view_hash,
-            chain_tip_burn_header_height,
+            burn_view_height,
             parent_ch,
             parent_block_hash,
             mainnet,
@@ -911,27 +917,33 @@ impl NakamotoChainState {
         let total_coinbase = coinbase_at_block.saturating_add(accumulated_rewards);
 
         // calculate reward for this block's miner
-        let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(
-            mainnet,
-            evaluated_epoch,
-            &parent_block_hash,
-            &parent_ch,
-            &block_hash,
-            block
-                .get_coinbase_tx()
-                .ok_or(ChainstateError::InvalidStacksBlock(
-                    "No coinbase transaction".into(),
-                ))?,
-            chain_tip_consensus_hash,
-            next_block_height,
-            block_fees,
-            0,
-            total_burnt,
-            burnchain_commit_burn,
-            burnchain_sortition_burn,
-            total_coinbase,
-        )
-        .expect("FATAL: parsed and processed a block without a coinbase");
+        let scheduled_miner_reward = if tenure_changed {
+            Some(
+                StacksChainState::make_scheduled_miner_reward(
+                    mainnet,
+                    evaluated_epoch,
+                    &parent_block_hash,
+                    &parent_ch,
+                    &block_hash,
+                    block
+                        .get_coinbase_tx()
+                        .ok_or(ChainstateError::InvalidStacksBlock(
+                            "No coinbase transaction in tenure changing block".into(),
+                        ))?,
+                    chain_tip_consensus_hash,
+                    next_block_height,
+                    block_fees,
+                    0,
+                    total_burnt,
+                    burnchain_commit_burn,
+                    burnchain_sortition_burn,
+                    total_coinbase,
+                )
+                .expect("FATAL: parsed and processed a block without a coinbase")
+            )
+        } else {
+            None
+        };
 
         let matured_rewards_info = miner_payouts_opt
             .as_ref()
@@ -946,7 +958,7 @@ impl NakamotoChainState {
             chain_tip_burn_header_hash,
             chain_tip_burn_header_height,
             chain_tip_burn_header_timestamp,
-            &scheduled_miner_reward,
+            scheduled_miner_reward.as_ref(),
             user_burns,
             miner_payouts_opt,
             &block_execution_cost,
