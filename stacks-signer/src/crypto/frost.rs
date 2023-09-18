@@ -793,7 +793,7 @@ mod test {
                 key_ids.push(key_id);
                 key_id += 1;
             }
-            signer_ids_map.insert((i + 1) as u32, public_key.clone());
+            signer_ids_map.insert(i as u32, public_key.clone());
         }
         let public_keys = PublicKeys {
             signers: signer_ids_map,
@@ -808,7 +808,7 @@ mod test {
                     threshold,
                     total_signers,
                     total_keys,
-                    (signer_id + 1) as u32,
+                    signer_id as u32,
                     key_ids.clone(),
                     *private_key,
                     public_keys.clone(),
