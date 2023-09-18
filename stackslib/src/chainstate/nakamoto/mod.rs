@@ -939,7 +939,7 @@ impl NakamotoChainState {
                     burnchain_sortition_burn,
                     total_coinbase,
                 )
-                .expect("FATAL: parsed and processed a block without a coinbase")
+                .expect("FATAL: parsed and processed a block without a coinbase"),
             )
         } else {
             None

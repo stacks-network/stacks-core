@@ -20,17 +20,17 @@ use crate::chainstate::coordinator::tests::{
     setup_states_with_epochs,
 };
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::CoinbasePayload;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionVersion;
-use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
     ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksHeaderInfo,
 };
+use crate::chainstate::stacks::CoinbasePayload;
 use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionVersion;
 use crate::core;
 use crate::core::StacksEpochExtension;
 
@@ -82,7 +82,11 @@ pub fn nakamoto_advance_tip_simple() {
     let chain_tip_burn_header_height = 1;
     let chain_tip_burn_header_timestamp = 100;
     let coinbase_tx_payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
-    let mut coinbase_tx = StacksTransaction::new(TransactionVersion::Testnet, TransactionAuth::from_p2pkh(&stacker_sk).unwrap(), coinbase_tx_payload);
+    let mut coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&stacker_sk).unwrap(),
+        coinbase_tx_payload,
+    );
     coinbase_tx.chain_id = chainstate_chain_id;
     let txid = coinbase_tx.txid();
     coinbase_tx.sign_next_origin(&txid, &stacker_sk).unwrap();
@@ -94,7 +98,10 @@ pub fn nakamoto_advance_tip_simple() {
             parent: FIRST_STACKS_BLOCK_HASH,
             burn_view: tip.burn_header_hash.clone(),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-            state_index_root: TrieHash::from_hex("582a30eeea84437d222cf8f27cc090860c9eefbaa0fba166b6ef8a814bcc0a85").unwrap(),
+            state_index_root: TrieHash::from_hex(
+                "582a30eeea84437d222cf8f27cc090860c9eefbaa0fba166b6ef8a814bcc0a85",
+            )
+            .unwrap(),
             signature: MessageSignature([0; 65]),
         },
         txs: vec![coinbase_tx],
