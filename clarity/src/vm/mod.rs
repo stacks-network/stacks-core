@@ -49,6 +49,7 @@ pub mod tests;
 #[cfg(any(test, feature = "testing"))]
 pub mod test_util;
 
+#[allow(clippy::result_large_err)]
 pub mod clarity;
 
 use serde_json;
