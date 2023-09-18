@@ -83,7 +83,7 @@ pub fn mem_type_check(
                 .type_map
                 .as_ref()
                 .unwrap()
-                .get_type(&x.expressions.last().unwrap())
+                .get_type(x.expressions.last().unwrap())
                 .cloned();
             Ok((first_type, x))
         }
@@ -103,15 +103,15 @@ pub fn type_check(
     version: &ClarityVersion,
 ) -> CheckResult<ContractAnalysis> {
     run_analysis(
-        &contract_identifier,
+        contract_identifier,
         expressions,
         analysis_db,
         insert_contract,
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
         LimitedCostTracker::new_free(),
-        epoch.clone(),
-        version.clone(),
+        *epoch,
+        *version,
     )
     .map_err(|(e, _cost_tracker)| e)
 }
@@ -154,7 +154,7 @@ pub fn run_analysis(
             contract_analysis.contract_interface = Some(interface);
         }
         if save_contract {
-            db.insert_contract(&contract_identifier, &contract_analysis)?;
+            db.insert_contract(contract_identifier, &contract_analysis)?;
         }
         Ok(())
     });
