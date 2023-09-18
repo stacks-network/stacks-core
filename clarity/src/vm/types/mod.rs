@@ -16,6 +16,7 @@
 
 #[allow(clippy::result_large_err)]
 pub mod serialization;
+#[allow(clippy::result_large_err)]
 pub mod signatures;
 
 use std::collections::BTreeMap;
