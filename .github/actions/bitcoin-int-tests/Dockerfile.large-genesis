@@ -4,6 +4,8 @@ WORKDIR /src
 
 COPY . .
 
+RUN apt-get update && apt-get install -y libclang-dev
+
 RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-25.0/bitcoin-25.0-x86_64-linux-gnu.tar.gz
 RUN cd / && tar -xvzf bitcoin-25.0-x86_64-linux-gnu.tar.gz
 
