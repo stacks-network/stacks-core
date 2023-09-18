@@ -40,6 +40,9 @@ use super::costs::CostOverflowingMath;
 use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
 
+type SpecialFunctionType =
+    dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>;
+
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
@@ -52,10 +55,7 @@ pub enum CallableType {
         ClarityCostFunction,
         &'static dyn Fn(&[Value]) -> Result<u64>,
     ),
-    SpecialFunction(
-        &'static str,
-        &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
-    ),
+    SpecialFunction(&'static str, &'static SpecialFunctionType),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -237,7 +237,11 @@ impl DefinedFunction {
                             )
                             .into());
                         }
-                        if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
+                        if context
+                            .variables
+                            .insert(name.clone(), value.clone())
+                            .is_some()
+                        {
                             return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                         }
                     }
@@ -279,7 +283,7 @@ impl DefinedFunction {
                     }
                 }
 
-                if let Some(_) = context.variables.insert(name.clone(), cast_value) {
+                if context.variables.insert(name.clone(), cast_value).is_some() {
                     return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                 }
             }
@@ -316,7 +320,7 @@ impl DefinedFunction {
                     self.name.to_string(),
                 ))?;
 
-        let args = self.arg_types.iter().map(|a| a.clone()).collect();
+        let args = self.arg_types.to_vec();
         if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
@@ -386,16 +390,12 @@ impl CallableType {
 impl FunctionIdentifier {
     fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
-        FunctionIdentifier {
-            identifier: identifier,
-        }
+        FunctionIdentifier { identifier }
     }
 
     fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
-        FunctionIdentifier {
-            identifier: identifier,
-        }
+        FunctionIdentifier { identifier }
     }
 }
 
