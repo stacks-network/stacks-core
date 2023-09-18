@@ -27,10 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::vm::ClarityVersion;
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
-    let mut contract_interface = ContractInterface::new(
-        contract_analysis.epoch.clone(),
-        contract_analysis.clarity_version.clone(),
-    );
+    let mut contract_interface =
+        ContractInterface::new(contract_analysis.epoch, contract_analysis.clarity_version);
 
     let ContractAnalysis {
         private_function_types,
@@ -165,7 +163,7 @@ pub struct ContractInterfaceNonFungibleTokens {
 
 impl ContractInterfaceAtomType {
     pub fn from_tuple_type(tuple_type: &TupleTypeSignature) -> ContractInterfaceAtomType {
-        ContractInterfaceAtomType::tuple(Self::vec_from_tuple_type(&tuple_type))
+        ContractInterfaceAtomType::tuple(Self::vec_from_tuple_type(tuple_type))
     }
 
     pub fn vec_from_tuple_type(
@@ -214,13 +212,13 @@ impl ContractInterfaceAtomType {
                 }
             }
             OptionalType(sig) => {
-                ContractInterfaceAtomType::optional(Box::new(Self::from_type_signature(&sig)))
+                ContractInterfaceAtomType::optional(Box::new(Self::from_type_signature(sig)))
             }
             TypeSignature::ResponseType(boxed_sig) => {
                 let (ok_sig, err_sig) = boxed_sig.as_ref();
                 ContractInterfaceAtomType::response {
-                    ok: Box::new(Self::from_type_signature(&ok_sig)),
-                    error: Box::new(Self::from_type_signature(&err_sig)),
+                    ok: Box::new(Self::from_type_signature(ok_sig)),
+                    error: Box::new(Self::from_type_signature(err_sig)),
                 }
             }
         }
@@ -237,7 +235,7 @@ pub struct ContractInterfaceFunctionArg {
 impl ContractInterfaceFunctionArg {
     pub fn from_function_args(fnArgs: &[FunctionArg]) -> Vec<ContractInterfaceFunctionArg> {
         let mut args: Vec<ContractInterfaceFunctionArg> = Vec::new();
-        for ref fnArg in fnArgs.iter() {
+        for fnArg in fnArgs.iter() {
             args.push(ContractInterfaceFunctionArg {
                 name: fnArg.name.to_string(),
                 type_f: ContractInterfaceAtomType::from_type_signature(&fnArg.signature),
@@ -273,7 +271,7 @@ impl ContractInterfaceFunction {
                 outputs: ContractInterfaceFunctionOutput {
                     type_f: match function_type {
                         FunctionType::Fixed(FixedFunction { returns, .. }) => {
-                            ContractInterfaceAtomType::from_type_signature(&returns)
+                            ContractInterfaceAtomType::from_type_signature(returns)
                         }
                         _ => panic!(
                             "Contract functions should only have fixed function return types!"
@@ -282,7 +280,7 @@ impl ContractInterfaceFunction {
                 },
                 args: match function_type {
                     FunctionType::Fixed(FixedFunction { args, .. }) => {
-                        ContractInterfaceFunctionArg::from_function_args(&args)
+                        ContractInterfaceFunctionArg::from_function_args(args)
                     }
                     _ => panic!("Contract functions should only have fixed function arguments!"),
                 },
