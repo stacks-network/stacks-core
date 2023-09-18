@@ -11,15 +11,25 @@ readme = "README.md"
 resolver = "2"
 edition = "2021"
 
+[lib]
+name = "stacks_signer"
+path = "src/lib.rs"
+
 [[bin]]
 name = "stacks-signer"
 path = "src/main.rs"
 
 [dependencies]
+bincode = "1.3.3"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
+frost-coordinator = { git = "https://github.com/Trust-Machines/stacks-sbtc" }
+frost-signer = { git = "https://github.com/Trust-Machines/stacks-sbtc" }
+hashbrown = "0.14"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
+p256k1 = "5.4"
+rand_core = "0.6"
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -29,6 +39,7 @@ slog-term = "2.6.0"
 stacks-common = { path = "../stacks-common" }
 thiserror = "1.0"
 toml = "0.5.6"
+wsts = "2.0"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -37,9 +48,3 @@ features = ["arbitrary_precision", "unbounded_depth"]
 [dependencies.secp256k1]
 version = "0.24.3"
 features = ["serde", "recovery"]
-
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
-
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), target_env = "msvc"))'.dependencies]
-sha2 = { version = "0.10" }

@@ -97,14 +97,14 @@ pub fn decode_http_request(payload: &[u8]) -> Result<SignerHttpRequest, EventErr
                     EventError::MalformedRequest("Invalid HTTP header value: not utf-8".to_string())
                 })?;
                 if !value.is_ascii() {
-                    return Err(EventError::MalformedRequest(format!(
-                        "Invalid HTTP request: header value is not ASCII-US"
-                    )));
+                    return Err(EventError::MalformedRequest(
+                        "Invalid HTTP request: header value is not ASCII-US".to_string(),
+                    ));
                 }
                 if value.len() > MAX_HTTP_HEADER_LEN {
-                    return Err(EventError::MalformedRequest(format!(
-                        "Invalid HTTP request: header value is too big"
-                    )));
+                    return Err(EventError::MalformedRequest(
+                        "Invalid HTTP request: header value is too big".to_string(),
+                    ));
                 }
 
                 let key = req.headers[i].name.to_string().to_lowercase();
@@ -175,9 +175,9 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
                     ));
                 }
                 if value.len() > MAX_HTTP_HEADER_LEN {
-                    return Err(RPCError::MalformedResponse(format!(
-                        "Invalid HTTP response: header value is too big"
-                    )));
+                    return Err(RPCError::MalformedResponse(
+                        "Invalid HTTP response: header value is too big".to_string(),
+                    ));
                 }
 
                 let key = resp.headers[i].name.to_string().to_lowercase();
@@ -232,7 +232,7 @@ pub fn run_http_request<S: Read + Write>(
     content_type: Option<&str>,
     payload: &[u8],
 ) -> Result<Vec<u8>, RPCError> {
-    let content_length_hdr = if payload.len() > 0 {
+    let content_length_hdr = if !payload.is_empty() {
         format!("Content-Length: {}\r\n", payload.len())
     } else {
         "".to_string()
@@ -241,12 +241,12 @@ pub fn run_http_request<S: Read + Write>(
     let req_txt = if let Some(content_type) = content_type {
         format!(
             "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
-            verb, path, format!("{}", host), content_type, content_length_hdr
+            verb, path, host, content_type, content_length_hdr
         )
     } else {
         format!(
             "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
-            verb, path, format!("{}", host), content_length_hdr
+            verb, path, host, content_length_hdr
         )
     };
     debug!("HTTP request\n{}", &req_txt);

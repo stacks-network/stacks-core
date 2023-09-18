@@ -1,6 +1,6 @@
 # stacks-signer: Stacks Signer CLI
 
-stacks-signer is a command-line interface (CLI) for executing DKG (Distributed Key Generation) rounds, signing transactions and blocks, and more within the Stacks blockchain ecosystem. This tool provides various subcommands to interact with the StackerDB, perform cryptographic operations, and manage configurations.
+stacks-signer is a command-line interface (CLI) for executing DKG (Distributed Key Generation) rounds, signing transactions and blocks, and more within the Stacks blockchain ecosystem. This tool provides various subcommands to interact with the StackerDB contract, perform cryptographic operations, and run a Stacks compliant signer.
 
 ## Installation
 
@@ -25,16 +25,6 @@ To use stacks-signer, you need to build and install the Rust program. You can do
    ./target/release/stacks-signer --help
    ```
 
-### Configuration
-
-You can provide configuration options such as the host, contract, and private key using a TOML file. Use the `--config` option to specify the path to the configuration file. Alternatively, you can provide the necessary options directly in the command line.
-
-```bash
-./stacks-signer --config <config_file>
-```
-
-- `--config`: Path to the TOML configuration file.
-
 ## Usage
 
 The stacks-signer CLI provides the following subcommands:
@@ -44,51 +34,109 @@ The stacks-signer CLI provides the following subcommands:
 Retrieve a chunk from the StackerDB instance.
 
 ```bash
-./stacks-signer --config <config_file> get-chunk --slot_id <slot_id> --slot_version <slot_version>
+./stacks-signer get-chunk --host <host> --contract <contract> --slot_id <slot_id> --slot_version <slot_version>
 ```
 
-- `--host`: The stacks node host to connect to. Required if not using the --config option.
-- `--contract`: The contract ID of the StackerDB instance. Required if not using the --config option.
-- `--slot_id`: The slot ID to get.
-- `--slot_version`: The slot version to get.
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB instance.
+- `--slot-id`: The slot ID to get.
+- `--slot-version`: The slot version to get.
 
 ### `get-latest-chunk`
 
 Retrieve the latest chunk from the StackerDB instance.
 
 ```bash
-./stacks-signer --config <config_file> get-latest-chunk --slot_id <slot_id>
+./stacks-signer get-latest-chunk --host <host> --contract <contract> --slot-id <slot_id>
 ```
 
-- `--host`: The stacks node host to connect to. Required if not using the --config option.
-- `--contract`: The contract ID of the StackerDB instance. Required if not using the --config option.
-- `--slot_id`: The slot ID to get.
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB instance.
+- `--slot-id`: The slot ID to get.
 
 ### `list-chunks`
 
 List chunks from the StackerDB instance.
 
 ```bash
-./stacks-signer --config <config_file> list-chunks
+./stacks-signer list-chunks
 ```
-
-- `--host`: The stacks node host to connect to. Required if not using the --config option.
-- `--contract`: The contract ID of the StackerDB instance. Required if not using the --config option.
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB instance.
 
 ### `put-chunk`
 
 Upload a chunk to the StackerDB instance.
 
 ```bash
-./stacks-signer --config <config_file> put-chunk --slot_id <slot_id> --slot_version <slot_version> [--data <data>]
+./stacks-signer put-chunk --host <host> --contract <contract> --private_key <private_key> --slot-id <slot_id> --slot-version <slot_version> [--data <data>]
 ```
 
-- `--host`: The stacks node host to connect to. Required if not using the --config option.
-- `--contract`: The contract ID of the StackerDB instance. Required if not using the --config option.
-- `--slot_id`: The slot ID to get.
-- `--slot_version`: The slot version to get.
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB instance.
+- `--private_key`: The Stacks private key to use in hexademical format.
+- `--slot-id`: The slot ID to get.
+- `--slot-version`: The slot version to get.
 - `--data`: The data to upload. If you wish to pipe data using STDIN, use with '-'.
 
+### `dkg`
+
+Run a distributed key generation round through stacker-db.
+
+```bash
+./stacks-signer dkg --config <config_file> 
+```
+
+- `--config`: The path to the signer configuration file.
+
+### `dkg-sign`
+
+Run a distributed key generation round and sign a given message through stacker-db.
+
+```bash
+./stacks-signer dkg-sign --config <config_file> [--data <data>]
+```
+- `--config`: The path to the signer configuration file.
+- `--data`: The data to sign. If you wish to pipe data using STDIN, use with '-'.
+
+
+### `dkg-sign`
+
+Sign a given message through stacker-db.
+
+```bash
+./stacks-signer sign --config <config_file> [--data <data>]
+```
+- `--config`: The path to the signer configuration file.
+- `--data`: The data to sign. If you wish to pipe data using STDIN, use with '-'.
+
+### `run`
+
+Start the signer and handle requests to sign messages and participate in DKG rounds via stacker-db.
+```bash
+./stacks-signer run --config <config_file>
+```
+- `--config`: The path to the signer configuration file.
+
+### `generate-files`
+
+Generate the necessary files to run a collection of signers to communicate via stacker-db.
+
+```bash
+./stacks-signer generate-files --host <host> --contract <contract>  --num-signers <num_signers> --num-keys <num_keys> --network <network> --dir <dir>
+```
+- `--host`: The stacks node host to connect to.
+- `--contract`: The contract ID of the StackerDB signer contract.
+- `--num-signers`: The number of signers to generate configuration files for.
+- `--num-keys`: The total number of key ids to distribute among the signers.
+- `--private-keys:` A path to a file containing a list of hexadecimal representations of Stacks private keys. Required if `--num-keys` is not set.
+- `--network`: The network to use. One of "mainnet" or "testnet".
+- `--dir`: The directory to write files to. Defaults to the current directory.
+- `--timeout`: Optional timeout in milliseconds to use when polling for updates in the StackerDB runloop.
+
+## Contributing
+
+To contribute to the stacks-signer project, please read the [Contributing Guidelines](../CONTRIBUTING.md).
 ## License
 
 This program is open-source software released under the terms of the GNU General Public License (GPL). You should have received a copy of the GNU General Public License along with this program.

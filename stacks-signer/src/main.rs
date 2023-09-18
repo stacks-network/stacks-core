@@ -26,112 +26,38 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
-mod config;
-
-use crate::config::Config;
 use clap::Parser;
-use libsigner::{SignerSession, StackerDBSession};
+use clarity::vm::types::QualifiedContractIdentifier;
+use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
+use libstackerdb::StackerDBChunkData;
+use slog::slog_debug;
+use stacks_common::{
+    address::{
+        AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    },
+    debug,
+    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+};
+use stacks_signer::{
+    cli::{
+        Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
+        StackerDBArgs,
+    },
+    config::{Config, Network},
+    crypto::frost::Coordinator as FrostCoordinator,
+    runloop::{RunLoop, RunLoopCommand},
+    utils::{build_signer_config_tomls, build_stackerdb_contract},
+};
 use std::{
-    io::{self, Read, Write},
+    fs::File,
+    io::{self, BufRead, Write},
     net::SocketAddr,
     path::PathBuf,
+    sync::mpsc::{channel, Receiver},
+    time::Duration,
 };
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use stacks_common::types::chainstate::StacksPrivateKey;
-
-use libstackerdb::StackerDBChunkData;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-/// The CLI arguments for the stacks signer
-pub struct Cli {
-    /// Path to config file
-    #[arg(long, value_name = "FILE")]
-    config: Option<PathBuf>,
-    /// The Stacks node to connect to
-    #[clap(long, required_unless_present = "config", conflicts_with = "config")]
-    host: Option<SocketAddr>,
-    /// The stacker-db contract to use
-    #[arg(short, long, value_parser = parse_contract, required_unless_present = "config", conflicts_with = "config")]
-    contract: Option<QualifiedContractIdentifier>,
-    /// The Stacks private key to use in hexademical format
-    #[arg(short, long, value_parser = parse_private_key, required_unless_present = "config", conflicts_with = "config")]
-    private_key: Option<StacksPrivateKey>,
-    /// Subcommand action to take
-    #[command(subcommand)]
-    pub command: Command,
-}
-
-/// Subcommands for the stacks signer binary
-#[derive(clap::Subcommand, Debug)]
-pub enum Command {
-    /// Get a chunk from the stacker-db instance
-    GetChunk(GetChunkArgs),
-    /// Get the latest chunk from the stacker-db instance
-    GetLatestChunk(GetLatestChunkArgs),
-    /// List chunks from the stacker-db instance
-    ListChunks,
-    /// Upload a chunk to the stacker-db instance
-    PutChunk(PutChunkArgs),
-}
-
-/// Arguments for the get-chunk command
-#[derive(Parser, Debug, Clone)]
-pub struct GetChunkArgs {
-    /// The slot ID to get
-    #[arg(long)]
-    slot_id: u32,
-    /// The slot version to get
-    #[arg(long)]
-    slot_version: u32,
-}
-
-/// Arguments for the get-latest-chunk command
-#[derive(Parser, Debug, Clone)]
-pub struct GetLatestChunkArgs {
-    /// The slot ID to get
-    #[arg(long)]
-    slot_id: u32,
-}
-
-#[derive(Parser, Debug, Clone)]
-/// Arguments for the put-chunk command
-pub struct PutChunkArgs {
-    /// The slot ID to get
-    #[arg(long)]
-    slot_id: u32,
-    /// The slot version to get
-    #[arg(long)]
-    slot_version: u32,
-    /// The data to upload
-    #[arg(required = false, value_parser = parse_data)]
-    data: Vec<u8>,
-}
-
-/// Parse the contract ID
-fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
-    QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
-}
-
-/// Parse the hexadecimal Stacks private key
-fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
-    StacksPrivateKey::from_hex(private_key).map_err(|e| format!("Invalid private key: {}", e))
-}
-
-/// Parse the input data
-fn parse_data(data: &str) -> Result<Vec<u8>, String> {
-    let data = if data == "-" {
-        // Parse the data from stdin
-        let mut buf = vec![];
-        io::stdin().read_to_end(&mut buf).unwrap();
-        buf
-    } else {
-        data.as_bytes().to_vec()
-    };
-    Ok(data)
-}
+use wsts::Point;
 
 /// Create a new stacker db session
 fn stackerdb_session(host: SocketAddr, contract: QualifiedContractIdentifier) -> StackerDBSession {
@@ -152,42 +78,174 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
         }
     }
 }
+
+fn spawn_running_signer(
+    path: &PathBuf,
+    command: RunLoopCommand,
+    cmd_recv: Receiver<RunLoopCommand>,
+) -> RunningSigner<StackerDBEventReceiver, Vec<Point>> {
+    let config = Config::try_from(path).unwrap();
+    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let runloop: RunLoop<FrostCoordinator> = RunLoop::new(&config, command);
+    let mut signer: Signer<
+        RunLoopCommand,
+        Vec<Point>,
+        RunLoop<FrostCoordinator>,
+        StackerDBEventReceiver,
+    > = Signer::new(runloop, ev, cmd_recv);
+    let endpoint = config.node_host;
+    signer.spawn(endpoint).unwrap()
+}
+
+fn handle_get_chunk(args: GetChunkArgs) {
+    debug!("Getting chunk...");
+    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let chunk_opt = session.get_chunk(args.slot_id, args.slot_version).unwrap();
+    write_chunk_to_stdout(chunk_opt);
+}
+
+fn handle_get_latest_chunk(args: GetLatestChunkArgs) {
+    debug!("Getting latest chunk...");
+    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let chunk_opt = session.get_latest_chunk(args.slot_id).unwrap();
+    write_chunk_to_stdout(chunk_opt);
+}
+
+fn handle_list_chunks(args: StackerDBArgs) {
+    debug!("Listing chunks...");
+    let mut session = stackerdb_session(args.host, args.contract);
+    let chunk_list = session.list_chunks().unwrap();
+    println!("{}", serde_json::to_string(&chunk_list).unwrap());
+}
+
+fn handle_put_chunk(args: PutChunkArgs) {
+    debug!("Putting chunk...");
+    let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
+    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data.clone());
+    chunk.sign(&args.private_key).unwrap();
+    let chunk_ack = session.put_chunk(chunk).unwrap();
+    println!("{}", serde_json::to_string(&chunk_ack).unwrap());
+}
+
+fn handle_generate_files(args: GenerateFilesArgs) {
+    debug!("Generating files...");
+    let signer_stacks_private_keys = if let Some(path) = args.private_keys {
+        let file = File::open(&path).unwrap();
+        let reader = io::BufReader::new(file);
+
+        let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();
+        println!("{}", StacksPrivateKey::new().to_hex());
+        let private_keys = private_keys
+            .iter()
+            .map(|key| StacksPrivateKey::from_hex(key).expect("Failed to parse private key."))
+            .collect::<Vec<StacksPrivateKey>>();
+        if private_keys.is_empty() {
+            panic!("Private keys file is empty.");
+        }
+        private_keys
+    } else {
+        let num_signers = args.num_signers.unwrap();
+        if num_signers == 0 {
+            panic!("--num-signers must be non-zero.");
+        }
+        (0..num_signers)
+            .map(|_| StacksPrivateKey::new())
+            .collect::<Vec<StacksPrivateKey>>()
+    };
+    let signer_stacks_addresses = signer_stacks_private_keys
+        .iter()
+        .map(|key| to_addr(key, &args.network))
+        .collect::<Vec<StacksAddress>>();
+    // Build the stackerdb contract
+    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
+    let signer_config_tomls = build_signer_config_tomls(
+        &signer_stacks_private_keys,
+        args.num_keys,
+        &args.db_args.host.to_string(),
+        &args.db_args.contract.to_string(),
+        args.timeout.map(Duration::from_millis),
+    );
+    debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
+    for (i, file_contents) in signer_config_tomls.iter().enumerate() {
+        let signer_conf_path = args.dir.join(format!("signer-{}.toml", i));
+        let signer_conf_filename = signer_conf_path.to_str().unwrap();
+        let mut signer_conf_file = File::create(signer_conf_filename).unwrap();
+        signer_conf_file
+            .write_all(file_contents.as_bytes())
+            .unwrap();
+        println!("Created signer config toml file: {}", signer_conf_filename);
+    }
+    let stackerdb_contract_path = args.dir.join("stackerdb.clar");
+    let stackerdb_contract_filename = stackerdb_contract_path.to_str().unwrap();
+    let mut stackerdb_contract_file = File::create(stackerdb_contract_filename).unwrap();
+    stackerdb_contract_file
+        .write_all(stackerdb_contract.as_bytes())
+        .unwrap();
+    println!(
+        "Created stackerdb clarity contract: {}",
+        stackerdb_contract_filename
+    );
+}
+
 fn main() {
     let cli = Cli::parse();
-    let (host, contract, private_key) = if let Some(config) = cli.config {
-        let config = Config::try_from(&config).unwrap();
-        (
-            config.node_host,
-            config.stackerdb_contract_id,
-            config.private_key,
-        )
-    } else {
-        (
-            cli.host.unwrap(),
-            cli.contract.unwrap(),
-            cli.private_key.unwrap(),
-        )
-    };
-
-    let mut session = stackerdb_session(host, contract);
+    let (_cmd_send, cmd_recv) = channel();
     match cli.command {
         Command::GetChunk(args) => {
-            let chunk_opt = session.get_chunk(args.slot_id, args.slot_version).unwrap();
-            write_chunk_to_stdout(chunk_opt);
+            handle_get_chunk(args);
         }
         Command::GetLatestChunk(args) => {
-            let chunk_opt = session.get_latest_chunk(args.slot_id).unwrap();
-            write_chunk_to_stdout(chunk_opt);
+            handle_get_latest_chunk(args);
         }
-        Command::ListChunks => {
-            let chunk_list = session.list_chunks().unwrap();
-            println!("{}", serde_json::to_string(&chunk_list).unwrap());
+        Command::ListChunks(args) => {
+            handle_list_chunks(args);
         }
         Command::PutChunk(args) => {
-            let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
-            chunk.sign(&private_key).unwrap();
-            let chunk_ack = session.put_chunk(chunk).unwrap();
-            println!("{}", serde_json::to_string(&chunk_ack).unwrap());
+            handle_put_chunk(args);
+        }
+        Command::Dkg(args) => {
+            debug!("Running DKG...");
+            let _running_signer = spawn_running_signer(&args.config, RunLoopCommand::Dkg, cmd_recv);
+        }
+        Command::DkgSign(args) => {
+            debug!("Running DKG and Signing round...");
+            let _running_signer = spawn_running_signer(
+                &args.config,
+                RunLoopCommand::DkgSign { message: args.data },
+                cmd_recv,
+            );
+        }
+        Command::Sign(args) => {
+            debug!("Signing message...");
+            let _running_signer = spawn_running_signer(
+                &args.config,
+                RunLoopCommand::Sign { message: args.data },
+                cmd_recv,
+            );
+        }
+        Command::Run(args) => {
+            debug!("Running signer...");
+            let _running_signer = spawn_running_signer(&args.config, RunLoopCommand::Run, cmd_recv);
+        }
+        Command::GenerateFiles(args) => {
+            handle_generate_files(args);
         }
     }
 }
+
+fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
+    let version = match network {
+        Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Network::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
+    StacksAddress::from_public_keys(
+        version,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(stacks_private_key)],
+    )
+    .unwrap()
+}
+
+#[cfg(test)]
+pub mod tests;

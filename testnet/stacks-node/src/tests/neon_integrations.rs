@@ -250,11 +250,13 @@ pub mod test_observer {
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
         debug!(
-            "Got stackerdb chunks: {}",
+            "signer_runloop: got stackerdb chunks: {}",
             serde_json::to_string(&chunks).unwrap()
         );
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
         let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
+        stackerdb_chunks.push(event.clone());
+
         Ok(warp::http::StatusCode::OK)
     }
 
