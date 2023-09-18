@@ -270,7 +270,7 @@ impl PrincipalData {
         let mut header = [0];
         r.read_exact(&mut header)?;
 
-        let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad principal prefix")?;
+        let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad principal prefix")?;
 
         match prefix {
             TypePrefix::PrincipalStandard => {
@@ -367,7 +367,7 @@ impl DeserializeStackItem {
                     if *next_sanitize {
                         return Ok(None);
                     }
-                    let field_type = some_tuple.field_type(&next_name).ok_or_else(|| {
+                    let field_type = some_tuple.field_type(next_name).ok_or_else(|| {
                         SerializationError::DeserializeExpected(TypeSignature::TupleType(
                             some_tuple.clone(),
                         ))
@@ -599,7 +599,7 @@ impl Value {
 
             let mut header = [0];
             r.read_exact(&mut header)?;
-            let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad type prefix")?;
+            let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad type prefix")?;
 
             let item = match prefix {
                 TypePrefix::Int => {
@@ -774,12 +774,10 @@ impl Value {
                                         expected_type.unwrap().clone(),
                                     ));
                                 }
-                            } else {
-                                if len as u64 != tuple_type.len() {
-                                    return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
-                                    ));
-                                }
+                            } else if len as u64 != tuple_type.len() {
+                                return Err(SerializationError::DeserializeExpected(
+                                    expected_type.unwrap().clone(),
+                                ));
                             }
                             Some(tuple_type)
                         }
@@ -816,7 +814,7 @@ impl Value {
                             TupleData::from_data_typed(
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
-                                &tuple_type,
+                                tuple_type,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -935,7 +933,7 @@ impl Value {
                         mut processed_entries,
                     } => {
                         let push_entry = if sanitize {
-                            if let Some(_) = expected_type.as_ref() {
+                            if expected_type.is_some() {
                                 // if performing tuple sanitization, don't include a field
                                 //  if it was sanitized
                                 !next_sanitize
@@ -1060,7 +1058,7 @@ impl Value {
                 let total_len: u32 = value.data.iter().fold(0u32, |len, c| len + c.len() as u32);
                 w.write_all(&(total_len.to_be_bytes()))?;
                 for bytes in value.data.iter() {
-                    w.write_all(&bytes)?
+                    w.write_all(bytes)?
                 }
             }
             Sequence(SequenceData::String(ASCII(value))) => {
@@ -1100,8 +1098,8 @@ impl Value {
         expected: &TypeSignature,
         sanitize: bool,
     ) -> Result<Value, SerializationError> {
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes(&mut data, expected, sanitize)
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes(&data, expected, sanitize)
     }
 
     /// This function attempts to deserialize a byte buffer into a
@@ -1136,13 +1134,9 @@ impl Value {
     /// Try to deserialize a value from a hex string without type information. This *does not*
     /// perform sanitization.
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
-        let hex = if hex.starts_with("0x") {
-            &hex[2..]
-        } else {
-            &hex
-        };
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes_untyped(&mut data)
+        let hex = hex.strip_prefix("0x").unwrap_or(hex);
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes_untyped(&data)
     }
 
     pub fn serialized_size(&self) -> u32 {
@@ -1268,7 +1262,7 @@ impl Value {
                     None => return Some((Value::none(), false)),
                 };
                 let (sanitized_data, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, some_data)?;
+                    Self::sanitize_value(epoch, inner_type, some_data)?;
                 (Value::some(sanitized_data).ok()?, did_sanitize_child)
             }
             Value::Response(response) => {
@@ -1281,7 +1275,7 @@ impl Value {
                 let response_data = *response.data;
                 let inner_type = if response_ok { &rt.0 } else { &rt.1 };
                 let (sanitized_inner, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, response_data)?;
+                    Self::sanitize_value(epoch, inner_type, response_data)?;
                 let sanitized_resp = if response_ok {
                     Value::okay(sanitized_inner)
                 } else {
@@ -1318,7 +1312,7 @@ impl ClaritySerializable for u32 {
 
 impl ClarityDeserializable<u32> for u32 {
     fn deserialize(input: &str) -> Self {
-        let bytes = hex_bytes(&input).expect("u32 deserialization: failed decoding bytes.");
+        let bytes = hex_bytes(input).expect("u32 deserialization: failed decoding bytes.");
         assert_eq!(bytes.len(), 4);
         u32::from_be_bytes(
             bytes[0..4]
