@@ -17,6 +17,7 @@
 pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
+#[allow(clippy::result_large_err)]
 pub mod errors;
 pub mod read_only_checker;
 pub mod trait_checker;
