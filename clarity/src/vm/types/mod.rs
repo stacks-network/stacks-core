@@ -110,7 +110,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
-        let split: Vec<_> = literal.splitn(2, ".").collect();
+        let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
@@ -122,15 +122,11 @@ impl QualifiedContractIdentifier {
         let name = split[1].to_string().try_into()?;
         Ok(QualifiedContractIdentifier::new(sender, name))
     }
-
-    pub fn to_string(&self) -> String {
-        format!("{}.{}", self.issuer, self.name.to_string())
-    }
 }
 
 impl fmt::Display for QualifiedContractIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}.{}", self.issuer, self.name)
     }
 }
 
@@ -174,10 +170,7 @@ pub trait StacksAddressExtensions {
 
 impl StacksAddressExtensions for StacksAddress {
     fn to_account_principal(&self) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData(
-            self.version,
-            self.bytes.as_bytes().clone(),
-        ))
+        PrincipalData::Standard(StandardPrincipalData(self.version, *self.bytes.as_bytes()))
     }
 }
 
@@ -210,7 +203,7 @@ impl TraitIdentifier {
     pub fn parse(
         literal: &str,
     ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
-        let split: Vec<_> = literal.splitn(3, ".").collect();
+        let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
@@ -279,6 +272,10 @@ impl SequenceData {
             SequenceData::String(CharType::ASCII(data)) => data.items().len(),
             SequenceData::String(CharType::UTF8(data)) => data.items().len(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn element_at(self, index: usize) -> Option<Value> {
@@ -351,7 +348,7 @@ impl SequenceData {
             _ => return Err(CheckErrors::ListTypesMustMatch.into()),
         };
 
-        Ok(Value::some(Value::Sequence(new_seq_data))?)
+        Value::some(Value::Sequence(new_seq_data))
     }
 
     pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
@@ -537,11 +534,7 @@ impl SequenceData {
     }
 
     pub fn is_list(&self) -> bool {
-        if let SequenceData::List(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SequenceData::List(..))
     }
 }
 
@@ -578,7 +571,7 @@ impl fmt::Display for ASCIIData {
             let escaped_char = format!("{}", std::ascii::escape_default(*c));
             escaped_str.push_str(&escaped_char);
         }
-        write!(f, "{}", format!("\"{}\"", escaped_str))
+        write!(f, "\"{}\"", escaped_str)
     }
 }
 
@@ -600,7 +593,7 @@ impl fmt::Display for UTF8Data {
                 result.push_str(&escaped_char);
             }
         }
-        write!(f, "{}", format!("u\"{}\"", result))
+        write!(f, "u\"{}\"", result)
     }
 }
 
@@ -616,7 +609,7 @@ pub trait SequencedValue<T> {
     fn atom_values(&mut self) -> Vec<SymbolicExpression> {
         self.drained_items()
             .iter()
-            .map(|item| SymbolicExpression::atom_value(Self::to_value(&item)))
+            .map(|item| SymbolicExpression::atom_value(Self::to_value(item)))
             .collect()
     }
 }
@@ -725,7 +718,7 @@ define_named_enum!(BurnBlockInfoProperty {
 impl OptionalData {
     pub fn type_signature(&self) -> TypeSignature {
         let type_result = match self.data {
-            Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
+            Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)),
             None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.expect("Should not have constructed too large of a type.")
@@ -905,7 +898,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(epoch, &item)? {
+                if !expected_item_type.admits(epoch, item)? {
                     return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
@@ -1117,10 +1110,7 @@ impl Value {
 
     pub fn expect_optional(self) -> Option<Value> {
         if let Value::Optional(opt) = self {
-            match opt.data {
-                Some(boxed_value) => Some(*boxed_value),
-                None => None,
-            }
+            opt.data.map(|boxed_value| *boxed_value)
         } else {
             error!("Value '{:?}' is not an optional", &self);
             panic!();
@@ -1211,10 +1201,14 @@ impl ListData {
         self.data.len().try_into().unwrap()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     fn append(&mut self, epoch: &StacksEpochId, other_seq: ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
-        let entry_type = TypeSignature::factor_out_no_type(epoch, &entry_type_a, &entry_type_b)?;
+        let entry_type = TypeSignature::factor_out_no_type(epoch, entry_type_a, entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         for item in other_seq.data.into_iter() {
             let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
@@ -1316,13 +1310,9 @@ impl PrincipalData {
 
     pub fn parse(literal: &str) -> Result<PrincipalData> {
         // be permissive about leading single-quote
-        let literal = if literal.starts_with("'") {
-            &literal[1..]
-        } else {
-            literal
-        };
+        let literal = literal.strip_prefix('\'').unwrap_or(literal);
 
-        if literal.contains(".") {
+        if literal.contains('.') {
             PrincipalData::parse_qualified_contract_principal(literal)
         } else {
             PrincipalData::parse_standard_principal(literal).map(PrincipalData::from)
@@ -1335,7 +1325,7 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(&literal).map_err(|x| {
+        let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
             RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x))
         })?;
         if data.len() != 20 {
@@ -1377,8 +1367,7 @@ impl fmt::Display for PrincipalData {
             PrincipalData::Contract(contract_identifier) => write!(
                 f,
                 "{}.{}",
-                contract_identifier.issuer,
-                contract_identifier.name.to_string()
+                contract_identifier.issuer, contract_identifier.name
             ),
         }
     }
@@ -1400,7 +1389,7 @@ impl fmt::Display for CallableData {
 
 impl fmt::Display for TraitIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
+        write!(f, "{}.{}", self.contract_identifier, self.name)
     }
 }
 
@@ -1491,6 +1480,11 @@ impl TupleData {
     /// Return the number of fields in this tuple value
     pub fn len(&self) -> u64 {
         self.data_map.len() as u64
+    }
+
+    /// Checks whether the tuple value is empty
+    pub fn is_empty(&self) -> bool {
+        self.data_map.is_empty()
     }
 
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
