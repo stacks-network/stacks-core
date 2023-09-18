@@ -141,7 +141,20 @@ fn test_simple_signer() {
 
     let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(5000);
-    let accepted_events = running_signer.stop().unwrap();
+    let mut accepted_events = running_signer.stop().unwrap();
+
+    chunks.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
+    accepted_events.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
 
     // runloop got the event that the mocked stacks node sent
     assert_eq!(accepted_events, chunks);
