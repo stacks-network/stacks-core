@@ -235,7 +235,7 @@ impl Address for StacksAddress {
         let mut hash_bytes = [0u8; 20];
         hash_bytes.copy_from_slice(&bytes[..]);
         Some(StacksAddress {
-            version: version,
+            version,
             bytes: Hash160(hash_bytes),
         })
     }
