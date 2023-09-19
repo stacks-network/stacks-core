@@ -35,7 +35,7 @@ pub fn get_epoch_time_secs() -> u64 {
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    return since_the_epoch.as_secs();
+    since_the_epoch.as_secs()
 }
 
 pub fn get_epoch_time_ms() -> u128 {
@@ -43,10 +43,10 @@ pub fn get_epoch_time_ms() -> u128 {
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    return since_the_epoch.as_millis();
+    since_the_epoch.as_millis()
 }
 
-pub fn sleep_ms(millis: u64) -> () {
+pub fn sleep_ms(millis: u64) {
     let t = time::Duration::from_millis(millis);
     thread::sleep(t);
 }

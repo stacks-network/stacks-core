@@ -140,6 +140,12 @@ impl PartialEq for VRFPrivateKey {
     }
 }
 
+impl Default for VRFPrivateKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VRFPrivateKey {
     pub fn new() -> VRFPrivateKey {
         let mut rng = rand::thread_rng();
@@ -256,7 +262,7 @@ impl Debug for VRFProof {
 }
 
 impl Hash for VRFProof {
-    fn hash<H: Hasher>(&self, h: &mut H) -> () {
+    fn hash<H: Hasher>(&self, h: &mut H) {
         let bytes = self.to_bytes();
         bytes.hash(h);
     }
@@ -281,12 +287,12 @@ impl VRFProof {
         let c_bytes = c.reduce().to_bytes();
 
         // upper 16 bytes of c must be 0's
-        for i in 16..32 {
-            if c_bytes[i] != 0 {
+        for c_byte in c_bytes.iter().skip(16) {
+            if *c_byte != 0 {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     pub fn empty() -> VRFProof {
@@ -327,28 +333,19 @@ impl VRFProof {
                 let mut c_buf = [0u8; 32];
                 let mut s_buf = [0u8; 32];
 
-                for i in 0..16 {
-                    c_buf[i] = bytes[32 + i];
-                }
-                for i in 0..32 {
-                    s_buf[i] = bytes[48 + i];
-                }
-
+                c_buf[..16].copy_from_slice(&bytes[32..(16 + 32)]);
+                s_buf[..32].copy_from_slice(&bytes[48..(32 + 48)]);
                 let c = ed25519_Scalar::from_canonical_bytes(c_buf)?;
                 let s = ed25519_Scalar::from_canonical_bytes(s_buf)?;
 
-                Some(VRFProof {
-                    Gamma: gamma,
-                    c: c,
-                    s: s,
-                })
+                Some(VRFProof { Gamma: gamma, c, s })
             }
             _ => None,
         }
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Option<VRFProof> {
-        VRFProof::from_slice(&bytes[..])
+        VRFProof::from_slice(bytes)
     }
 
     pub fn from_hex(hex_str: &str) -> Option<VRFProof> {
@@ -410,18 +407,18 @@ impl VRF {
 
         let h: EdwardsPoint = loop {
             let mut hasher = Sha512::new();
-            hasher.update(&[SUITE, 0x01]);
+            hasher.update([SUITE, 0x01]);
             hasher.update(y.as_bytes());
             hasher.update(alpha);
 
             if ctr == 0 {
-                hasher.update(&[0u8]);
+                hasher.update([0u8]);
             } else {
                 // 2**64 - 1 is an artificial cap -- the RFC implies that you should count forever
                 let ctr_bytes = ctr.to_le_bytes();
-                for i in 0..8 {
+                for (i, ctr_byte) in ctr_bytes.iter().enumerate() {
                     if ctr > 1u64 << (8 * i) {
-                        hasher.update(&[ctr_bytes[i]]);
+                        hasher.update([*ctr_byte]);
                     }
                 }
             }
@@ -436,8 +433,7 @@ impl VRF {
                 .expect("Too many attempts at try-and-increment hash-to-curve");
         };
 
-        let ed = h.mul_by_cofactor();
-        ed
+        h.mul_by_cofactor()
     }
 
     /// Hash four points to a 16-byte string.
@@ -452,11 +448,11 @@ impl VRF {
         let mut hash128 = [0u8; 16];
 
         // hasher.input(&[SUITE, 0x02]);
-        hasher.update(&[0x03, 0x02]);
-        hasher.update(&p1.compress().to_bytes());
-        hasher.update(&p2.compress().to_bytes());
-        hasher.update(&p3.compress().to_bytes());
-        hasher.update(&p4.compress().to_bytes());
+        hasher.update([0x03, 0x02]);
+        hasher.update(p1.compress().to_bytes());
+        hasher.update(p2.compress().to_bytes());
+        hasher.update(p3.compress().to_bytes());
+        hasher.update(p4.compress().to_bytes());
 
         hash128.copy_from_slice(&hasher.finalize()[0..16]);
         hash128
@@ -502,7 +498,7 @@ impl VRF {
         let h_string = H_point.compress().to_bytes();
 
         hasher.update(trunc_hash);
-        hasher.update(&h_string);
+        hasher.update(h_string);
         let rs = &hasher.finalize()[..];
         k_string.copy_from_slice(rs);
 
@@ -524,16 +520,16 @@ impl VRF {
         let (Y_point, x_scalar, trunc_hash) = VRF::expand_privkey(secret);
         let H_point = VRF::hash_to_curve(&Y_point, alpha);
 
-        let Gamma_point = &x_scalar * &H_point;
+        let Gamma_point = x_scalar * H_point;
         let k_scalar = VRF::nonce_generation(&trunc_hash, &H_point);
 
-        let kB_point = &k_scalar * &ED25519_BASEPOINT_POINT;
-        let kH_point = &k_scalar * &H_point;
+        let kB_point = k_scalar * ED25519_BASEPOINT_POINT;
+        let kH_point = k_scalar * H_point;
 
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
         let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
 
-        let s_full_scalar = &k_scalar + &c_scalar * &x_scalar;
+        let s_full_scalar = k_scalar + c_scalar * x_scalar;
         let s_scalar = s_full_scalar.reduce();
 
         // NOTE: expect() won't panic because c_scalar is guaranteed to have
@@ -557,8 +553,8 @@ impl VRF {
             return Err(Error::InvalidPublicKey);
         }
 
-        let U_point = &s_reduced * &ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
-        let V_point = &s_reduced * &H_point - proof.c() * proof.Gamma();
+        let U_point = s_reduced * ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
+        let V_point = s_reduced * H_point - proof.c() * proof.Gamma();
 
         let c_prime_hashbuf = VRF::hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
         let c_prime = VRF::ed25519_scalar_from_hash128(&c_prime_hashbuf);
@@ -630,7 +626,7 @@ mod tests {
         ];
 
         for proof_fixture in proof_fixtures {
-            let alpha = hex_bytes(&proof_fixture.message).unwrap();
+            let alpha = hex_bytes(proof_fixture.message).unwrap();
             let privk = VRFPrivateKey::from_bytes(&proof_fixture.privkey[..]).unwrap();
             let expected_proof_bytes = &proof_fixture.proof[..];
 
@@ -656,8 +652,8 @@ mod tests {
             let mut msg = [0u8; 1024];
             rng.fill_bytes(&mut msg);
 
-            let proof = VRF::prove(&secret_key, &msg.to_vec());
-            let res = VRF::verify(&public_key, &proof, &msg.to_vec()).unwrap();
+            let proof = VRF::prove(&secret_key, &msg);
+            let res = VRF::verify(&public_key, &proof, &msg).unwrap();
 
             assert!(res);
         }
@@ -703,7 +699,7 @@ mod tests {
             let proof_res = VRFProof::from_bytes(&proof_fixture.proof);
             if proof_fixture.result {
                 // should decode
-                assert!(!proof_res.is_none());
+                assert!(proof_res.is_some());
 
                 // should re-encode
                 assert!(proof_res.unwrap().to_bytes().to_vec() == proof_fixture.proof.to_vec());

@@ -30,16 +30,15 @@ impl<I: Iterator> Iterator for Pair<I> {
     #[inline]
     fn next(&mut self) -> Option<(I::Item, I::Item)> {
         let elem1 = self.iter.next();
-        if elem1.is_none() {
-            None
-        } else {
-            let elem2 = self.iter.next();
-            if elem2.is_none() {
-                self.last_elem = elem1;
-                None
+        if let Some(elem1) = elem1 {
+            if let Some(elem2) = self.iter.next() {
+                Some((elem1, elem2))
             } else {
-                Some((elem1.unwrap(), elem2.unwrap()))
+                self.last_elem = Some(elem1);
+                None
             }
+        } else {
+            None
         }
     }
 
