@@ -30,7 +30,7 @@ use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_warn};
+use slog::slog_debug;
 use stacks_common::{
     address::{
         AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -38,7 +38,6 @@ use stacks_common::{
     },
     debug,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
-    warn,
 };
 use stacks_signer::{
     cli::{
