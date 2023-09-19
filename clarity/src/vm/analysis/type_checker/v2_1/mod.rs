@@ -345,6 +345,7 @@ impl FunctionType {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn clarity2_principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
         if depth > MAX_TYPE_DEPTH {
             return Err(CheckErrors::TypeSignatureTooDeep.into());
@@ -422,7 +423,7 @@ impl FunctionType {
         check_argument_count(expected_args.len(), func_args)?;
 
         if clarity_version < ClarityVersion::Clarity2 {
-            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()) {
                 match (&expected_arg.signature, arg) {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_id)),
@@ -450,8 +451,8 @@ impl FunctionType {
                         )?;
                     }
                     (expected_type, value) => {
-                        if !expected_type.admits(&StacksEpochId::Epoch21, &value)? {
-                            let actual_type = TypeSignature::type_of(&value);
+                        if !expected_type.admits(&StacksEpochId::Epoch21, value)? {
+                            let actual_type = TypeSignature::type_of(value);
                             return Err(
                                 CheckErrors::TypeError(expected_type.clone(), actual_type).into()
                             );
@@ -465,7 +466,7 @@ impl FunctionType {
                 arg_types.push(self.principal_to_callable_type(arg, 1, clarity_version)?);
             }
 
-            for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
+            for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()) {
                 clarity2_inner_type_check_type(
                     db,
                     None,
@@ -709,13 +710,13 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         ) => {
             if atom_trait_id != expected_trait_id {
                 let atom_trait =
-                    clarity2_lookup_trait(db, contract_context, &atom_trait_id, tracker)?;
+                    clarity2_lookup_trait(db, contract_context, atom_trait_id, tracker)?;
                 let expected_trait =
                     clarity2_lookup_trait(db, contract_context, expected_trait_id, tracker)?;
                 clarity2_trait_check_trait_compliance(
                     db,
                     contract_context,
-                    &atom_trait_id,
+                    atom_trait_id,
                     &atom_trait,
                     expected_trait_id,
                     &expected_trait,
@@ -728,7 +729,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             let contract_to_check = match db
-                .load_contract(&contract_identifier, &StacksEpochId::Epoch21)
+                .load_contract(contract_identifier, &StacksEpochId::Epoch21)
             {
                 Some(contract) => {
                     runtime_cost(
@@ -769,7 +770,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         }
         (TypeSignature::NoType, _) => (),
         (_, _) => {
-            if !expected_type.admits_type(&StacksEpochId::Epoch21, &actual_type)? {
+            if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
                 return Err(
                     CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
                 );
@@ -789,7 +790,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
             return Ok(contract_context
-                .get_trait(&trait_id)
+                .get_trait(trait_id)
                 .ok_or(CheckErrors::NoSuchTrait(
                     trait_id.contract_identifier.to_string(),
                     trait_id.name.to_string(),
@@ -833,7 +834,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
-        total_size = total_size.cost_overflow_add(value.total_type_size()? as u64)?;
+        total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
     }
     Ok(total_size)
 }
@@ -881,13 +882,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
-            contract_context: ContractContext::new(
-                contract_identifier.clone(),
-                clarity_version.clone(),
-            ),
+            contract_context: ContractContext::new(contract_identifier.clone(), *clarity_version),
             function_return_tracker: None,
             type_map: TypeMap::new(),
-            clarity_version: clarity_version.clone(),
+            clarity_version: *clarity_version,
         }
     }
 
@@ -950,16 +948,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let mut local_context = TypingContext::new(StacksEpochId::Epoch21, self.clarity_version);
 
         for exp in contract_analysis.expressions.iter() {
-            let mut result_res = self.try_type_check_define(&exp, &mut local_context);
+            let mut result_res = self.try_type_check_define(exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
-                    error.set_expression(&exp);
+                    error.set_expression(exp);
                 }
             }
             let result = result_res?;
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-                self.type_check(&exp, &local_context)?;
+                self.type_check(exp, &local_context)?;
             }
         }
         Ok(())
@@ -1077,7 +1075,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
             match arg_type {
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) => {
-                    function_context.add_trait_reference(&arg_name, &trait_id);
+                    function_context.add_trait_reference(arg_name, trait_id);
                 }
                 _ => {
                     function_context
@@ -1094,7 +1092,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         match return_result {
             Err(e) => {
                 self.function_return_tracker = None;
-                return Err(e);
+                Err(e)
             }
             Ok(return_type) => {
                 let return_type = {
@@ -1193,7 +1191,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
             for (expected_type, found_type) in function.args.iter().map(|x| &x.signature).zip(args)
             {
-                self.type_check_expects(found_type, context, &expected_type)?;
+                self.type_check_expects(found_type, context, expected_type)?;
             }
 
             Ok(function.returns)
@@ -1232,41 +1230,39 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected_type: &TypeSignature,
     ) -> TypeResult {
-        match (&expr.expr, expected_type) {
-            (
-                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
-                TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
-            ) => {
-                let contract_to_check = self
-                    .db
-                    .load_contract(&contract_identifier, &StacksEpochId::Epoch21)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        if let (
+            LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+        ) = (&expr.expr, expected_type)
+        {
+            let contract_to_check = self
+                .db
+                .load_contract(contract_identifier, &StacksEpochId::Epoch21)
+                .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let contract_defining_trait = self
-                    .db
-                    .load_contract(
-                        &trait_identifier.contract_identifier,
-                        &StacksEpochId::Epoch21,
-                    )
-                    .ok_or(CheckErrors::NoSuchContract(
-                        trait_identifier.contract_identifier.to_string(),
-                    ))?;
-
-                let trait_definition = contract_defining_trait
-                    .get_defined_trait(&trait_identifier.name)
-                    .ok_or(CheckErrors::NoSuchTrait(
-                        trait_identifier.contract_identifier.to_string(),
-                        trait_identifier.name.to_string(),
-                    ))?;
-
-                contract_to_check.check_trait_compliance(
+            let contract_defining_trait = self
+                .db
+                .load_contract(
+                    &trait_identifier.contract_identifier,
                     &StacksEpochId::Epoch21,
-                    trait_identifier,
-                    &trait_definition,
-                )?;
-                return Ok(expected_type.clone());
-            }
-            (_, _) => {}
+                )
+                .ok_or(CheckErrors::NoSuchContract(
+                    trait_identifier.contract_identifier.to_string(),
+                ))?;
+
+            let trait_definition = contract_defining_trait
+                .get_defined_trait(&trait_identifier.name)
+                .ok_or(CheckErrors::NoSuchTrait(
+                    trait_identifier.contract_identifier.to_string(),
+                    trait_identifier.name.to_string(),
+                ))?;
+
+            contract_to_check.check_trait_compliance(
+                &StacksEpochId::Epoch21,
+                trait_identifier,
+                trait_definition,
+            )?;
+            return Ok(expected_type.clone());
         }
 
         let actual_type = self.type_check(expr, context)?;
@@ -1391,8 +1387,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         _context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, TypeSignature)> {
         let asset_type =
-            TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch21, &nft_type, &mut ())
-                .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
+            TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch21, nft_type, &mut ())
+                .map_err(|_| CheckErrors::DefineNFTBadSignature)?;
 
         Ok((asset_name.clone(), asset_type))
     }
@@ -1404,7 +1400,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         _context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
-            &function_types,
+            function_types,
             &mut (),
             StacksEpochId::Epoch21,
             self.clarity_version,
