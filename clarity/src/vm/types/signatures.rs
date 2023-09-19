@@ -2021,7 +2021,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            let _ = TypeSignature::from_string(*desc, version, epoch); // panics on failed types.
+            let _ = TypeSignature::from_string(desc, version, epoch); // panics on failed types.
         }
     }
 
