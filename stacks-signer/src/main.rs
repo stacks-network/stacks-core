@@ -109,40 +109,34 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
 
 // Process a DKG result
 fn process_dkg_result(dkg_res: &[OperationResult]) {
-    if dkg_res.len() != 1 {
-        warn!("Received unexpected number of results: {}", dkg_res.len());
-    }
-    for dkg in dkg_res {
-        match dkg {
-            OperationResult::Dkg(point) => {
-                println!("Received aggregate group key: {point}");
-            }
-            OperationResult::Sign(signature, schnorr_proof) => {
-                panic!(
-                    "Received unexpected signature ({},{}) and schnorr proof ({},{})",
-                    &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
-                );
-            }
+    assert!(dkg_res.len() == 1, "Received unexpected number of results");
+    let dkg = dkg_res.first().unwrap();
+    match dkg {
+        OperationResult::Dkg(point) => {
+            println!("Received aggregate group key: {point}");
+        }
+        OperationResult::Sign(signature, schnorr_proof) => {
+            panic!(
+                "Received unexpected signature ({},{}) and schnorr proof ({},{})",
+                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+            );
         }
     }
 }
 
 // Process a Sign result
 fn process_sign_result(sign_res: &[OperationResult]) {
-    if sign_res.len() != 1 {
-        warn!("Received unexpected number of results: {}", sign_res.len());
-    }
-    for sign in sign_res {
-        match sign {
-            OperationResult::Dkg(point) => {
-                panic!("Received unexpected aggregate group key: {point}");
-            }
-            OperationResult::Sign(signature, schnorr_proof) => {
-                println!(
-                    "Received good signature ({},{}) and schnorr proof ({},{})",
-                    &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
-                );
-            }
+    assert!(sign_res.len() == 1, "Received unexpected number of results");
+    let sign = sign_res.first().unwrap();
+    match sign {
+        OperationResult::Dkg(point) => {
+            panic!("Received unexpected aggregate group key: {point}");
+        }
+        OperationResult::Sign(signature, schnorr_proof) => {
+            println!(
+                "Received good signature ({},{}) and schnorr proof ({},{})",
+                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+            );
         }
     }
 }
