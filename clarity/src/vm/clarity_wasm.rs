@@ -7,11 +7,11 @@ use super::{
     callables::{DefineType, DefinedFunction},
     contracts::Contract,
     costs::CostTracker,
-    database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata},
+    database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata, STXBalance},
     errors::RuntimeErrorType,
     types::{
         CharType, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-        SequenceData, StandardPrincipalData,
+        SequenceData, StandardPrincipalData, TupleData,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -20,9 +20,42 @@ use crate::vm::{
     ast::ContractAST,
     contexts::GlobalContext,
     errors::{Error, WasmError},
+    functions::principals,
     types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
     ClarityName, ContractContext, Value,
 };
+
+enum MintAssetErrorCodes {
+    ALREADY_EXIST = 1,
+}
+enum MintTokenErrorCodes {
+    NON_POSITIVE_AMOUNT = 1,
+}
+enum TransferAssetErrorCodes {
+    NOT_OWNED_BY = 1,
+    SENDER_IS_RECIPIENT = 2,
+    DOES_NOT_EXIST = 3,
+}
+enum TransferTokenErrorCodes {
+    NOT_ENOUGH_BALANCE = 1,
+    SENDER_IS_RECIPIENT = 2,
+    NON_POSITIVE_AMOUNT = 3,
+}
+
+enum BurnAssetErrorCodes {
+    NOT_OWNED_BY = 1,
+    DOES_NOT_EXIST = 3,
+}
+enum BurnTokenErrorCodes {
+    NOT_ENOUGH_BALANCE_OR_NON_POSITIVE = 1,
+}
+
+enum StxErrorCodes {
+    NOT_ENOUGH_BALANCE = 1,
+    SENDER_IS_RECIPIENT = 2,
+    NON_POSITIVE_AMOUNT = 3,
+    SENDER_IS_NOT_TX_SENDER = 4,
+}
 
 trait ClarityWasmContext {
     fn contract_identifier(&self) -> &QualifiedContractIdentifier;
@@ -53,6 +86,10 @@ trait ClarityWasmContext {
     fn pop_sender(&mut self) -> Result<PrincipalData, Error>;
     fn push_caller(&mut self, caller: PrincipalData);
     fn pop_caller(&mut self) -> Result<PrincipalData, Error>;
+    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128;
+    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance;
+    fn get_v1_unlock_height(&mut self) -> u32;
+    fn get_v2_unlock_height(&mut self) -> u32;
 }
 
 /// The context used when making calls into the Wasm module.
@@ -188,6 +225,38 @@ impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
                 self.env.caller = self.caller_stack.pop();
                 caller
             })
+    }
+
+    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+        let balance = {
+            let mut snapshot = self
+                .env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
+            snapshot.get_available_balance()
+        };
+        balance
+    }
+
+    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
+        let balance = {
+            let mut snapshot = self
+                .env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
+            snapshot.canonical_balance_repr()
+        };
+        balance
+    }
+
+    fn get_v1_unlock_height(&mut self) -> u32 {
+        self.env.global_context.database.get_v1_unlock_height()
+    }
+
+    fn get_v2_unlock_height(&mut self) -> u32 {
+        self.env.global_context.database.get_v2_unlock_height()
     }
 }
 
@@ -333,6 +402,79 @@ impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
         ))?;
         Ok(std::mem::replace(&mut self.caller, caller))
     }
+
+    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+        let balance = {
+            let mut snapshot = self
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
+            snapshot.get_available_balance()
+        };
+        balance
+    }
+
+    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
+        let balance = {
+            let mut snapshot = self
+                .global_context
+                .database
+                .get_stx_balance_snapshot(principal);
+            snapshot.canonical_balance_repr()
+        };
+        balance
+    }
+
+    fn get_v1_unlock_height(&mut self) -> u32 {
+        self.global_context.database.get_v1_unlock_height()
+    }
+
+    fn get_v2_unlock_height(&mut self) -> u32 {
+        self.global_context.database.get_v2_unlock_height()
+    }
+}
+
+fn link_define_functions(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    link_define_function_fn(linker)?;
+    link_define_variable_fn(linker)
+}
+
+fn link_err_define_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    link_define_function_fn_error(linker)?;
+    link_define_variable_fn_error(linker)
+}
+
+fn link_runtime_functions<T>(linker: &mut Linker<T>) -> Result<(), Error>
+where
+    T: ClarityWasmContext,
+{
+    link_get_variable_fn(linker)?;
+    link_set_variable_fn(linker)?;
+    link_tx_sender_fn(linker)?;
+    link_contract_caller_fn(linker)?;
+    link_tx_sponsor_fn(linker)?;
+    link_block_height_fn(linker)?;
+    link_burn_block_height_fn(linker)?;
+    link_stx_liquid_supply_fn(linker)?;
+    link_is_in_regtest_fn(linker)?;
+    link_is_in_mainnet_fn(linker)?;
+    link_chain_id_fn(linker)?;
+    link_enter_as_contract_fn(linker)?;
+    link_exit_as_contract_fn(linker)?;
+    link_stx_get_balance_fn(linker)?;
+    link_stx_account_fn(linker)?;
+    // link_stx_burn_fn(linker)?;
+    // link_stx_transfer_fn(linker)?;
+    // link_ft_get_supply_fn(linker)?;
+    // link_ft_get_balance_fn(linker)?;
+    // link_ft_burn_fn(linker)?;
+    // link_ft_mint_fn(linker)?;
+    // link_ft_transfer_fn(linker)?;
+    // link_nft_get_owner_fn(linker)?;
+    // link_nft_burn_fn(linker)?;
+    // link_nft_mint_fn(linker)?;
+    // link_nft_transfer_fn(linker)?;
+    link_log(linker)
 }
 
 /// Initialize a contract, executing all of the top-level expressions and
@@ -362,22 +504,8 @@ pub fn initialize_contract(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
-    link_define_function_fn(&mut linker)?;
-    link_define_variable_fn(&mut linker)?;
-    link_get_variable_fn(&mut linker)?;
-    link_set_variable_fn(&mut linker)?;
-    link_tx_sender_fn(&mut linker)?;
-    link_contract_caller_fn(&mut linker)?;
-    link_tx_sponsor_fn(&mut linker)?;
-    link_block_height_fn(&mut linker)?;
-    link_burn_block_height_fn(&mut linker)?;
-    link_stx_liquid_supply_fn(&mut linker)?;
-    link_is_in_regtest_fn(&mut linker)?;
-    link_is_in_mainnet_fn(&mut linker)?;
-    link_chain_id_fn(&mut linker)?;
-    link_enter_as_contract_fn(&mut linker)?;
-    link_exit_as_contract_fn(&mut linker)?;
-    link_log(&mut linker)?;
+    link_define_functions(&mut linker)?;
+    link_runtime_functions(&mut linker)?;
 
     let instance = linker
         .instantiate(store.as_context_mut(), &module)
@@ -422,22 +550,8 @@ pub fn call_function<'a, 'b, 'c>(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
-    link_define_function_fn_error(&mut linker)?;
-    link_define_variable_fn_error(&mut linker)?;
-    link_get_variable_fn(&mut linker)?;
-    link_set_variable_fn(&mut linker)?;
-    link_tx_sender_fn(&mut linker)?;
-    link_contract_caller_fn(&mut linker)?;
-    link_tx_sponsor_fn(&mut linker)?;
-    link_block_height_fn(&mut linker)?;
-    link_burn_block_height_fn(&mut linker)?;
-    link_stx_liquid_supply_fn(&mut linker)?;
-    link_is_in_regtest_fn(&mut linker)?;
-    link_is_in_mainnet_fn(&mut linker)?;
-    link_chain_id_fn(&mut linker)?;
-    link_enter_as_contract_fn(&mut linker)?;
-    link_exit_as_contract_fn(&mut linker)?;
-    link_log(&mut linker)?;
+    link_err_define_functions(&mut linker)?;
+    link_runtime_functions(&mut linker)?;
 
     let instance = linker
         .instantiate(store.as_context_mut(), &module)
@@ -1187,6 +1301,93 @@ where
         })
 }
 
+/// Link host interface function, `stx_get_balance`, into the Wasm module.
+/// This function is called for the clarity expression, `stx-get-balance`.
+fn link_stx_get_balance_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_get_balance",
+            |mut caller: Caller<'_, T>, principal_offset: i32, principal_length: i32| {
+                // Read the principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    principal_offset,
+                    principal_length,
+                )?;
+                let principal = value_as_principal(&value)?;
+
+                let balance = caller.data_mut().get_stx_balance(principal);
+                let high = (balance >> 64) as u64;
+                let low = (balance & 0xffff_ffff_ffff_ffff) as u64;
+                Ok((low, high))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_get_balance".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `stx_account`, into the Wasm module.
+/// This function is called for the clarity expression, `stx-account`.
+fn link_stx_account_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
+where
+    T: ClarityWasmContext,
+{
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_account",
+            |mut caller: Caller<'_, T>, principal_offset: i32, principal_length: i32| {
+                // Read the principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    principal_offset,
+                    principal_length,
+                )?;
+                let principal = value_as_principal(&value)?;
+
+                let account = caller.data_mut().get_canonical_stx_balance(principal);
+                let v1_unlock_ht = caller.data_mut().get_v1_unlock_height();
+                let v2_unlock_ht = caller.data_mut().get_v2_unlock_height();
+
+                let locked = account.amount_locked();
+                let locked_high = (locked >> 64) as u64;
+                let locked_low = (locked & 0xffff_ffff_ffff_ffff) as u64;
+                let unlock_height = account.effective_unlock_height(v1_unlock_ht, v2_unlock_ht);
+                let unlocked = account.amount_unlocked();
+                let unlocked_high = (unlocked >> 64) as u64;
+                let unlocked_low = (unlocked & 0xffff_ffff_ffff_ffff) as u64;
+
+                // Return value is a tuple: `{locked: uint, unlock-height: uint, unlocked: uint}`
+                Ok((
+                    locked_low,
+                    locked_high,
+                    unlock_height as i64,
+                    0i64,
+                    unlocked_low,
+                    unlocked_high,
+                ))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_account".to_string(),
+                e,
+            ))
+        })
+}
+
 /// Link host-interface function, `log`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
@@ -1284,6 +1485,47 @@ where
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_ascii_from_bytes(buffer)
         }
+        TypeSignature::PrincipalType => {
+            debug_assert!(length >= 25 && length <= 153);
+            let mut current_offset = offset as usize;
+            let mut version: [u8; 1] = [0];
+            let mut hash: [u8; 20] = [0; 20];
+            memory
+                .read(caller.borrow_mut(), current_offset, &mut version)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            current_offset += 1;
+            memory
+                .read(caller.borrow_mut(), current_offset, &mut hash)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            current_offset += 20;
+            let principal = StandardPrincipalData(version[0], hash);
+            let mut contract_length_buf: [u8; 4] = [0; 4];
+            memory
+                .read(
+                    caller.borrow_mut(),
+                    current_offset,
+                    &mut contract_length_buf,
+                )
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            current_offset += 4;
+            let contract_length = u32::from_le_bytes(contract_length_buf);
+            if contract_length == 0 {
+                Ok(Value::Principal(principal.into()))
+            } else {
+                let mut contract_name: Vec<u8> = vec![0; contract_length as usize];
+                memory
+                    .read(caller.borrow_mut(), current_offset, &mut contract_name)
+                    .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                let contract_name = String::from_utf8(contract_name)
+                    .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                Ok(Value::Principal(PrincipalData::Contract(
+                    QualifiedContractIdentifier {
+                        issuer: principal,
+                        name: ContractName::try_from(contract_name)?,
+                    },
+                )))
+            }
+        }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("type not yet implemented: {:?}", ty)
         }
@@ -1299,7 +1541,6 @@ where
         TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::OptionalType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::PrincipalType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
     }
@@ -1575,8 +1816,15 @@ where
         TypeSignature::TraitReferenceType(_trait_id) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::TupleType(_type_sig) => {
-            todo!("Return type not yet implemented: {:?}", return_type)
+        TypeSignature::TupleType(type_sig) => {
+            let mut vals = vec![];
+            let mut adjusted = offset;
+            for ty in type_sig.get_type_map().values() {
+                let (subexpr_values, new_offset) = reserve_space_for_return(store, adjusted, ty)?;
+                vals.extend(subexpr_values);
+                adjusted = new_offset;
+            }
+            Ok((vals, adjusted))
         }
     }
 }
@@ -1741,7 +1989,20 @@ fn wasm_to_clarity_value(
                 ))
             }
         }
-        TypeSignature::TupleType(_t) => todo!("Wasm value type not implemented: {:?}", type_sig),
+        TypeSignature::TupleType(t) => {
+            let mut index = value_index;
+            let mut data_map = Vec::new();
+            for (name, ty) in t.get_type_map() {
+                let (value, increment) = wasm_to_clarity_value(ty, index, buffer, memory, store)?;
+                data_map.push((
+                    name.clone(),
+                    value.ok_or(Error::Unchecked(CheckErrors::BadTupleConstruction))?,
+                ));
+                index += increment;
+            }
+            let tuple = TupleData::from_data(data_map)?;
+            Ok((Some(tuple.into()), index))
+        }
         TypeSignature::TraitReferenceType(_t) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
