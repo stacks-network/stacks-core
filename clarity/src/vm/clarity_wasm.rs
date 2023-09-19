@@ -972,7 +972,7 @@ fn link_err_runtime_functions(linker: &mut Linker<ClarityWasmInitContext>) -> Re
     link_exit_as_contract_err_fn(linker)?;
     link_stx_get_balance_err_fn(linker)?;
     link_stx_account_err_fn(linker)?;
-    // link_stx_burn_err_fn(linker)?;
+    link_stx_burn_err_fn(linker)?;
     // link_stx_transfer_err_fn(linker)?;
     // link_ft_get_supply_err_fn(linker)?;
     // link_ft_get_balance_err_fn(linker)?;
@@ -1012,7 +1012,7 @@ fn link_runtime_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<
     link_exit_as_contract_fn(linker)?;
     link_stx_get_balance_fn(linker)?;
     link_stx_account_fn(linker)?;
-    // link_stx_burn_fn(linker)?;
+    link_stx_burn_fn(linker)?;
     // link_stx_transfer_fn(linker)?;
     // link_ft_get_supply_fn(linker)?;
     // link_ft_get_balance_fn(linker)?;
@@ -1447,6 +1447,30 @@ fn link_stx_account_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Resul
              _principal_length: i32| {
                 let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
                 Ok((0i64, 0i64, 0i64, 0i64, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_account".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_stx_burn_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_burn",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _amount_low: i64,
+             _amount_high: i64,
+             _principal_offset: i32,
+             _principal_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i32, 0i32, 0i64, 0i64))
             },
         )
         .map(|_| ())
@@ -2124,6 +2148,94 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(),
                     unlocked_low,
                     unlocked_high,
                 ))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_account".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_burn",
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             amount_lo: i64,
+             amount_hi: i64,
+             principal_offset: i32,
+             principal_length: i32| {
+                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+
+                // Read the principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    principal_offset,
+                    principal_length,
+                )?;
+                let from = value_as_principal(&value)?;
+
+                if amount == 0 {
+                    return Ok((0i32, 0i32, StxErrorCodes::NON_POSITIVE_AMOUNT as i64, 0i64));
+                }
+
+                if Some(from) != caller.data().env.sender.as_ref() {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        StxErrorCodes::SENDER_IS_NOT_TX_SENDER as i64,
+                        0i64,
+                    ));
+                }
+
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(STXBalance::unlocked_and_v1_size as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                let mut burner_snapshot = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_stx_balance_snapshot(&from);
+                if !burner_snapshot.can_transfer(amount) {
+                    return Ok((0i32, 0i32, StxErrorCodes::NOT_ENOUGH_BALANCE as i64, 0i64));
+                }
+
+                burner_snapshot.debit(amount);
+                burner_snapshot.save();
+
+                caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .decrement_ustx_liquid_supply(amount)?;
+
+                caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .log_stx_burn(&from, amount)?;
+                caller
+                    .data_mut()
+                    .env
+                    .register_stx_burn_event(from.clone(), amount)?;
+
+                // (ok true)
+                Ok((1i32, 1i32, 0i64, 0i64))
             },
         )
         .map(|_| ())
