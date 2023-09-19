@@ -118,6 +118,7 @@ pub trait ClarityConnection {
         self.with_clarity_db_readonly_owned(|mut db| (to_do(&mut db), db))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn with_readonly_clarity_env<F, R>(
         &mut self,
         mainnet: bool,
@@ -262,7 +263,7 @@ pub trait TransactionConnection: ClarityConnection {
             },
             |_, _| false,
         )
-        .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
+        .map(|(value, assets, events, _)| (value, assets, events))
     }
 
     /// Execute a contract call in the current block.
