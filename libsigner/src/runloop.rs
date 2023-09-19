@@ -41,7 +41,7 @@ const STDERR: i32 = 2;
 /// Trait describing the needful components of a top-level runloop.
 /// This is where the signer business logic would go.
 /// Implement this, and you get all the multithreaded setup for free.
-pub trait SignerRunLoop<R: Send + Clone, CMD: Send> {
+pub trait SignerRunLoop<R: Send, CMD: Send> {
     /// Hint to set how long to wait for new events
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
@@ -102,7 +102,7 @@ pub trait SignerRunLoop<R: Send + Clone, CMD: Send> {
 /// The top-level signer implementation
 pub struct Signer<
     CMD: Send,
-    R: Send + Clone,
+    R: Send,
     SL: SignerRunLoop<R, CMD> + Send + Sync,
     EV: EventReceiver + Send,
 > {
@@ -199,7 +199,7 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
 
 impl<
         CMD: Send + 'static,
-        R: Send + Clone + 'static,
+        R: Send + 'static,
         SL: SignerRunLoop<R, CMD> + Send + Sync + 'static,
         EV: EventReceiver + Send + 'static,
     > Signer<CMD, R, SL, EV>
