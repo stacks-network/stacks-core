@@ -183,7 +183,7 @@ fn handle_stack_lockup_pox_v3(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             let event =
@@ -193,20 +193,18 @@ fn handle_stack_lockup_pox_v3(
                     locked_address: stacker,
                     contract_identifier: boot_code_id(POX_3_NAME, global_context.mainnet),
                 }));
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ));
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into multiple pox contracts
-            return Err(ClarityError::Runtime(
+            Err(ClarityError::Runtime(
                 RuntimeErrorType::PoxAlreadyLocked,
                 None,
-            ));
+            ))
         }
         Err(e) => {
             panic!(
@@ -251,7 +249,7 @@ fn handle_stack_lockup_extension_pox_v3(
         }
     };
 
-    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height as u64) {
+    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
@@ -260,14 +258,12 @@ fn handle_stack_lockup_extension_pox_v3(
                     locked_address: stacker,
                     contract_identifier: boot_code_id(POX_3_NAME, global_context.mainnet),
                 }));
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ))
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
@@ -321,14 +317,12 @@ fn handle_stack_lockup_increase_pox_v3(
                     contract_identifier: boot_code_id(POX_3_NAME, global_context.mainnet),
                 }));
 
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ))
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before

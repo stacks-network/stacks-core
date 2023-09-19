@@ -68,19 +68,19 @@ pub fn parse_pox_stacking_result(
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let lock_amount = tuple_data
                 .get("lock-amount")
-                .expect(&format!("FATAL: no 'lock-amount'"))
+                .expect("FATAL: no 'lock-amount'")
                 .to_owned()
                 .expect_u128();
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
                 .try_into()
@@ -102,13 +102,13 @@ pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(Principal
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
                 .try_into()
@@ -131,13 +131,13 @@ pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData,
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let total_locked = tuple_data
                 .get("total-locked")
-                .expect(&format!("FATAL: no 'total-locked'"))
+                .expect("FATAL: no 'total-locked'")
                 .to_owned()
                 .expect_u128();
 
@@ -300,7 +300,7 @@ fn handle_stack_lockup_pox_v2(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             let event =
@@ -310,20 +310,18 @@ fn handle_stack_lockup_pox_v2(
                     locked_address: stacker,
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ));
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
-            return Err(ClarityError::Runtime(
+            Err(ClarityError::Runtime(
                 RuntimeErrorType::PoxAlreadyLocked,
                 None,
-            ));
+            ))
         }
         Err(e) => {
             panic!(
@@ -368,7 +366,7 @@ fn handle_stack_lockup_extension_pox_v2(
         }
     };
 
-    match pox_lock_extend_v2(&mut global_context.database, &stacker, unlock_height as u64) {
+    match pox_lock_extend_v2(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
@@ -377,14 +375,12 @@ fn handle_stack_lockup_extension_pox_v2(
                     locked_address: stacker,
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ))
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
@@ -439,14 +435,12 @@ fn handle_stack_lockup_increase_pox_v2(
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
 
-            return Ok(Some(event));
+            Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
-                None,
-            ))
-        }
+        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
+            RuntimeErrorType::DefunctPoxContract,
+            None,
+        )),
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
