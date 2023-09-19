@@ -5,8 +5,8 @@ use frost_signer::{
 };
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
-use slog::{slog_debug, slog_info, slog_warn};
-use stacks_common::{debug, info, warn};
+use slog::{slog_debug, slog_error, slog_info, slog_warn};
+use stacks_common::{debug, error, info, warn};
 use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
 
 use crate::{
@@ -57,38 +57,66 @@ pub struct RunLoop<C> {
 }
 
 impl<C: Coordinatable> RunLoop<C> {
-    /// Helper function to check the current state and execute commands accordingly
-    /// This will update the state if a command is executed
-    fn execute_command(&mut self) {
+    /// Helper function to actually execute the command and update state accordingly
+    /// Returns true when it is successfully executed, else false
+    fn execute_command(&mut self, command: &RunLoopCommand) -> bool {
+        match command {
+            RunLoopCommand::Dkg => {
+                info!("Starting DKG");
+                match self.coordinator.start_distributed_key_generation() {
+                    Ok(msg) => {
+                        let ack = self
+                            .stacks_client
+                            .send_message(self.signing_round.signer.signer_id, msg);
+                        debug!("ACK: {:?}", ack);
+                        self.state = State::Dkg;
+                        true
+                    }
+                    Err(e) => {
+                        error!("Failed to start DKG: {:?}", e);
+                        warn!("Resetting coordinator's internal state.");
+                        self.coordinator.reset();
+                        false
+                    }
+                }
+            }
+            RunLoopCommand::Sign { message } => {
+                info!("Signing message: {:?}", message);
+                match self.coordinator.start_signing_message(message) {
+                    Ok(msg) => {
+                        let ack = self
+                            .stacks_client
+                            .send_message(self.signing_round.signer.signer_id, msg);
+                        debug!("ACK: {:?}", ack);
+                        self.state = State::Sign;
+                        true
+                    }
+                    Err(e) => {
+                        error!("Failed to start signing message: {:?}", e);
+                        warn!("Resetting coordinator's internal state.");
+                        self.coordinator.reset();
+                        false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Helper function to check the current state, process the next command in the queue, and update state accordingly
+    fn process_next_command(&mut self) {
         match self.state {
             State::Idle => {
                 if let Some(command) = self.commands.pop_front() {
-                    match command {
-                        RunLoopCommand::Dkg => {
-                            info!("Starting DKG");
-                            if let Ok(msg) = self.coordinator.start_distributed_key_generation() {
-                                let ack = self
-                                    .stacks_client
-                                    .send_message(self.signing_round.signer.signer_id, msg);
-                                debug!("ACK: {:?}", ack);
-                            }
-                            self.state = State::Dkg;
-                        }
-                        RunLoopCommand::Sign { message } => {
-                            info!("Signing message: {:?}", message);
-                            if let Ok(msg) = self.coordinator.start_signing_message(&message) {
-                                let _ = self
-                                    .stacks_client
-                                    .send_message(self.signing_round.signer.signer_id, msg);
-                            }
-                            self.state = State::Sign
-                        }
+                    while !self.execute_command(&command) {
+                        warn!("Failed to execute command. Retrying...");
                     }
+                } else {
+                    debug!("Nothing to process. Waiting for command...");
                 }
             }
             State::Dkg | State::Sign => {
                 // We cannot execute the next command until the current one is finished...
-                // Do nothing
+                // Do nothing...
                 debug!("Waiting for operation to finish");
             }
         }
@@ -250,8 +278,6 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         self.event_timeout
     }
 
-    // TODO: update the return type to return any OperationResult
-    // See: https://github.com/stacks-network/stacks-blockchain/issues/3916
     fn run_one_pass(
         &mut self,
         event: Option<StackerDBChunksEvent>,
@@ -261,8 +287,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         if let Some(command) = cmd {
             self.commands.push_back(command);
         }
-        // Execute the next command in the queue
-        self.execute_command();
+        // First process any arrived events
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
             debug!(
@@ -291,9 +316,10 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
                     }
                 }
             }
-            // Determine if we need to trigger Sign
-            self.execute_command();
         }
+        // The process the next command
+        // Must be called AFTER processing the event as the state may update to IDLE due to said event.
+        self.process_next_command();
         None
     }
 }

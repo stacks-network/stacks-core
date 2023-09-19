@@ -627,6 +627,15 @@ impl Coordinatable for Coordinator {
         let message = self.start_signing_round()?;
         Ok(message)
     }
+
+    // Reset internal state
+    fn reset(&mut self) {
+        self.state = State::Idle;
+        self.dkg_public_shares.clear();
+        self.public_nonces.clear();
+        self.signature_shares.clear();
+        self.ids_to_await = (0..self.total_signers).collect();
+    }
 }
 
 #[cfg(test)]
@@ -642,7 +651,7 @@ mod test {
 
     #[test]
     fn test_state_machine() {
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let message_private_key = Scalar::random(&mut rng);
 
         let mut coordinator = Coordinator::new(3, 3, 3, message_private_key);
@@ -694,7 +703,7 @@ mod test {
         let total_signers = 10;
         let total_keys = 40;
         let threshold = 28;
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let message_private_key = Scalar::random(&mut rng);
 
         let coordinator =
@@ -713,7 +722,7 @@ mod test {
         let total_signers = 10;
         let total_keys = 40;
         let threshold = 28;
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let message_private_key = Scalar::random(&mut rng);
         let mut coordinator =
             Coordinator::new(total_signers, total_keys, threshold, message_private_key);
@@ -721,10 +730,7 @@ mod test {
         let result = coordinator.start_dkg_round();
 
         assert!(result.is_ok());
-        assert!(match result.unwrap().msg {
-            MessageTypes::DkgBegin(_) => true,
-            _ => false,
-        });
+        assert!(matches!(result.unwrap().msg, MessageTypes::DkgBegin(_)));
         assert_eq!(coordinator.state, State::DkgPublicGather);
         assert_eq!(coordinator.current_dkg_id, 1);
     }
@@ -734,7 +740,7 @@ mod test {
         let total_signers = 10;
         let total_keys = 40;
         let threshold = 28;
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let message_private_key = Scalar::random(&mut rng);
         let mut coordinator =
             Coordinator::new(total_signers, total_keys, threshold, message_private_key);
@@ -742,10 +748,7 @@ mod test {
 
         let result = coordinator.start_public_shares().unwrap();
 
-        assert!(match result.msg {
-            MessageTypes::DkgBegin(_) => true,
-            _ => false,
-        });
+        assert!(matches!(result.msg, MessageTypes::DkgBegin(_)));
         assert_eq!(coordinator.state, State::DkgPublicGather);
         assert_eq!(coordinator.current_dkg_id, 0);
     }
@@ -755,23 +758,20 @@ mod test {
         let total_signers = 10;
         let total_keys = 40;
         let threshold = 28;
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let message_private_key = Scalar::random(&mut rng);
         let mut coordinator =
             Coordinator::new(total_signers, total_keys, threshold, message_private_key);
         coordinator.state = State::DkgPrivateDistribute; // Must be in this state before calling start private shares
 
         let message = coordinator.start_private_shares().unwrap();
-        assert!(match message.msg {
-            MessageTypes::DkgPrivateBegin(_) => true,
-            _ => false,
-        });
+        assert!(matches!(message.msg, MessageTypes::DkgPrivateBegin(_)));
         assert_eq!(coordinator.state, State::DkgEndGather);
         assert_eq!(coordinator.current_dkg_id, 0);
     }
 
     fn setup() -> (Coordinator, Vec<SigningRound>) {
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let total_signers = 5;
         let threshold = total_signers / 10 + 7;
         let keys_per_signer = 3;
@@ -789,11 +789,11 @@ mod test {
         let mut key_ids = Vec::new();
         for (i, (_private_key, public_key)) in key_pairs.iter().enumerate() {
             for _ in 0..keys_per_signer {
-                key_ids_map.insert((key_id + 1) as u32, public_key.clone());
+                key_ids_map.insert(key_id + 1, *public_key);
                 key_ids.push(key_id);
                 key_id += 1;
             }
-            signer_ids_map.insert(i as u32, public_key.clone());
+            signer_ids_map.insert(i as u32, *public_key);
         }
         let public_keys = PublicKeys {
             signers: signer_ids_map,
@@ -839,10 +839,9 @@ mod test {
                 process_inbound_messages(signing_round, feedback_messages.clone()).unwrap();
             inbound_messages.extend(outbound_messages);
         }
-        let outbound_messages = coordinator
+        coordinator
             .process_inbound_messages(inbound_messages)
-            .unwrap();
-        outbound_messages
+            .unwrap()
     }
 
     #[test]

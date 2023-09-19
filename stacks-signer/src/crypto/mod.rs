@@ -35,4 +35,6 @@ pub trait Coordinatable {
     fn start_distributed_key_generation(&mut self) -> Result<Message, Error>;
     /// Trigger a signing round
     fn start_signing_message(&mut self, _message: &[u8]) -> Result<Message, Error>;
+    /// Reset internal state
+    fn reset(&mut self);
 }

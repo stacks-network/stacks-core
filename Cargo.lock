@@ -1242,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "frost-coordinator"
 version = "0.0.1"
-source = "git+https://github.com/Trust-Machines/stacks-sbtc#1731a0e28c10d69411f54a30237b701bb84fc685"
+source = "git+https://github.com/Trust-Machines/stacks-sbtc#dbd060b99f9cdaf2c06d26d60da1f12744f1d600"
 dependencies = [
  "backoff",
  "clap 4.4.1",
@@ -1259,7 +1259,7 @@ dependencies = [
 [[package]]
 name = "frost-signer"
 version = "0.0.1"
-source = "git+https://github.com/Trust-Machines/stacks-sbtc#1731a0e28c10d69411f54a30237b701bb84fc685"
+source = "git+https://github.com/Trust-Machines/stacks-sbtc#dbd060b99f9cdaf2c06d26d60da1f12744f1d600"
 dependencies = [
  "aes-gcm 0.10.2",
  "backoff",
