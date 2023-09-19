@@ -1579,7 +1579,7 @@ mod test {
             Err(InterpreterError::FailureConstructingListWithType.into())
         );
         assert_eq!(
-            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
+            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
             Err(CheckErrors::ValueTooLarge)
         );
 
