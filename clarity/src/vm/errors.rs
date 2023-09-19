@@ -128,6 +128,7 @@ pub enum ShortReturnType {
 pub enum WasmError {
     WasmGeneratorError(String),
     ModuleNotFound,
+    DefinesNotFound,
     TopLevelNotFound,
     MemoryNotFound,
     WasmCompileFailed(wasmtime::Error),
@@ -153,6 +154,7 @@ impl fmt::Display for WasmError {
         match self {
             WasmError::WasmGeneratorError(e) => write!(f, "Wasm generator error: {e}"),
             WasmError::ModuleNotFound => write!(f, "Module not found"),
+            WasmError::DefinesNotFound => write!(f, "Defines function not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),

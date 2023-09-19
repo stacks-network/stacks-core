@@ -57,41 +57,6 @@ enum StxErrorCodes {
     SENDER_IS_NOT_TX_SENDER = 4,
 }
 
-trait ClarityWasmContext {
-    fn contract_identifier(&self) -> &QualifiedContractIdentifier;
-    fn get_var_metadata(&self, name: &str) -> Option<&DataVariableMetadata>;
-    fn lookup_variable_with_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error>;
-    fn set_variable(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        value: Value,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error>;
-    fn get_tx_sender(&self) -> Result<PrincipalData, Error>;
-    fn get_contract_caller(&self) -> Result<PrincipalData, Error>;
-    fn get_tx_sponsor(&self) -> Result<Option<PrincipalData>, Error>;
-    fn get_block_height(&mut self) -> u32;
-    fn get_burn_block_height(&mut self) -> u32;
-    fn get_stx_liquid_supply(&mut self) -> u128;
-    fn is_in_regtest(&self) -> bool;
-    fn is_in_mainnet(&self) -> bool;
-    fn get_chain_id(&self) -> u32;
-    fn push_sender(&mut self, sender: PrincipalData);
-    fn pop_sender(&mut self) -> Result<PrincipalData, Error>;
-    fn push_caller(&mut self, caller: PrincipalData);
-    fn pop_caller(&mut self) -> Result<PrincipalData, Error>;
-    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128;
-    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance;
-    fn get_v1_unlock_height(&mut self) -> u32;
-    fn get_v2_unlock_height(&mut self) -> u32;
-}
-
 /// The context used when making calls into the Wasm module.
 pub struct ClarityWasmRunContext<'a, 'b, 'c> {
     pub env: &'c mut Environment<'a, 'b>,
@@ -109,88 +74,7 @@ impl<'a, 'b, 'c> ClarityWasmRunContext<'a, 'b, 'c> {
     }
 }
 
-impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
-    fn contract_identifier(&self) -> &QualifiedContractIdentifier {
-        &self.env.contract_context.contract_identifier
-    }
-
-    fn get_var_metadata(&self, name: &str) -> Option<&DataVariableMetadata> {
-        self.env.contract_context.meta_data_var.get(name)
-    }
-
-    fn lookup_variable_with_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error> {
-        self.env.global_context.database.lookup_variable_with_size(
-            contract_identifier,
-            variable_name,
-            variable_descriptor,
-        )
-    }
-
-    fn set_variable(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        value: Value,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error> {
-        self.env.global_context.database.set_variable(
-            contract_identifier,
-            variable_name,
-            value,
-            variable_descriptor,
-        )
-    }
-
-    fn get_tx_sender(&self) -> Result<PrincipalData, Error> {
-        self.env
-            .sender
-            .clone()
-            .ok_or(RuntimeErrorType::NoSenderInContext.into())
-    }
-
-    fn get_contract_caller(&self) -> Result<PrincipalData, Error> {
-        self.env
-            .caller
-            .clone()
-            .ok_or(RuntimeErrorType::NoCallerInContext.into())
-    }
-
-    fn get_tx_sponsor(&self) -> Result<Option<PrincipalData>, Error> {
-        Ok(self.env.sponsor.clone())
-    }
-
-    fn get_block_height(&mut self) -> u32 {
-        self.env.global_context.database.get_current_block_height()
-    }
-
-    fn get_burn_block_height(&mut self) -> u32 {
-        self.env
-            .global_context
-            .database
-            .get_current_burnchain_block_height()
-    }
-
-    fn get_stx_liquid_supply(&mut self) -> u128 {
-        self.env.global_context.database.get_total_liquid_ustx()
-    }
-
-    fn is_in_regtest(&self) -> bool {
-        self.env.global_context.database.is_in_regtest()
-    }
-
-    fn is_in_mainnet(&self) -> bool {
-        self.env.global_context.mainnet
-    }
-
-    fn get_chain_id(&self) -> u32 {
-        self.env.global_context.chain_id
-    }
-
+impl ClarityWasmRunContext<'_, '_, '_> {
     fn push_sender(&mut self, sender: PrincipalData) {
         if let Some(current) = self.env.sender.take() {
             self.sender_stack.push(current);
@@ -225,38 +109,6 @@ impl ClarityWasmContext for ClarityWasmRunContext<'_, '_, '_> {
                 self.env.caller = self.caller_stack.pop();
                 caller
             })
-    }
-
-    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
-        let balance = {
-            let mut snapshot = self
-                .env
-                .global_context
-                .database
-                .get_stx_balance_snapshot(principal);
-            snapshot.get_available_balance()
-        };
-        balance
-    }
-
-    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
-        let balance = {
-            let mut snapshot = self
-                .env
-                .global_context
-                .database
-                .get_stx_balance_snapshot(principal);
-            snapshot.canonical_balance_repr()
-        };
-        balance
-    }
-
-    fn get_v1_unlock_height(&mut self) -> u32 {
-        self.env.global_context.database.get_v1_unlock_height()
-    }
-
-    fn get_v2_unlock_height(&mut self) -> u32 {
-        self.env.global_context.database.get_v2_unlock_height()
     }
 }
 
@@ -302,152 +154,47 @@ impl<'a, 'b> ClarityWasmInitContext<'a, 'b> {
     }
 }
 
-impl ClarityWasmContext for ClarityWasmInitContext<'_, '_> {
-    fn contract_identifier(&self) -> &QualifiedContractIdentifier {
-        &self.contract_context.contract_identifier
-    }
-
-    fn get_var_metadata(&self, name: &str) -> Option<&DataVariableMetadata> {
-        self.contract_context.meta_data_var.get(name)
-    }
-
-    fn lookup_variable_with_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error> {
-        self.global_context.database.lookup_variable_with_size(
-            contract_identifier,
-            variable_name,
-            variable_descriptor,
-        )
-    }
-
-    fn set_variable(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        value: Value,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult, Error> {
-        self.global_context.database.set_variable(
-            contract_identifier,
-            variable_name,
-            value,
-            variable_descriptor,
-        )
-    }
-
-    fn get_tx_sender(&self) -> Result<PrincipalData, Error> {
-        Ok(self.sender.clone())
-    }
-
-    fn get_contract_caller(&self) -> Result<PrincipalData, Error> {
-        Ok(self.caller.clone())
-    }
-
-    fn get_tx_sponsor(&self) -> Result<Option<PrincipalData>, Error> {
-        Ok(self.sponsor.clone())
-    }
-
-    fn get_block_height(&mut self) -> u32 {
-        self.global_context.database.get_current_block_height()
-    }
-
-    fn get_burn_block_height(&mut self) -> u32 {
-        self.global_context
-            .database
-            .get_current_burnchain_block_height()
-    }
-
-    fn get_stx_liquid_supply(&mut self) -> u128 {
-        self.global_context.database.get_total_liquid_ustx()
-    }
-
-    fn is_in_regtest(&self) -> bool {
-        self.global_context.database.is_in_regtest()
-    }
-
-    fn is_in_mainnet(&self) -> bool {
-        self.global_context.mainnet
-    }
-
-    fn get_chain_id(&self) -> u32 {
-        self.global_context.chain_id
-    }
-
-    fn push_sender(&mut self, sender: PrincipalData) {
-        self.sender_stack
-            .push(std::mem::replace(&mut self.sender, sender));
-    }
-
-    fn pop_sender(&mut self) -> Result<PrincipalData, Error> {
-        let sender = self.sender_stack.pop().ok_or(Error::Runtime(
-            RuntimeErrorType::NoSenderInContext.into(),
-            Some(self.call_stack.make_stack_trace()),
-        ))?;
-        Ok(std::mem::replace(&mut self.sender, sender))
-    }
-
-    fn push_caller(&mut self, caller: PrincipalData) {
-        self.caller_stack
-            .push(std::mem::replace(&mut self.caller, caller));
-    }
-
-    fn pop_caller(&mut self) -> Result<PrincipalData, Error> {
-        let caller = self.caller_stack.pop().ok_or(Error::Runtime(
-            RuntimeErrorType::NoCallerInContext.into(),
-            Some(self.call_stack.make_stack_trace()),
-        ))?;
-        Ok(std::mem::replace(&mut self.caller, caller))
-    }
-
-    fn get_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
-        let balance = {
-            let mut snapshot = self
-                .global_context
-                .database
-                .get_stx_balance_snapshot(principal);
-            snapshot.get_available_balance()
-        };
-        balance
-    }
-
-    fn get_canonical_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
-        let balance = {
-            let mut snapshot = self
-                .global_context
-                .database
-                .get_stx_balance_snapshot(principal);
-            snapshot.canonical_balance_repr()
-        };
-        balance
-    }
-
-    fn get_v1_unlock_height(&mut self) -> u32 {
-        self.global_context.database.get_v1_unlock_height()
-    }
-
-    fn get_v2_unlock_height(&mut self) -> u32 {
-        self.global_context.database.get_v2_unlock_height()
-    }
-}
-
 fn link_define_functions(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
     link_define_function_fn(linker)?;
     link_define_variable_fn(linker)
 }
 
-fn link_err_define_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
-    link_define_function_fn_error(linker)?;
-    link_define_variable_fn_error(linker)
+fn link_err_runtime_functions(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    link_get_variable_err_fn(linker)?;
+    link_set_variable_err_fn(linker)?;
+    link_tx_sender_err_fn(linker)?;
+    link_contract_caller_err_fn(linker)?;
+    link_tx_sponsor_err_fn(linker)?;
+    link_block_height_err_fn(linker)?;
+    link_burn_block_height_err_fn(linker)?;
+    link_stx_liquid_supply_err_fn(linker)?;
+    link_is_in_regtest_err_fn(linker)?;
+    link_is_in_mainnet_err_fn(linker)?;
+    link_chain_id_err_fn(linker)?;
+    link_enter_as_contract_err_fn(linker)?;
+    link_exit_as_contract_err_fn(linker)?;
+    link_stx_get_balance_err_fn(linker)?;
+    link_stx_account_err_fn(linker)?;
+    // link_stx_burn_err_fn(linker)?;
+    // link_stx_transfer_err_fn(linker)?;
+    // link_ft_get_supply_err_fn(linker)?;
+    // link_ft_get_balance_err_fn(linker)?;
+    // link_ft_burn_err_fn(linker)?;
+    // link_ft_mint_err_fn(linker)?;
+    // link_ft_transfer_err_fn(linker)?;
+    // link_nft_get_owner_err_fn(linker)?;
+    // link_nft_burn_err_fn(linker)?;
+    // link_nft_mint_err_fn(linker)?;
+    // link_nft_transfer_err_fn(linker)?;
+    link_log(linker)
 }
 
-fn link_runtime_functions<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_err_define_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    link_define_function_err_fn(linker)?;
+    link_define_variable_err_fn(linker)
+}
+
+fn link_runtime_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     link_get_variable_fn(linker)?;
     link_set_variable_fn(linker)?;
     link_tx_sender_fn(linker)?;
@@ -486,25 +233,74 @@ pub fn initialize_contract(
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
+
+    {
+        let mut call_stack = CallStack::new();
+        let init_context = ClarityWasmInitContext::new(
+            global_context,
+            contract_context,
+            &mut call_stack,
+            publisher.clone(),
+            sponsor.clone(),
+            contract_analysis,
+        );
+        let engine = Engine::default();
+        let module = init_context
+            .contract_context
+            .with_wasm_module(|wasm_module| {
+                Module::from_binary(&engine, wasm_module)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+            })?;
+        let mut store = Store::new(&engine, init_context);
+        let mut linker = Linker::new(&engine);
+
+        // Link in the host interface functions.
+        link_define_functions(&mut linker)?;
+        link_err_runtime_functions(&mut linker)?;
+
+        let instance = linker
+            .instantiate(store.as_context_mut(), &module)
+            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+        // Call the `.defines` function, which contains all define-* expressions
+        // from the contract.
+        let defines_func = instance
+            .get_func(store.as_context_mut(), ".defines")
+            .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
+        let mut define_results = [];
+
+        defines_func
+            .call(store.as_context_mut(), &[], &mut define_results)
+            .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
+
+        // Save the compiled Wasm module into the contract context
+        store.data_mut().contract_context.set_wasm_module(
+            module
+                .serialize()
+                .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
+        );
+    }
+
+    let engine = Engine::default();
+    let module = contract_context.with_wasm_module(|wasm_module| unsafe {
+        Module::deserialize(&engine, wasm_module)
+            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+    })?;
     let mut call_stack = CallStack::new();
-    let context = ClarityWasmInitContext::new(
+    let mut env = Environment::new(
         global_context,
         contract_context,
         &mut call_stack,
-        publisher,
+        Some(publisher.clone()),
+        Some(publisher),
         sponsor,
-        contract_analysis,
     );
-    let engine = Engine::default();
-    let module = context.contract_context.with_wasm_module(|wasm_module| {
-        Module::from_binary(&engine, wasm_module)
-            .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
-    })?;
-    let mut store = Store::new(&engine, context);
+    let run_context = ClarityWasmRunContext::new(&mut env);
+    let mut store = Store::new(&engine, run_context);
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
-    link_define_functions(&mut linker)?;
+    link_err_define_functions(&mut linker)?;
     link_runtime_functions(&mut linker)?;
 
     let instance = linker
@@ -520,13 +316,6 @@ pub fn initialize_contract(
 
     func.call(store.as_context_mut(), &[], &mut results)
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
-
-    // Save the compiled Wasm module into the contract context
-    store.data_mut().contract_context.set_wasm_module(
-        module
-            .serialize()
-            .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
-    );
 
     Ok(None)
 }
@@ -620,6 +409,438 @@ pub fn call_function<'a, 'b, 'c>(
     .and_then(|option_value| {
         option_value.ok_or_else(|| Error::Wasm(WasmError::ExpectedReturnValue))
     })
+}
+
+/// When in run-mode (not define-mode), this should never be called.
+fn link_define_variable_err_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "define_variable",
+            |_caller: Caller<'_, ClarityWasmRunContext>, _name_offset: i32, _name_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_variable".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in run-mode (not define-mode), this should never be called.
+fn link_define_function_err_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "define_function",
+            |mut _caller: Caller<'_, ClarityWasmRunContext>,
+             _kind: i32,
+             _name_offset: i32,
+             _name_length: i32|
+             -> Result<(), _> {
+                // This should be a Anyhow error, but we don't have it as a dependency.
+                // `?` does the trick.
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                unreachable!();
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_function".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `define_variable`, into the Wasm module.
+/// This function is called for all variable definitions (`define-data-var`).
+fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "define_variable",
+            |mut caller: Caller<'_, ClarityWasmInitContext>, name_offset: i32, name_length: i32| {
+                // TODO: Include this cost
+                // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
+
+                // Read the variable name string from the memory
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+
+                // Retrieve the type of this variable
+                let value_type = caller
+                    .data()
+                    .contract_analysis
+                    .get_persisted_variable_type(name.as_str())
+                    .ok_or(Error::Unchecked(CheckErrors::DefineVariableBadSignature))?
+                    .clone();
+
+                let contract = caller.data().contract_context.contract_identifier.clone();
+
+                caller
+                    .data_mut()
+                    .contract_context
+                    .persisted_names
+                    .insert(ClarityName::try_from(name.clone())?);
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(value_type.type_size()? as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(value_type.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                // Create the variable in the global context
+                let data_types = caller.data_mut().global_context.database.create_variable(
+                    &contract,
+                    name.as_str(),
+                    value_type,
+                );
+
+                // Save the metadata for this variable in the contract context
+                caller
+                    .data_mut()
+                    .contract_context
+                    .meta_data_var
+                    .insert(ClarityName::from(name.as_str()), data_types);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_variable".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_get_variable_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_variable",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _name_offset: i32,
+             _name_length: i32,
+             _return_offset: i32,
+             _return_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_variable".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_set_variable_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "set_variable",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _name_offset: i32,
+             _name_length: i32,
+             _value_offset: i32,
+             _value_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "set_variable".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_tx_sender_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "tx_sender",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _return_offset: i32,
+             _return_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i32, 0i32))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "tx_sender".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_contract_caller_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "contract_caller",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _return_offset: i32,
+             _return_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i32, 0i32))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "contract_caller".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_tx_sponsor_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "tx_sponsor",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _return_offset: i32,
+             _return_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i32, 0i32, 0i32))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "tx_sponsor".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_block_height_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "block_height",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "block_height".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_burn_block_height_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "burn_block_height",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "burn_block_height".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_stx_liquid_supply_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_liquid_supply",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_liquid_supply".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_is_in_regtest_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "is_in_regtest",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(0i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "is_in_regtest".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_is_in_mainnet_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "is_in_mainnet",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(0i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "is_in_mainnet".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_chain_id_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "chain_id",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "chain_id".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_enter_as_contract_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "enter_as_contract",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "enter_as_contract".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_exit_as_contract_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "exit_as_contract",
+            |_caller: Caller<'_, ClarityWasmInitContext>| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "exit_as_contract".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_stx_get_balance_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_get_balance",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _principal_offset: i32,
+             _principal_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_get_balance".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_stx_account_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_account",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _principal_offset: i32,
+             _principal_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i64, 0i64, 0i64, 0i64, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_account".to_string(),
+                e,
+            ))
+        })
 }
 
 /// Link host interface function, `define_function`, into the Wasm module.
@@ -717,159 +938,14 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Resul
         })
 }
 
-/// When in run-mode (not initialize-mode), this should never be called.
-fn link_define_function_fn_error<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
-    linker
-        .func_wrap(
-            "clarity",
-            "define_function",
-            |mut _caller: Caller<'_, T>,
-             _kind: i32,
-             _name_offset: i32,
-             _name_length: i32|
-             -> Result<(), _> {
-                // This should be a Anyhow error, but we don't have it as a dependency.
-                // `?` does the trick.
-                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
-                unreachable!();
-            },
-        )
-        .map(|_| ())
-        .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "define_function".to_string(),
-                e,
-            ))
-        })
-}
-
-/// Link host interface function, `define_variable`, into the Wasm module.
-/// This function is called for all variable definitions (`define-data-var`).
-fn link_define_variable_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
-    linker
-        .func_wrap(
-            "clarity",
-            "define_variable",
-            |mut caller: Caller<'_, ClarityWasmInitContext>,
-             name_offset: i32,
-             name_length: i32,
-             value_offset: i32,
-             value_length: i32| {
-                // TODO: Include this cost
-                // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
-
-                // Read the variable name string from the memory
-                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
-
-                // Retrieve the type of this variable
-                let value_type = caller
-                    .data()
-                    .contract_analysis
-                    .get_persisted_variable_type(name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::DefineVariableBadSignature))?
-                    .clone();
-
-                let contract = caller.data().contract_context.contract_identifier.clone();
-
-                // Read the initial value from the memory
-                let value = read_from_wasm(&mut caller, &value_type, value_offset, value_length)?;
-
-                caller
-                    .data_mut()
-                    .contract_context
-                    .persisted_names
-                    .insert(ClarityName::try_from(name.clone())?);
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(value_type.type_size()? as u64)
-                    .map_err(|e| Error::from(e))?;
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(value.size() as u64)
-                    .map_err(|e| Error::from(e))?;
-
-                // Create the variable in the global context
-                let data_types = caller.data_mut().global_context.database.create_variable(
-                    &contract,
-                    name.as_str(),
-                    value_type,
-                );
-
-                // Store the variable in the global context
-                caller.data_mut().global_context.database.set_variable(
-                    &contract,
-                    name.as_str(),
-                    value,
-                    &data_types,
-                )?;
-
-                // Save the metadata for this variable in the contract context
-                caller
-                    .data_mut()
-                    .contract_context
-                    .meta_data_var
-                    .insert(ClarityName::from(name.as_str()), data_types);
-
-                Ok(())
-            },
-        )
-        .map(|_| ())
-        .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "define_variable".to_string(),
-                e,
-            ))
-        })
-}
-
-/// When in run-mode (not initialize-mode), this should never be called.
-fn link_define_variable_fn_error<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
-    linker
-        .func_wrap(
-            "clarity",
-            "define_variable",
-            |mut _caller: Caller<'_, T>,
-             _name_offset: i32,
-             _name_length: i32,
-             _value_offset: i32,
-             _value_length: i32| {
-                // FIXME: I don't understand why I have to write this like this
-                // instead of just:
-                //   Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))
-                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
-                Ok(())
-            },
-        )
-        .map(|_| ())
-        .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "define_variable".to_string(),
-                e,
-            ))
-        })
-}
-
 /// Link host interface function, `get_variable`, into the Wasm module.
 /// This function is called for all variable lookups (`var-get`).
-fn link_get_variable_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_get_variable_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "get_variable",
-            |mut caller: Caller<'_, T>,
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
              name_offset: i32,
              name_length: i32,
              return_offset: i32,
@@ -877,20 +953,29 @@ where
                 // Retrieve the variable name for this identifier
                 let var_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
 
-                let contract = caller.data().contract_identifier().clone();
+                let contract = caller
+                    .data()
+                    .env
+                    .contract_context
+                    .contract_identifier
+                    .clone();
 
                 // Retrieve the metadata for this variable
                 let data_types = caller
                     .data()
-                    .get_var_metadata(&var_name)
+                    .env
+                    .contract_context
+                    .meta_data_var
+                    .get(var_name.as_str())
                     .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?
                     .clone();
 
-                let result = caller.data_mut().lookup_variable_with_size(
-                    &contract,
-                    var_name.as_str(),
-                    &data_types,
-                );
+                let result = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .lookup_variable_with_size(&contract, var_name.as_str(), &data_types);
 
                 let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
@@ -928,15 +1013,12 @@ where
 
 /// Link host interface function, `set_variable`, into the Wasm module.
 /// This function is called for all variable assignments (`var-set`).
-fn link_set_variable_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_set_variable_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "set_variable",
-            |mut caller: Caller<'_, T>,
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
              name_offset: i32,
              name_length: i32,
              value_offset: i32,
@@ -944,11 +1026,19 @@ where
                 // Retrieve the variable name for this identifier
                 let var_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
 
-                let contract = caller.data().contract_identifier().clone();
+                let contract = caller
+                    .data()
+                    .env
+                    .contract_context
+                    .contract_identifier
+                    .clone();
 
                 let data_types = caller
                     .data()
-                    .get_var_metadata(&var_name)
+                    .env
+                    .contract_context
+                    .meta_data_var
+                    .get(var_name.as_str())
                     .ok_or(Error::Unchecked(CheckErrors::NoSuchDataVariable(
                         var_name.to_string(),
                     )))?
@@ -975,6 +1065,9 @@ where
                 // Store the variable in the global context
                 caller
                     .data_mut()
+                    .env
+                    .global_context
+                    .database
                     .set_variable(&contract, var_name.as_str(), value, &data_types)
                     .map_err(|e| Error::from(e))?;
 
@@ -992,16 +1085,18 @@ where
 
 /// Link host interface function, `tx_sender`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sender`.
-fn link_tx_sender_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "tx_sender",
-            |mut caller: Caller<'_, T>, return_offset: i32, return_length: i32| {
-                let sender = caller.data().get_tx_sender()?;
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             return_offset: i32,
+             return_length: i32| {
+                let sender = caller.data().env.sender.clone().ok_or(Error::Runtime(
+                    RuntimeErrorType::NoSenderInContext.into(),
+                    None,
+                ))?;
 
                 let memory = caller
                     .get_export("memory")
@@ -1030,16 +1125,18 @@ where
 
 /// Link host interface function, `contract_caller`, into the Wasm module.
 /// This function is called for use of the builtin variable, `contract-caller`.
-fn link_contract_caller_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "contract_caller",
-            |mut caller: Caller<'_, T>, return_offset: i32, return_length: i32| {
-                let contract_caller = caller.data().get_contract_caller()?;
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             return_offset: i32,
+             return_length: i32| {
+                let contract_caller = caller.data().env.caller.clone().ok_or(Error::Runtime(
+                    RuntimeErrorType::NoCallerInContext.into(),
+                    None,
+                ))?;
 
                 let memory = caller
                     .get_export("memory")
@@ -1068,16 +1165,15 @@ where
 
 /// Link host interface function, `tx_sponsor`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sponsor`.
-fn link_tx_sponsor_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "tx_sponsor",
-            |mut caller: Caller<'_, T>, return_offset: i32, return_length: i32| {
-                let opt_sponsor = caller.data().get_tx_sponsor()?;
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             return_offset: i32,
+             return_length: i32| {
+                let opt_sponsor = caller.data().env.sponsor.clone();
                 if let Some(sponsor) = opt_sponsor {
                     let memory = caller
                         .get_export("memory")
@@ -1109,15 +1205,21 @@ where
 
 /// Link host interface function, `block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `block-height`.
-fn link_block_height_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_block_height_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
-        .func_wrap("clarity", "block_height", |mut caller: Caller<'_, T>| {
-            let height = caller.data_mut().get_block_height();
-            Ok((height as i64, 0i64))
-        })
+        .func_wrap(
+            "clarity",
+            "block_height",
+            |mut caller: Caller<'_, ClarityWasmRunContext>| {
+                let height = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_current_block_height();
+                Ok((height as i64, 0i64))
+            },
+        )
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
@@ -1130,16 +1232,18 @@ where
 /// Link host interface function, `burn_block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `burn-block-height`.
-fn link_burn_block_height_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "burn_block_height",
-            |mut caller: Caller<'_, T>| {
-                let height = caller.data_mut().get_burn_block_height();
+            |mut caller: Caller<'_, ClarityWasmRunContext>| {
+                let height = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_current_burnchain_block_height();
                 Ok((height as i64, 0i64))
             },
         )
@@ -1155,16 +1259,18 @@ where
 /// Link host interface function, `stx_liquid_supply`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `stx-liquid-supply`.
-fn link_stx_liquid_supply_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "stx_liquid_supply",
-            |mut caller: Caller<'_, T>| {
-                let supply = caller.data_mut().get_stx_liquid_supply();
+            |mut caller: Caller<'_, ClarityWasmRunContext>| {
+                let supply = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_total_liquid_ustx();
                 let upper = (supply >> 64) as u64;
                 let lower = supply as u64;
                 Ok((lower as i64, upper as i64))
@@ -1182,18 +1288,19 @@ where
 /// Link host interface function, `is_in_regtest`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-regtest`.
-fn link_is_in_regtest_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
-        .func_wrap("clarity", "is_in_regtest", |caller: Caller<'_, T>| {
-            if caller.data().is_in_regtest() {
-                Ok(1i32)
-            } else {
-                Ok(0i32)
-            }
-        })
+        .func_wrap(
+            "clarity",
+            "is_in_regtest",
+            |caller: Caller<'_, ClarityWasmRunContext>| {
+                if caller.data().env.global_context.database.is_in_regtest() {
+                    Ok(1i32)
+                } else {
+                    Ok(0i32)
+                }
+            },
+        )
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
@@ -1206,18 +1313,19 @@ where
 /// Link host interface function, `is_in_mainnet`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-mainnet`.
-fn link_is_in_mainnet_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
-        .func_wrap("clarity", "is_in_mainnet", |caller: Caller<'_, T>| {
-            if caller.data().is_in_mainnet() {
-                Ok(1i32)
-            } else {
-                Ok(0i32)
-            }
-        })
+        .func_wrap(
+            "clarity",
+            "is_in_mainnet",
+            |caller: Caller<'_, ClarityWasmRunContext>| {
+                if caller.data().env.global_context.mainnet {
+                    Ok(1i32)
+                } else {
+                    Ok(0i32)
+                }
+            },
+        )
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
@@ -1230,15 +1338,16 @@ where
 /// Link host interface function, `chain_id`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `chain-id`.
-fn link_chain_id_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_chain_id_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
-        .func_wrap("clarity", "chain_id", |caller: Caller<'_, T>| {
-            let chain_id = caller.data().get_chain_id();
-            Ok((chain_id as i64, 0i64))
-        })
+        .func_wrap(
+            "clarity",
+            "chain_id",
+            |caller: Caller<'_, ClarityWasmRunContext>| {
+                let chain_id = caller.data().env.global_context.chain_id;
+                Ok((chain_id as i64, 0i64))
+            },
+        )
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
@@ -1251,17 +1360,19 @@ where
 /// Link host interface function, `enter_as_contract`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `as-contract`.
-fn link_enter_as_contract_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_enter_as_contract_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "enter_as_contract",
-            |mut caller: Caller<'_, T>| {
-                let contract_principal: PrincipalData =
-                    caller.data().contract_identifier().clone().into();
+            |mut caller: Caller<'_, ClarityWasmRunContext>| {
+                let contract_principal: PrincipalData = caller
+                    .data()
+                    .env
+                    .contract_context
+                    .contract_identifier
+                    .clone()
+                    .into();
                 caller.data_mut().push_sender(contract_principal.clone());
                 caller.data_mut().push_caller(contract_principal);
             },
@@ -1278,15 +1389,12 @@ where
 /// Link host interface function, `exit_as_contract`, into the Wasm module.
 /// This function is after before processing the inner-expression of
 /// `as-contract`, and is used to restore the caller and sender.
-fn link_exit_as_contract_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_exit_as_contract_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "exit_as_contract",
-            |mut caller: Caller<'_, T>| {
+            |mut caller: Caller<'_, ClarityWasmRunContext>| {
                 caller.data_mut().pop_sender()?;
                 caller.data_mut().pop_caller()?;
                 Ok(())
@@ -1303,15 +1411,14 @@ where
 
 /// Link host interface function, `stx_get_balance`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-get-balance`.
-fn link_stx_get_balance_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "stx_get_balance",
-            |mut caller: Caller<'_, T>, principal_offset: i32, principal_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             principal_offset: i32,
+             principal_length: i32| {
                 // Read the principal from the Wasm memory
                 let value = read_from_wasm(
                     &mut caller,
@@ -1321,7 +1428,15 @@ where
                 )?;
                 let principal = value_as_principal(&value)?;
 
-                let balance = caller.data_mut().get_stx_balance(principal);
+                let balance = {
+                    let mut snapshot = caller
+                        .data_mut()
+                        .env
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot(principal);
+                    snapshot.get_available_balance()
+                };
                 let high = (balance >> 64) as u64;
                 let low = (balance & 0xffff_ffff_ffff_ffff) as u64;
                 Ok((low, high))
@@ -1338,15 +1453,14 @@ where
 
 /// Link host interface function, `stx_account`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-account`.
-fn link_stx_account_fn<T>(linker: &mut Linker<T>) -> Result<(), Error>
-where
-    T: ClarityWasmContext,
-{
+fn link_stx_account_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "stx_account",
-            |mut caller: Caller<'_, T>, principal_offset: i32, principal_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             principal_offset: i32,
+             principal_length: i32| {
                 // Read the principal from the Wasm memory
                 let value = read_from_wasm(
                     &mut caller,
@@ -1356,9 +1470,27 @@ where
                 )?;
                 let principal = value_as_principal(&value)?;
 
-                let account = caller.data_mut().get_canonical_stx_balance(principal);
-                let v1_unlock_ht = caller.data_mut().get_v1_unlock_height();
-                let v2_unlock_ht = caller.data_mut().get_v2_unlock_height();
+                let account = {
+                    let mut snapshot = caller
+                        .data_mut()
+                        .env
+                        .global_context
+                        .database
+                        .get_stx_balance_snapshot(principal);
+                    snapshot.canonical_balance_repr()
+                };
+                let v1_unlock_ht = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_v1_unlock_height();
+                let v2_unlock_ht = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_v2_unlock_height();
 
                 let locked = account.amount_locked();
                 let locked_high = (locked >> 64) as u64;
@@ -1405,10 +1537,7 @@ fn read_identifier_from_wasm<T>(
     caller: &mut Caller<'_, T>,
     offset: i32,
     length: i32,
-) -> Result<String, Error>
-where
-    T: ClarityWasmContext,
-{
+) -> Result<String, Error> {
     // Get the memory from the caller
     let memory = caller
         .get_export("memory")
@@ -1429,10 +1558,7 @@ fn read_from_wasm<T>(
     ty: &TypeSignature,
     offset: i32,
     length: i32,
-) -> Result<Value, Error>
-where
-    T: ClarityWasmContext,
-{
+) -> Result<Value, Error> {
     // Get the memory from the caller
     let memory = caller
         .get_export("memory")
@@ -1758,10 +1884,7 @@ fn reserve_space_for_return<T>(
     store: &mut Store<T>,
     offset: i32,
     return_type: &TypeSignature,
-) -> Result<(Vec<Val>, i32), Error>
-where
-    T: ClarityWasmContext,
-{
+) -> Result<(Vec<Val>, i32), Error> {
     match return_type {
         TypeSignature::UIntType | TypeSignature::IntType => {
             Ok((vec![Val::I64(0), Val::I64(0)], offset))
