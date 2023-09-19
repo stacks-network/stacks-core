@@ -10,8 +10,8 @@ use super::{
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata, STXBalance},
     errors::RuntimeErrorType,
     types::{
-        CharType, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-        SequenceData, StandardPrincipalData, TupleData,
+        BuffData, CharType, FixedFunction, FunctionType, PrincipalData,
+        QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -465,7 +465,11 @@ fn read_from_wasm<T>(
             todo!("type not yet implemented: {:?}", ty)
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
-            todo!("type not yet implemented: {:?}", ty)
+            let mut buffer: Vec<u8> = vec![0; length as usize];
+            memory
+                .read(caller, offset as usize, &mut buffer)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            Value::buff_from(buffer)
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("type not yet implemented: {:?}", ty)
@@ -498,6 +502,13 @@ fn value_as_u128(value: &Value) -> Result<u128, Error> {
 fn value_as_principal(value: &Value) -> Result<&PrincipalData, Error> {
     match value {
         Value::Principal(p) => Ok(p),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+    }
+}
+
+fn value_as_buffer(value: Value) -> Result<BuffData, Error> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(buffdata)) => Ok(buffdata),
         _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
@@ -973,7 +984,7 @@ fn link_err_runtime_functions(linker: &mut Linker<ClarityWasmInitContext>) -> Re
     link_stx_get_balance_err_fn(linker)?;
     link_stx_account_err_fn(linker)?;
     link_stx_burn_err_fn(linker)?;
-    // link_stx_transfer_err_fn(linker)?;
+    link_stx_transfer_err_fn(linker)?;
     // link_ft_get_supply_err_fn(linker)?;
     // link_ft_get_balance_err_fn(linker)?;
     // link_ft_burn_err_fn(linker)?;
@@ -1013,7 +1024,7 @@ fn link_runtime_functions(linker: &mut Linker<ClarityWasmRunContext>) -> Result<
     link_stx_get_balance_fn(linker)?;
     link_stx_account_fn(linker)?;
     link_stx_burn_fn(linker)?;
-    // link_stx_transfer_fn(linker)?;
+    link_stx_transfer_fn(linker)?;
     // link_ft_get_supply_fn(linker)?;
     // link_ft_get_balance_fn(linker)?;
     // link_ft_burn_fn(linker)?;
@@ -1465,8 +1476,8 @@ fn link_stx_burn_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(
             "clarity",
             "stx_burn",
             |_caller: Caller<'_, ClarityWasmInitContext>,
-             _amount_low: i64,
-             _amount_high: i64,
+             _amount_lo: i64,
+             _amount_hi: i64,
              _principal_offset: i32,
              _principal_length: i32| {
                 let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
@@ -1476,7 +1487,35 @@ fn link_stx_burn_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "stx_account".to_string(),
+                "stx_burn".to_string(),
+                e,
+            ))
+        })
+}
+
+/// When in define-mode (not run-mode), this should never be called.
+fn link_stx_transfer_err_fn(linker: &mut Linker<ClarityWasmInitContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_transfer",
+            |_caller: Caller<'_, ClarityWasmInitContext>,
+             _amount_lo: i64,
+             _amount_hi: i64,
+             _from_offset: i32,
+             _from_length: i32,
+             _to_offset: i32,
+             _to_length: i32,
+             _memo_offset: i32,
+             _memo_length: i32| {
+                let _ = Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?;
+                Ok((0i32, 0i32, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_transfer".to_string(),
                 e,
             ))
         })
@@ -2241,7 +2280,135 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Er
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "stx_account".to_string(),
+                "stx_burn".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmRunContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stx_transfer",
+            |mut caller: Caller<'_, ClarityWasmRunContext>,
+             amount_lo: i64,
+             amount_hi: i64,
+             sender_offset: i32,
+             sender_length: i32,
+             recipient_offset: i32,
+             recipient_length: i32,
+             memo_offset: i32,
+             memo_length: i32| {
+                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+
+                // Read the sender principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    sender_offset,
+                    sender_length,
+                )?;
+                let sender = value_as_principal(&value)?;
+
+                // Read the to principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    recipient_offset,
+                    recipient_length,
+                )?;
+                let recipient = value_as_principal(&value)?;
+
+                // Read the memo from the Wasm memory
+                let memo = if memo_length > 0 {
+                    let value = read_from_wasm(
+                        &mut caller,
+                        &TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(memo_length as u32)?,
+                        )),
+                        memo_offset,
+                        memo_length,
+                    )?;
+                    value_as_buffer(value)?
+                } else {
+                    BuffData::empty()
+                };
+
+                if amount == 0 {
+                    return Ok((0i32, 0i32, StxErrorCodes::NON_POSITIVE_AMOUNT as i64, 0i64));
+                }
+
+                if sender == recipient {
+                    return Ok((0i32, 0i32, StxErrorCodes::SENDER_IS_RECIPIENT as i64, 0i64));
+                }
+
+                if Some(sender) != caller.data().env.sender.as_ref() {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        StxErrorCodes::SENDER_IS_NOT_TX_SENDER as i64,
+                        0i64,
+                    ));
+                }
+
+                // loading sender/recipient principals and balances
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                // loading sender's locked amount and height
+                // TODO: this does not count the inner stacks block header load, but arguably,
+                // this could be optimized away, so it shouldn't penalize the caller.
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(STXBalance::unlocked_and_v1_size as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .env
+                    .add_memory(STXBalance::unlocked_and_v1_size as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                let mut sender_snapshot = caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .database
+                    .get_stx_balance_snapshot(sender);
+                if !sender_snapshot.can_transfer(amount) {
+                    return Ok((0i32, 0i32, StxErrorCodes::NOT_ENOUGH_BALANCE as i64, 0i64));
+                }
+
+                sender_snapshot.transfer_to(recipient, amount)?;
+
+                caller
+                    .data_mut()
+                    .env
+                    .global_context
+                    .log_stx_transfer(&sender, amount)?;
+                caller.data_mut().env.register_stx_transfer_event(
+                    sender.clone(),
+                    recipient.clone(),
+                    amount,
+                    memo,
+                )?;
+
+                // (ok true)
+                Ok((1i32, 1i32, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stx_transfer".to_string(),
                 e,
             ))
         })
