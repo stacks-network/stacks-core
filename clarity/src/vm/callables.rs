@@ -620,12 +620,9 @@ mod test {
         let cast_list = clarity2_implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
         let items = cast_list.expect_list();
         for item in items {
-            match item.expect_optional() {
-                Some(cast_opt) => {
-                    let cast_trait = cast_opt.expect_callable();
-                    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
-                }
-                None => (),
+            if let Some(cast_opt) = item.expect_optional() {
+                let cast_trait = cast_opt.expect_callable();
+                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
             }
         }
 
