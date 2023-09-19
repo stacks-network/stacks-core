@@ -782,7 +782,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 let mut snapshot = env
                     .global_context
                     .database
-                    .get_stx_balance_snapshot(&recipient);
+                    .get_stx_balance_snapshot(recipient);
 
                 snapshot.credit(amount);
                 snapshot.save();
