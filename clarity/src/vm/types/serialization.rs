@@ -1364,7 +1364,7 @@ pub mod tests {
     use stacks_common::types::StacksEpochId;
 
     fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap()))
     }
 
     fn test_deser_ser(v: Value) {
@@ -1390,12 +1390,10 @@ pub mod tests {
     }
 
     fn test_bad_expectation(v: Value, e: TypeSignature) {
-        assert!(
-            match Value::try_deserialize_hex(&v.serialize_to_hex(), &e, false).unwrap_err() {
-                SerializationError::DeserializeExpected(_) => true,
-                _ => false,
-            }
-        )
+        assert!(matches!(
+            Value::try_deserialize_hex(&v.serialize_to_hex(), &e, false).unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ))
     }
 
     #[test]
@@ -1477,7 +1475,7 @@ pub mod tests {
 
         // make a list that says it is longer than it is!
         //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
-        let mut eof = vec![3u8; 64 as usize];
+        let mut eof = vec![3u8; 64_usize];
         // list prefix
         eof[0] = 11;
         // list length
@@ -1495,13 +1493,13 @@ pub mod tests {
         */
 
         match Value::deserialize_read(&mut eof.as_slice(), None, false) {
-            Ok(_) => assert!(false, "Accidentally parsed truncated slice"),
+            Ok(_) => panic!("Accidentally parsed truncated slice"),
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => assert!(false, "Invalid I/O error: {:?}", &ioe),
+                    _ => panic!("Invalid I/O error: {:?}", &ioe),
                 },
-                _ => assert!(false, "Invalid deserialize error: {:?}", &eres),
+                _ => panic!("Invalid deserialize error: {:?}", &eres),
             },
         }
     }
@@ -1671,40 +1669,37 @@ pub mod tests {
         );
 
         // field number not equal to expectations
-        assert!(match Value::try_deserialize_hex(
-            &t_3.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_3.serialize_to_hex(),
+                &TypeSignature::type_of(&t_1),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field type mismatch
-        assert!(match Value::try_deserialize_hex(
-            &t_2.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_2.serialize_to_hex(),
+                &TypeSignature::type_of(&t_1),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field not-present in expected
-        assert!(match Value::try_deserialize_hex(
-            &t_1.serialize_to_hex(),
-            &TypeSignature::type_of(&t_4),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_1.serialize_to_hex(),
+                &TypeSignature::type_of(&t_4),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
     }
 
     #[apply(test_clarity_versions)]
@@ -2044,10 +2039,7 @@ pub mod tests {
                 RollbackWrapper::deserialize_value(&serialized, good_type, &epoch).map(|x| x.value);
             if epoch < StacksEpochId::Epoch24 {
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    _ => panic!("Expected a DeserializeExpected error"),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             } else {
                 let value = result.unwrap();
                 assert_eq!(&value, expected_out);
@@ -2057,10 +2049,7 @@ pub mod tests {
                 eprintln!("Testing bad type: {}", bad_type);
                 let result = RollbackWrapper::deserialize_value(&serialized, bad_type, &epoch);
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    e => panic!("Expected a DeserializeExpected error, got = {}", e),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             }
 
             // now test the value::sanitize routine
