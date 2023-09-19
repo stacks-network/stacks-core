@@ -180,21 +180,16 @@ impl Coordinator {
                         return Ok((
                             None,
                             Some(OperationResult::Sign(
-                                self.signature.clone(),
-                                self.schnorr_proof.clone(),
+                                Signature {
+                                    R: self.signature.R,
+                                    z: self.signature.z,
+                                },
+                                SchnorrProof {
+                                    r: self.schnorr_proof.r,
+                                    s: self.schnorr_proof.s,
+                                },
                             )),
                         ));
-                        /*
-                                    Signature {
-                                        R: self.signature.R,
-                                        z: self.signature.z,
-                                    },
-                                    SchnorrProof {
-                                        r: self.schnorr_proof.r,
-                                        s: self.schnorr_proof.s,
-                                    },
-                        )),
-                            */
                     }
                 }
             }
