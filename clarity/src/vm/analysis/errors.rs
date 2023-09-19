@@ -228,9 +228,7 @@ impl fmt::Display for CheckErrors {
 
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.err {
-            _ => write!(f, "{}", self.err),
-        }?;
+        write!(f, "{}", self.err)?;
 
         if let Some(ref e) = self.expressions {
             write!(f, "\nNear:\n{:?}", e)?;
@@ -306,7 +304,7 @@ fn formatted_expected_types(expected_types: &Vec<TypeSignature>) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
     if expected_types.len() > 2 {
-        for expected_type in expected_types[1..expected_types.len() - 1].into_iter() {
+        for expected_type in expected_types[1..expected_types.len() - 1].iter() {
             expected_types_joined.push_str(&format!(", '{}'", expected_type));
         }
     }
@@ -338,14 +336,14 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{}'", name),
-            CheckErrors::ValueTooLarge => format!("created a type which was greater than maximum allowed value size"),
-            CheckErrors::ValueOutOfBounds => format!("created a type which value size was out of defined bounds"),
+            CheckErrors::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
+            CheckErrors::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
             CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
-            CheckErrors::ExpectedName => format!("expected a name argument to this function"),
+            CheckErrors::ExpectedName => "expected a name argument to this function".into(),
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),
-            CheckErrors::UnknownListConstructionFailure => format!("invalid syntax for list definition"),
-            CheckErrors::ListTypesMustMatch => format!("expecting elements of same type in a list"),
-            CheckErrors::ConstructedListTooLarge => format!("reached limit of elements in a sequence"),
+            CheckErrors::UnknownListConstructionFailure => "invalid syntax for list definition".into(),
+            CheckErrors::ListTypesMustMatch => "expecting elements of same type in a list".into(),
+            CheckErrors::ConstructedListTooLarge => "reached limit of elements in a sequence".into(),
             CheckErrors::TypeError(expected_type, found_type) => format!("expecting expression of type '{}', found '{}'", expected_type, found_type),
             CheckErrors::TypeLiteralError(expected_type, found_type) => format!("expecting a literal of type '{}', found '{}'", expected_type, found_type),
             CheckErrors::TypeValueError(expected_type, found_value) => format!("expecting expression of type '{}', found '{}'", expected_type, found_value),
@@ -357,48 +355,48 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::ExpectedOptionalValue(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
             CheckErrors::ExpectedResponseValue(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
-            CheckErrors::CouldNotDetermineResponseOkType => format!("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
-            CheckErrors::CouldNotDetermineResponseErrType => format!("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
-            CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
-            CheckErrors::CouldNotDetermineType => format!("type of expression cannot be determined"),
-            CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
+            CheckErrors::CouldNotDetermineResponseOkType => "attempted to obtain 'ok' value from response, but 'ok' type is indeterminate".into(),
+            CheckErrors::CouldNotDetermineResponseErrType => "attempted to obtain 'err' value from response, but 'err' type is indeterminate".into(),
+            CheckErrors::CouldNotDetermineMatchTypes => "attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.".into(),
+            CheckErrors::CouldNotDetermineType => "type of expression cannot be determined".into(),
+            CheckErrors::BadTupleFieldName => "invalid tuple field name".into(),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
-            CheckErrors::BadTupleConstruction => format!("invalid tuple syntax, expecting list of pair"),
-            CheckErrors::TupleExpectsPairs => format!("invalid tuple syntax, expecting pair"),
+            CheckErrors::BadTupleConstruction => "invalid tuple syntax, expecting list of pair".into(),
+            CheckErrors::TupleExpectsPairs => "invalid tuple syntax, expecting pair".into(),
             CheckErrors::NoSuchDataVariable(var_name) => format!("use of unresolved persisted variable '{}'", var_name),
-            CheckErrors::BadTransferSTXArguments => format!("STX transfer expects an int amount, from principal, to principal"),
-            CheckErrors::BadTransferFTArguments => format!("transfer expects an int amount, from principal, to principal"),
-            CheckErrors::BadTransferNFTArguments => format!("transfer expects an asset, from principal, to principal"),
-            CheckErrors::BadMintFTArguments => format!("mint expects a uint amount and from principal"),
-            CheckErrors::BadBurnFTArguments => format!("burn expects a uint amount and from principal"),
-            CheckErrors::BadMapName => format!("invalid map name"),
+            CheckErrors::BadTransferSTXArguments => "STX transfer expects an int amount, from principal, to principal".into(),
+            CheckErrors::BadTransferFTArguments => "transfer expects an int amount, from principal, to principal".into(),
+            CheckErrors::BadTransferNFTArguments => "transfer expects an asset, from principal, to principal".into(),
+            CheckErrors::BadMintFTArguments => "mint expects a uint amount and from principal".into(),
+            CheckErrors::BadBurnFTArguments => "burn expects a uint amount and from principal".into(),
+            CheckErrors::BadMapName => "invalid map name".into(),
             CheckErrors::NoSuchMap(map_name) => format!("use of unresolved map '{}'", map_name),
-            CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),
-            CheckErrors::BadFunctionName => format!("invalid function name"),
-            CheckErrors::BadMapTypeDefinition => format!("invalid map definition"),
+            CheckErrors::DefineFunctionBadSignature => "invalid function definition".into(),
+            CheckErrors::BadFunctionName => "invalid function name".into(),
+            CheckErrors::BadMapTypeDefinition => "invalid map definition".into(),
             CheckErrors::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{}'", found_type),
-            CheckErrors::DefineVariableBadSignature => format!("invalid variable definition"),
+            CheckErrors::DefineVariableBadSignature => "invalid variable definition".into(),
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{}'", contract_identifier),
             CheckErrors::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{}' has no public function '{}'", contract_identifier, function_name),
             CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
-            CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
+            CheckErrors::ContractCallExpectName => "missing contract name for call".into(),
             CheckErrors::ExpectedCallableType(found_type) => format!("expected a callable contract, found {}", found_type),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
-            CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
-            CheckErrors::GetBurnBlockInfoExpectPropertyName => format!("missing property name for burn block info introspection"),
+            CheckErrors::GetBlockInfoExpectPropertyName => "missing property name for block info introspection".into(),
+            CheckErrors::GetBurnBlockInfoExpectPropertyName => "missing property name for burn block info introspection".into(),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
-            CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
-            CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
+            CheckErrors::NonFunctionApplication => "expecting expression of type function".into(),
+            CheckErrors::ExpectedListApplication => "expecting expression of type list".into(),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
-            CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
+            CheckErrors::BadLetSyntax => "invalid syntax of 'let'".into(),
             CheckErrors::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
-            CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
-            CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
+            CheckErrors::BadSyntaxBinding => "invalid syntax binding".into(),
+            CheckErrors::MaxContextDepthReached => "reached depth limit".into(),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
             CheckErrors::UndefinedFunction(var_name) => format!("use of unresolved function '{}'", var_name),
             CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} arguments, got {}", expected, found),
@@ -407,55 +405,56 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{}' and '{}')", type_1, type_2),
-            CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
+            CheckErrors::TooManyExpressions => "reached limit of expressions".into(),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
-            CheckErrors::TraitBasedContractCallInReadOnly => format!("use of trait based contract calls are not allowed in read-only context"),
-            CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
-            CheckErrors::AtBlockClosureMustBeReadOnly => format!("(at-block ...) closures expect read-only statements, but detected a writing operation"),
-            CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
-            CheckErrors::DefineFTBadSignature => format!("(define-token ...) expects a token name as an argument"),
-            CheckErrors::DefineNFTBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
+            CheckErrors::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
+            CheckErrors::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
+            CheckErrors::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
+            CheckErrors::BadTokenName => "expecting an token name as an argument".into(),
+            CheckErrors::DefineFTBadSignature => "(define-token ...) expects a token name as an argument".into(),
+            CheckErrors::DefineNFTBadSignature => "(define-asset ...) expects an asset name and an asset identifier type signature as arguments".into(),
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
             CheckErrors::NoSuchTrait(contract_name, trait_name) => format!("use of unresolved trait {}.{}", contract_name, trait_name),
             CheckErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
             CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("method '{}' unspecified in trait <{}>", func_name, trait_name),
-            CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
+            CheckErrors::ImportTraitBadSignature => "(use-trait ...) expects a trait name and a trait identifier".into(),
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
-            CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
-            CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
-            CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
+            CheckErrors::ExpectedTraitIdentifier => "expecting expression of type trait identifier".into(),
+            CheckErrors::UnexpectedTraitOrFieldReference => "unexpected use of trait reference or field".into(),
+            CheckErrors::DefineTraitBadSignature => "invalid trait definition".into(),
             CheckErrors::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{}' in trait definition", method_name),
-            CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
-            CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::TraitReferenceNotAllowed => "trait references can not be stored".into(),
+            CheckErrors::ContractOfExpectsTrait => "trait reference expected".into(),
             CheckErrors::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{}' is not a compatible with expected trait, '{}'", actual_trait, expected_trait),
-            CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
-            CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
-            CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
+            CheckErrors::InvalidCharactersDetected => "invalid characters detected".into(),
+            CheckErrors::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
+            CheckErrors::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
-                format!("internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain")
+                "internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain".into()
             },
-            CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
+            CheckErrors::UncheckedIntermediaryResponses => "intermediary responses in consecutive statements must be checked".into(),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
-            CheckErrors::CouldNotDetermineSerializationType => format!("could not determine the input type for the serialization function"),
+            CheckErrors::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
         }
     }
 
     fn suggestion(&self) -> Option<String> {
         match &self {
             CheckErrors::BadSyntaxBinding => {
-                Some(format!("binding syntax example: ((supply int) (ttl int))"))
+                Some("binding syntax example: ((supply int) (ttl int))".into())
             }
-            CheckErrors::BadLetSyntax => Some(format!(
-                "'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)"
-            )),
-            CheckErrors::TraitReferenceUnknown(_) => Some(format!(
+            CheckErrors::BadLetSyntax => Some(
+                "'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)".into(),
+            ),
+            CheckErrors::TraitReferenceUnknown(_) => Some(
                 "traits should be either defined, with define-trait, or imported, with use-trait."
-            )),
-            CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!(
-                "properties available: time, header-hash, burnchain-header-hash, vrf-seed"
-            )),
+                    .into(),
+            ),
+            CheckErrors::NoSuchBlockInfoProperty(_) => Some(
+                "properties available: time, header-hash, burnchain-header-hash, vrf-seed".into(),
+            ),
             _ => None,
         }
     }

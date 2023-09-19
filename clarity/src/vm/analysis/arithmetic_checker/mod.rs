@@ -82,7 +82,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             clarity_version: &contract_analysis.clarity_version,
         };
         for exp in contract_analysis.expressions.iter() {
-            checker.check_top_levels(&exp)?;
+            checker.check_top_levels(exp)?;
         }
 
         Ok(())
@@ -147,7 +147,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
         use crate::vm::variables::NativeVariables::*;
         if let Some(native_var) =
-            NativeVariables::lookup_by_name_at_version(var_name, &self.clarity_version)
+            NativeVariables::lookup_by_name_at_version(var_name, self.clarity_version)
         {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
@@ -182,26 +182,22 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
             | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
             | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt => {
-                return Err(Error::FunctionNotPermitted(function));
-            }
+            | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             IsStandard | PrincipalDestruct | PrincipalConstruct => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
-            | Keccak256 => {
-                return Err(Error::FunctionNotPermitted(function));
-            }
+            | Keccak256 => Err(Error::FunctionNotPermitted(function)),
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
