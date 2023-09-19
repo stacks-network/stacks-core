@@ -18,6 +18,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   Stacks nodes to store off-chain data on behalf of a specially-crafter smart
 contract.  This is an opt-in feature; Stacks nodes explicitly subscribe to
 StackerDB replicas in their config files.
+- Message definitions and codecs for Stacker DB, a replicated off-chain DB
+  hosted by subscribed Stacks nodes and controlled by smart contracts
+- Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 
 ### Fixed
 
