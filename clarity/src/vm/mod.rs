@@ -624,7 +624,7 @@ mod test {
             func_body,
             DefineType::Private,
             &"do_work".into(),
-            &"",
+            "",
         );
 
         let context = LocalContext::new();
