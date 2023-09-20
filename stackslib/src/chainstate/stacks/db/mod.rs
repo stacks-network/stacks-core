@@ -225,6 +225,7 @@ impl DBConfig {
             StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch30 => todo!() // Need input from Jude here
         }
     }
 }

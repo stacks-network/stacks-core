@@ -1276,6 +1276,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    pub fn initialize_epoch_3_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        todo!()
+    }
+
     pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;

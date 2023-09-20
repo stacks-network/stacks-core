@@ -9,6 +9,7 @@ use crate::vm::errors::{Error, RuntimeErrorType};
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
+    Clarity3
 }
 
 impl fmt::Display for ClarityVersion {
@@ -16,6 +17,7 @@ impl fmt::Display for ClarityVersion {
         match self {
             ClarityVersion::Clarity1 => write!(f, "Clarity 1"),
             ClarityVersion::Clarity2 => write!(f, "Clarity 2"),
+            ClarityVersion::Clarity3 => write!(f, "Clarity 3"),
         }
     }
 }
@@ -36,6 +38,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch22 => ClarityVersion::Clarity2,
             StacksEpochId::Epoch23 => ClarityVersion::Clarity2,
             StacksEpochId::Epoch24 => ClarityVersion::Clarity2,
+            StacksEpochId::Epoch30 => ClarityVersion::Clarity3,
         }
     }
 }

@@ -3059,7 +3059,14 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
-                    // TODO: This should move to Epoch 30 once it is added
+            },
+            // TODO: Please double-check this
+            StacksEpochId::Epoch30 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
                     || version == "8"
             }
         }

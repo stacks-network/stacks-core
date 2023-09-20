@@ -74,11 +74,12 @@ pub enum StacksEpochId {
     Epoch22 = 0x0200f,
     Epoch23 = 0x02014,
     Epoch24 = 0x02019,
+    Epoch30 = 0x03000
 }
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch24
+        StacksEpochId::Epoch30
     }
 
     /// Returns whether or not this Epoch should perform
@@ -92,6 +93,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
             StacksEpochId::Epoch24 => true,
+            StacksEpochId::Epoch30 => true //TODO: Is this correct, or should it only be the latest epoch which is true?
         }
     }
 }
@@ -106,6 +108,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch22 => write!(f, "2.2"),
             StacksEpochId::Epoch23 => write!(f, "2.3"),
             StacksEpochId::Epoch24 => write!(f, "2.4"),
+            StacksEpochId::Epoch30 => write!(f, "3.0"),
         }
     }
 }
@@ -122,6 +125,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch22 as u32 => Ok(StacksEpochId::Epoch22),
             x if x == StacksEpochId::Epoch23 as u32 => Ok(StacksEpochId::Epoch23),
             x if x == StacksEpochId::Epoch24 as u32 => Ok(StacksEpochId::Epoch24),
+            x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
             _ => Err("Invalid epoch"),
         }
     }

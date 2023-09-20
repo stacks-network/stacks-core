@@ -873,7 +873,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         for j in 0..node_data.len() {
             let next_node = &mut self.data[node_data[j] as usize].0;
             if !next_node.is_leaf() {
-                let mut ptrs = next_node.ptrs_mut();
+                let ptrs = next_node.ptrs_mut();
                 let num_children = ptrs.len();
                 for k in 0..num_children {
                     if ptrs[k].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[k].id) {

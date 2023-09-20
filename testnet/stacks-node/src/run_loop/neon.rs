@@ -25,7 +25,7 @@ use stacks::core::StacksEpochId;
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
 use stacks::net::atlas::{
-    AtlasConfig, AtlasDB, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE,
+    AtlasConfig, AtlasDB, Attachment,
 };
 use stacks::util::hash::Hash160;
 use stacks::util_lib::db::Error as db_error;

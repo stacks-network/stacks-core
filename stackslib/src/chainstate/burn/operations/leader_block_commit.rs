@@ -43,7 +43,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::core::STACKS_EPOCH_2_2_MARKER;
+use crate::core::{STACKS_EPOCH_2_2_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::core::STACKS_EPOCH_2_3_MARKER;
 use crate::core::STACKS_EPOCH_2_4_MARKER;
 use crate::core::{StacksEpoch, StacksEpochId};
@@ -760,6 +760,7 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch22 => self.check_epoch_commit_marker(STACKS_EPOCH_2_2_MARKER),
             StacksEpochId::Epoch23 => self.check_epoch_commit_marker(STACKS_EPOCH_2_3_MARKER),
             StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
+            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
         }
     }
 
@@ -774,6 +775,7 @@ impl LeaderBlockCommitOp {
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
         let intended_sortition = match epoch_id {
+            StacksEpochId::Epoch30 => todo!(), // Need input here
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23

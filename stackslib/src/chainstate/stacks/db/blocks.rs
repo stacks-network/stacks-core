@@ -4614,6 +4614,15 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch30 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4640,7 +4649,15 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                             applied = true;
-                        }
+                        },
+                        StacksEpochId::Epoch30 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        },
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4661,6 +4678,13 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch30 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4675,11 +4699,19 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch30 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
                     StacksEpochId::Epoch23 => {
+                        // Can we add a code-comment here why this is? Leaving out 3.0 from here
+                        // in that case.. 
                         assert_eq!(
                             sortition_epoch.epoch_id,
                             StacksEpochId::Epoch24,
@@ -4688,8 +4720,17 @@ impl StacksChainState {
                         receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch24 => {
-                        panic!("No defined transition from Epoch23 forward")
+                    StacksEpochId::Epoch24 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch30 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    }
+                    StacksEpochId::Epoch30 => {
+                        panic!("No defined transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                     }
                 }
             }
@@ -5290,7 +5331,8 @@ impl StacksChainState {
                     burn_tip_height,
                     cur_epoch.start_height,
                 )
-            }
+            },
+            StacksEpochId::Epoch30 => todo!() // Need input here
         }
     }
 
@@ -5371,6 +5413,7 @@ impl StacksChainState {
                     pox_reward_cycle,
                     pox_start_cycle_info,
                 ),
+                StacksEpochId::Epoch30 => todo!() // Need input here
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");

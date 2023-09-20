@@ -77,7 +77,13 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch10, _) => (),
                 // don't test these pairs, because they aren't supported:
                 (StacksEpochId::Epoch20, ClarityVersion::Clarity2) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch2_05, ClarityVersion::Clarity2) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity3) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -100,6 +106,7 @@ epochs_template! {
     Epoch22,
     Epoch23,
     Epoch24,
+    Epoch30,
 }
 
 clarity_template! {
@@ -113,6 +120,9 @@ clarity_template! {
     (Epoch23, Clarity2),
     (Epoch24, Clarity1),
     (Epoch24, Clarity2),
+    (Epoch30, Clarity1),
+    (Epoch30, Clarity2),
+    (Epoch30, Clarity3),
 }
 
 #[cfg(test)]
