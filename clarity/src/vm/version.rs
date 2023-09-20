@@ -9,7 +9,7 @@ use crate::vm::errors::{Error, RuntimeErrorType};
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
-    Clarity3
+    Clarity3,
 }
 
 impl fmt::Display for ClarityVersion {

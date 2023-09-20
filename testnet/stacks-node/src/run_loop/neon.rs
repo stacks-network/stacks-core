@@ -24,9 +24,7 @@ use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_rea
 use stacks::core::StacksEpochId;
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
-use stacks::net::atlas::{
-    AtlasConfig, AtlasDB, Attachment,
-};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util::hash::Hash160;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::types::PublicKey;

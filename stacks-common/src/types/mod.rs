@@ -74,7 +74,7 @@ pub enum StacksEpochId {
     Epoch22 = 0x0200f,
     Epoch23 = 0x02014,
     Epoch24 = 0x02019,
-    Epoch30 = 0x03000
+    Epoch30 = 0x03000,
 }
 
 impl StacksEpochId {
@@ -93,7 +93,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
             StacksEpochId::Epoch24 => true,
-            StacksEpochId::Epoch30 => true //TODO: Is this correct, or should it only be the latest epoch which is true?
+            StacksEpochId::Epoch30 => true, //TODO: Is this correct, or should it only be the latest epoch which is true?
         }
     }
 }

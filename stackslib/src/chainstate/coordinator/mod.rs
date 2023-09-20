@@ -291,8 +291,8 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                     info!("PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation");
                     return Ok(RewardSet::empty());
                 }
-            },
-            StacksEpochId::Epoch30 => todo!() // Need input here
+            }
+            StacksEpochId::Epoch30 => todo!(), // Need input here
         };
 
         let registered_addrs =
@@ -3052,8 +3052,8 @@ impl<
                                 {
                                     return Ok(Some(pox_anchor));
                                 }
-                            },
-                            StacksEpochId::Epoch30 => todo!() // Need input here
+                            }
+                            StacksEpochId::Epoch30 => todo!(), // Need input here
                         }
                     }
                 }

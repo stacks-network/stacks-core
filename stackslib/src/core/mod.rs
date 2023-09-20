@@ -950,7 +950,7 @@ impl StacksEpochExtension for StacksEpoch {
                     runtime: 210210,
                 },
                 network_epoch: PEER_VERSION_EPOCH_3_0,
-            }
+            },
         ]
     }
 

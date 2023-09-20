@@ -1162,8 +1162,8 @@ impl BitcoinRegtestController {
         payload: PegInOp,
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
-        use stacks_common::types::chainstate::StacksAddress;
         use clarity::vm::types::PrincipalData;
+        use stacks_common::types::chainstate::StacksAddress;
 
         let public_key = signer.get_public_key();
         let max_tx_size = 230;
