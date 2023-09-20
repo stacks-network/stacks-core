@@ -65,9 +65,11 @@ impl SugarExpander {
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
         let mut expressions: Vec<SymbolicExpression> = Vec::new();
+        #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 
         for pre_expr in pre_exprs_iter {
+            let span = pre_expr.span().clone();
             let mut expr = match pre_expr.pre_expr {
                 PreSymbolicExpressionType::AtomValue(content) => {
                     SymbolicExpression::literal_value(content)
@@ -137,7 +139,7 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Placeholder(_) => continue,
             };
             // expr.id will be set by the subsequent expression identifier pass.
-            expr.span = pre_expr.span.clone();
+            expr.copy_span(&span);
 
             #[cfg(feature = "developer-mode")]
             // If there were comments above this expression, attach them.
