@@ -27,6 +27,7 @@
 (define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 (define-constant ERR_STACKING_IS_DELEGATED 30)
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
+(define-constant ERR_STACKING_DURING_PREPARE_PHASE 32)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -508,6 +509,12 @@
     (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
+;; Is the current block height outside of the prepare phase?
+(define-read-only (check-not-prepare-phase)
+    (let ((cycle-length (var-get pox-reward-cycle-length))))
+    (< (mod (- burn-block-height (var-get first-burnchain-block-height)) cycle-length)
+      (- cycle-length (var-get pox-prepare-cycle-length))))
+
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
 ;; a set of guard conditions and also as a read-only RPC call that can be
@@ -544,6 +551,10 @@
     ;; lock period must be in acceptable range.
     (asserts! (check-pox-lock-period num-cycles)
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+    ;; stacking must not happen during prepare phase
+    (asserts! (check-not-prepare-phase)
+              (err ERR_STACKING_DURING_PREPARE_PHASE))
 
     ;; address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))
@@ -1014,7 +1025,7 @@
                     stacker: tx-sender,
                     add-amount: increase-by })))
             (err ERR_STACKING_UNREACHABLE))
-      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-4
+      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in pox-4
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
 ;; Extend an active Stacking lock.
