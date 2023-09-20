@@ -2202,9 +2202,9 @@ pub mod test {
         let contract_names = ["hello-world-0", "hello-world-1"];
         let expected_errors = [
             "Tried to close list which isn't open.",
-            ":2:14: invalid variable definition",
+            ":0:0: invalid variable definition",
         ];
-        let expected_errors_2_1 = ["unexpected ')'", ":2:14: invalid variable definition"];
+        let expected_errors_2_1 = ["unexpected ')'", ":0:0: invalid variable definition"];
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 
