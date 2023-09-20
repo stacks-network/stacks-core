@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::fs;
 
 use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -94,7 +110,7 @@ pub fn nakamoto_advance_tip_simple() {
         header: NakamotoBlockHeader {
             version: 100,
             chain_length: 1,
-            btc_spent: 5,
+            burn_spent: 5,
             parent: FIRST_STACKS_BLOCK_HASH,
             burn_view: tip.burn_header_hash.clone(),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
@@ -109,7 +125,6 @@ pub fn nakamoto_advance_tip_simple() {
     let block_size = 10;
     let burnchain_commit_burn = 1;
     let burnchain_sortition_burn = 5;
-    let user_burns = [];
     let affirmation_weight = 1;
     let parent_chain_tip = StacksHeaderInfo {
         anchored_header: StacksBlockHeader {
@@ -148,7 +163,6 @@ pub fn nakamoto_advance_tip_simple() {
         block_size,
         burnchain_commit_burn,
         burnchain_sortition_burn,
-        &user_burns,
         affirmation_weight,
     )
     .unwrap();
