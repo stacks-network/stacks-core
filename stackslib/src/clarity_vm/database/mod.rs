@@ -351,6 +351,13 @@ pub trait SortitionDBRef: BurnStateDB {
         parent_stacks_block_burn_ht: u64,
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
+
+    /// Return an upcasted dynamic reference for the sortition DB
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB;
+
+    /// Return a pointer to the underlying sqlite connection or transaction for
+    /// this DB reference
+    fn sqlite_conn(&self) -> &Connection;
 }
 
 fn get_pox_start_cycle_info(
@@ -392,6 +399,14 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.tx()
+    }
 }
 
 impl SortitionDBRef for SortitionDBConn<'_> {
@@ -403,6 +418,14 @@ impl SortitionDBRef for SortitionDBConn<'_> {
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
         let mut handle = self.as_handle(sortition_id);
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
+    }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.conn()
     }
 }
 

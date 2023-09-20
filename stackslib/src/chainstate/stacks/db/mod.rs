@@ -145,6 +145,12 @@ pub struct StacksAccount {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum MinerPaymentTxFees {
+    Epoch2 { anchored: u128, streamed: u128 },
+    Nakamoto { parent_fees: u128 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MinerPaymentSchedule {
     pub address: StacksAddress,
     pub recipient: PrincipalData,
@@ -153,9 +159,7 @@ pub struct MinerPaymentSchedule {
     pub parent_block_hash: BlockHeaderHash,
     pub parent_consensus_hash: ConsensusHash,
     pub coinbase: u128,
-    pub tx_fees_anchored: u128,
-    pub tx_fees_streamed: u128,
-    pub stx_burns: u128,
+    pub tx_fees: MinerPaymentTxFees,
     pub burnchain_commit_burn: u64,
     pub burnchain_sortition_burn: u64,
     pub miner: bool, // is this a schedule payment for the block's miner?
@@ -325,6 +329,13 @@ impl StacksHeaderInfo {
 
     pub fn is_first_mined(&self) -> bool {
         self.anchored_header.is_first_mined()
+    }
+
+    pub fn is_epoch_2_block(&self) -> bool {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => true,
+            StacksBlockHeaderTypes::Nakamoto(_) => false,
+        }
     }
 }
 
