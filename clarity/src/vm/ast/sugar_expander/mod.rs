@@ -560,6 +560,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_end_line_comment() {
         let pre_ast = vec![
             make_pre_atom("foo", 1, 1, 1, 3),
@@ -586,6 +587,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment() {
         // Pre-comment at the top of the file
         let pre_ast = vec![
@@ -621,6 +623,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment_second() {
         // Pre-comment on the second expression
         let pre_ast = vec![
@@ -656,6 +659,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_multiple() {
         // Multiple pre-comments
         let pre_ast = vec![
@@ -703,6 +707,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_newline() {
         // Multiple pre-comments with a newline in between
         let pre_ast = vec![
@@ -750,6 +755,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment() {
         // Post-comment at end of file
         let pre_ast = vec![
@@ -783,6 +789,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comments_multiple() {
         // Multiple post-comments at end of file
         let pre_ast = vec![
@@ -828,6 +835,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment_inside_list() {
         // Post-comment at end of list:
         // (

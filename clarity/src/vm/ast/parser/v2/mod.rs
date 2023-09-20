@@ -1137,6 +1137,7 @@ pub fn parse_collect_diagnostics(
 }
 
 #[cfg(test)]
+#[cfg(feature = "developer-mode")]
 mod tests {
     use crate::vm::{
         diagnostic::Level,

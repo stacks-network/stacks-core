@@ -259,7 +259,7 @@ impl PreSymbolicExpression {
 
     #[cfg(feature = "developer-mode")]
     pub fn span(&self) -> &Span {
-        self.span
+        &self.span
     }
 
     #[cfg(not(feature = "developer-mode"))]
