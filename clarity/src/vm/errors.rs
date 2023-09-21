@@ -231,6 +231,7 @@ mod test {
     use crate::vm::execute;
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero

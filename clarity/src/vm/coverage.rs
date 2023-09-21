@@ -144,7 +144,7 @@ impl CoverageReporter {
                     // don't count list expressions as a whole, just their children
                     frontier.extend(children);
                 } else {
-                    let line = cur_expr.span.start_line;
+                    let line = cur_expr.span().start_line;
                     if !lines_seen.contains(&line) {
                         lines_seen.insert(line);
                         lines.push(line);

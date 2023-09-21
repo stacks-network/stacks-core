@@ -211,12 +211,12 @@ impl CheckError {
     }
 
     pub fn set_expression(&mut self, expr: &SymbolicExpression) {
-        self.diagnostic.spans = vec![expr.span.clone()];
+        self.diagnostic.spans = vec![expr.span().clone()];
         self.expressions.replace(vec![expr.clone()]);
     }
 
     pub fn set_expressions(&mut self, exprs: &[SymbolicExpression]) {
-        self.diagnostic.spans = exprs.iter().map(|e| e.span.clone()).collect();
+        self.diagnostic.spans = exprs.iter().map(|e| e.span().clone()).collect();
         self.expressions.replace(exprs.clone().to_vec());
     }
 }

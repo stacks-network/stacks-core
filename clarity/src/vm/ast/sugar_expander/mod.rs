@@ -65,9 +65,11 @@ impl SugarExpander {
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
         let mut expressions: Vec<SymbolicExpression> = Vec::new();
+        #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 
         for pre_expr in pre_exprs_iter {
+            let span = pre_expr.span().clone();
             let mut expr = match pre_expr.pre_expr {
                 PreSymbolicExpressionType::AtomValue(content) => {
                     SymbolicExpression::literal_value(content)
@@ -137,7 +139,7 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Placeholder(_) => continue,
             };
             // expr.id will be set by the subsequent expression identifier pass.
-            expr.span = pre_expr.span.clone();
+            expr.copy_span(&span);
 
             #[cfg(feature = "developer-mode")]
             // If there were comments above this expression, attach them.
@@ -558,6 +560,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_end_line_comment() {
         let pre_ast = vec![
             make_pre_atom("foo", 1, 1, 1, 3),
@@ -584,6 +587,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment() {
         // Pre-comment at the top of the file
         let pre_ast = vec![
@@ -619,6 +623,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment_second() {
         // Pre-comment on the second expression
         let pre_ast = vec![
@@ -654,6 +659,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_multiple() {
         // Multiple pre-comments
         let pre_ast = vec![
@@ -701,6 +707,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_newline() {
         // Multiple pre-comments with a newline in between
         let pre_ast = vec![
@@ -748,6 +755,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment() {
         // Post-comment at end of file
         let pre_ast = vec![
@@ -781,6 +789,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comments_multiple() {
         // Multiple post-comments at end of file
         let pre_ast = vec![
@@ -826,6 +835,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment_inside_list() {
         // Post-comment at end of list:
         // (
