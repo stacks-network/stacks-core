@@ -2200,11 +2200,16 @@ pub mod test {
              (define-data-var bar Int 0)",
         ];
         let contract_names = ["hello-world-0", "hello-world-1"];
+        let expected_line_num_error = if cfg!(feature = "developer-mode") {
+            ":2:14: invalid variable definition"
+        } else {
+            ":0:0: invalid variable definition"
+        };
         let expected_errors = [
             "Tried to close list which isn't open.",
-            ":2:14: invalid variable definition",
+            expected_line_num_error,
         ];
-        let expected_errors_2_1 = ["unexpected ')'", ":2:14: invalid variable definition"];
+        let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 

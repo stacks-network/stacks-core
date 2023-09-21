@@ -61,6 +61,7 @@ jobs:
         #  LLVM_PROFILE_FILE: stacks-blockchain-%p-%m.profraw
         run: |
           cargo nextest run --workspace
+          cargo nextest run --package clarity --features developer-mode
       - name: Collate grcov
         # grcov doesn't work with cargo nextest currently, getting
         #  that to work again will have to happen separately. Getting unit
