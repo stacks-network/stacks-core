@@ -611,7 +611,7 @@ fn special_print(
         debug!("{}", &input);
     }
 
-    env.register_print_event(input.clone())?;
+    env.register_print_event(&input)?;
     Ok(input)
 }
 
