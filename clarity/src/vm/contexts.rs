@@ -1208,18 +1208,27 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
-            let mut nested_env = Environment::new(
+            // let mut nested_env = Environment::new(
+            //     &mut self.global_context,
+            //     next_contract_context,
+            //     self.call_stack,
+            //     self.sender.clone(),
+            //     self.caller.clone(),
+            //     self.sponsor.clone(),
+            // );
+
+            // TODO: This will need to be epoch gated and the old
+            // implementation (below) will need to run on < 3.0.0.
+            call_function(
+                function.as_str(),
+                args,
                 &mut self.global_context,
-                next_contract_context,
+                &next_contract_context,
                 self.call_stack,
                 self.sender.clone(),
                 self.caller.clone(),
                 self.sponsor.clone(),
-            );
-
-            // TODO: This will need to be epoch gated and the old
-            // implementation (below) will need to run on < 3.0.0.
-            call_function(function.as_str(), args, &mut nested_env)
+            )
 
             // function.execute_apply(args, &mut nested_env)
         };
