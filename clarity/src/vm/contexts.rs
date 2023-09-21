@@ -1462,10 +1462,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         StacksTransactionEvent::SmartContractEvent(print_event)
     }
 
-    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+    pub fn register_print_event(&mut self, value: &Value) -> Result<()> {
         let event = Self::construct_print_transaction_event(
             &self.contract_context.contract_identifier,
-            &value,
+            value,
         );
 
         self.push_to_event_batch(event);
