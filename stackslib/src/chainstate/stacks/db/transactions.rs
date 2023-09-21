@@ -279,6 +279,21 @@ impl StacksTransactionReceipt {
         }
     }
 
+    pub fn from_tenure_change(tx: StacksTransaction) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::zero(),
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: None,
+        }
+    }
+
     pub fn is_coinbase_tx(&self) -> bool {
         if let TransactionOrigin::Stacks(ref transaction) = self.transaction {
             if let TransactionPayload::Coinbase(..) = transaction.payload {
@@ -1332,6 +1347,11 @@ impl StacksChainState {
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
+                Ok(receipt)
+            }
+            TransactionPayload::TenureChange(ref payload) => {
+                // TODO
+                let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
                 Ok(receipt)
             }
         }

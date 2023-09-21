@@ -316,7 +316,7 @@ fn fee_rate_and_weight_from_receipt(
         TransactionOrigin::Burn(_) => None,
     }?;
     let scalar_cost = match payload {
-        TransactionPayload::TokenTransfer(_, _, _) => {
+        TransactionPayload::TokenTransfer(..) => {
             // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
             metric.from_len(tx_size)
         }
@@ -324,9 +324,10 @@ fn fee_rate_and_weight_from_receipt(
             // Coinbase txs are "free", so they don't factor into the fee market.
             return None;
         }
-        TransactionPayload::PoisonMicroblock(_, _)
-        | TransactionPayload::ContractCall(_)
-        | TransactionPayload::SmartContract(..) => {
+        TransactionPayload::PoisonMicroblock(..)
+        | TransactionPayload::ContractCall(..)
+        | TransactionPayload::SmartContract(..)
+        | TransactionPayload::TenureChange(..) => {
             // These transaction payload types all "work" the same: they have associated ExecutionCosts
             // and contibute to the block length limit with their tx_len
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
@@ -336,7 +337,7 @@ fn fee_rate_and_weight_from_receipt(
     let fee_rate = fee as f64 / denominator;
 
     if fee_rate.is_infinite() {
-        warn!("fee_rate is infinite for {:?}", tx_receipt);
+        warn!("fee_rate is infinite for {tx_receipt:?}");
         None
     } else {
         let effective_fee_rate = if fee_rate < MINIMUM_TX_FEE_RATE {

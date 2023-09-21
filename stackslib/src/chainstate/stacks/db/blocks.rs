@@ -7150,6 +7150,12 @@ impl StacksChainState {
                 }
             }
             TransactionPayload::Coinbase(..) => return Err(MemPoolRejection::NoCoinbaseViaMempool),
+            TransactionPayload::TenureChange(payload) => {
+                // TODO
+                // Check `previous_tenure_end` is valid Stacks block?
+                // Check `previous_tenure_blocks` is expected amount?
+                // Check `signers` and signature is > 70%?
+            }
         };
 
         Ok(())
