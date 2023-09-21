@@ -275,8 +275,8 @@ mod tests {
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::types::chainstate::StacksAddress;
-    use clarity::address::AddressHashMode;
-    use clarity::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::util::hash::*;
 
     // Parse a DelegateStx op in which the height is set to None.

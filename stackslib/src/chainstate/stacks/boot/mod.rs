@@ -32,9 +32,6 @@ use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::core::StacksEpochId;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::strings::VecDisplay;
-use clarity::codec::StacksMessageCodec;
-use clarity::types::chainstate::BlockHeaderHash;
-use clarity::util::hash::to_hex;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
@@ -55,6 +52,9 @@ use clarity::vm::types::{
 };
 use clarity::vm::Environment;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;

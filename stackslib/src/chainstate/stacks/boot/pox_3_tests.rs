@@ -27,7 +27,6 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::vm::events::StacksTransactionEvent;
-use clarity::types::Address;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -44,6 +43,7 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use stacks_common::types::Address;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};

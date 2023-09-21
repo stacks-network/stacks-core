@@ -8,6 +8,7 @@ use clarity::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
+use stacks::address::AddressHashMode;
 use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
@@ -24,12 +25,6 @@ use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::{hash::*, secp256k1::*};
-use stacks::vm::database::NULL_BURN_STATE_DB;
-use stacks::vm::{
-    representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
-    types::StandardPrincipalData, Value,
-};
-use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,

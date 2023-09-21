@@ -21,7 +21,7 @@ use std::hash::{Hash, Hasher};
 use regex::Regex;
 
 use crate::codec::StacksMessageCodec;
-use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
+use stacks_common::codec::StacksMessageCodec as ClarityStacksMessageCodec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;

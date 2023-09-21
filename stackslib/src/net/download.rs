@@ -74,7 +74,6 @@ use crate::net::PeerAddress;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 

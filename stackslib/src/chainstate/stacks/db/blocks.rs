@@ -77,8 +77,6 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next};
 use crate::core::mempool::MemPoolDB;
 use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use crate::core::*;

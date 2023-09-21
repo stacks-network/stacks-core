@@ -28,7 +28,6 @@ use url;
 
 use stacks_common::codec::Error as codec_error;
 
-use crate::codec::MAX_MESSAGE_LEN;
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, CONTRACT_MAX_NAME_LENGTH,
@@ -37,6 +36,7 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::util::retry::BoundReader;
 
 use crate::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
