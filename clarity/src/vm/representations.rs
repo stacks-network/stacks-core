@@ -251,6 +251,24 @@ impl PreSymbolicExpression {
     ) {
     }
 
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
+    }
+
     pub fn sugared_contract_identifier(val: ContractName) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::SugaredContractIdentifier(val),
@@ -478,6 +496,24 @@ impl SymbolicExpression {
     ) {
     }
 
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
+    }
+
     pub fn atom_value(val: Value) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::AtomValue(val),
@@ -615,6 +651,13 @@ pub struct Span {
 }
 
 impl Span {
+    pub const ZERO: Span = Span {
+        start_line: 0,
+        start_column: 0,
+        end_line: 0,
+        end_column: 0,
+    };
+
     pub fn zero() -> Span {
         Span {
             start_line: 0,
