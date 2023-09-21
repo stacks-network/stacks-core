@@ -94,7 +94,7 @@ pub struct StackerDBChunkData {
     pub slot_id: u32,
     /// slot version (a lamport clock)
     pub slot_version: u32,
-    /// signature from the stacker over (reward cycle consensus hash, slot id, slot version, chunk sha512/256)
+    /// signature from the stacker over (slot id, slot version, chunk sha512/256)
     pub sig: MessageSignature,
     /// the chunk data
     #[serde(

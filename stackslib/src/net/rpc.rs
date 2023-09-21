@@ -124,6 +124,7 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::chunked_encoding::*;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::clarity_vm::clarity::Error as clarity_error;
