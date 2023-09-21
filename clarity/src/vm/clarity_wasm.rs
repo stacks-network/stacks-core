@@ -603,7 +603,8 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
         TypeSignature::TupleType(_) => todo!(),
         TypeSignature::ResponseType(res_types) => {
             // indicator: i32, ok_val: inner_types.0, err_val: inner_types.1
-            4 + get_type_in_memory_size(&res_types.0, true) + get_type_in_memory_size(&res_types.1, true)
+            4 + get_type_in_memory_size(&res_types.0, true)
+                + get_type_in_memory_size(&res_types.1, true)
         }
         TypeSignature::CallableType(_) => todo!(),
         TypeSignature::ListUnionType(_) => todo!(),
@@ -665,12 +666,12 @@ fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
     }
 }
 
-/// Read an identifier (string) from the WASM memory at `offset` with `length`.
-fn read_identifier_from_wasm<T>(
+/// Read bytes from the WASM memory at `offset` with `length`
+fn read_bytes_from_wasm<T>(
     caller: &mut Caller<'_, T>,
     offset: i32,
     length: i32,
-) -> Result<String, Error> {
+) -> Result<Vec<u8>, Error> {
     // Get the memory from the caller
     let memory = caller
         .get_export("memory")
@@ -681,6 +682,16 @@ fn read_identifier_from_wasm<T>(
     memory
         .read(caller, offset as usize, &mut buffer)
         .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+    Ok(buffer)
+}
+
+/// Read an identifier (string) from the WASM memory at `offset` with `length`.
+fn read_identifier_from_wasm<T>(
+    caller: &mut Caller<'_, T>,
+    offset: i32,
+    length: i32,
+) -> Result<String, Error> {
+    let buffer = read_bytes_from_wasm(caller, offset, length)?;
     String::from_utf8(buffer).map_err(|e| Error::Wasm(WasmError::UnableToReadIdentifier(e)))
 }
 
@@ -1616,6 +1627,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_map_delete_fn(linker)?;
     link_get_block_info_fn(linker)?;
     link_static_contract_call_fn(linker)?;
+    link_print_fn(linker)?;
 
     link_log(linker)
 }
@@ -4386,6 +4398,35 @@ fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
                 e,
             ))
         })
+}
+
+/// Link host interface function, `print`, into the Wasm module.
+/// This function is called for all contract print statements (`print`).
+fn link_print_fn<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "print",
+            |mut caller: Caller<'_, T>, value_offset: i32, value_length: i32| {
+                // TODO: Include this cost
+
+                // Read in the bytes from the Wasm memory
+                let bytes = read_bytes_from_wasm(&mut caller, value_offset, value_length)?;
+
+                // TODO: the print function needs to generate code to return SIP-005 serialized data so it can be parsed here
+                // let clarity_val = Value::try_from(bytes.clone())?;
+                // let clarity_val_type = TypeSignature::type_of(clarity_val);
+
+                // Print bytes as hex string
+                println!(
+                    "Contract print: {:?}",
+                    stacks_common::util::hash::to_hex(&bytes)
+                );
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("print".to_string(), e)))
 }
 
 /// Link host-interface function, `log`, into the Wasm module.
