@@ -2202,9 +2202,9 @@ pub mod test {
         let contract_names = ["hello-world-0", "hello-world-1"];
         let expected_line_num_error = if cfg!(feature = "developer-mode") {
             ":2:14: invalid variable definition"
-       } else {
+        } else {
             ":0:0: invalid variable definition"
-       };
+        };
         let expected_errors = [
             "Tried to close list which isn't open.",
             expected_line_num_error,
