@@ -1210,11 +1210,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.sender.clone(),
                 self.caller.clone(),
                 self.sponsor.clone(),
-            );
-
-            // TODO: This will need to be epoch gated and the old
-            // implementation (below) will need to run on < 3.0.0.
-            call_function(function.as_str(), args, &mut nested_env)
+            )
 
             // function.execute_apply(args, &mut nested_env)
         };
