@@ -17,6 +17,14 @@
 use std::env;
 use std::thread;
 
+use clarity::vm::types::QualifiedContractIdentifier;
+use reqwest;
+use serde_json;
+use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::{
     burnchains::BurnchainController,
@@ -34,19 +42,6 @@ use crate::{
     },
     BitcoinRegtestController,
 };
-
-use stacks::chainstate::stacks::StacksPrivateKey;
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-
-use serde_json;
-
-use reqwest;
 
 fn post_stackerdb_chunk(
     http_origin: &str,

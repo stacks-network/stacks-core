@@ -8,6 +8,7 @@ use clarity::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
+use lazy_static::lazy_static;
 use stacks::address::AddressHashMode;
 use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::{

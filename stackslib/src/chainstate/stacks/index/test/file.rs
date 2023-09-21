@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fs;
+
+use rusqlite::Connection;
+use rusqlite::OpenFlags;
+
+use super::*;
 use crate::chainstate::stacks::index::cache::test::make_test_insert_data;
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::*;
@@ -21,11 +27,6 @@ use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::*;
 use crate::util_lib::db::*;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use std::fs;
-
-use super::*;
 
 fn db_path(test_name: &str) -> String {
     let path = format!("/tmp/{}.sqlite", test_name);

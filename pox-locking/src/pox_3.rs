@@ -29,10 +29,10 @@ use slog::slog_error;
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_2_or_3_event_info;
-use crate::LockingError;
-use crate::POX_3_NAME;
 // Note: PoX-3 uses the same contract-call result parsing routines as PoX-2
 use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacking_result};
+use crate::LockingError;
+use crate::POX_3_NAME;
 
 /////////////////////// PoX-3 /////////////////////////////////
 

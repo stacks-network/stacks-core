@@ -4,7 +4,10 @@ use std::net::SocketAddr;
 use std::{collections::HashMap, collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
+use rand::RngCore;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -36,6 +39,7 @@ use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::UrlString;
+use stacks::vm::database::BurnStateDB;
 use stacks::{
     burnchains::db::BurnchainDB,
     burnchains::PoxConstants,
@@ -52,17 +56,10 @@ use stacks::{
     },
 };
 
+use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use crate::burnchains::make_bitcoin_indexer;
 use crate::run_loop;
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
-
-use crate::burnchains::make_bitcoin_indexer;
-
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::vm::database::BurnStateDB;
-
-use rand::RngCore;
-use stacks::chainstate::stacks::address::PoxAddress;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {

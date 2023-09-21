@@ -19,8 +19,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate blockstack_lib;
-
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;

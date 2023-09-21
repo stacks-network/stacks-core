@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
@@ -24,7 +26,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
-use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(

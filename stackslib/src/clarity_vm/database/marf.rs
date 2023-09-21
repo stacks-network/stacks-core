@@ -1,13 +1,8 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use rusqlite::Connection;
-
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::{Error, MarfTrieId};
-use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use crate::util_lib::db::IndexDBConn;
 use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::SpecialCaseHandler;
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
 };
@@ -15,15 +10,18 @@ use clarity::vm::errors::{
     IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
-
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
-use clarity::vm::database::SpecialCaseHandler;
+use rusqlite::Connection;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
+use crate::chainstate::stacks::index::{Error, MarfTrieId};
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::codec::StacksMessageCodec;
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::Error as DatabaseError;
+use crate::util_lib::db::IndexDBConn;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -111,9 +109,10 @@ impl MarfedKV {
 
     // used by benchmarks
     pub fn temporary() -> MarfedKV {
+        use std::env;
+
         use rand::Rng;
         use stacks_common::util::hash::to_hex;
-        use std::env;
 
         let mut path = PathBuf::from_str("/tmp/stacks-node-tests/unit-tests-marf").unwrap();
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();

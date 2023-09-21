@@ -6,13 +6,15 @@ pub mod strings;
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::sleep_ms;
     use std::panic;
     use std::process;
     use std::sync::mpsc::sync_channel;
     use std::thread;
+
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::sleep_ms;
+
+    use super::*;
 
     pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
     where

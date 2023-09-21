@@ -35,7 +35,6 @@ use crate::deps_common::bitcoin::network::serialize::{
     self, serialize, BitcoinHash, SimpleDecoder, SimpleEncoder,
 };
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-
 use crate::util::hash::to_hex;
 
 /// A reference to a transaction output
@@ -674,7 +673,6 @@ impl SigHashType {
 #[cfg(test)]
 mod tests {
     use super::{SigHashType, Transaction, TxIn};
-
     use crate::deps_common;
     use crate::deps_common::bitcoin::blockdata::script::Script;
     use crate::deps_common::bitcoin::network::serialize::deserialize;

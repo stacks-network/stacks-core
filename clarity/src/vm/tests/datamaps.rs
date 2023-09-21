@@ -20,8 +20,6 @@ use crate::vm::types::{
     ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::ClarityName;
-use std::convert::From;
-use std::convert::TryFrom;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());

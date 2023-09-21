@@ -23,6 +23,12 @@ use std::sync::{
     Arc, RwLock,
 };
 
+use clarity::vm::{
+    costs::{ExecutionCost, LimitedCostTracker},
+    types::PrincipalData,
+    types::QualifiedContractIdentifier,
+    Value,
+};
 use rusqlite::Connection;
 
 use crate::address;
@@ -38,29 +44,21 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::tests::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
-use crate::util::hash::{hex_bytes, Hash160};
-use crate::util::vrf::*;
-use clarity::vm::{
-    costs::{ExecutionCost, LimitedCostTracker},
-    types::PrincipalData,
-    types::QualifiedContractIdentifier,
-    Value,
-};
-
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
+use crate::util::hash::{hex_bytes, Hash160};
+use crate::util::vrf::*;
 use crate::{types, util};
-
-use crate::chainstate::coordinator::tests::*;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
 
 #[test]
 fn affirmation_map_encode_decode() {

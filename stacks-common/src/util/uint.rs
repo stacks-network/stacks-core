@@ -19,9 +19,10 @@
 //! Implementation of a various large-but-fixed sized unsigned integer types.
 //! The functions here are designed to be fast.
 //!
-use crate::util::hash::{hex_bytes, to_hex};
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 use std::fmt;
+
+use crate::util::hash::{hex_bytes, to_hex};
 
 /// A trait which allows numbers to act as fixed-size bit arrays
 pub trait BitArray {

@@ -1,17 +1,22 @@
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::env;
 use std::sync::atomic::Ordering;
 use std::thread;
 
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
+use stacks::core;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
 use stacks::core::{
@@ -20,11 +25,12 @@ use stacks::core::{
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::VRFSeed;
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::ContractName;
-use std::convert::TryFrom;
 
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;
@@ -42,13 +48,6 @@ use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
 use crate::Keychain;
-use stacks::core;
-
-use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::types::chainstate::VRFSeed;
-use stacks::vm::costs::ExecutionCost;
 
 #[test]
 #[ignore]

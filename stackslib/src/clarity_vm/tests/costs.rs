@@ -14,15 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::ClarityInstance;
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::StacksEpochId;
-use crate::util_lib::boot::boot_code_id;
+use std::collections::HashMap;
+
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
@@ -31,6 +24,7 @@ use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::MemoryBackingStore;
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -39,18 +33,25 @@ use clarity::vm::test_util::{
     execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21,
     TEST_HEADER_DB,
 };
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
+use lazy_static::lazy_static;
 use stacks_common::util::hash::hex_bytes;
 
-use std::collections::HashMap;
-
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
-use clarity::vm::database::MemoryBackingStore;
-use clarity::vm::tests::test_only_mainnet_to_chain_id;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::StacksEpochId;
+use crate::util_lib::boot::boot_code_id;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =

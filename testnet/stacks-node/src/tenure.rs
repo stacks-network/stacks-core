@@ -1,7 +1,3 @@
-/// Only used by the Helium (Mocknet) node
-use super::node::ChainTip;
-use super::{BurnchainTip, Config};
-
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,6 +15,10 @@ use stacks::core::mempool::MemPoolDB;
 use stacks::types::chainstate::VRFSeed;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
+
+/// Only used by the Helium (Mocknet) node
+use super::node::ChainTip;
+use super::{BurnchainTip, Config};
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,

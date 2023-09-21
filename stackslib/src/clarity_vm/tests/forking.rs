@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::types::StacksEpochId;
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -26,6 +24,7 @@ use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
+use clarity::vm::tests::test_clarity_versions;
 use clarity::vm::types::Value;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::version::ClarityVersion;
@@ -33,8 +32,9 @@ use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::database::marf::MarfedKV;
-use clarity::vm::tests::test_clarity_versions;
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 

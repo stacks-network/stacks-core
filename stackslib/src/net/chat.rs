@@ -24,9 +24,15 @@ use std::io::Write;
 use std::mem;
 use std::net::SocketAddr;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use rand;
 use rand::thread_rng;
 use rand::Rng;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -35,6 +41,7 @@ use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::StacksEpoch;
 use crate::core::PEER_VERSION_EPOCH_2_2;
 use crate::core::PEER_VERSION_EPOCH_2_3;
 use crate::monitoring;
@@ -59,19 +66,10 @@ use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::GETPOXINV_MAX_BITLEN;
 use crate::net::*;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use crate::core::StacksEpoch;
 use crate::types::chainstate::PoxId;
 use crate::types::StacksPublicKeyBuffer;
-
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -2718,6 +2716,13 @@ mod test {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
 
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::uint::*;
+
+    use super::*;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;
@@ -2732,16 +2737,8 @@ mod test {
     use crate::net::p2p::*;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::util_lib::test::*;
-    use clarity::vm::costs::ExecutionCost;
-    use stacks_common::util::pipe::*;
-    use stacks_common::util::secp256k1::*;
-    use stacks_common::util::sleep_ms;
-    use stacks_common::util::uint::*;
-
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-
-    use super::*;
+    use crate::util_lib::test::*;
 
     const DEFAULT_SERVICES: u16 = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
     const STACKERDB_SERVICES: u16 = (ServiceFlags::RELAY as u16)

@@ -18,6 +18,7 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_check;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
@@ -27,7 +28,6 @@ use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
 
 #[test]
 fn test_argument_count_violations() {

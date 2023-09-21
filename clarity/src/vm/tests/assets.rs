@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
+
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
@@ -27,7 +30,6 @@ use crate::vm::tests::{
 use crate::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;
-use stacks_common::types::StacksEpochId;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))

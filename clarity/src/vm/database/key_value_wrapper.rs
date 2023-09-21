@@ -17,6 +17,12 @@
 use std::collections::HashMap;
 use std::{clone::Clone, cmp::Eq, hash::Hash};
 
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+
+use super::clarity_store::SpecialCaseHandler;
+use super::{ClarityBackingStore, ClarityDeserializable};
+use crate::types::chainstate::StacksBlockId;
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::InterpreterResult;
 use crate::vm::types::serialization::SerializationError;
@@ -24,13 +30,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{StacksEpoch, Value};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-
-use crate::types::chainstate::StacksBlockId;
-
-use super::clarity_store::SpecialCaseHandler;
-use super::{ClarityBackingStore, ClarityDeserializable};
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;

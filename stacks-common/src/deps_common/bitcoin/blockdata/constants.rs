@@ -140,13 +140,13 @@ pub fn genesis_block(network: Network) -> Block {
 
 #[cfg(test)]
 mod test {
-    use crate::util::hash::hex_bytes as hex_decode;
     use std::default::Default;
 
     use crate::deps_common::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
     use crate::deps_common::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
     use crate::deps_common::bitcoin::network::constants::Network;
     use crate::deps_common::bitcoin::network::serialize::{serialize, BitcoinHash};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn bitcoin_genesis_first_transaction() {

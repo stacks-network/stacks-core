@@ -9,7 +9,8 @@ use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::DelegateStxOp;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp, StackStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{
@@ -19,11 +20,11 @@ use stacks::core::{
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
+use stacks::vm::costs::ExecutionCost;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use stacks::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {
@@ -259,6 +260,27 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegIn(payload) => {
+                    BlockstackOperationType::PegIn(PegInOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegOutRequest(payload) => {
+                    BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegOutFulfill(payload) => {
+                    BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload

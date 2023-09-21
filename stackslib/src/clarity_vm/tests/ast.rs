@@ -1,19 +1,18 @@
-use crate::clarity_vm::{clarity::ClarityInstance, database::marf::MarfedKV};
 use clarity::vm::ast::build_ast;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::types::chainstate::StacksBlockId;
-
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::tests::test_clarity_versions;
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::version::ClarityVersion;
-use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::StacksEpochId;
-
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
+
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::{clarity::ClarityInstance, database::marf::MarfedKV};
 
 fn dependency_edge_counting_runtime(
     iters: usize,

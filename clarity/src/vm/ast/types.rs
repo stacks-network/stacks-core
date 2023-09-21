@@ -14,13 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{HashMap, HashSet};
+use std::vec::Drain;
+
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use crate::vm::{ClarityName, ClarityVersion};
-use std::collections::{HashMap, HashSet};
-use std::vec::Drain;
 
 pub trait BuildASTPass {
     fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()>;

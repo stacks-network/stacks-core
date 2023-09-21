@@ -14,19 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::tests::test_clarity_versions;
-
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 use crate::vm::{execute, ClarityVersion};
-use stacks_common::types::StacksEpochId;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();

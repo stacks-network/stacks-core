@@ -17,6 +17,12 @@
 use std::collections::BTreeMap;
 
 use rusqlite::Connection;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::uint::BitArray;
+use stacks_common::util::uint::Uint256;
+use stacks_common::util::uint::Uint512;
 
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
@@ -30,23 +36,16 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::core::*;
-use crate::util_lib::db::Error as db_error;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
-
-use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::core::*;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
-use stacks_common::types::chainstate::TrieHash;
+use crate::util_lib::db::Error as db_error;
 
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
@@ -443,22 +442,21 @@ impl BlockSnapshot {
 
 #[cfg(test)]
 mod test {
-    use crate::burnchains::tests::*;
-    use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::operations::*;
-    use crate::chainstate::stacks::*;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::vrf::VRFPrivateKey;
     use stacks_common::util::vrf::VRFPublicKey;
 
+    use super::*;
+    use crate::burnchains::tests::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::stacks::*;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
     use crate::types::chainstate::VRFSeed;
-
-    use super::*;
 
     fn test_make_snapshot(
         sort_tx: &mut SortitionHandleTx,

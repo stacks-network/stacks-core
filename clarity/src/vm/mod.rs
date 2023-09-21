@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-extern crate regex;
-
 pub mod diagnostic;
 pub mod errors;
 
@@ -51,44 +49,41 @@ pub mod test_util;
 
 pub mod clarity;
 
-use serde_json;
-
-// publish the non-generic StacksEpoch form for use throughout module
-use crate::types::StacksEpochId;
-pub use crate::vm::database::clarity_db::StacksEpoch;
-
-use crate::vm::callables::CallableType;
-use crate::vm::contexts::GlobalContext;
-pub use crate::vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
-use crate::vm::costs::{
-    cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
-    MemoryConsumer,
-};
-use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
-use crate::vm::functions::define::DefineResult;
-pub use crate::vm::types::Value;
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
-};
-
-pub use crate::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
-};
-
-pub use crate::vm::contexts::MAX_CONTEXT_DEPTH;
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-pub use crate::vm::functions::stx_transfer_consolidated;
-pub use crate::vm::version::ClarityVersion;
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
+
+use serde_json;
 
 use self::analysis::ContractAnalysis;
 use self::ast::ASTRules;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+// publish the non-generic StacksEpoch form for use throughout module
+use crate::types::StacksEpochId;
+use crate::vm::callables::CallableType;
+use crate::vm::contexts::GlobalContext;
+pub use crate::vm::contexts::MAX_CONTEXT_DEPTH;
+pub use crate::vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
+    cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
+    MemoryConsumer,
+};
+pub use crate::vm::database::clarity_db::StacksEpoch;
+use crate::vm::errors::{
+    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+use crate::vm::functions::define::DefineResult;
+pub use crate::vm::functions::stx_transfer_consolidated;
+pub use crate::vm::representations::{
+    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
+};
+pub use crate::vm::types::Value;
+use crate::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
+};
+pub use crate::vm::version::ClarityVersion;
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -587,6 +582,11 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+
+    use super::ClarityVersion;
     use crate::types::StacksEpochId;
     use crate::vm::callables::{DefineType, DefinedFunction};
     use crate::vm::costs::LimitedCostTracker;
@@ -599,11 +599,6 @@ mod test {
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
         Value,
     };
-    use std::collections::HashMap;
-
-    use super::ClarityVersion;
-
-    use stacks_common::consts::CHAIN_ID_TESTNET;
 
     #[test]
     fn test_simple_user_function() {

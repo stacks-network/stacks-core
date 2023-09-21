@@ -26,14 +26,7 @@ use ripemd::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 use sha2::Sha256;
-
-use crate::burnchains::Address;
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::core::SYSTEM_FORK_SET_VERSION;
-use crate::types::chainstate::TrieHash;
-use crate::util_lib::db::Error as db_error;
+pub use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Hash32;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -41,9 +34,14 @@ use stacks_common::util::log;
 use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
 
+use crate::burnchains::Address;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
-
-pub use stacks_common::types::chainstate::ConsensusHash;
+use crate::util_lib::db::Error as db_error;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -75,6 +73,9 @@ pub enum Opcodes {
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
+    PegIn = '<' as u8,
+    PegOutRequest = '>' as u8,
+    PegOutFulfill = '!' as u8,
 }
 
 // a burnchain block snapshot
@@ -184,6 +185,52 @@ impl SortitionHash {
             tmp[i] = b;
         }
         Uint256(tmp)
+    }
+}
+
+impl Opcodes {
+    const HTTP_BLOCK_COMMIT: &'static str = "block_commit";
+    const HTTP_KEY_REGISTER: &'static str = "key_register";
+    const HTTP_BURN_SUPPORT: &'static str = "burn_support";
+    const HTTP_STACK_STX: &'static str = "stack_stx";
+    const HTTP_PRE_STX: &'static str = "pre_stx";
+    const HTTP_TRANSFER_STX: &'static str = "transfer_stx";
+    const HTTP_DELEGATE_STX: &'static str = "delegate_stx";
+    const HTTP_PEG_IN: &'static str = "peg_in";
+    const HTTP_PEG_OUT_REQUEST: &'static str = "peg_out_request";
+    const HTTP_PEG_OUT_FULFILL: &'static str = "peg_out_fulfill";
+
+    pub fn to_http_str(&self) -> &'static str {
+        match self {
+            Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
+            Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
+            Opcodes::UserBurnSupport => Self::HTTP_BURN_SUPPORT,
+            Opcodes::StackStx => Self::HTTP_STACK_STX,
+            Opcodes::PreStx => Self::HTTP_PRE_STX,
+            Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
+            Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
+            Opcodes::PegIn => Self::HTTP_PEG_IN,
+            Opcodes::PegOutRequest => Self::HTTP_PEG_OUT_REQUEST,
+            Opcodes::PegOutFulfill => Self::HTTP_PEG_OUT_FULFILL,
+        }
+    }
+
+    pub fn from_http_str(input: &str) -> Option<Opcodes> {
+        let opcode = match input {
+            Self::HTTP_PEG_IN => Opcodes::PegIn,
+            Self::HTTP_PEG_OUT_REQUEST => Opcodes::PegOutRequest,
+            Self::HTTP_PEG_OUT_FULFILL => Opcodes::PegOutFulfill,
+            Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
+            Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
+            Self::HTTP_BURN_SUPPORT => Opcodes::UserBurnSupport,
+            Self::HTTP_STACK_STX => Opcodes::StackStx,
+            Self::HTTP_PRE_STX => Opcodes::PreStx,
+            Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
+            Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
+            _ => return None,
+        };
+
+        Some(opcode)
     }
 }
 
@@ -385,19 +432,18 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::stacks::index::TrieHashExtension;
-    use crate::util_lib::db::Error as db_error;
     use rusqlite::Connection;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::log;
 
-    use crate::types::chainstate::BurnchainHeaderHash;
-
     use super::*;
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::types::chainstate::BurnchainHeaderHash;
+    use crate::util_lib::db::Error as db_error;
 
     #[test]
     fn get_prev_consensus_hashes() {

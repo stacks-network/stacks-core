@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ClarityVersion;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -33,6 +32,7 @@ use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
+use crate::vm::ClarityVersion;
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).

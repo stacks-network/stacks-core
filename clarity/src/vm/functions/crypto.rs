@@ -14,6 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::util::hash;
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+
+use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -31,14 +39,6 @@ use crate::vm::types::{
     BUFF_33, BUFF_65,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-
-use crate::types::chainstate::StacksAddress;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {

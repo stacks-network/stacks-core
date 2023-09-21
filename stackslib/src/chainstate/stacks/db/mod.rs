@@ -36,6 +36,7 @@ use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;
 use clarity::vm::Value;
+use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;

@@ -25,9 +25,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+use stacks_common::address::*;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::sleep_ms;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
@@ -40,30 +47,18 @@ use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::miner::*;
+use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
-use crate::net::test::*;
-use crate::util_lib::db::Error as db_error;
-use clarity::vm::types::*;
-use stacks_common::address::*;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
-
+use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
+use crate::net::test::*;
 use crate::types::chainstate::SortitionId;
 use crate::util_lib::boot::boot_code_addr;
-
-use clarity::vm::costs::LimitedCostTracker;
-
-use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::tests::*;
-use crate::core::*;
-
-use stacks_common::util::hash::MerkleTree;
-
-use clarity::vm::clarity::ClarityConnection;
+use crate::util_lib::db::Error as db_error;
 
 // test that the bad (pre 2.1) microblock fee payment still works.  we have to support it for
 // eternity :(

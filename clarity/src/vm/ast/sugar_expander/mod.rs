@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
+
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
@@ -26,9 +29,6 @@ use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
 use crate::vm::ClarityVersion;
-
-use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,

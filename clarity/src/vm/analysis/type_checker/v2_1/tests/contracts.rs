@@ -17,8 +17,9 @@
 use std::convert::TryFrom;
 use std::fs::read_to_string;
 
-use assert_json_diff;
+use assert_json_diff::assert_json_eq;
 use serde_json;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
@@ -38,7 +39,6 @@ use crate::vm::{
     costs::LimitedCostTracker,
     ClarityVersion, SymbolicExpression,
 };
-use stacks_common::types::StacksEpochId;
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())

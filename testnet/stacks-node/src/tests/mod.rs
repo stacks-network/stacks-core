@@ -2,8 +2,8 @@ use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+use lazy_static::lazy_static;
 use rand::RngCore;
-
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
 use stacks::chainstate::stacks::{
@@ -15,6 +15,9 @@ use stacks::chainstate::stacks::{
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochExtension;
+use stacks::core::StacksEpochId;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::get_epoch_time_secs;
@@ -27,16 +30,12 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
 
+use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
+use super::Config;
 use crate::helium::RunLoop;
 use crate::tests::neon_integrations::get_chain_info;
 use crate::tests::neon_integrations::next_block_and_wait;
 use crate::BitcoinRegtestController;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
-
-use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
-use super::Config;
 
 mod atlas;
 mod bitcoin_regtest;

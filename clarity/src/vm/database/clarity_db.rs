@@ -17,6 +17,23 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
+use serde_json;
+use stacks_common::address::AddressHashMode;
+use stacks_common::consts::MINER_REWARD_MATURITY;
+use stacks_common::consts::{
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+};
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::Address;
+use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+
+use super::clarity_store::SpecialCaseHandler;
+use super::key_value_wrapper::ValueResult;
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
+use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
@@ -34,36 +51,12 @@ use crate::vm::errors::{
     RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
-use crate::vm::types::serialization::SerializationError;
+use crate::vm::types::byte_len_of_serialization;
 use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
     QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
-use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
-
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
-
-use crate::vm::types::byte_len_of_serialization;
-
-use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
-
-use stacks_common::consts::MINER_REWARD_MATURITY;
-use stacks_common::consts::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-
-use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::Address;
-
-use super::clarity_store::SpecialCaseHandler;
-use super::key_value_wrapper::ValueResult;
-
-use serde_json;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 

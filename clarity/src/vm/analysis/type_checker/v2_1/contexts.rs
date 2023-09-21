@@ -14,16 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::{CallableSubtype, FunctionSignature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-use crate::vm::contexts::MAX_CONTEXT_DEPTH;
-
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use crate::vm::analysis::types::ContractAnalysis;
 
 enum TraitContext {
     /// Traits stored in this context use the trait type-checking behavior defined in Clarity1

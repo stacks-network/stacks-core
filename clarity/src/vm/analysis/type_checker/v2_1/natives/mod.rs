@@ -14,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+
 use stacks_common::types::StacksEpochId;
 
 use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
     TypeResult, TypingContext,
 };
-use std::convert::TryFrom;
-
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
+    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
+};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
@@ -36,11 +40,6 @@ use crate::vm::types::{
     BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
-};
 
 mod assets;
 mod conversions;

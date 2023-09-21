@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::error;
+use std::fmt;
+
 use crate::vm::ast::parser::v2::lexer::error::LexerError;
 use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::{CostErrors, ExecutionCost};
@@ -21,8 +24,6 @@ use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
 use crate::vm::types::{TupleTypeSignature, TypeSignature};
 use crate::vm::MAX_CALL_STACK_DEPTH;
-use std::error;
-use std::fmt;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 

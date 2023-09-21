@@ -14,11 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::Error;
+use std::convert::TryFrom;
 
 use sha2::Digest;
 use sha2::Sha256;
-use std::convert::TryFrom;
+
+use super::Error;
 
 const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -370,12 +371,13 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod test {
+    use rand::Rng;
+
     use super::super::c32_old::{
         c32_address as c32_address_old, c32_address_decode as c32_address_decode_old,
     };
     use super::*;
     use crate::util::hash::hex_bytes;
-    use rand::Rng;
 
     #[test]
     fn old_c32_validation() {

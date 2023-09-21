@@ -28,10 +28,20 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
 use crate::burnchains::bitcoin::address::to_c32_version_byte;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddressType;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
@@ -52,42 +62,31 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, Sort
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
-    UserBurnSupportOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::MINING_COMMITMENT_WINDOW;
 use crate::core::NETWORK_ID_MAINNET;
 use crate::core::NETWORK_ID_TESTNET;
 use crate::core::PEER_VERSION_MAINNET;
 use crate::core::PEER_VERSION_TESTNET;
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::address::public_keys_to_address_hash;
-use stacks_common::address::AddressHashMode;
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, sleep_ms};
-
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
-use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -148,6 +147,15 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegIn(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegOutRequest(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::PegOutFulfill(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
@@ -895,6 +903,47 @@ impl Burnchain {
                     None
                 }
             }
+
+            x if x == Opcodes::PegIn as u8 => match PegInOp::from_tx(block_header, burn_tx) {
+                Ok(op) => Some(BlockstackOperationType::PegIn(op)),
+                Err(e) => {
+                    warn!("Failed to parse peg in tx";
+                        "txid" => %burn_tx.txid(),
+                        "data" => %to_hex(&burn_tx.data()),
+                        "error" => ?e,
+                    );
+                    None
+                }
+            },
+
+            x if x == Opcodes::PegOutRequest as u8 => {
+                match PegOutRequestOp::from_tx(block_header, burn_tx) {
+                    Ok(op) => Some(BlockstackOperationType::PegOutRequest(op)),
+                    Err(e) => {
+                        warn!("Failed to parse peg out request tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                }
+            }
+
+            x if x == Opcodes::PegOutFulfill as u8 => {
+                match PegOutFulfillOp::from_tx(block_header, burn_tx) {
+                    Ok(op) => Some(BlockstackOperationType::PegOutFulfill(op)),
+                    Err(e) => {
+                        warn!("Failed to parse peg in tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                }
+            }
+
             _ => None,
         }
     }

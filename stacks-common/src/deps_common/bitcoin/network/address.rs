@@ -137,10 +137,10 @@ impl Eq for Address {}
 
 #[cfg(test)]
 mod test {
-    use super::Address;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::str::FromStr;
 
+    use super::Address;
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]

@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Mutex;
 
+use lazy_static::lazy_static;
 use reqwest;
-
+use serde_json::json;
 use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksBlockHeader, StacksPrivateKey,
@@ -13,6 +14,8 @@ use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, Tra
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
 use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::core::PEER_VERSION_EPOCH_2_05;
 use stacks::core::PEER_VERSION_EPOCH_2_1;
@@ -21,6 +24,8 @@ use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResp
 use stacks::types::chainstate::{StacksAddress, VRFSeed};
 use stacks::util::hash::Sha256Sum;
 use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::vm::costs::ExecutionCost;
+use stacks::vm::types::StacksAddressExtensions;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -30,21 +35,15 @@ use stacks::vm::{
     Value,
 };
 use stacks::{burnchains::Address, vm::ClarityVersion};
-
-use crate::config::InitialBalance;
-use crate::helium::RunLoop;
-use crate::tests::make_sponsored_stacks_transfer_on_testnet;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochId;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::StacksAddressExtensions;
-
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
+use crate::config::InitialBalance;
+use crate::helium::RunLoop;
+use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 const OTHER_CONTRACT: &'static str = "
   (define-data-var x uint u0)

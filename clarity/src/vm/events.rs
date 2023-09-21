@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde_json::json;
+
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::analysis::ContractAnalysis;

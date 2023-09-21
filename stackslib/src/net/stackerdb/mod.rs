@@ -118,6 +118,18 @@ pub mod config;
 pub mod db;
 pub mod sync;
 
+use std::collections::{HashMap, HashSet};
+
+use clarity::vm::types::QualifiedContractIdentifier;
+use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
+
+use crate::net::neighbors::NeighborComms;
+use crate::net::p2p::PeerNetwork;
 use crate::net::Error as net_error;
 use crate::net::NackData;
 use crate::net::NackErrorCodes;
@@ -131,23 +143,7 @@ use crate::net::StackerDBGetChunkData;
 use crate::net::StackerDBPushChunkData;
 use crate::net::StacksMessage;
 use crate::net::StacksMessageType;
-
 use crate::util_lib::db::{DBConn, DBTx};
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::MessageSignature;
-use std::collections::{HashMap, HashSet};
-
-use crate::net::neighbors::NeighborComms;
-
-use crate::net::p2p::PeerNetwork;
-
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::get_epoch_time_secs;
-
-use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
-
-use clarity::vm::types::QualifiedContractIdentifier;
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;

@@ -44,6 +44,7 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 use serde::Serialize;
+use serde_json::json;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::codec::{read_next, write_next};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -95,6 +96,7 @@ use crate::util_lib::db::{
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
 use crate::util_lib::strings::StacksString;
+use crate::{types, util};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {

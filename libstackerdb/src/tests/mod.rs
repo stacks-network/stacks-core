@@ -14,18 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::types::chainstate::StacksAddress;
-
+use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
-use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-
 use crate::*;
-
-use clarity::vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_stackerdb_slot_metadata_sign_verify() {

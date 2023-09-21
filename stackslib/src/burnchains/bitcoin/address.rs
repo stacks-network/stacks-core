@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::Address;
 use stacks_common::address::b58 as base58;
 use stacks_common::address::c32::c32_address;
 use stacks_common::deps_common::bech32;
@@ -27,6 +24,9 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::log;
 
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::Address;
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -699,7 +699,6 @@ impl Address for BitcoinAddress {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use stacks_common::types::Address;
     use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::log;
@@ -707,6 +706,7 @@ mod tests {
     use super::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
     };
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
 
     struct AddressFixture {
         addr: String,

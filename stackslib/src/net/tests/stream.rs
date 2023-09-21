@@ -19,21 +19,17 @@ use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
-use crate::net::ExtendedStacksHeader;
-use crate::net::StreamCursor;
-
-use crate::util_lib::db::DBConn;
-
+use crate::chainstate::stacks::db::blocks::test::*;
+use crate::chainstate::stacks::db::test::instantiate_chainstate;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::chainstate::stacks::StacksBlock;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblock;
-
-use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::instantiate_chainstate;
-
 use crate::core::MemPoolDB;
+use crate::net::ExtendedStacksHeader;
+use crate::net::StreamCursor;
+use crate::util_lib::db::DBConn;
 
 fn stream_one_header_to_vec(
     blocks_conn: &DBConn,

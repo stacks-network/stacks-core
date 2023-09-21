@@ -16,6 +16,16 @@
 
 use std::ops::Deref;
 
+use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+use stacks_common::deps_common::bitcoin::network::message as btc_message;
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::bits;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -35,20 +45,9 @@ use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::{
     BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
 };
-use crate::deps;
-use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
-use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-use stacks_common::deps_common::bitcoin::network::message as btc_message;
-use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-
-use crate::types::chainstate::BurnchainHeaderHash;
-
 use crate::core::StacksEpochId;
+use crate::deps;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
@@ -548,6 +547,15 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::Address;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::log;
+
+    use super::BitcoinBlockParser;
     use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -557,17 +565,7 @@ mod tests {
     };
     use crate::burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
     use crate::core::StacksEpochId;
-    use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::types::Address;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::log;
-
     use crate::types::chainstate::BurnchainHeaderHash;
-
-    use super::BitcoinBlockParser;
 
     struct TxFixture {
         txstr: String,

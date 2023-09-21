@@ -14,8 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::net::db::PeerDB;
+use std::cmp;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::mem;
 
+use rand::prelude::*;
+use rand::thread_rng;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::LocalPeer;
+use crate::net::db::PeerDB;
+use crate::net::neighbors::NeighborCommsRequest;
+use crate::net::p2p::PeerNetwork;
 use crate::net::{
     neighbors::{
         NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey,
@@ -25,34 +46,6 @@ use crate::net::{
     NeighborAddress, NeighborKey, PeerAddress, Preamble, StackerDBHandshakeData, StacksMessage,
     StacksMessageType, NUM_NEIGHBORS,
 };
-
-use crate::net::neighbors::NeighborCommsRequest;
-
-use crate::net::connection::ConnectionOptions;
-use crate::net::connection::ReplyHandleP2P;
-
-use crate::net::db::LocalPeer;
-use crate::net::p2p::PeerNetwork;
-
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use std::cmp;
-use std::mem;
-
-use std::collections::HashMap;
-use std::collections::HashSet;
-
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::burnchains::PublicKey;
-
-use rand::prelude::*;
-use rand::thread_rng;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
 
 /// This struct records information from an inbound peer that has authenticated to this node.  As
 /// new remote nodes connect, this node will remember this state for them so that the neighbor walk

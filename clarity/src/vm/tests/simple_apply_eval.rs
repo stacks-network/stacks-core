@@ -16,9 +16,18 @@
 
 use rstest::rstest;
 use rstest_reuse::{self, *};
+use stacks_common::address::c32;
+use stacks_common::address::AddressHashMode;
+use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
-
 use crate::vm::ast::ASTRules;
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
@@ -36,15 +45,6 @@ use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
 };
 use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::{hex_bytes, to_hex};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

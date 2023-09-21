@@ -6,13 +6,12 @@ use stacks::chainstate::stacks::{
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::hash::{Hash160, Sha256Sum};
 use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
-
-use super::operations::BurnchainOpSigner;
-
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+
+use super::operations::BurnchainOpSigner;
 
 /// A wrapper around a node's seed, coupled with operations for using it
 #[derive(Clone)]
@@ -198,6 +197,11 @@ mod tests {
 
     use stacks::address::AddressHashMode;
     use stacks::burnchains::PrivateKey;
+    use stacks::chainstate::stacks::StacksTransaction;
+    use stacks::chainstate::stacks::TokenTransferMemo;
+    use stacks::chainstate::stacks::TransactionPayload;
+    use stacks::chainstate::stacks::TransactionPostConditionMode;
+    use stacks::chainstate::stacks::TransactionVersion;
     use stacks::chainstate::stacks::{
         StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
     };
@@ -205,16 +209,8 @@ mod tests {
     use stacks::util::hash::{Hash160, Sha256Sum};
     use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
-    use crate::operations::BurnchainOpSigner;
-
     use super::Keychain;
-
-    use stacks::chainstate::stacks::StacksTransaction;
-    use stacks::chainstate::stacks::TokenTransferMemo;
-    use stacks::chainstate::stacks::TransactionPayload;
-    use stacks::chainstate::stacks::TransactionPostConditionMode;
-    use stacks::chainstate::stacks::TransactionVersion;
-
+    use crate::operations::BurnchainOpSigner;
     use crate::stacks_common::types::Address;
 
     /// Legacy implementation; kept around for testing

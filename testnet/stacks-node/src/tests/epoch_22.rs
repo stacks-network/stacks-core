@@ -2,45 +2,39 @@ use std::collections::HashMap;
 use std::env;
 use std::thread;
 
+use clarity::vm::types::PrincipalData;
+use clarity::vm::ClarityVersion;
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::PoxConstants;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::chainstate::stacks::miner::signal_mining_ready;
+use stacks::clarity_cli::vm_execute as execute;
+use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::types::chainstate::StacksAddress;
 use stacks::types::PrivateKey;
+use stacks::util::sleep_ms;
+use stacks::util_lib::boot::boot_code_id;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use super::neon_integrations::get_account;
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
 use crate::neon;
 use crate::neon_node::StacksNode;
+use crate::stacks_common::types::Address;
+use crate::stacks_common::util::hash::bytes_to_hex;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::epoch_21::wait_pox_stragglers;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
-use stacks::core;
-
-use super::neon_integrations::get_account;
-use crate::stacks_common::types::Address;
-use crate::stacks_common::util::hash::bytes_to_hex;
-use stacks::burnchains::PoxConstants;
-
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use stacks::clarity_cli::vm_execute as execute;
-
-use clarity::vm::types::PrincipalData;
-use clarity::vm::ClarityVersion;
-
-use stacks::util::sleep_ms;
-
-use stacks::util_lib::boot::boot_code_id;
-use stacks_common::types::chainstate::StacksBlockId;
 
 #[test]
 #[ignore]

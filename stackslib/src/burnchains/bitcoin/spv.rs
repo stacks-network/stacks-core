@@ -20,6 +20,11 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::OptionalExtension;
+use rusqlite::Row;
+use rusqlite::Transaction;
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
 use stacks_common::deps_common::bitcoin::network::constants::Network;
@@ -29,7 +34,10 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
     deserialize, serialize, BitcoinHash,
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
 use stacks_common::util::uint::Uint256;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -37,22 +45,10 @@ use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::bitcoin::Error as btc_error;
 use crate::burnchains::bitcoin::PeerMessage;
-
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-
 use crate::util_lib::db::{
     query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql,
     DBConn, DBTx, Error as db_error, FromColumn, FromRow,
 };
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_common::util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -1318,10 +1314,7 @@ impl BitcoinMessageHandler for SpvClient {
 #[cfg(test)]
 mod test {
 
-    use super::*;
-    use crate::burnchains::bitcoin::Error as btc_error;
-    use crate::burnchains::bitcoin::*;
-
+    use std::env;
     use std::fs::*;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
@@ -1329,10 +1322,11 @@ mod test {
         deserialize, serialize, BitcoinHash,
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-
     use stacks_common::util::log;
 
-    use std::env;
+    use super::*;
+    use crate::burnchains::bitcoin::Error as btc_error;
+    use crate::burnchains::bitcoin::*;
 
     fn get_genesis_regtest_header() -> LoneBlockHeader {
         let genesis_regtest_header = LoneBlockHeader {
@@ -1797,11 +1791,12 @@ mod test {
 
     #[test]
     fn test_witness_size() {
+        use std::mem;
+
         use stacks_common::deps_common::bitcoin::blockdata::script::Script;
         use stacks_common::deps_common::bitcoin::blockdata::transaction::OutPoint;
         use stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn;
         use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-        use std::mem;
 
         println!("OutPoint size in memory {}", mem::size_of::<OutPoint>());
         println!("TxIn in memory {}", mem::size_of::<TxIn>());

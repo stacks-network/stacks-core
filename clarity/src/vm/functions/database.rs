@@ -17,9 +17,11 @@
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
-use crate::vm::functions::tuples;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::callables::DefineType;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
@@ -27,16 +29,13 @@ use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
 };
+use crate::vm::functions::tuples;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
     TupleData, TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::StacksEpochId;
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,

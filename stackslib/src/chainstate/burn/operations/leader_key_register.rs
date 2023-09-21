@@ -16,6 +16,11 @@
 
 use std::io::{Read, Write};
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
@@ -33,17 +38,12 @@ use crate::chainstate::stacks::StacksPrivateKey;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::DoubleSha256;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -233,6 +233,13 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, to_hex};
+    use stacks_common::util::log;
+
+    use super::*;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -246,15 +253,7 @@ pub mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::core::StacksEpochId;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::{hex_bytes, to_hex};
-    use stacks_common::util::log;
-
     use crate::types::chainstate::SortitionId;
-
-    use super::*;
 
     pub struct OpFixture {
         pub txstr: String,

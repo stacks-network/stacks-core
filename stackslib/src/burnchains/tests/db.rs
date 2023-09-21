@@ -14,10 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::address::StacksAddressExtensions;
 use std::cmp;
 use std::convert::TryInto;
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+use stacks_common::util::hash::*;
+
+use super::*;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::blocks::*;
@@ -28,18 +33,13 @@ use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_A
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::next_txid;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::StacksEpochId;
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use crate::types::chainstate::StacksAddress;
 use crate::util_lib::db::Error as DBError;
-use stacks_common::address::AddressHashMode;
-use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-use stacks_common::util::hash::*;
-
-use super::*;
 
 impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     fn read_burnchain_headers(

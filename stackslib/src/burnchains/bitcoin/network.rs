@@ -24,7 +24,6 @@ use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand::{thread_rng, Rng};
-
 use stacks_common::deps_common::bitcoin::network::address as btc_network_address;
 use stacks_common::deps_common::bitcoin::network::constants as btc_constants;
 use stacks_common::deps_common::bitcoin::network::encodable::{
@@ -35,17 +34,15 @@ use stacks_common::deps_common::bitcoin::network::message_blockdata as btc_messa
 use stacks_common::deps_common::bitcoin::network::message_network as btc_message_network;
 use stacks_common::deps_common::bitcoin::network::serialize as btc_serialize;
 use stacks_common::deps_common::bitcoin::network::serialize::{RawDecoder, RawEncoder};
-
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::log;
 
 use crate::burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::Error as btc_error;
 use crate::burnchains::bitcoin::PeerMessage;
 use crate::burnchains::indexer::BurnchainIndexer;
-
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::log;
 
 // Based on Andrew Poelstra's rust-bitcoin library.
 impl BitcoinIndexer {

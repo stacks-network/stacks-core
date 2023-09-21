@@ -1,13 +1,13 @@
 use clarity::vm::costs::ExecutionCost;
-
-use super::FeeRateEstimate;
-use super::{EstimatorError, FeeEstimator};
-use crate::chainstate::stacks::db::StacksEpochReceipt;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::thread_rng;
 use rand::RngCore;
 use rand::SeedableRng;
+
+use super::FeeRateEstimate;
+use super::{EstimatorError, FeeEstimator};
+use crate::chainstate::stacks::db::StacksEpochReceipt;
 
 /// The FeeRateFuzzer wraps an underlying FeeEstimator. It passes `notify_block` calls to the
 /// underlying estimator. On `get_rate_estimates` calls, it adds a random fuzz to the result coming

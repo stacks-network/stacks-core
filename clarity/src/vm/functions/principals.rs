@@ -1,3 +1,11 @@
+use std::convert::TryFrom;
+
+use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::util::hash::hex_bytes;
+
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
@@ -7,21 +15,13 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::representations::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 use crate::vm::types::{
     signatures::BUFF_1, signatures::BUFF_20, ASCIIData, BuffData, BufferLength, CharType,
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, ContractName, Environment, LocalContext};
-use stacks_common::util::hash::hex_bytes;
-use std::convert::TryFrom;
-
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-
-use crate::vm::representations::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,

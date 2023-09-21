@@ -34,6 +34,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
+use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::MAX_MESSAGE_LEN;

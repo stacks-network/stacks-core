@@ -18,8 +18,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
+use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
+use stacks_common::types::StacksEpochId;
 
 use crate::boot_util::boot_code_id;
 use crate::vm::ast::ContractAST;
@@ -35,7 +37,6 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
 
 pub mod constants;
 pub mod cost_functions;

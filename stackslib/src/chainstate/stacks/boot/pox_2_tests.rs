@@ -21,9 +21,11 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::vm::events::StacksTransactionEvent;
+use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
+use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::*;
 use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
@@ -37,11 +39,19 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+};
 use stacks_common::types::Address;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
+use super::{test::*, RawRewardSetEntry};
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::core::*;
 use crate::net::test::TestPeer;
 use crate::util_lib::boot::boot_code_id;
 use crate::{
@@ -53,16 +63,6 @@ use crate::{
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     net::test::TestEventObserver,
 };
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
-};
-
-use super::{test::*, RawRewardSetEntry};
-use crate::clarity_vm::clarity::Error as ClarityError;
-
-use crate::chainstate::burn::operations::*;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

@@ -20,23 +20,20 @@ use std::fmt;
 use std::fmt::Write;
 use std::mem;
 
-use crate::util::log;
-use crate::util::pair::*;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::HexError;
-
 use ripemd::Ripemd160;
-use sha2::{Digest, Sha256, Sha512, Sha512_256};
-use sha3::Keccak256;
-
-use crate::util::uint::Uint256;
-
-use crate::types::StacksPublicKeyBuffer;
-
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
+use sha2::{Digest, Sha256, Sha512, Sha512_256};
+use sha3::Keccak256;
+
+use crate::types::StacksPublicKeyBuffer;
+use crate::util::log;
+use crate::util::pair::*;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::uint::Uint256;
+use crate::util::HexError;
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {

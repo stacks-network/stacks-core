@@ -211,7 +211,6 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for RawNetworkMessage {
 #[cfg(test)]
 mod test {
     use super::{CommandString, NetworkMessage, RawNetworkMessage};
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]

@@ -23,12 +23,10 @@ use std::{char, str};
 use std::{cmp, fmt};
 
 use regex::Regex;
-
 use stacks_common::address::c32;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
-
-use stacks_common::types::chainstate::StacksAddress;
 
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -36,14 +34,12 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
-
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32,
     BUFF_33, BUFF_64, BUFF_65,
 };
-
 use crate::vm::ClarityVersion;
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -1421,6 +1417,15 @@ impl From<StandardPrincipalData> for StacksAddress {
         StacksAddress {
             version: o.0,
             bytes: hash::Hash160(o.1),
+        }
+    }
+}
+
+impl From<PrincipalData> for StacksAddress {
+    fn from(principal: PrincipalData) -> Self {
+        match principal {
+            PrincipalData::Standard(standard_principal) => standard_principal.into(),
+            PrincipalData::Contract(contract_principal) => contract_principal.issuer.into(),
         }
     }
 }

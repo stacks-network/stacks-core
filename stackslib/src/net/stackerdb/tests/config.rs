@@ -14,28 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::burnchains::Burnchain;
-use crate::core::StacksEpochExtension;
-use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-
-use crate::chainstate::stacks::boot::test::{
-    instantiate_pox_peer, instantiate_pox_peer_with_epoch,
-};
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::StacksTransactionSigner;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionVersion;
-
-use crate::net::test::TestEventObserver;
-use crate::net::Error as net_error;
-use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
-use crate::net::StackerDBConfig;
-
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
-
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::StacksAddress;
@@ -44,7 +25,22 @@ use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::types::StacksEpoch;
 use stacks_common::util::hash::Hash160;
 
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::burnchains::Burnchain;
+use crate::chainstate::stacks::boot::test::{
+    instantiate_pox_peer, instantiate_pox_peer_with_epoch,
+};
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::StacksTransactionSigner;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionVersion;
+use crate::core::StacksEpochExtension;
+use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use crate::net::test::TestEventObserver;
+use crate::net::Error as net_error;
+use crate::net::NeighborAddress;
+use crate::net::PeerAddress;
+use crate::net::StackerDBConfig;
 
 fn make_smart_contract(
     name: &str,

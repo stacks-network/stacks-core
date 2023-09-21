@@ -18,6 +18,14 @@ use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::uint::BitArray;
+use stacks_common::util::uint::Uint256;
+use stacks_common::util::uint::Uint512;
+use stacks_common::util::vrf::VRFPublicKey;
+
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::PublicKey;
@@ -30,13 +38,6 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::MINING_COMMITMENT_WINDOW;
 use crate::monitoring;
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
-use stacks_common::util::vrf::VRFPublicKey;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
@@ -405,6 +406,19 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
+
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::log;
+    use stacks_common::util::uint::BitArray;
+    use stacks_common::util::uint::Uint256;
+    use stacks_common::util::uint::Uint512;
+    use stacks_common::util::vrf::*;
+
+    use super::BurnSamplePoint;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -422,21 +436,8 @@ mod tests {
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::log;
-    use stacks_common::util::uint::BitArray;
-    use stacks_common::util::uint::Uint256;
-    use stacks_common::util::uint::Uint512;
-    use stacks_common::util::vrf::*;
-    use std::marker::PhantomData;
-
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, VRFSeed};
-
-    use super::BurnSamplePoint;
 
     struct BurnDistFixture {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,

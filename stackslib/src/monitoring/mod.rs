@@ -14,9 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+use std::error::Error;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::{fmt, fs, path::PathBuf};
 
+use clarity::vm::costs::ExecutionCost;
+use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
+use stacks_common::util::uint::{Uint256, Uint512};
 
 use crate::burnchains::BurnchainSigner;
 use crate::util_lib::db::sqlite_open;
@@ -28,12 +35,6 @@ use crate::{
     util::get_epoch_time_secs,
     util_lib::db::{tx_busy_handler, DBConn},
 };
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::uint::{Uint256, Uint512};
-use std::convert::TryInto;
-use std::error::Error;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

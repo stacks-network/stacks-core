@@ -21,24 +21,12 @@ use std::io::prelude::*;
 use std::io::Read;
 use std::mem;
 
+use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
 use rand;
 use rand::Rng;
 use sha2::Digest;
 use sha2::Sha512_256;
-
-use crate::burnchains::BurnchainView;
-use crate::burnchains::PrivateKey;
-use crate::burnchains::PublicKey;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::StacksBlock;
-use crate::chainstate::stacks::StacksMicroblock;
-use crate::chainstate::stacks::StacksPublicKey;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::MAX_BLOCK_LEN;
-use crate::core::PEER_VERSION_TESTNET;
-use crate::net::db::LocalPeer;
-use crate::net::Error as net_error;
-use crate::net::*;
 use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::DoubleSha256;
@@ -50,16 +38,26 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksBlock;
+use crate::chainstate::stacks::StacksMicroblock;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
     PREAMBLE_ENCODED_SIZE,
 };
+use crate::core::PEER_VERSION_TESTNET;
+use crate::net::db::LocalPeer;
+use crate::net::Error as net_error;
+use crate::net::*;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::StacksPublicKeyBuffer;
-
-use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
-use clarity::vm::ContractName;
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.

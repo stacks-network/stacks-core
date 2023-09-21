@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::{cmp, fs, io, path::Path};
 
 use rusqlite::{
     types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
 };
 use serde_json;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::Txid;
@@ -30,16 +30,13 @@ use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error a
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::core::StacksEpochId;
 use crate::util_lib::db::{
     opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,
     tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
-
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-
-use crate::core::StacksEpochId;
 
 pub struct BurnchainDB {
     conn: Connection,

@@ -21,27 +21,11 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate rand;
-extern crate rand_chacha;
-extern crate rusqlite;
-extern crate serde;
-#[macro_use]
-extern crate lazy_static;
-extern crate integer_sqrt;
-extern crate regex;
-extern crate time;
-
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
-
-#[cfg(test)]
-#[macro_use]
-extern crate assert_json_diff;
 
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
@@ -51,21 +35,17 @@ extern crate rstest;
 #[macro_use]
 pub extern crate rstest_reuse;
 
-#[cfg(feature = "monitoring_prom")]
 #[macro_use]
-pub extern crate prometheus;
-
-#[macro_use]
-pub extern crate stacks_common;
-pub use stacks_common::{
-    impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
-    impl_byte_array_serde,
-};
+extern crate stacks_common;
 
 pub use stacks_common::codec;
 pub use stacks_common::consts;
 pub use stacks_common::types;
 pub use stacks_common::util;
+pub use stacks_common::{
+    impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
+    impl_byte_array_serde,
+};
 
 #[macro_use]
 /// The Clarity virtual machine
@@ -77,10 +57,12 @@ pub use stacks_common::address;
 // pub mod core;
 
 pub mod boot_util {
+    use std::convert::TryFrom;
+
+    use stacks_common::types::chainstate::StacksAddress;
+
     use crate::vm::representations::ContractName;
     use crate::vm::types::QualifiedContractIdentifier;
-    use stacks_common::types::chainstate::StacksAddress;
-    use std::convert::TryFrom;
 
     pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
         let addr = boot_code_addr(mainnet);

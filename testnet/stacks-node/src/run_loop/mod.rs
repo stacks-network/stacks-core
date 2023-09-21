@@ -5,8 +5,10 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
+use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionSpendingCondition,
@@ -14,8 +16,6 @@ use stacks::chainstate::stacks::{
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
-use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::EventDispatcher;
 use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
 

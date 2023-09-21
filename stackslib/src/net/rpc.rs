@@ -24,21 +24,53 @@ use std::net::SocketAddr;
 use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
+use clarity::vm::database::clarity_store::make_contract_hash_key;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::ClarityVersion;
+use clarity::vm::{
+    analysis::errors::CheckErrors,
+    ast::ASTRules,
+    costs::{ExecutionCost, LimitedCostTracker},
+    database::{
+        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
+        STXBalance, StoreType,
+    },
+    errors::Error as ClarityRuntimeError,
+    errors::Error::Unchecked,
+    errors::InterpreterError,
+    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
+    ClarityName, ContractName, SymbolicExpression, Value,
+};
+use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
+use serde_json::json;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::secp256k1::MessageSignature;
 
+use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
 use crate::chainstate::stacks::Error as chain_error;
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
@@ -57,6 +89,7 @@ use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBTx;
 use crate::net::stackerdb::StackerDBs;
 use crate::net::BlocksDatum;
+use crate::net::BurnchainOps;
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
 use crate::net::HttpRequestType;
@@ -94,48 +127,13 @@ use crate::net::{
     RPCPoxInfoData,
 };
 use crate::net::{RPCNeighbor, RPCNeighborsInfo};
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
-use clarity::vm::database::clarity_store::make_contract_hash_key;
-use clarity::vm::types::TraitIdentifier;
-use clarity::vm::ClarityVersion;
-use clarity::vm::{
-    analysis::errors::CheckErrors,
-    ast::ASTRules,
-    costs::{ExecutionCost, LimitedCostTracker},
-    database::{
-        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
-        STXBalance, StoreType,
-    },
-    errors::Error as ClarityRuntimeError,
-    errors::Error::Unchecked,
-    errors::InterpreterError,
-    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
-    ClarityName, ContractName, SymbolicExpression, Value,
-};
-use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::clarity_vm::database::marf::MarfedKV;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::secp256k1::MessageSignature;
-
-use crate::clarity_vm::clarity::Error as clarity_error;
-
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
-
-use crate::util_lib::boot::boot_code_id;
-
-use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -776,6 +774,86 @@ impl ConversationHttp {
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
+        response.send(http, fd)
+    }
+
+    fn response_get_burn_ops(
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<HttpResponseType, net_error> {
+        let response_metadata = HttpResponseMetadata::from_http_request_type(req, None);
+        let handle = sortdb.index_handle_at_tip();
+        let burn_header_hash = match handle.get_block_snapshot_by_height(burn_block_height) {
+            Ok(Some(snapshot)) => snapshot.burn_header_hash,
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!("Could not find burn block at height {}", burn_block_height),
+                ));
+            }
+        };
+
+        let response = match op_type {
+            Opcodes::PegIn => {
+                SortitionDB::get_peg_in_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegIn(ops),
+                    )
+                })
+            }
+            Opcodes::PegOutRequest => {
+                SortitionDB::get_peg_out_request_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegOutRequest(ops),
+                    )
+                })
+            }
+            Opcodes::PegOutFulfill => {
+                SortitionDB::get_peg_out_fulfill_ops(sortdb.conn(), &burn_header_hash).map(|ops| {
+                    HttpResponseType::GetBurnchainOps(
+                        response_metadata.clone(),
+                        BurnchainOps::PegOutFulfill(ops),
+                    )
+                })
+            }
+            _ => {
+                return Ok(HttpResponseType::NotFound(
+                    response_metadata,
+                    format!(
+                        "Burnchain operation {:?} is not supported by this endpoint",
+                        op_type
+                    ),
+                ));
+            }
+        };
+
+        response.or_else(|e| {
+            Ok(HttpResponseType::NotFound(
+                response_metadata,
+                format!(
+                    "Failure fetching {:?} operations from the sortition db: {}",
+                    op_type, e
+                ),
+            ))
+        })
+    }
+
+    /// Handle a GET for the burnchain operations at a particular
+    /// burn block height
+    fn handle_get_burn_ops<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        burn_block_height: u64,
+        op_type: &Opcodes,
+    ) -> Result<(), net_error> {
+        let response = Self::response_get_burn_ops(req, sortdb, burn_block_height, op_type)?;
+
         response.send(http, fd)
     }
 
@@ -3281,6 +3359,19 @@ impl ConversationHttp {
                     .map(|_| ())?;
                 None
             }
+            HttpRequestType::GetBurnOps {
+                height, ref opcode, ..
+            } => {
+                Self::handle_get_burn_ops(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    height,
+                    opcode,
+                )?;
+                None
+            }
         };
 
         match stream_opt {
@@ -3998,6 +4089,18 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
+    use clarity::vm::types::*;
+    use clarity::vm::types::*;
+    use libstackerdb::SlotMetadata;
+    use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
+    use stacks_common::address::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::pipe::*;
+
+    use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::Burnchain;
     use crate::burnchains::BurnchainView;
@@ -4008,27 +4111,16 @@ mod test {
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::test::*;
     use crate::chainstate::stacks::Error as chain_error;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::chainstate::stacks::*;
+    use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
     use crate::net::codec::*;
     use crate::net::http::*;
     use crate::net::stream::*;
     use crate::net::test::*;
     use crate::net::*;
-    use clarity::vm::types::*;
-    use libstackerdb::SlotMetadata;
-    use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
-    use stacks_common::address::*;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
-    use stacks_common::util::pipe::*;
-
-    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
-
-    use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
-
-    use super::*;
 
     const TEST_CONTRACT: &'static str = "
         (define-constant cst 123)

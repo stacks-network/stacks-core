@@ -19,24 +19,24 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::*;
-use crate::core::*;
-use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ClarityVersion;
 use clarity::vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 
+use crate::burnchains::Txid;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::*;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::chainstate::StacksAddress;
-use clarity::vm::ClarityVersion;
+use crate::types::StacksPublicKeyBuffer;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -1071,6 +1071,14 @@ impl StacksTransactionSigner {
 mod test {
     use std::error::Error;
 
+    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use stacks_common::util::hash::*;
+    use stacks_common::util::log;
+    use stacks_common::util::retry::BoundReader;
+    use stacks_common::util::retry::LogReader;
+
+    use super::*;
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::StacksPublicKey as PubKey;
     use crate::chainstate::stacks::*;
@@ -1080,14 +1088,6 @@ mod test {
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
     use crate::net::*;
-    use clarity::vm::representations::{ClarityName, ContractName};
-    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-    use stacks_common::util::hash::*;
-    use stacks_common::util::log;
-    use stacks_common::util::retry::BoundReader;
-    use stacks_common::util::retry::LogReader;
-
-    use super::*;
 
     fn corrupt_auth_field(
         corrupt_auth_fields: &TransactionAuth,

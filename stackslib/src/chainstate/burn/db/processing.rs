@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
+
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
@@ -34,10 +38,6 @@ use crate::chainstate::stacks::index::{
 };
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 use crate::util_lib::db::Error as DBError;
-use stacks_common::address::AddressHashMode;
-
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -102,6 +102,27 @@ impl<'a> SortitionHandleTx<'a> {
             BlockstackOperationType::DelegateStx(ref op) => op.check().map_err(|e| {
                 warn!(
                     "REJECTED({}) delegate stx op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PegIn(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) peg in op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PegOutRequest(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) peg out request op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::PegOutFulfill(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) peg out fulfill op {} at {},{}: {:?}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex, &e
                 );
                 BurnchainError::OpError(e)
@@ -367,6 +388,9 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
+
+    use super::*;
     use crate::burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::{tests::test_append_snapshot, SortitionDB};
@@ -378,11 +402,7 @@ mod tests {
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
-    use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
-
     use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
-
-    use super::*;
 
     #[test]
     fn test_initial_block_reward() {

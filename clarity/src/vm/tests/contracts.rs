@@ -14,6 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(any(test, feature = "testing"))]
+use rstest::rstest;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::Environment;
@@ -29,11 +34,6 @@ use crate::vm::types::{
     TypeSignature, Value,
 };
 use crate::vm::ClarityVersion;
-#[cfg(any(test, feature = "testing"))]
-use rstest::rstest;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::StacksEpochId;
-
 use crate::vm::ContractContext;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })

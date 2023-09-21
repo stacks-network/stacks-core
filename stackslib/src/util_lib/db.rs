@@ -26,6 +26,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
@@ -39,8 +40,6 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 use serde_json::Error as serde_error;
-
-use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;

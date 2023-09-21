@@ -17,7 +17,10 @@ use std::collections::HashMap;
 use std::env;
 use std::thread;
 
+use clarity::vm::types::PrincipalData;
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::PoxConstants;
+use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
@@ -31,11 +34,6 @@ use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
-use stacks::core;
-
-use stacks::burnchains::PoxConstants;
-
-use clarity::vm::types::PrincipalData;
 
 #[test]
 #[ignore]
