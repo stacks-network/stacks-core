@@ -186,7 +186,7 @@ fn handle_dkg(args: RunDkgArgs) {
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_sign(args: SignArgs) {
@@ -202,7 +202,7 @@ fn handle_sign(args: SignArgs) {
         .unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_dkg_sign(args: SignArgs) {
@@ -222,17 +222,14 @@ fn handle_dkg_sign(args: SignArgs) {
     process_dkg_result(&dkg_res);
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_run(args: RunDkgArgs) {
     debug!("Running signer...");
     let _spawned_signer = spawn_running_signer(&args.config);
     println!("Signer spawned successfully. Waiting for messages to process...");
-    loop {
-        std::thread::sleep(Duration::from_secs(20));
-        debug!("Signer still running...");
-    }
+    loop {}
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
