@@ -93,7 +93,7 @@ pub struct PutChunkArgs {
     pub slot_version: u32,
     /// The data to upload
     #[arg(required = false, value_parser = parse_data)]
-    pub data: Vec<u8>,
+    pub data: String,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -104,7 +104,7 @@ pub struct SignArgs {
     pub config: PathBuf,
     /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
-    pub data: Vec<u8>,
+    pub data: String,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -156,14 +156,14 @@ fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
 }
 
 /// Parse the input data
-fn parse_data(data: &str) -> Result<Vec<u8>, String> {
+fn parse_data(data: &str) -> Result<String, String> {
     let data = if data == "-" {
         // Parse the data from stdin
-        let mut buf = vec![];
-        io::stdin().read_to_end(&mut buf).unwrap();
-        buf
+        let mut data = String::new();
+        io::stdin().read_to_string(&mut data).unwrap();
+        data
     } else {
-        data.as_bytes().to_vec()
+        data.to_string()
     };
     Ok(data)
 }
