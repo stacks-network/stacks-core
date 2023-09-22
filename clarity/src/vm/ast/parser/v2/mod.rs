@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = nodes.drain(..).collect();
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
-                            e.copy_span(&span);
+                            e.copy_span(span);
                             Ok(Some(e))
                         }
                         Token::Eof => {
@@ -255,7 +255,7 @@ impl<'a> Parser<'a> {
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = nodes.drain(..).collect();
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
-                            e.copy_span(&span);
+                            e.copy_span(span);
                             Ok(Some(e))
                         }
                         _ => {
