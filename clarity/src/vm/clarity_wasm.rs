@@ -1135,6 +1135,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_define_variable_fn(linker)?;
     link_define_ft_fn(linker)?;
     link_define_nft_fn(linker)?;
+    link_define_map_fn(linker)?;
 
     link_get_variable_fn(linker)?;
     link_set_variable_fn(linker)?;
@@ -1380,6 +1381,86 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_nft".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "define_map",
+            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let cname = ClarityName::try_from(name.clone())?;
+
+                let (key_type, value_type) = caller
+                    .data()
+                    .contract_analysis
+                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .get_map_type(&name)
+                    .ok_or(Error::Unchecked(CheckErrors::BadMapTypeDefinition))?;
+
+                // runtime_cost(
+                //     ClarityCostFunction::CreateMap,
+                //     global_context,
+                //     u64::from(key_type.size()).cost_overflow_add(u64::from(value_type.size()))?,
+                // )?;
+
+                caller
+                    .data_mut()
+                    .contract_context_mut()?
+                    .persisted_names
+                    .insert(cname.clone());
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(
+                        key_type
+                            .type_size()
+                            .expect("type size should be realizable")
+                            as u64,
+                    )
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(
+                        value_type
+                            .type_size()
+                            .expect("type size should be realizable")
+                            as u64,
+                    )
+                    .map_err(|e| Error::from(e))?;
+
+                let contract_identifier = caller
+                    .data_mut()
+                    .contract_context()
+                    .contract_identifier
+                    .clone();
+
+                let data_type = caller.data_mut().global_context.database.create_map(
+                    &contract_identifier,
+                    &name,
+                    key_type.clone(),
+                    value_type.clone(),
+                );
+
+                caller
+                    .data_mut()
+                    .contract_context_mut()?
+                    .meta_data_map
+                    .insert(cname, data_type);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_map".to_string(),
                 e,
             ))
         })
