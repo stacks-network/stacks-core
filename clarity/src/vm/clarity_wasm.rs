@@ -1155,7 +1155,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_stx_burn_fn(linker)?;
     link_stx_transfer_fn(linker)?;
     link_ft_get_supply_fn(linker)?;
-    // link_ft_get_balance_fn(linker)?;
+    link_ft_get_balance_fn(linker)?;
     // link_ft_burn_fn(linker)?;
     // link_ft_mint_fn(linker)?;
     // link_ft_transfer_fn(linker)?;
@@ -1262,6 +1262,14 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
              supply_indicator: i32,
              supply_lo: i64,
              supply_hi: i64| {
+                // runtime_cost(ClarityCostFunction::CreateFt, global_context, 0)?;
+
+                let contract_identifier = caller
+                    .data_mut()
+                    .contract_context()
+                    .contract_identifier
+                    .clone();
+
                 let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
                 let cname = ClarityName::try_from(name.clone())?;
 
@@ -1270,8 +1278,6 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                 } else {
                     None
                 };
-
-                // runtime_cost(ClarityCostFunction::CreateFt, global_context, 0)?;
 
                 caller
                     .data_mut()
@@ -1289,12 +1295,6 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                             as u64,
                     )
                     .map_err(|e| Error::from(e))?;
-
-                let contract_identifier = caller
-                    .data_mut()
-                    .contract_context()
-                    .contract_identifier
-                    .clone();
                 let data_type = caller
                     .data_mut()
                     .global_context
@@ -1325,6 +1325,14 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
             "clarity",
             "define_nft",
             |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+                // runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size())?;
+
+                let contract_identifier = caller
+                    .data_mut()
+                    .contract_context()
+                    .contract_identifier
+                    .clone();
+
                 let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
                 let cname = ClarityName::try_from(name.clone())?;
 
@@ -1336,8 +1344,6 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .non_fungible_tokens
                     .get(&cname)
                     .ok_or(Error::Unchecked(CheckErrors::DefineNFTBadSignature))?;
-
-                // runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size())?;
 
                 caller
                     .data_mut()
@@ -1355,12 +1361,6 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                             as u64,
                     )
                     .map_err(|e| Error::from(e))?;
-
-                let contract_identifier = caller
-                    .data_mut()
-                    .contract_context()
-                    .contract_identifier
-                    .clone();
 
                 let data_type = caller
                     .data_mut()
@@ -1392,6 +1392,18 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
             "clarity",
             "define_map",
             |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+                // runtime_cost(
+                //     ClarityCostFunction::CreateMap,
+                //     global_context,
+                //     u64::from(key_type.size()).cost_overflow_add(u64::from(value_type.size()))?,
+                // )?;
+
+                let contract_identifier = caller
+                    .data_mut()
+                    .contract_context()
+                    .contract_identifier
+                    .clone();
+
                 let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
                 let cname = ClarityName::try_from(name.clone())?;
 
@@ -1401,12 +1413,6 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                     .get_map_type(&name)
                     .ok_or(Error::Unchecked(CheckErrors::BadMapTypeDefinition))?;
-
-                // runtime_cost(
-                //     ClarityCostFunction::CreateMap,
-                //     global_context,
-                //     u64::from(key_type.size()).cost_overflow_add(u64::from(value_type.size()))?,
-                // )?;
 
                 caller
                     .data_mut()
@@ -1434,12 +1440,6 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                             as u64,
                     )
                     .map_err(|e| Error::from(e))?;
-
-                let contract_identifier = caller
-                    .data_mut()
-                    .contract_context()
-                    .contract_identifier
-                    .clone();
 
                 let data_type = caller.data_mut().global_context.database.create_map(
                     &contract_identifier,
@@ -2334,11 +2334,13 @@ fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
             "clarity",
             "ft_get_supply",
             |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
-                // Retrieve the token name
-                let token_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
-
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
+
+                // runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
+
+                // Retrieve the token name
+                let token_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
 
                 let supply = caller
                     .data_mut()
@@ -2355,6 +2357,65 @@ fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_get_supply".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "ft_get_balance",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             owner_offset: i32,
+             owner_length: i32| {
+                // runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
+
+                // Retrieve the token name
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let token_name = ClarityName::try_from(name.clone())?;
+
+                let contract_identifier =
+                    caller.data().contract_context().contract_identifier.clone();
+
+                // Read the owner principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    owner_offset,
+                    owner_length,
+                )?;
+                let owner = value_as_principal(&value)?;
+
+                let ft_info = caller
+                    .data()
+                    .contract_context()
+                    .meta_ft
+                    .get(&token_name)
+                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .clone();
+
+                let balance = caller.data_mut().global_context.database.get_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    owner,
+                    Some(&ft_info),
+                )?;
+
+                let high = (balance >> 64) as u64;
+                let low = (balance & 0xffff_ffff_ffff_ffff) as u64;
+
+                // (ok balance)
+                Ok((1i32, low, high))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "ft_get_balance".to_string(),
                 e,
             ))
         })
