@@ -897,8 +897,10 @@ fn reserve_space_for_return<T>(
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
-            todo!("Return type not yet implemented: {:?}", return_type)
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(buffer_length)) => {
+            let length: u32 = buffer_length.into();
+            // Return values will be offset and length
+            Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Return type not yet implemented: {:?}", return_type)
@@ -1043,8 +1045,18 @@ fn wasm_to_clarity_value(
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
-            todo!("Wasm value type not implemented: {:?}", type_sig)
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(_buffer_length)) => {
+            let offset = buffer[value_index]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let length = buffer[value_index + 1]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let mut buff: Vec<u8> = vec![0; length as usize];
+            memory
+                .read(store.borrow_mut(), offset as usize, &mut buff)
+                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+            Ok((Some(Value::buff_from(buff)?), 2))
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
