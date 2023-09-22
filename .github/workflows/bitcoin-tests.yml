@@ -31,6 +31,7 @@ jobs:
       - name: Reclaim disk space
         id: cleanup
         run: |
+          sudo apt-get update
           sudo apt-get remove -y '^dotnet-.*'
           sudo apt-get remove -y '^llvm-.*'
           sudo apt-get remove -y 'php.*'
