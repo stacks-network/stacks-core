@@ -1157,7 +1157,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_ft_get_supply_fn(linker)?;
     link_ft_get_balance_fn(linker)?;
     link_ft_burn_fn(linker)?;
-    // link_ft_mint_fn(linker)?;
+    link_ft_mint_fn(linker)?;
     // link_ft_transfer_fn(linker)?;
     // link_nft_get_owner_fn(linker)?;
     // link_nft_burn_fn(linker)?;
@@ -2534,6 +2534,117 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_burn".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "ft_mint",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             amount_lo: i64,
+             amount_hi: i64,
+             sender_offset: i32,
+             sender_length: i32| {
+                // runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
+
+                let contract_identifier =
+                    caller.data().contract_context().contract_identifier.clone();
+
+                // Retrieve the token name
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let token_name = ClarityName::try_from(name.clone())?;
+
+                // Compute the amount
+                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+
+                // Read the sender principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    sender_offset,
+                    sender_length,
+                )?;
+                let to_principal = value_as_principal(&value)?;
+
+                if amount == 0 {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        MintTokenErrorCodes::NON_POSITIVE_AMOUNT as i64,
+                        0i64,
+                    ));
+                }
+
+                let ft_info = caller
+                    .data()
+                    .contract_context()
+                    .meta_ft
+                    .get(token_name.as_str())
+                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .clone();
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .checked_increase_token_supply(
+                        &contract_identifier,
+                        token_name.as_str(),
+                        amount,
+                        &ft_info,
+                    )?;
+
+                let to_bal = caller.data_mut().global_context.database.get_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    to_principal,
+                    Some(&ft_info),
+                )?;
+
+                let final_to_bal = to_bal.checked_add(amount).expect("STX overflow");
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                caller.data_mut().global_context.database.set_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    to_principal,
+                    final_to_bal,
+                )?;
+
+                let asset_identifier = AssetIdentifier {
+                    contract_identifier: contract_identifier.clone(),
+                    asset_name: token_name.clone(),
+                };
+                caller.data_mut().register_ft_mint_event(
+                    to_principal.clone(),
+                    amount,
+                    asset_identifier,
+                )?;
+
+                // (ok true)
+                Ok((1i32, 1i32, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "ft_mint".to_string(),
                 e,
             ))
         })
