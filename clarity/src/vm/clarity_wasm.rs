@@ -1173,7 +1173,11 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         .func_wrap(
             "clarity",
             "define_variable",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             value_offset: i32,
+             value_length: i32| {
                 // TODO: Include this cost
                 // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
 
@@ -1191,6 +1195,9 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
 
+                // Read the initial value from the memory
+                let value = read_from_wasm(&mut caller, &value_type, value_offset, value_length)?;
+
                 caller
                     .data_mut()
                     .contract_context_mut()?
@@ -1206,7 +1213,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 caller
                     .data_mut()
                     .global_context
-                    .add_memory(value_type.size() as u64)
+                    .add_memory(value.size() as u64)
                     .map_err(|e| Error::from(e))?;
 
                 // Create the variable in the global context
@@ -1215,6 +1222,14 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     name.as_str(),
                     value_type,
                 );
+
+                // Store the variable in the global context
+                caller.data_mut().global_context.database.set_variable(
+                    &contract,
+                    name.as_str(),
+                    value,
+                    &data_types,
+                )?;
 
                 // Save the metadata for this variable in the contract context
                 caller
