@@ -24,7 +24,7 @@ StackerDB replicas in their config files.
 
 ### Changed
 
-- `developer-mode` is not longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
+- `developer-mode` is no longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
 
 ### Fixed
 
