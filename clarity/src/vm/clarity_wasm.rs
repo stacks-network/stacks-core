@@ -1156,7 +1156,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_stx_transfer_fn(linker)?;
     link_ft_get_supply_fn(linker)?;
     link_ft_get_balance_fn(linker)?;
-    // link_ft_burn_fn(linker)?;
+    link_ft_burn_fn(linker)?;
     // link_ft_mint_fn(linker)?;
     // link_ft_transfer_fn(linker)?;
     // link_nft_get_owner_fn(linker)?;
@@ -2416,6 +2416,124 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_get_balance".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "ft_burn",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             amount_lo: i64,
+             amount_hi: i64,
+             sender_offset: i32,
+             sender_length: i32| {
+                // runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
+
+                let contract_identifier =
+                    caller.data().contract_context().contract_identifier.clone();
+
+                // Retrieve the token name
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let token_name = ClarityName::try_from(name.clone())?;
+
+                // Compute the amount
+                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+
+                // Read the sender principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    sender_offset,
+                    sender_length,
+                )?;
+                let burner = value_as_principal(&value)?;
+
+                if amount == 0 {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE as i64,
+                        0i64,
+                    ));
+                }
+
+                let burner_bal = caller.data_mut().global_context.database.get_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    burner,
+                    None,
+                )?;
+
+                if amount > burner_bal {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE as i64,
+                        0i64,
+                    ));
+                }
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .checked_decrease_token_supply(
+                        &contract_identifier,
+                        token_name.as_str(),
+                        amount,
+                    )?;
+
+                let final_burner_bal = burner_bal - amount;
+
+                caller.data_mut().global_context.database.set_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    burner,
+                    final_burner_bal,
+                )?;
+
+                let asset_identifier = AssetIdentifier {
+                    contract_identifier: contract_identifier.clone(),
+                    asset_name: token_name.clone(),
+                };
+                caller.data_mut().register_ft_burn_event(
+                    burner.clone(),
+                    amount,
+                    asset_identifier,
+                )?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                caller.data_mut().global_context.log_token_transfer(
+                    burner,
+                    &contract_identifier,
+                    &token_name,
+                    amount,
+                )?;
+
+                // (ok true)
+                Ok((1i32, 1i32, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "ft_burn".to_string(),
                 e,
             ))
         })
