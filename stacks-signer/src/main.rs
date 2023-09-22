@@ -95,7 +95,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
         RunLoop<FrostCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.node_host;
+    let endpoint = config.endpoint;
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
@@ -228,7 +228,11 @@ fn handle_dkg_sign(args: SignArgs) {
 fn handle_run(args: RunDkgArgs) {
     debug!("Running signer...");
     let _spawned_signer = spawn_running_signer(&args.config);
-    println!("Signer spawned successfully. Waiting for messages to process.");
+    println!("Signer spawned successfully. Waiting for messages to process...");
+    loop {
+        std::thread::sleep(Duration::from_secs(20));
+        debug!("Signer still running...");
+    }
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
