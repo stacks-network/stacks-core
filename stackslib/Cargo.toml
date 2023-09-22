@@ -100,7 +100,7 @@ rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 
 [features]
-default = ["developer-mode"]
+default = []
 profile-sqlite = []
 disable-costs = []
 developer-mode = ["clarity/developer-mode"]
