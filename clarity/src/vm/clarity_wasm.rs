@@ -1158,7 +1158,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_ft_get_balance_fn(linker)?;
     link_ft_burn_fn(linker)?;
     link_ft_mint_fn(linker)?;
-    // link_ft_transfer_fn(linker)?;
+    link_ft_transfer_fn(linker)?;
     // link_nft_get_owner_fn(linker)?;
     // link_nft_burn_fn(linker)?;
     // link_nft_mint_fn(linker)?;
@@ -2645,6 +2645,170 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_mint".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "ft_transfer",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             amount_lo: i64,
+             amount_hi: i64,
+             sender_offset: i32,
+             sender_length: i32,
+             recipient_offset: i32,
+             recipient_length: i32| {
+                // runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
+
+                let contract_identifier =
+                    caller.data().contract_context().contract_identifier.clone();
+
+                // Retrieve the token name
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let token_name = ClarityName::try_from(name.clone())?;
+
+                // Compute the amount
+                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+
+                // Read the sender principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    sender_offset,
+                    sender_length,
+                )?;
+                let from_principal = value_as_principal(&value)?;
+
+                // Read the recipient principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    recipient_offset,
+                    recipient_length,
+                )?;
+                let to_principal = value_as_principal(&value)?;
+
+                if amount == 0 {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        TransferTokenErrorCodes::NON_POSITIVE_AMOUNT as i64,
+                        0i64,
+                    ));
+                }
+
+                if from_principal == to_principal {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        TransferTokenErrorCodes::SENDER_IS_RECIPIENT as i64,
+                        0i64,
+                    ));
+                }
+
+                let ft_info = caller
+                    .data()
+                    .contract_context()
+                    .meta_ft
+                    .get(&token_name)
+                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .clone();
+
+                let from_bal = caller.data_mut().global_context.database.get_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    from_principal,
+                    Some(&ft_info),
+                )?;
+
+                if from_bal < amount {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        TransferTokenErrorCodes::NOT_ENOUGH_BALANCE as i64,
+                        0i64,
+                    ));
+                }
+
+                let final_from_bal = from_bal - amount;
+
+                let to_bal = caller.data_mut().global_context.database.get_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    to_principal,
+                    Some(&ft_info),
+                )?;
+
+                let final_to_bal = to_bal
+                    .checked_add(amount)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::UIntType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+
+                caller.data_mut().global_context.database.set_ft_balance(
+                    &contract_identifier,
+                    &token_name,
+                    from_principal,
+                    final_from_bal,
+                )?;
+                caller.data_mut().global_context.database.set_ft_balance(
+                    &contract_identifier,
+                    token_name.as_str(),
+                    to_principal,
+                    final_to_bal,
+                )?;
+
+                caller.data_mut().global_context.log_token_transfer(
+                    from_principal,
+                    &contract_identifier,
+                    &token_name,
+                    amount,
+                )?;
+
+                let asset_identifier = AssetIdentifier {
+                    contract_identifier: contract_identifier.clone(),
+                    asset_name: token_name.clone(),
+                };
+                caller.data_mut().register_ft_transfer_event(
+                    from_principal.clone(),
+                    to_principal.clone(),
+                    amount,
+                    asset_identifier,
+                )?;
+
+                // (ok true)
+                Ok((1i32, 1i32, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "ft_transfer".to_string(),
                 e,
             ))
         })
