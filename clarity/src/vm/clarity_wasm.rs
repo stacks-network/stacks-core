@@ -2407,9 +2407,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 
                 let high = (balance >> 64) as u64;
                 let low = (balance & 0xffff_ffff_ffff_ffff) as u64;
-
-                // (ok balance)
-                Ok((1i32, low, high))
+                Ok((low, high))
             },
         )
         .map(|_| ())
