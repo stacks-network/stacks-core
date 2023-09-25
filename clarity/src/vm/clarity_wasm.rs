@@ -2605,7 +2605,9 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     Some(&ft_info),
                 )?;
 
-                let final_to_bal = to_bal.checked_add(amount).expect("STX overflow");
+                // This `expect` is safe because the `checked_increase_token_supply` call above
+                // would have failed if the addition would have overflowed.
+                let final_to_bal = to_bal.checked_add(amount).expect("FT overflow");
 
                 caller
                     .data_mut()
