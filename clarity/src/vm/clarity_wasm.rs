@@ -1162,7 +1162,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_nft_get_owner_fn(linker)?;
     link_nft_burn_fn(linker)?;
     link_nft_mint_fn(linker)?;
-    // link_nft_transfer_fn(linker)?;
+    link_nft_transfer_fn(linker)?;
 
     link_log(linker)
 }
@@ -3114,6 +3114,154 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_mint".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "nft_transfer",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             asset_offset: i32,
+             asset_length: i32,
+             sender_offset: i32,
+             sender_length: i32,
+             recipient_offset: i32,
+             recipient_length: i32| {
+                let contract_identifier =
+                    caller.data().contract_context().contract_identifier.clone();
+
+                // Retrieve the token name
+                let name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+                let asset_name = ClarityName::try_from(name.clone())?;
+
+                let nft_metadata = caller
+                    .data()
+                    .contract_context()
+                    .meta_nft
+                    .get(&asset_name)
+                    .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+                    .clone();
+
+                let expected_asset_type = &nft_metadata.key_type;
+
+                // Read in the NFT identifier from the Wasm memory
+                let asset =
+                    read_from_wasm(&mut caller, expected_asset_type, asset_offset, asset_length)?;
+
+                // Read the sender principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    sender_offset,
+                    sender_length,
+                )?;
+                let from_principal = value_as_principal(&value)?;
+
+                // Read the recipient principal from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    recipient_offset,
+                    recipient_length,
+                )?;
+                let to_principal = value_as_principal(&value)?;
+
+                let asset_size = asset.serialized_size() as u64;
+                // runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
+
+                if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
+                    return Err(
+                        CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into(),
+                    );
+                }
+
+                if from_principal == to_principal {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        TransferAssetErrorCodes::SENDER_IS_RECIPIENT as i64,
+                        0i64,
+                    ));
+                }
+
+                let current_owner = match caller.data_mut().global_context.database.get_nft_owner(
+                    &contract_identifier,
+                    asset_name.as_str(),
+                    &asset,
+                    expected_asset_type,
+                ) {
+                    Ok(owner) => Ok(owner),
+                    Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+                        return Ok((
+                            0i32,
+                            0i32,
+                            TransferAssetErrorCodes::DOES_NOT_EXIST as i64,
+                            0i64,
+                        ))
+                    }
+                    Err(e) => Err(e),
+                }?;
+
+                if current_owner != *from_principal {
+                    return Ok((
+                        0i32,
+                        0i32,
+                        TransferAssetErrorCodes::NOT_OWNED_BY as i64,
+                        0i64,
+                    ));
+                }
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(TypeSignature::PrincipalType.size() as u64)
+                    .map_err(|e| Error::from(e))?;
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(asset_size)
+                    .map_err(|e| Error::from(e))?;
+
+                caller.data_mut().global_context.database.set_nft_owner(
+                    &contract_identifier,
+                    asset_name.as_str(),
+                    &asset,
+                    to_principal,
+                    expected_asset_type,
+                )?;
+
+                caller.data_mut().global_context.log_asset_transfer(
+                    from_principal,
+                    &contract_identifier,
+                    &asset_name,
+                    asset.clone(),
+                );
+
+                let asset_identifier = AssetIdentifier {
+                    contract_identifier,
+                    asset_name,
+                };
+                caller.data_mut().register_nft_transfer_event(
+                    from_principal.clone(),
+                    to_principal.clone(),
+                    asset,
+                    asset_identifier,
+                )?;
+
+                // (ok true)
+                Ok((1i32, 132, 0i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "nft_transfer".to_string(),
                 e,
             ))
         })
