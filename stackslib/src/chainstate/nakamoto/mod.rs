@@ -61,7 +61,7 @@ use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_H
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::monitoring;
-use crate::util_lib::db::{query_rows, u64_to_sql, Error as DBError, FromRow};
+use crate::util_lib::db::{query_row_panic, query_rows, u64_to_sql, Error as DBError, FromRow};
 
 #[cfg(test)]
 pub mod tests;
@@ -188,6 +188,7 @@ pub struct NakamotoBlockHeader {
     pub signature: MessageSignature,
 }
 
+#[derive(Debug, Clone)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -374,11 +375,12 @@ impl NakamotoChainState {
         if candidate_headers.len() == 0 {
             // no nakamoto_block_headers at that tenure height, check if there's a stack block header where
             //   block_height = tenure_height
-            let ancestor_at_height = match StacksChainState::get_index_tip_ancestor(
-                tx,
-                tip_index_hash,
-                tenure_height,
-            )? {
+            let ancestor_at_height = match tx
+                .get_ancestor_block_hash(tenure_height, tip_index_hash)?
+                .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
+                .transpose()?
+                .flatten()
+            {
                 Some(x) => x,
                 None => return Ok(None),
             };
@@ -393,16 +395,13 @@ impl NakamotoChainState {
         }
 
         for candidate in candidate_headers.into_iter() {
-            let ancestor_at_height = match StacksChainState::get_index_tip_ancestor(
-                tx,
-                tip_index_hash,
-                candidate.stacks_block_height,
-            ) {
+            let ancestor_at_height = match tx.get_ancestor_block_hash(tenure_height, tip_index_hash)
+            {
                 Ok(Some(ancestor_at_height)) => ancestor_at_height,
                 // if there's an error or no result, this candidate doesn't match, so try next candidate
                 _ => continue,
             };
-            if ancestor_at_height.index_block_hash() == candidate.index_block_hash() {
+            if ancestor_at_height == candidate.index_block_hash() {
                 return Ok(Some(candidate));
             }
         }
@@ -433,6 +432,25 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
+    }
+
+    /// Load block header (either Epoch-2 rules or Nakamoto) by `index_block_hash`
+    pub fn get_block_header(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        if result.is_some() {
+            return Ok(result);
+        }
+        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        query_row_panic(conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })
+        .map_err(ChainstateError::DBError)
     }
 
     /// Insert a nakamoto block header that is paired with an
@@ -517,7 +535,7 @@ impl NakamotoChainState {
                      affirmation_weight,
                      tenure_height,
                      tenure_changed)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             args
         )?;
 
@@ -1198,16 +1216,25 @@ impl NakamotoChainState {
             // fetch the parent tenure fees by reading the total tx fees from this block's
             // *parent* (not parent_tenure_header), because `parent_block_id` is the last
             // block of that tenure, so contains a total fee accumulation for the whole tenure
-            let parent_tenure_fees = Self::get_total_tenure_tx_fees_at(
-                chainstate_tx,
-                &parent_block_id
-            )?.ok_or_else(|| {
-                warn!("While processing tenure change, failed to look up parent block's total tx fees";
-                      "parent_block_id" => %parent_block_id,
-                      "block_hash" => %block_hash,
-                      "block_consensus_hash" => %chain_tip_consensus_hash);
-                ChainstateError::NoSuchBlockError
-            })?;
+            let parent_tenure_fees = if parent_tenure_header.is_nakamoto_block() {
+                Self::get_total_tenure_tx_fees_at(
+                    chainstate_tx,
+                    &parent_block_id
+                )?.ok_or_else(|| {
+                    warn!("While processing tenure change, failed to look up parent block's total tx fees";
+                          "parent_block_id" => %parent_block_id,
+                          "block_hash" => %block_hash,
+                          "block_consensus_hash" => %chain_tip_consensus_hash);
+                    ChainstateError::NoSuchBlockError
+                })?
+            } else {
+                // if the parent tenure is an epoch-2 block, don't pay
+                // any fees to them in this schedule: nakamoto blocks
+                // cannot confirm microblock transactions, and
+                // anchored transactions are scheduled
+                // by the parent in epoch-2.
+                0
+            };
 
             Some(
                 Self::make_scheduled_miner_reward(

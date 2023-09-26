@@ -448,8 +448,8 @@ impl StacksChainState {
                         vtxindex,
                         index_block_hash,
                         schedule_type,
-                        stx_burns,
-                    ) \
+                        stx_burns
+                    )
                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
             args,
         )

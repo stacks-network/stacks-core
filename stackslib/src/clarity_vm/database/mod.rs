@@ -274,12 +274,30 @@ fn get_stacks_header_column<F, R>(
     loader: F,
 ) -> Option<R>
 where
-    F: FnOnce(&Row) -> R,
+    F: Fn(&Row) -> R,
 {
     let args: &[&dyn ToSql] = &[id_bhh];
+    if let Some(result) = conn
+        .query_row(
+            &format!(
+                "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+                column_name
+            ),
+            args,
+            |x| Ok(loader(x)),
+        )
+        .optional()
+        .expect(&format!(
+            "Unexpected SQL failure querying block header table for '{}'",
+            column_name
+        ))
+    {
+        return Some(result);
+    }
+    // if nothing was found in `block_headers`, try `nakamoto_block_headers`
     conn.query_row(
         &format!(
-            "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+            "SELECT {} FROM nakamoto_block_headers WHERE index_block_hash = ?",
             column_name
         ),
         args,

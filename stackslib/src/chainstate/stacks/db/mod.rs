@@ -338,6 +338,13 @@ impl StacksHeaderInfo {
             StacksBlockHeaderTypes::Nakamoto(_) => false,
         }
     }
+
+    pub fn is_nakamoto_block(&self) -> bool {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => false,
+            StacksBlockHeaderTypes::Nakamoto(_) => true,
+        }
+    }
 }
 
 impl FromRow<DBConfig> for DBConfig {
