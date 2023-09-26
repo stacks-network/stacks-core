@@ -34,7 +34,7 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::costs::CostTracker;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
@@ -43,9 +43,11 @@ use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use stacks_common::types::chainstate;
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::StacksMicroblockHeader;
@@ -1350,7 +1352,17 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::TenureChange(ref payload) => {
-                // TODO
+                // post-conditions are not allowed for this variant, since they're non-sensical.
+                // Their presence in this variant makes the transaction invalid.
+                if tx.post_conditions.len() > 0 {
+                    let msg = format!("Invalid Stacks transaction: TenureChange transactions do not support post-conditions");
+                    warn!("{msg}");
+
+                    return Err(Error::InvalidStacksTransaction(msg, false));
+                }
+
+                // TODO: More checks before adding to block?
+
                 let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
                 Ok(receipt)
             }

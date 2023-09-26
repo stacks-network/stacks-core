@@ -154,6 +154,7 @@ pub enum MemPoolRejection {
     InvalidMicroblocks,
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
+    NoTenureChangeViaMempool,
     NoSuchChainTip(ConsensusHash, BlockHeaderHash),
     ConflictingNonceInMempool,
     TooMuchChaining {
@@ -307,6 +308,7 @@ impl MemPoolRejection {
             InvalidMicroblocks => ("PoisonMicroblockIsInvalid", None),
             BadAddressVersionByte => ("BadAddressVersionByte", None),
             NoCoinbaseViaMempool => ("NoCoinbaseViaMempool", None),
+            NoTenureChangeViaMempool => ("NoTenureChangeViaMempool", None),
             // this should never happen via the RPC interface
             NoSuchChainTip(..) => ("ServerFailureNoSuchChainTip", None),
             DBError(e) => (
@@ -7150,11 +7152,8 @@ impl StacksChainState {
                 }
             }
             TransactionPayload::Coinbase(..) => return Err(MemPoolRejection::NoCoinbaseViaMempool),
-            TransactionPayload::TenureChange(payload) => {
-                // TODO
-                // Check `previous_tenure_end` is valid Stacks block?
-                // Check `previous_tenure_blocks` is expected amount?
-                // Check `signers` and signature is > 70%?
+            TransactionPayload::TenureChange(..) => {
+                return Err(MemPoolRejection::NoTenureChangeViaMempool)
             }
         };
 

@@ -65,6 +65,7 @@ Possible values for the "reason" field and "reason_data" field are:
 * `PoisonMicroblockIsInvalid`
 * `BadAddressVersionByte`
 * `NoCoinbaseViaMempool`
+* `NoTenureChangeViaMempool`
 * `ServerFailureNoSuchChainTip`
 * `ServerFailureDatabase`
    * The `reason_data` field will be an object containing a `message`
