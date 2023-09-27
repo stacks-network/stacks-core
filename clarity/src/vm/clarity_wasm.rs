@@ -1,6 +1,6 @@
 use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::Write};
 
-use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val};
+use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
 use super::{
     analysis::CheckErrors,
@@ -514,6 +514,42 @@ pub fn call_function<'a, 'b, 'c>(
     })
 }
 
+fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
+    match ty {
+        TypeSignature::NoType => vec![ValType::I32], // TODO: can this just be empty?
+        TypeSignature::IntType => vec![ValType::I64, ValType::I64],
+        TypeSignature::UIntType => vec![ValType::I64, ValType::I64],
+        TypeSignature::ResponseType(inner_types) => {
+            let mut types = vec![ValType::I32];
+            types.extend(clar2wasm_ty(&inner_types.0));
+            types.extend(clar2wasm_ty(&inner_types.1));
+            types
+        }
+        TypeSignature::SequenceType(_) => vec![
+            ValType::I32, // offset
+            ValType::I32, // length
+        ],
+        TypeSignature::BoolType => vec![ValType::I32],
+        TypeSignature::PrincipalType => vec![
+            ValType::I32, // offset
+            ValType::I32, // length
+        ],
+        TypeSignature::OptionalType(inner_ty) => {
+            let mut types = vec![ValType::I32];
+            types.extend(clar2wasm_ty(inner_ty));
+            types
+        }
+        TypeSignature::TupleType(inner_types) => {
+            let mut types = vec![];
+            for inner_type in inner_types.get_type_map().values() {
+                types.extend(clar2wasm_ty(inner_type));
+            }
+            types
+        }
+        _ => unimplemented!("{:?}", ty),
+    }
+}
+
 /// Read an identifier (string) from the WASM memory at `offset` with `length`.
 fn read_identifier_from_wasm<T>(
     caller: &mut Caller<'_, T>,
@@ -995,48 +1031,52 @@ fn wasm_to_clarity_value(
             1,
         )),
         TypeSignature::OptionalType(optional) => {
-            let (value, increment) =
-                wasm_to_clarity_value(optional, value_index + 1, buffer, memory, store)?;
+            let value_types = clar2wasm_ty(optional);
             Ok((
                 if buffer[value_index]
                     .i32()
                     .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
+                    let (value, _) =
+                        wasm_to_clarity_value(optional, value_index + 1, buffer, memory, store)?;
                     Some(Value::some(value.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineType,
                     ))?)?)
                 } else {
                     Some(Value::none())
                 },
-                increment + 1,
+                1 + value_types.len(),
             ))
         }
         TypeSignature::ResponseType(response) => {
-            let (ok, increment_ok) =
-                wasm_to_clarity_value(&response.0, value_index + 1, buffer, memory, store)?;
-            let (err, increment_err) = wasm_to_clarity_value(
-                &response.1,
-                value_index + 1 + increment_ok,
-                buffer,
-                memory,
-                store,
-            )?;
+            let ok_types = clar2wasm_ty(&response.0);
+            let err_types = clar2wasm_ty(&response.1);
+
             Ok((
                 if buffer[value_index]
                     .i32()
                     .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
+                    let (ok, _) =
+                        wasm_to_clarity_value(&response.0, value_index + 1, buffer, memory, store)?;
                     Some(Value::okay(ok.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineResponseOkType,
                     ))?)?)
                 } else {
+                    let (err, _) = wasm_to_clarity_value(
+                        &response.1,
+                        value_index + 1 + ok_types.len(),
+                        buffer,
+                        memory,
+                        store,
+                    )?;
                     Some(Value::error(err.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineResponseErrType,
                     ))?)?)
                 },
-                value_index + 1 + increment_ok + increment_err,
+                1 + ok_types.len() + err_types.len(),
             ))
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
