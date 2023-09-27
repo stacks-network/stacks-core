@@ -74,10 +74,10 @@ pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BufferLength(u32);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
 
 // INVARIANTS enforced by the Type Signatures.
