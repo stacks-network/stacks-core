@@ -261,8 +261,25 @@ impl NakamotoBlock {
     /// Did the stacks tenure change on this nakamoto block? i.e., does this block
     ///  include a TenureChange transaction?
     pub fn tenure_changed(&self) -> bool {
-        // TODO: when tenure change txs are implemented, this must be updated
-        true
+        // Find all txs that have TenureChange payload
+        let tenure_txs = self
+            .txs
+            .iter()
+            .filter(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)))
+            .collect::<Vec<_>>();
+
+        match tenure_txs.len() {
+            0 => false,
+            1 => true,
+            _ => {
+                warn!(
+                    "Block contains multiple TenureChange transactions";
+                    "parent_block_id" => %self.header.parent,
+                    "burn_view" => %self.header.burn_view,
+                );
+                false
+            }
+        }
     }
 
     pub fn is_first_mined(&self) -> bool {
