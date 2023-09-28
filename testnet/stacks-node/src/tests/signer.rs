@@ -21,10 +21,10 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_signer::{
     config::Config as SignerConfig,
-    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
     runloop::RunLoopCommand,
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
+use wsts::state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]

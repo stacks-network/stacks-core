@@ -3347,6 +3347,7 @@ dependencies = [
  "tokio",
  "toml",
  "warp",
+ "wsts",
 ]
 
 [[package]]
