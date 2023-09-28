@@ -11,8 +11,8 @@ use super::{
     errors::RuntimeErrorType,
     events::*,
     types::{
-        AssetIdentifier, BuffData, CharType, FixedFunction, FunctionType, PrincipalData,
-        QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+        AssetIdentifier, BuffData, CharType, FixedFunction, FunctionType, OptionalData,
+        PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -722,6 +722,13 @@ fn value_as_buffer(value: Value) -> Result<BuffData, Error> {
     }
 }
 
+fn value_as_optional(value: &Value) -> Result<&OptionalData, Error> {
+    match value {
+        Value::Optional(opt_data) => Ok(opt_data),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+    }
+}
+
 /// Write a value to the Wasm memory at `offset` with `length` given the
 /// provided Clarity `TypeSignature`.'
 fn write_to_wasm(
@@ -768,7 +775,20 @@ fn write_to_wasm(
         TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::OptionalType(inner_ty) => {
+            let mut written = 0;
+            let opt_data = value_as_optional(value)?;
+            let indicator = if opt_data.data.is_some() { 1i32 } else { 0i32 };
+            let indicator_bytes = indicator.to_le_bytes();
+            memory
+                .write(store.as_context_mut(), (offset) as usize, &indicator_bytes)
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            written += 4;
+            if let Some(inner) = opt_data.data.as_ref() {
+                written += write_to_wasm(store, memory, inner_ty, offset + written, inner)?;
+            }
+            Ok(written)
+        }
         TypeSignature::PrincipalType => {
             let principal = value_as_principal(&value)?;
             let (standard, contract_name) = match principal {
@@ -1215,6 +1235,10 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_nft_burn_fn(linker)?;
     link_nft_mint_fn(linker)?;
     link_nft_transfer_fn(linker)?;
+    link_map_get_fn(linker)?;
+    link_map_set_fn(linker)?;
+    link_map_insert_fn(linker)?;
+    link_map_delete_fn(linker)?;
 
     link_log(linker)
 }
@@ -3314,6 +3338,319 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_transfer".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `map_get`, into the Wasm module.
+/// This function is called for the `map-get?` expression.
+fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "map_get",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             key_offset: i32,
+             key_length: i32,
+             return_offset: i32,
+             _return_length: i32| {
+                // Retrieve the map name
+                let map_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+
+                let contract = caller.data().contract_context().contract_identifier.clone();
+
+                // Retrieve the metadata for this map
+                let data_types = caller
+                    .data()
+                    .contract_context()
+                    .meta_data_map
+                    .get(map_name.as_str())
+                    .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?
+                    .clone();
+
+                // Read in the key from the Wasm memory
+                let key =
+                    read_from_wasm(&mut caller, &data_types.key_type, key_offset, key_length)?;
+
+                let result = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .fetch_entry_with_size(&contract, &map_name, &key, &data_types);
+
+                let _result_size = match &result {
+                    Ok(data) => data.serialized_byte_len,
+                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                };
+
+                // runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
+
+                let value = result.map(|data| data.value)?;
+
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &TypeSignature::OptionalType(Box::new(data_types.value_type)),
+                    return_offset,
+                    &value,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "map_get".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `map_set`, into the Wasm module.
+/// This function is called for the `map-set` expression.
+fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "map_set",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             key_offset: i32,
+             key_length: i32,
+             value_offset: i32,
+             value_length: i32| {
+                if caller.data().global_context.is_read_only() {
+                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                }
+
+                // Retrieve the map name
+                let map_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+
+                let contract = caller.data().contract_context().contract_identifier.clone();
+
+                let data_types = caller
+                    .data()
+                    .contract_context()
+                    .meta_data_map
+                    .get(map_name.as_str())
+                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                        map_name.to_string(),
+                    )))?
+                    .clone();
+
+                // Read in the key from the Wasm memory
+                let key =
+                    read_from_wasm(&mut caller, &data_types.key_type, key_offset, key_length)?;
+
+                // Read in the value from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &data_types.value_type,
+                    value_offset,
+                    value_length,
+                )?;
+
+                // Store the value in the map in the global context
+                let result = caller.data_mut().global_context.database.set_entry(
+                    &contract,
+                    map_name.as_str(),
+                    key,
+                    value,
+                    &data_types,
+                );
+
+                let result_size = match &result {
+                    Ok(data) => data.serialized_byte_len,
+                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                };
+
+                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(result_size)
+                    .map_err(|e| Error::from(e))?;
+
+                let value = result.map(|data| data.value)?;
+                if let Value::Bool(true) = value {
+                    Ok(1i32)
+                } else {
+                    Ok(0i32)
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "map_set".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `map_insert`, into the Wasm module.
+/// This function is called for the `map-insert` expression.
+fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "map_insert",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             key_offset: i32,
+             key_length: i32,
+             value_offset: i32,
+             value_length: i32| {
+                if caller.data().global_context.is_read_only() {
+                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                }
+
+                // Retrieve the map name
+                let map_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+
+                let contract = caller.data().contract_context().contract_identifier.clone();
+
+                let data_types = caller
+                    .data()
+                    .contract_context()
+                    .meta_data_map
+                    .get(map_name.as_str())
+                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                        map_name.to_string(),
+                    )))?
+                    .clone();
+
+                // Read in the key from the Wasm memory
+                let key =
+                    read_from_wasm(&mut caller, &data_types.key_type, key_offset, key_length)?;
+
+                // Read in the value from the Wasm memory
+                let value = read_from_wasm(
+                    &mut caller,
+                    &data_types.value_type,
+                    value_offset,
+                    value_length,
+                )?;
+
+                // Insert the value into the map
+                let result = caller.data_mut().global_context.database.insert_entry(
+                    &contract,
+                    map_name.as_str(),
+                    key,
+                    value,
+                    &data_types,
+                );
+
+                let result_size = match &result {
+                    Ok(data) => data.serialized_byte_len,
+                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                };
+
+                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(result_size)
+                    .map_err(|e| Error::from(e))?;
+
+                let value = result.map(|data| data.value)?;
+                if let Value::Bool(true) = value {
+                    Ok(1i32)
+                } else {
+                    Ok(0i32)
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "map_insert".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `map_delete`, into the Wasm module.
+/// This function is called for the `map-delete` expression.
+fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "map_delete",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             key_offset: i32,
+             key_length: i32| {
+                if caller.data().global_context.is_read_only() {
+                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                }
+
+                // Retrieve the map name
+                let map_name = read_identifier_from_wasm(&mut caller, name_offset, name_length)?;
+
+                let contract = caller.data().contract_context().contract_identifier.clone();
+
+                let data_types = caller
+                    .data()
+                    .contract_context()
+                    .meta_data_map
+                    .get(map_name.as_str())
+                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                        map_name.to_string(),
+                    )))?
+                    .clone();
+
+                // Read in the key from the Wasm memory
+                let key =
+                    read_from_wasm(&mut caller, &data_types.key_type, key_offset, key_length)?;
+
+                // Delete the key from the map in the global context
+                let result = caller.data_mut().global_context.database.delete_entry(
+                    &contract,
+                    map_name.as_str(),
+                    &key,
+                    &data_types,
+                );
+
+                let result_size = match &result {
+                    Ok(data) => data.serialized_byte_len,
+                    Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+                };
+
+                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(result_size)
+                    .map_err(|e| Error::from(e))?;
+
+                let value = result.map(|data| data.value)?;
+                if let Value::Bool(true) = value {
+                    Ok(1i32)
+                } else {
+                    Ok(0i32)
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "map_delete".to_string(),
                 e,
             ))
         })
