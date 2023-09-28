@@ -1,11 +1,68 @@
-(define-data-var current-cycle-signer-slots (list 10 {signer: principal, num-slots: uint}) (list {signer: tx-sender, num-slots: u10}))
-(define-data-var previous-cycle-signer-slots (list 10 {signer: principal, num-slots: uint}) (list ))
+;; Pending deposit/peg-in requests
+;; What data will go here? Need info from signers
 
- (define-read-only (stackerdb-get-config)
-            (ok {
-                chunk-size: u4096,
-                write-freq: u0,
-                max-writes: u4096,
-                max-neighbors: u32,
-                hint-replicas: (list )
-            }))
+(define-constant err-unauthorised (err u1000))
+
+
+;; Definitions
+;; Deposit/Peg-in requests (btc -> sbtc)
+(define-data-var deposit-requests-pending uint u0)
+(define-map deposit-requests uint
+	{
+	value: uint,
+	sender: { version: (buff 1), hashbytes: (buff 32) },
+	destination: principal,
+	unlock-script: (buff 128),
+	burn-height: uint,
+	expiry-burn-height: uint
+	})
+
+
+;; Withdrawal/peg-out requests (sbtc -> btc)
+(define-data-var withdrawal-requests-pending uint u0)
+(define-map withdrawal-requests uint
+	{
+	value: uint,
+	sender: principal,
+	destination: { version: (buff 1), hashbytes: (buff 32) },
+	unlock-script: (buff 128),
+	burn-height: uint,
+	expiry-burn-height: uint
+	})
+
+
+;; Handoff requests
+;; Is-DKG-stale
+
+
+
+;; Insert functions
+(define-public (insert-pending-deposit (value uint) (sender { version: (buff 1), hashbytes: (buff 32) }) (destination principal) (unlock-script (buff 128)) (burn-height uint) (expiry-burn-height uint))
+    (let (
+
+        )
+
+        ;; TODO Checks
+        ;; Amount?
+        ;; Verify mined tx?
+        ;; Store mined tx?
+        ;; Assert that contract-caller is .sbtc contract
+        (ok (asserts! (is-eq contract-caller .sbtc) err-unauthorised))
+
+    )
+)
+
+(define-public (insert-pending-withdrawal (value uint) (sender principal) (destination { version: (buff 1), hashbytes: (buff 32) }) (unlock-script (buff 128)) (burn-height uint) (expiry-burn-height uint))
+    (let (
+
+        )
+
+        ;; TODO Checks
+        ;; Amount?
+        ;; Verify mined tx?
+        ;; Store mined tx?
+        ;; Assert that contract-caller is .sbtc contract
+        (ok (asserts! (is-eq contract-caller .sbtc) err-unauthorised))
+
+    )
+)
