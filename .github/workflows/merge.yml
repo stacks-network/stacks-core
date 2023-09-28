@@ -1,0 +1,20 @@
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - 'develop'
+
+jobs:
+  if_merged:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Create Next Branch PR
+        id: open-pr
+        uses: repo-sync/pull-request@v2
+        with:
+          destination_branch: "next"
+          pr_title: "merge up for next"
+
