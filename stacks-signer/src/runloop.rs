@@ -1,18 +1,16 @@
-use frost_signer::{
-    config::PublicKeys,
-    net::Message,
-    signing_round::{MessageTypes, Signable, SigningRound},
-};
+use crate::{config::Config, stacks_client::StacksClient};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
-
-use crate::{
-    config::Config,
-    crypto::{frost::Coordinator as FrostCoordinator, Coordinatable, OperationResult},
-    stacks_client::StacksClient,
+use wsts::{
+    net::{Message, Packet, Signable},
+    state_machine::{
+        coordinator::{Coordinatable, Coordinator as FrostCoordinator},
+        signer::SigningRound,
+        OperationResult, PublicKeys,
+    },
 };
 
 /// Which operation to perform
@@ -67,7 +65,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
-                            .send_message(self.signing_round.signer.signer_id, msg);
+                            .send_message(self.signing_round.signer_id, msg);
                         debug!("ACK: {:?}", ack);
                         self.state = State::Dkg;
                         true
@@ -86,7 +84,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
-                            .send_message(self.signing_round.signer.signer_id, msg);
+                            .send_message(self.signing_round.signer_id, msg);
                         debug!("ACK: {:?}", ack);
                         self.state = State::Sign;
                         true
@@ -126,16 +124,16 @@ impl<C: Coordinatable> RunLoop<C> {
     fn process_event(
         &mut self,
         event: &StackerDBChunksEvent,
-    ) -> (Vec<Message>, Vec<OperationResult>) {
+    ) -> (Vec<Packet>, Vec<OperationResult>) {
         // Determine the current coordinator id and public key for verification
         let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
         // Filter out invalid messages
-        let inbound_messages: Vec<Message> = event
+        let inbound_messages: Vec<Packet> = event
             .modified_slots
             .iter()
             .filter_map(|chunk| {
-                let message = bincode::deserialize::<Message>(&chunk.data).ok()?;
+                let message = bincode::deserialize::<Packet>(&chunk.data).ok()?;
                 if verify_msg(
                     &message,
                     &self.signing_round.public_keys,
@@ -148,11 +146,12 @@ impl<C: Coordinatable> RunLoop<C> {
             })
             .collect();
         // First process all messages as a signer
-        let mut outbound_messages =
-            process_inbound_messages(&mut self.signing_round, inbound_messages.clone())
-                .unwrap_or_default();
+        let mut outbound_messages = self
+            .signing_round
+            .process_inbound_messages(inbound_messages.clone())
+            .unwrap_or_default();
         // If the signer is the coordinator, then next process the message as the coordinator
-        let (messages, results) = if self.signing_round.signer.signer_id == coordinator_id {
+        let (messages, results) = if self.signing_round.signer_id == coordinator_id {
             self.coordinator
                 .process_inbound_messages(inbound_messages)
                 .unwrap_or_default()
@@ -215,60 +214,6 @@ impl From<&Config> for RunLoop<FrostCoordinator> {
     }
 }
 
-/// Process inbound messages using the frost_signer signing round mechanism
-pub fn process_inbound_messages(
-    signing_round: &mut SigningRound,
-    messages: Vec<Message>,
-) -> Result<Vec<Message>, frost_signer::signing_round::Error> {
-    let mut responses = vec![];
-    for message in messages {
-        // TODO: this code was swiped from frost-signer. Expose it there so we don't have duplicate code
-        // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
-        let outbounds = signing_round.process(message.msg)?;
-        for out in outbounds {
-            let msg = Message {
-                msg: out.clone(),
-                sig: match out {
-                    MessageTypes::DkgBegin(msg) | MessageTypes::DkgPrivateBegin(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign DkgBegin")
-                        .to_vec(),
-                    MessageTypes::DkgEnd(msg) | MessageTypes::DkgPublicEnd(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign DkgEnd")
-                        .to_vec(),
-                    MessageTypes::DkgPublicShare(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign DkgPublicShare")
-                        .to_vec(),
-                    MessageTypes::DkgPrivateShares(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign DkgPrivateShare")
-                        .to_vec(),
-                    MessageTypes::NonceRequest(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign NonceRequest")
-                        .to_vec(),
-                    MessageTypes::NonceResponse(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign NonceResponse")
-                        .to_vec(),
-                    MessageTypes::SignShareRequest(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign SignShareRequest")
-                        .to_vec(),
-                    MessageTypes::SignShareResponse(msg) => msg
-                        .sign(&signing_round.network_private_key)
-                        .expect("failed to sign SignShareResponse")
-                        .to_vec(),
-                },
-            };
-            responses.push(msg);
-        }
-    }
-    Ok(responses)
-}
-
 impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop<C> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.event_timeout = timeout;
@@ -297,7 +242,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
             for msg in outbound_messages {
                 let ack = self
                     .stacks_client
-                    .send_message(self.signing_round.signer.signer_id, msg);
+                    .send_message(self.signing_round.signer_id, msg);
                 if let Ok(ack) = ack {
                     debug!("ACK: {:?}", ack);
                 } else {
@@ -336,18 +281,18 @@ fn calculate_coordinator(public_keys: &PublicKeys) -> (u32, &ecdsa::PublicKey) {
 /// Temporary copy paste from frost-signer
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3913
 fn verify_msg(
-    m: &Message,
+    m: &Packet,
     public_keys: &PublicKeys,
     coordinator_public_key: &ecdsa::PublicKey,
 ) -> bool {
     match &m.msg {
-        MessageTypes::DkgBegin(msg) | MessageTypes::DkgPrivateBegin(msg) => {
+        Message::DkgBegin(msg) | Message::DkgPrivateBegin(msg) => {
             if !msg.verify(&m.sig, coordinator_public_key) {
                 warn!("Received a DkgPrivateBegin message with an invalid signature.");
                 return false;
             }
         }
-        MessageTypes::DkgEnd(msg) | MessageTypes::DkgPublicEnd(msg) => {
+        Message::DkgEnd(msg) => {
             if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
                 if !msg.verify(&m.sig, public_key) {
                     warn!("Received a DkgPublicEnd message with an invalid signature.");
@@ -361,45 +306,44 @@ fn verify_msg(
                 return false;
             }
         }
-        MessageTypes::DkgPublicShare(msg) => {
-            if let Some(public_key) = public_keys.key_ids.get(&msg.party_id) {
+        Message::DkgPublicShares(msg) => {
+            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
                 if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a DkgPublicShare message with an invalid signature.");
+                    warn!("Received a DkgPublicShares message with an invalid signature.");
                     return false;
                 }
             } else {
                 warn!(
-                    "Received a DkgPublicShare message with an unknown id: {}",
-                    msg.party_id
+                    "Received a DkgPublicShares message with an unknown id: {}",
+                    msg.signer_id
                 );
                 return false;
             }
         }
-        MessageTypes::DkgPrivateShares(msg) => {
+        Message::DkgPrivateShares(msg) => {
             // Private shares have key IDs from [0, N) to reference IDs from [1, N]
             // in Frost V4 to enable easy indexing hence ID + 1
             // TODO: Once Frost V5 is released, this off by one adjustment will no longer be required
-            let key_id = msg.key_id + 1;
-            if let Some(public_key) = public_keys.key_ids.get(&key_id) {
+            if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
                 if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a DkgPrivateShares message with an invalid signature from key_id {} key {}", msg.key_id, &public_key);
+                    warn!("Received a DkgPrivateShares message with an invalid signature from signer_id {} key {}", msg.signer_id, &public_key);
                     return false;
                 }
             } else {
                 warn!(
                     "Received a DkgPrivateShares message with an unknown id: {}",
-                    key_id
+                    msg.signer_id
                 );
                 return false;
             }
         }
-        MessageTypes::NonceRequest(msg) => {
+        Message::NonceRequest(msg) => {
             if !msg.verify(&m.sig, coordinator_public_key) {
                 warn!("Received a NonceRequest message with an invalid signature.");
                 return false;
             }
         }
-        MessageTypes::NonceResponse(msg) => {
+        Message::NonceResponse(msg) => {
             if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
                 if !msg.verify(&m.sig, public_key) {
                     warn!("Received a NonceResponse message with an invalid signature.");
@@ -413,21 +357,21 @@ fn verify_msg(
                 return false;
             }
         }
-        MessageTypes::SignShareRequest(msg) => {
+        Message::SignatureShareRequest(msg) => {
             if !msg.verify(&m.sig, coordinator_public_key) {
-                warn!("Received a SignShareRequest message with an invalid signature.");
+                warn!("Received a SignatureShareRequest message with an invalid signature.");
                 return false;
             }
         }
-        MessageTypes::SignShareResponse(msg) => {
+        Message::SignatureShareResponse(msg) => {
             if let Some(public_key) = public_keys.signers.get(&msg.signer_id) {
                 if !msg.verify(&m.sig, public_key) {
-                    warn!("Received a SignShareResponse message with an invalid signature.");
+                    warn!("Received a SignatureShareResponse message with an invalid signature.");
                     return false;
                 }
             } else {
                 warn!(
-                    "Received a SignShareResponse message with an unknown id: {}",
+                    "Received a SignatureShareResponse message with an unknown id: {}",
                     msg.signer_id
                 );
                 return false;

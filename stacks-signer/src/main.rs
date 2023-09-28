@@ -45,7 +45,6 @@ use stacks_signer::{
         RunDkgArgs, SignArgs, StackerDBArgs,
     },
     config::{Config, Network},
-    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
     runloop::{RunLoop, RunLoopCommand},
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
@@ -57,6 +56,7 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
+use wsts::state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult};
 
 struct SpawnedSigner {
     running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
