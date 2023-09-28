@@ -16,12 +16,9 @@
 
 use std::fs;
 
-use clarity::types::chainstate::PoxId;
-use clarity::types::chainstate::SortitionId;
-use clarity::types::chainstate::StacksBlockId;
+use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
 use clarity::vm::clarity::ClarityConnection;
-use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks_common::consts::FIRST_STACKS_BLOCK_HASH;
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPrivateKey, StacksWorkScore,
     TrieHash,
@@ -33,31 +30,22 @@ use stacks_common::util::vrf::{VRFPrivateKey, VRFProof};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
 
-use crate::burnchains::PoxConstants;
-use crate::burnchains::Txid;
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::burn::OpsHash;
-use crate::chainstate::burn::SortitionHash;
-use crate::chainstate::coordinator::tests::get_rw_sortdb;
+use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
-    get_burnchain, get_burnchain_db, get_chainstate, get_sortition_db, p2pkh_from, pox_addr_from,
-    setup_states_with_epochs,
+    get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
+    pox_addr_from, setup_states_with_epochs,
 };
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-    ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksHeaderInfo,
+    ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::CoinbasePayload;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::StacksTransactionSigner;
-use crate::chainstate::stacks::TokenTransferMemo;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionVersion;
+use crate::chainstate::stacks::{
+    CoinbasePayload, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
+    TokenTransferMemo, TransactionAuth, TransactionPayload, TransactionVersion,
+};
 use crate::core;
 use crate::core::StacksEpochExtension;
 

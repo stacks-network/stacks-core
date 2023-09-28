@@ -152,21 +152,39 @@ impl StacksMessageCodec for TenureChangeCause {
     }
 }
 
+impl StacksMessageCodec for SchnorrThresholdSignature {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        Ok(Self {})
+    }
+}
+
+impl TenureChangePayload {
+    pub fn validate(&self) -> Result<(), TenureChangeError> {
+        Ok(())
+    }
+}
+
 impl StacksMessageCodec for TenureChangePayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
         write_next(fd, &self.pubkey_hash)?;
+        write_next(fd, &self.signature)?;
         write_next(fd, &self.signers)
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TenureChangePayload, codec_error> {
-        Ok(TenureChangePayload {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        Ok(Self {
             previous_tenure_end: read_next(fd)?,
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
             pubkey_hash: read_next(fd)?,
+            signature: read_next(fd)?,
             signers: read_next(fd)?,
         })
     }
@@ -179,48 +197,49 @@ impl StacksMessageCodec for TransactionPayload {
                 write_next(fd, &(TransactionPayloadID::TokenTransfer as u8))?;
                 write_next(fd, address)?;
                 write_next(fd, amount)?;
-                write_next(fd, memo)
+                write_next(fd, memo)?;
             }
             TransactionPayload::ContractCall(cc) => {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
-                cc.consensus_serialize(fd)
+                cc.consensus_serialize(fd)?;
             }
             TransactionPayload::SmartContract(sc, version_opt) => {
                 if let Some(version) = version_opt {
                     // caller requests a specific Clarity version
                     write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
                     ClarityVersion_consensus_serialize(&version, fd)?;
-                    sc.consensus_serialize(fd)
+                    sc.consensus_serialize(fd)?;
                 } else {
                     // caller requests to use whatever the current clarity version is
                     write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
-                    sc.consensus_serialize(fd)
+                    sc.consensus_serialize(fd)?;
                 }
             }
             TransactionPayload::PoisonMicroblock(h1, h2) => {
                 write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
                 h1.consensus_serialize(fd)?;
-                h2.consensus_serialize(fd)
+                h2.consensus_serialize(fd)?;
             }
             TransactionPayload::Coinbase(buf, recipient_opt) => {
                 match recipient_opt {
                     None => {
                         // stacks 2.05 and earlier only use this path
                         write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
-                        write_next(fd, buf)
+                        write_next(fd, buf)?;
                     }
                     Some(recipient) => {
                         write_next(fd, &(TransactionPayloadID::CoinbaseToAltRecipient as u8))?;
                         write_next(fd, buf)?;
-                        write_next(fd, &Value::Principal(recipient.clone()))
+                        write_next(fd, &Value::Principal(recipient.clone()))?;
                     }
                 }
             }
             TransactionPayload::TenureChange(tc) => {
                 write_next(fd, &(TransactionPayloadID::TenureChange as u8))?;
-                tc.consensus_serialize(fd)
+                tc.consensus_serialize(fd)?;
             }
         }
+        Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, codec_error> {

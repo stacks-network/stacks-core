@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use lazy_static::lazy_static;
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
@@ -22,18 +21,19 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
-use lazy_static::__Deref;
+use lazy_static::{__Deref, lazy_static};
 use rand_chacha::rand_core::block;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{Connection, OptionalExtension, ToSql};
-use stacks_common::codec::Error as CodecError;
-use stacks_common::codec::{read_next, write_next, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{
+    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+};
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
+};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
@@ -45,15 +45,14 @@ use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
-    StacksDBTx, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
+    StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::db::{MinerPaymentTxFees, StacksEpochReceipt};
 use super::stacks::events::StacksTransactionReceipt;
-use super::stacks::Error as ChainstateError;
-use super::stacks::StacksBlock;
-use super::stacks::StacksTransaction;
-use super::stacks::{StacksBlockHeader, StacksMicroblock, TransactionPayload};
+use super::stacks::{
+    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
+    TenureChangeError, TenureChangePayload, TransactionPayload,
+};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -260,26 +259,39 @@ impl NakamotoBlockHeader {
 impl NakamotoBlock {
     /// Did the stacks tenure change on this nakamoto block? i.e., does this block
     ///  include a TenureChange transaction?
-    pub fn tenure_changed(&self) -> bool {
+    pub fn tenure_changed(&self, parent: &StacksBlockId) -> bool {
         // Find all txs that have TenureChange payload
-        let tenure_txs = self
+        let tenure_changes = self
             .txs
             .iter()
-            .filter(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)))
+            .filter_map(|tx| match &tx.payload {
+                TransactionPayload::TenureChange(payload) => Some(payload),
+                _ => None,
+            })
             .collect::<Vec<_>>();
 
-        match tenure_txs.len() {
-            0 => false,
-            1 => true,
-            _ => {
-                warn!(
-                    "Block contains multiple TenureChange transactions";
-                    "parent_block_id" => %self.header.parent,
-                    "burn_view" => %self.header.burn_view,
-                );
-                false
-            }
+        if tenure_changes.len() > 1 {
+            warn!(
+                "Block contains multiple TenureChange transactions";
+                "tenure_change_txs" => tenure_changes.len(),
+                "parent_block_id" => %self.header.parent,
+                "burn_view" => %self.header.burn_view,
+            );
         }
+
+        let validate = |tc: &TenureChangePayload| -> Result<(), TenureChangeError> {
+            if tc.previous_tenure_end != *parent {
+                return Err(TenureChangeError::PreviousTenureInvalid);
+            }
+
+            tc.validate()
+        };
+
+        // Return true if there is a valid TenureChange
+        tenure_changes
+            .iter()
+            .find(|tc| validate(tc).is_ok())
+            .is_some()
     }
 
     pub fn is_first_mined(&self) -> bool {
@@ -1038,9 +1050,9 @@ impl NakamotoChainState {
 
         let block_hash = block.header.block_hash();
 
-        let tenure_changed = block.tenure_changed();
-
         let parent_block_id = StacksChainState::get_index_hash(&parent_ch, &parent_block_hash);
+
+        let tenure_changed = block.tenure_changed(&parent_block_id);
 
         let parent_tenure_height = if block.is_first_mined() {
             0

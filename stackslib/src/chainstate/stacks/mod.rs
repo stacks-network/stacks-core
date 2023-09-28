@@ -645,6 +645,23 @@ impl TryFrom<u8> for TenureChangeCause {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SchnorrThresholdSignature {
+    //pub point: wsts::Point,
+    //pub scalar: wsts::Scalar,
+}
+
+/// Reasons why a `TenureChange` transaction can be de
+pub enum TenureChangeError {
+    SignatureInvalid,
+    /// Not signed by required threshold (>70%)
+    SignatureThresholdNotReached,
+    /// `previous_tenure_end` does not match parent block
+    PreviousTenureInvalid,
+    /// Block is not a Nakamoto block
+    NotNakamoto,
+}
+
 /// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {
@@ -657,7 +674,7 @@ pub struct TenureChangePayload {
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
     /// A Schnorr signature from at least 70% of the Stackers
-    //pub signature: ???
+    pub signature: SchnorrThresholdSignature,
     /// A bitmap of which Stackers signed
     pub signers: Vec<u8>,
 }
