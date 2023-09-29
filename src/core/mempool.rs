@@ -853,7 +853,7 @@ impl NonceCache {
                         let should_store_again = match db_set_nonce(mempool_db, address, nonce) {
                             Ok(_) => false,
                             Err(e) => {
-                                warn!("error caching nonce to sqlite: {}", e);
+                                debug!("error caching nonce to sqlite: {}", e);
                                 true
                             }
                         };
