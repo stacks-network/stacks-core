@@ -88,7 +88,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(ref miner_tip) => *miner_tip.clone(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 
@@ -102,7 +102,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(ref miner_tip) => *miner_tip.clone(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 

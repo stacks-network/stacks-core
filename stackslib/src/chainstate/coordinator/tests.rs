@@ -360,7 +360,7 @@ pub fn setup_states_with_epochs(
                 burnchain_blocks_db,
                 first_sortition.burn_header_hash,
                 registers,
-                path.clone(),
+                *path,
             ));
         } else {
             others.push(burnchain_blocks_db);
