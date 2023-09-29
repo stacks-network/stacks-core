@@ -4416,7 +4416,7 @@ dependencies = [
 [[package]]
 name = "wsts"
 version = "4.0.0"
-source = "git+https://github.com/Trust-Machines/wsts?branch=add-network-types#d7829b67907bf914a76a7c3220aa1298e95390b1"
+source = "git+https://github.com/Trust-Machines/wsts?branch=add-network-types#ee9076af85a1a97523db8e99e3b04291230ef218"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

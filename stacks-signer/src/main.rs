@@ -56,7 +56,10 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
-use wsts::state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult};
+use wsts::{
+    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
+    v1,
+};
 
 struct SpawnedSigner {
     running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
@@ -90,11 +93,11 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator> = RunLoop::from(&config);
+    let runloop: RunLoop<FrostCoordinator<v1::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator>,
+        RunLoop<FrostCoordinator<v1::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.node_host;

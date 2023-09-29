@@ -24,7 +24,10 @@ use stacks_signer::{
     runloop::RunLoopCommand,
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
-use wsts::state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult};
+use wsts::{
+    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
+    v1,
+};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
@@ -42,12 +45,12 @@ fn spawn_signer(
 ) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: stacks_signer::runloop::RunLoop<FrostCoordinator> =
+    let runloop: stacks_signer::runloop::RunLoop<FrostCoordinator<v1::Aggregator>> =
         stacks_signer::runloop::RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop<FrostCoordinator>,
+        stacks_signer::runloop::RunLoop<FrostCoordinator<v1::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
     let endpoint = config.endpoint;
