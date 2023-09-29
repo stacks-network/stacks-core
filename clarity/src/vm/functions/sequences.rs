@@ -60,7 +60,7 @@ pub fn special_filter(
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
     let mut sequence = eval(&args[1], env, context)?;
-    let function = lookup_function(&function_name, env)?;
+    let function = lookup_function(function_name, env)?;
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
@@ -68,9 +68,9 @@ pub fn special_filter(
                 let argument = [atom_value];
                 let filter_eval = apply(&function, &argument, env, context)?;
                 if let Value::Bool(include) = filter_eval {
-                    return Ok(include);
+                    Ok(include)
                 } else {
-                    return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into());
+                    Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
                 }
             })?;
         }
@@ -90,7 +90,7 @@ pub fn special_fold(
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let function = lookup_function(&function_name, env)?;
+    let function = lookup_function(function_name, env)?;
     let mut sequence = eval(&args[1], env, context)?;
     let initial = eval(&args[2], env, context)?;
 
@@ -122,7 +122,7 @@ pub fn special_map(
     runtime_cost(ClarityCostFunction::Map, env, args.len())?;
 
     let function_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let function = lookup_function(&function_name, env)?;
+    let function = lookup_function(function_name, env)?;
 
     // Let's consider a function f (f a b c ...)
     // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
@@ -163,7 +163,7 @@ pub fn special_map(
         } else {
             previous_len = Some(arguments.len());
         }
-        let res = apply(&function, &arguments, env, context)?;
+        let res = apply(&function, arguments, env, context)?;
         mapped_results.push(res);
     }
 
@@ -388,7 +388,7 @@ pub fn special_slice(
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
                 Value::some(seq_value)
             }
-            _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
+            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
         }
     })();
 
@@ -445,6 +445,6 @@ pub fn special_replace_at(
         }
         data.replace_at(env.epoch(), index, new_element)
     } else {
-        return Err(CheckErrors::ExpectedSequence(seq_type).into());
+        Err(CheckErrors::ExpectedSequence(seq_type).into())
     }
 }

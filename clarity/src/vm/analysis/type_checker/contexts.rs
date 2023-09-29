@@ -40,6 +40,12 @@ pub struct TypingContext<'a> {
     pub depth: u16,
 }
 
+impl Default for TypeMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeMap {
     pub fn new() -> TypeMap {
         TypeMap {
@@ -76,7 +82,7 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    pub fn extend<'b>(&'b self) -> CheckResult<TypingContext<'b>> {
+    pub fn extend(&self) -> CheckResult<TypingContext> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {

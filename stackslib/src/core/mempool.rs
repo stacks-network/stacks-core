@@ -41,8 +41,8 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
-    index::Error as MarfError, Error as ChainstateError, StacksTransaction,
+    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
+    Error as ChainstateError, StacksTransaction,
 };
 use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use crate::core::ExecutionCost;
@@ -50,6 +50,7 @@ use crate::core::StacksEpochId;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::monitoring::increment_stx_mempool_gc;
+use crate::net::stream::TxStreamData;
 use crate::util_lib::db::query_int;
 use crate::util_lib::db::query_row_columns;
 use crate::util_lib::db::query_rows;

@@ -17,7 +17,7 @@ use winapi::um::handleapi::CloseHandle;
 use winapi::um::synchapi::{ReleaseSemaphore, WaitForSingleObject};
 use winapi::um::winbase::{CreateSemaphoreA, INFINITE, WAIT_FAILED, WAIT_OBJECT_0};
 
-use crate::deps::ctrlc::SignalId;
+use crate::deps_common::ctrlc::SignalId;
 
 /// Platform specific error type
 pub type Error = io::Error;

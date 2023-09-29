@@ -50,7 +50,7 @@ assert-json-diff = "1.0.0"
 # criterion = "0.3"
 
 [features]
-default = ["developer-mode"]
+default = []
 developer-mode = []
 slog_json = ["stacks_common/slog_json"]
 testing = []
