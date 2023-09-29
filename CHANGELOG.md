@@ -22,6 +22,10 @@ StackerDB replicas in their config files.
   hosted by subscribed Stacks nodes and controlled by smart contracts
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 
+### Changed
+
+- `developer-mode` is no longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
+
 ### Fixed
 
 - The transaction receipts for smart contract publish transactions now indicate

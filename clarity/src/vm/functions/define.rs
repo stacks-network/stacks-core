@@ -124,7 +124,7 @@ fn handle_define_variable(
     env: &mut Environment,
 ) -> Result<DefineResult> {
     // is the variable name legal?
-    check_legal_define(variable, &env.contract_context)?;
+    check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
@@ -144,12 +144,12 @@ fn handle_define_function(
         .match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    check_legal_define(&function_name, &env.contract_context)?;
+    check_legal_define(function_name, env.contract_context)?;
 
     let arguments = parse_name_type_pairs(*env.epoch(), arg_symbols, env)?;
 
     for (argument, _) in arguments.iter() {
-        check_legal_define(argument, &env.contract_context)?;
+        check_legal_define(argument, env.contract_context)?;
     }
 
     let function = DefinedFunction::new(
@@ -169,7 +169,7 @@ fn handle_define_persisted_variable(
     value: &SymbolicExpression,
     env: &mut Environment,
 ) -> Result<DefineResult> {
-    check_legal_define(&variable_str, &env.contract_context)?;
+    check_legal_define(variable_str, env.contract_context)?;
 
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
 
@@ -188,7 +188,7 @@ fn handle_define_nonfungible_asset(
     key_type: &SymbolicExpression,
     env: &mut Environment,
 ) -> Result<DefineResult> {
-    check_legal_define(&asset_name, &env.contract_context)?;
+    check_legal_define(asset_name, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
 
@@ -203,7 +203,7 @@ fn handle_define_fungible_token(
     total_supply: Option<&SymbolicExpression>,
     env: &mut Environment,
 ) -> Result<DefineResult> {
-    check_legal_define(&asset_name, &env.contract_context)?;
+    check_legal_define(asset_name, env.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
         let context = LocalContext::new();
@@ -227,7 +227,7 @@ fn handle_define_map(
     value_type: &SymbolicExpression,
     env: &mut Environment,
 ) -> Result<DefineResult> {
-    check_legal_define(&map_str, &env.contract_context)?;
+    check_legal_define(map_str, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
@@ -244,10 +244,10 @@ fn handle_define_trait(
     functions: &[SymbolicExpression],
     env: &mut Environment,
 ) -> Result<DefineResult> {
-    check_legal_define(&name, &env.contract_context)?;
+    check_legal_define(name, env.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
-        &functions,
+        functions,
         env,
         *env.epoch(),
         *env.contract_context.get_clarity_version(),
@@ -350,7 +350,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrors::IncorrectArgumentCount(1, args.len()).into());
+                    return Err(CheckErrors::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
@@ -384,19 +384,19 @@ impl<'a> DefineFunctionsParsed<'a> {
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 match &args[1].expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
-                        name: &name,
-                        trait_identifier: &field,
+                        name,
+                        trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into()),
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
                 check_argument_count(1, args)?;
                 match &args[0].expr {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
-                        trait_identifier: &field,
+                        trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into()),
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
                 }
             }
         };

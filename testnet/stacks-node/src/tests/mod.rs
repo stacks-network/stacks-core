@@ -48,6 +48,7 @@ mod epoch_24;
 mod integrations;
 mod mempool;
 pub mod neon_integrations;
+mod signer;
 mod stackerdb;
 
 // $ cat /tmp/out.clar

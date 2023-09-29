@@ -112,7 +112,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .expect(&format!("BUG: no description for {}", func_name.as_str()));
+                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();
@@ -124,7 +124,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .expect(&format!("BUG: no description for {}", func_name.as_str()));
+                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();

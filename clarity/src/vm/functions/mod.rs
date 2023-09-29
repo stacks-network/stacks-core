@@ -75,6 +75,7 @@ mod boolean;
 mod conversions;
 mod crypto;
 mod database;
+#[allow(clippy::result_large_err)]
 pub mod define;
 mod options;
 pub mod principals;
@@ -694,10 +695,7 @@ pub fn parse_eval_bindings(
 ) -> Result<Vec<(ClarityName, Value)>> {
     let mut result = Vec::new();
     handle_binding_list(bindings, |var_name, var_sexp| {
-        eval(var_sexp, env, context).and_then(|value| {
-            result.push((var_name.clone(), value));
-            Ok(())
-        })
+        eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;
 
     Ok(result)
@@ -748,7 +746,7 @@ fn special_let(
         // evaluate the let-bodies
         let mut last_result = None;
         for body in args[1..].iter() {
-            let body_result = eval(&body, env, &inner_context)?;
+            let body_result = eval(body, env, &inner_context)?;
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.

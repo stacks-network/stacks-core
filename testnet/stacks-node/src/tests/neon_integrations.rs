@@ -155,6 +155,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
+    cfile.node.as_mut().map(|node| node.bootstrap_node.take());
+
     if let Some(burnchain) = cfile.burnchain.as_mut() {
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
@@ -246,11 +248,13 @@ pub mod test_observer {
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
         debug!(
-            "Got stackerdb chunks: {}",
+            "signer_runloop: got stackerdb chunks: {}",
             serde_json::to_string(&chunks).unwrap()
         );
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
         let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
+        stackerdb_chunks.push(event.clone());
+
         Ok(warp::http::StatusCode::OK)
     }
 

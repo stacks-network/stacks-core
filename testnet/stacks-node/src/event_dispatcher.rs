@@ -41,6 +41,8 @@ use stacks::net::stackerdb::StackerDBEventDispatcher;
 
 use stacks::libstackerdb::StackerDBChunkData;
 
+pub use libsigner::StackerDBChunksEvent;
+
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
@@ -88,13 +90,6 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
-}
-
-/// Event structure for newly-arrived StackerDB data
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct StackerDBChunksEvent {
-    pub contract_id: QualifiedContractIdentifier,
-    pub modified_slots: Vec<StackerDBChunkData>,
 }
 
 impl EventObserver {

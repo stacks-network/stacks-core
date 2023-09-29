@@ -201,16 +201,22 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
     }
 }
 
+impl Default for NullBackingStore {
+    fn default() -> Self {
+        NullBackingStore::new()
+    }
+}
+
 impl NullBackingStore {
     pub fn new() -> Self {
         NullBackingStore {}
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
         AnalysisDatabase::new(self)
     }
 }
@@ -257,6 +263,12 @@ pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
+impl Default for MemoryBackingStore {
+    fn default() -> Self {
+        MemoryBackingStore::new()
+    }
+}
+
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
         let side_store = SqliteConnection::memory().unwrap();
@@ -268,11 +280,11 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
         AnalysisDatabase::new(self)
     }
 }

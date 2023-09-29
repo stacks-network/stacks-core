@@ -31,6 +31,12 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 
+#[cfg(unix)]
+extern crate nix;
+
+#[cfg(windows)]
+extern crate winapi;
+
 #[macro_use]
 pub mod util;
 

@@ -168,6 +168,10 @@ macro_rules! guarded_string {
             pub fn len(&self) -> u8 {
                 u8::try_from(self.as_str().len()).unwrap()
             }
+
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
+            }
         }
 
         impl Deref for $Name {
