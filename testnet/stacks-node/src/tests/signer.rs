@@ -224,6 +224,15 @@ fn test_stackerdb_dkg() {
         coordinator_cmd_send
             .send(RunLoopCommand::Sign {
                 message: vec![1, 2, 3, 4, 5],
+                is_taproot: false,
+                merkle_root: None,
+            })
+            .expect("failed to send Sign command");
+        coordinator_cmd_send
+            .send(RunLoopCommand::Sign {
+                message: vec![1, 2, 3, 4, 5],
+                is_taproot: true,
+                merkle_root: None,
             })
             .expect("failed to send Sign command");
 
@@ -239,10 +248,12 @@ fn test_stackerdb_dkg() {
                         info!("Received aggregate_group_key {point}");
                         aggregate_group_key = Some(point);
                     }
-                    OperationResult::Sign(sig, proof) => {
+                    OperationResult::Sign(sig) => {
                         info!("Received Signature ({},{})", &sig.R, &sig.z);
-                        info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         frost_signature = Some(sig);
+                    }
+                    OperationResult::SignTaproot(proof) => {
+                        info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         schnorr_proof = Some(proof);
                     }
                 }

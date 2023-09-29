@@ -5,6 +5,7 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
 use wsts::{
+    common::MerkleRoot,
     net::{Message, Packet, Signable},
     state_machine::{
         coordinator::{Coordinatable, Coordinator as FrostCoordinator},
@@ -22,6 +23,10 @@ pub enum RunLoopCommand {
     Sign {
         /// The bytes to sign
         message: Vec<u8>,
+        /// Whether to make a taproot signature
+        is_taproot: bool,
+        /// Taproot merkle root
+        merkle_root: Option<MerkleRoot>,
     },
 }
 
@@ -78,9 +83,16 @@ impl<C: Coordinatable> RunLoop<C> {
                     }
                 }
             }
-            RunLoopCommand::Sign { message } => {
+            RunLoopCommand::Sign {
+                message,
+                is_taproot,
+                merkle_root,
+            } => {
                 info!("Signing message: {:?}", message);
-                match self.coordinator.start_signing_message(message) {
+                match self
+                    .coordinator
+                    .start_signing_message(message, *is_taproot, *merkle_root)
+                {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
