@@ -52,11 +52,10 @@ impl ContractAST {
     }
 
     pub fn pre_expressions_drain(&mut self) -> PreExpressionsDrain {
-        let sorting = match self.top_level_expression_sorting {
-            Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
-            None => None,
-        };
-
+        let sorting = self
+            .top_level_expression_sorting
+            .as_ref()
+            .map(|exprs_ids| exprs_ids[..].to_vec());
         PreExpressionsDrain::new(self.pre_expressions.drain(..), sorting)
     }
 
@@ -79,23 +78,20 @@ pub struct PreExpressionsDrain {
 impl PreExpressionsDrain {
     pub fn new(pre_exprs_drain: Drain<PreSymbolicExpression>, sorting: Option<Vec<usize>>) -> Self {
         let mut pre_expressions = HashMap::new();
-        let mut index = 0;
-        for pre_expr in pre_exprs_drain {
+        for (index, pre_expr) in pre_exprs_drain.enumerate() {
             pre_expressions.insert(index, pre_expr);
-            index += 1;
         }
 
         let sorting = match sorting {
-            Some(sorting) if sorting.len() > 0 => Some(sorting),
+            Some(sorting) if !sorting.is_empty() => Some(sorting),
             _ => None,
         };
-        let drain = PreExpressionsDrain {
+        PreExpressionsDrain {
             len: pre_expressions.len(),
             pre_expressions,
             sorting,
             index: 0,
-        };
-        drain
+        }
     }
 }
 

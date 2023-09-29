@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::types::StandardPrincipalData;
 
@@ -58,7 +59,6 @@ use rand::Rng;
 use rand::RngCore;
 
 use crate::net::asn::ASEntry4;
-use crate::net::ContractId;
 use crate::net::Neighbor;
 use crate::net::NeighborAddress;
 use crate::net::NeighborKey;
@@ -106,10 +106,11 @@ impl FromColumn<PeerAddress> for PeerAddress {
     }
 }
 
-impl FromRow<ContractId> for ContractId {
-    fn from_row<'a>(row: &'a Row) -> Result<ContractId, db_error> {
+impl FromRow<QualifiedContractIdentifier> for QualifiedContractIdentifier {
+    fn from_row<'a>(row: &'a Row) -> Result<QualifiedContractIdentifier, db_error> {
         let cid_str: String = row.get_unwrap("smart_contract_id");
-        let cid = ContractId::parse(&cid_str).map_err(|_e| db_error::ParseError)?;
+        let cid =
+            QualifiedContractIdentifier::parse(&cid_str).map_err(|_e| db_error::ParseError)?;
 
         Ok(cid)
     }
@@ -127,7 +128,7 @@ pub struct LocalPeer {
     pub port: u16,
     pub services: u16,
     pub data_url: UrlString,
-    pub stacker_dbs: Vec<ContractId>,
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 
     // filled in and curated at runtime
     pub public_ip_address: Option<(PeerAddress, u16)>,
@@ -170,7 +171,7 @@ impl LocalPeer {
         privkey: Option<Secp256k1PrivateKey>,
         key_expire: u64,
         data_url: UrlString,
-        stacker_dbs: Vec<ContractId>,
+        stacker_dbs: Vec<QualifiedContractIdentifier>,
     ) -> LocalPeer {
         let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
         pkey.set_compress_public(true);
@@ -246,11 +247,12 @@ impl FromRow<LocalPeer> for LocalPeer {
         nonce_buf.copy_from_slice(&nonce_bytes[0..32]);
 
         let data_url = UrlString::try_from(data_url_str).map_err(|_e| db_error::ParseError)?;
-        let stacker_dbs: Vec<ContractId> = if let Some(stackerdbs_json) = stackerdbs_json {
-            serde_json::from_str(&stackerdbs_json).map_err(|_| db_error::ParseError)?
-        } else {
-            vec![]
-        };
+        let stacker_dbs: Vec<QualifiedContractIdentifier> =
+            if let Some(stackerdbs_json) = stackerdbs_json {
+                serde_json::from_str(&stackerdbs_json).map_err(|_| db_error::ParseError)?
+            } else {
+                vec![]
+            };
 
         Ok(LocalPeer {
             network_id: network_id,
@@ -435,7 +437,7 @@ impl PeerDB {
         p2p_port: u16,
         asn4_entries: &[ASEntry4],
         initial_neighbors: &[Neighbor],
-        stacker_dbs: &[ContractId],
+        stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<(), db_error> {
         let localpeer = LocalPeer::new(
             network_id,
@@ -571,13 +573,13 @@ impl PeerDB {
         parent_network_id: u32,
         data_url: UrlString,
         p2p_port: u16,
-        stacker_dbs: &[ContractId],
+        stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<(), db_error> {
         let local_peer_args: &[&dyn ToSql] = &[
             &p2p_port,
             &data_url.as_str(),
             &serde_json::to_string(stacker_dbs)
-                .expect("FATAL: unable to serialize Vec<ContractId>"),
+                .expect("FATAL: unable to serialize Vec<QualifiedContractIdentifier>"),
             &network_id,
             &parent_network_id,
         ];
@@ -635,7 +637,7 @@ impl PeerDB {
         data_url: UrlString,
         asn4_recs: &[ASEntry4],
         initial_neighbors: Option<&[Neighbor]>,
-        stacker_dbs: &[ContractId],
+        stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<PeerDB, db_error> {
         let mut create_flag = false;
         let open_flags = if fs::metadata(path).is_err() {
@@ -1052,7 +1054,7 @@ impl PeerDB {
     pub fn insert_or_replace_stacker_dbs(
         tx: &Transaction,
         slot: u32,
-        smart_contracts: &[ContractId],
+        smart_contracts: &[QualifiedContractIdentifier],
     ) -> Result<(), db_error> {
         for cid in smart_contracts {
             test_debug!("Add Stacker DB contract to slot {}: {}", slot, cid);
@@ -1336,7 +1338,7 @@ impl PeerDB {
     fn get_stacker_dbs_by_slot(
         conn: &Connection,
         used_slot: u32,
-    ) -> Result<Vec<ContractId>, db_error> {
+    ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
         let mut db_set = HashSet::new();
         let qry = "SELECT smart_contract_id FROM stackerdb_peers WHERE peer_slot = ?1";
         let dbs = query_rows(conn, qry, &[&used_slot])?;
@@ -1350,7 +1352,7 @@ impl PeerDB {
     /// Get the slots for all peers that replicate a particular stacker DB
     fn get_stacker_db_slots(
         conn: &Connection,
-        smart_contract: &ContractId,
+        smart_contract: &QualifiedContractIdentifier,
     ) -> Result<Vec<u32>, db_error> {
         let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_id = ?1";
         let args: &[&dyn ToSql] = &[&smart_contract.to_string()];
@@ -1361,7 +1363,7 @@ impl PeerDB {
     fn static_get_peer_stacker_dbs(
         conn: &Connection,
         neighbor: &Neighbor,
-    ) -> Result<Vec<ContractId>, db_error> {
+    ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
         let used_slot_opt = PeerDB::find_peer_slot(
             conn,
             neighbor.addr.network_id,
@@ -1376,7 +1378,10 @@ impl PeerDB {
     }
 
     /// Get a peer's advertized stacker DBs by their IDs.
-    pub fn get_peer_stacker_dbs(&self, neighbor: &Neighbor) -> Result<Vec<ContractId>, db_error> {
+    pub fn get_peer_stacker_dbs(
+        &self,
+        neighbor: &Neighbor,
+    ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
         PeerDB::static_get_peer_stacker_dbs(&self.conn, neighbor)
     }
 
@@ -1387,7 +1392,7 @@ impl PeerDB {
     pub fn update_peer_stacker_dbs(
         tx: &Transaction,
         neighbor: &Neighbor,
-        dbs: &[ContractId],
+        dbs: &[QualifiedContractIdentifier],
     ) -> Result<(), db_error> {
         let slot = if let Some(slot) = PeerDB::find_peer_slot(
             tx,
@@ -1402,7 +1407,8 @@ impl PeerDB {
         let cur_dbs_set: HashSet<_> = PeerDB::static_get_peer_stacker_dbs(tx, neighbor)?
             .into_iter()
             .collect();
-        let new_dbs_set: HashSet<ContractId> = dbs.iter().map(|cid| cid.clone()).collect();
+        let new_dbs_set: HashSet<QualifiedContractIdentifier> =
+            dbs.iter().map(|cid| cid.clone()).collect();
         let to_insert: Vec<_> = new_dbs_set.difference(&cur_dbs_set).collect();
         let to_delete: Vec<_> = cur_dbs_set.difference(&new_dbs_set).collect();
 
@@ -1432,7 +1438,7 @@ impl PeerDB {
     pub fn try_insert_peer(
         tx: &Transaction,
         neighbor: &Neighbor,
-        stacker_dbs: &[ContractId],
+        stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<bool, db_error> {
         let present = PeerDB::has_peer(
             tx,
@@ -1801,7 +1807,7 @@ impl PeerDB {
     pub fn find_stacker_db_replicas(
         conn: &DBConn,
         network_id: u32,
-        smart_contract: &ContractId,
+        smart_contract: &QualifiedContractIdentifier,
         max_count: usize,
     ) -> Result<Vec<Neighbor>, db_error> {
         if max_count == 0 {
@@ -1863,8 +1869,14 @@ mod test {
         assert_eq!(local_peer.stacker_dbs, vec![]);
 
         let mut stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x02, [0x03; 20]), "db-2".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x02, [0x03; 20]),
+                "db-2".into(),
+            ),
         ];
         stackerdbs.sort();
 
@@ -2042,8 +2054,14 @@ mod test {
 
         // basic storage and retrieval
         let mut stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x02, [0x03; 20]), "db-2".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x02, [0x03; 20]),
+                "db-2".into(),
+            ),
         ];
         stackerdbs.sort();
 
@@ -2066,8 +2084,14 @@ mod test {
 
         // adding DBs to the same slot just grows the total list
         let mut new_stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x03, [0x04; 20]), "db-3".into()),
-            ContractId::new(StandardPrincipalData(0x04, [0x05; 20]), "db-5".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x03, [0x04; 20]),
+                "db-3".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x04, [0x05; 20]),
+                "db-5".into(),
+            ),
         ];
         new_stackerdbs.sort();
 
@@ -2271,8 +2295,14 @@ mod test {
         .unwrap();
 
         let mut stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x02, [0x03; 20]), "db-2".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x02, [0x03; 20]),
+                "db-2".into(),
+            ),
         ];
         stackerdbs.sort();
 
@@ -2302,8 +2332,14 @@ mod test {
 
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x03, [0x04; 20]), "db-3".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x03, [0x04; 20]),
+                "db-3".into(),
+            ),
         ];
         changed_stackerdbs.sort();
 
@@ -2336,8 +2372,14 @@ mod test {
 
         // add back stacker DBs
         let mut new_stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x04, [0x05; 20]), "db-4".into()),
-            ContractId::new(StandardPrincipalData(0x05, [0x06; 20]), "db-5".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x04, [0x05; 20]),
+                "db-4".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x05, [0x06; 20]),
+                "db-5".into(),
+            ),
         ];
         new_stackerdbs.sort();
 
@@ -2358,8 +2400,14 @@ mod test {
         // Do it twice -- it should be idempotent
         for _ in 0..2 {
             let mut replace_stackerdbs = vec![
-                ContractId::new(StandardPrincipalData(0x06, [0x07; 20]), "db-6".into()),
-                ContractId::new(StandardPrincipalData(0x07, [0x08; 20]), "db-7".into()),
+                QualifiedContractIdentifier::new(
+                    StandardPrincipalData(0x06, [0x07; 20]),
+                    "db-6".into(),
+                ),
+                QualifiedContractIdentifier::new(
+                    StandardPrincipalData(0x07, [0x08; 20]),
+                    "db-7".into(),
+                ),
             ];
             replace_stackerdbs.sort();
 
@@ -2448,8 +2496,14 @@ mod test {
         .unwrap();
 
         let mut stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x02, [0x03; 20]), "db-2".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x02, [0x03; 20]),
+                "db-2".into(),
+            ),
         ];
         stackerdbs.sort();
 
@@ -2481,8 +2535,14 @@ mod test {
 
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x01, [0x02; 20]), "db-1".into()),
-            ContractId::new(StandardPrincipalData(0x03, [0x04; 20]), "db-3".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x01, [0x02; 20]),
+                "db-1".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x03, [0x04; 20]),
+                "db-3".into(),
+            ),
         ];
         changed_stackerdbs.sort();
 
@@ -2536,8 +2596,14 @@ mod test {
         assert_eq!(replicas.len(), 0);
 
         let mut replace_stackerdbs = vec![
-            ContractId::new(StandardPrincipalData(0x06, [0x07; 20]), "db-6".into()),
-            ContractId::new(StandardPrincipalData(0x07, [0x08; 20]), "db-7".into()),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x06, [0x07; 20]),
+                "db-6".into(),
+            ),
+            QualifiedContractIdentifier::new(
+                StandardPrincipalData(0x07, [0x08; 20]),
+                "db-7".into(),
+            ),
         ];
         replace_stackerdbs.sort();
 

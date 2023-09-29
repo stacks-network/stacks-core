@@ -1732,14 +1732,14 @@ fn test_step_walk_2_neighbors_different_networks() {
     })
 }
 
-fn stacker_db_id(i: usize) -> ContractId {
-    ContractId::new(
+fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
+    QualifiedContractIdentifier::new(
         StandardPrincipalData(0x01, [i as u8; 20]),
         format!("db-{}", i).as_str().into(),
     )
 }
 
-fn make_stacker_db_ids(i: usize) -> Vec<ContractId> {
+fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
     let mut dbs = vec![];
     for j in 0..i {
         dbs.push(stacker_db_id(j));

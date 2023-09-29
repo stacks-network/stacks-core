@@ -193,8 +193,8 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    stackerdb::StackerDBs,
-    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
+    stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs},
+    Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
@@ -225,6 +225,7 @@ use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -3894,7 +3895,11 @@ impl StacksNode {
     /// * bootstrap nodes
     /// Returns the instantiated PeerDB
     /// Panics on failure.
-    fn setup_peer_db(config: &Config, burnchain: &Burnchain) -> PeerDB {
+    fn setup_peer_db(
+        config: &Config,
+        burnchain: &Burnchain,
+        stackerdb_contract_ids: &[QualifiedContractIdentifier],
+    ) -> PeerDB {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
@@ -3928,7 +3933,7 @@ impl StacksNode {
             data_url,
             &[],
             Some(&initial_neighbors),
-            &[],
+            stackerdb_contract_ids,
         )
         .map_err(|e| {
             eprintln!(
@@ -4015,12 +4020,86 @@ impl StacksNode {
                 .unwrap()
         };
 
-        let peerdb = Self::setup_peer_db(config, &burnchain);
-
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+        let mut chainstate =
+            open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
+
+        let mut stackerdb_machines = HashMap::new();
+        for stackerdb_contract_id in config.node.stacker_dbs.iter() {
+            // attempt to load the config
+            let (instantiate, stacker_db_config) = match StackerDBConfig::from_smart_contract(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_contract_id,
+            ) {
+                Ok(c) => (true, c),
+                Err(e) => {
+                    warn!(
+                        "Failed to load StackerDB config for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    (false, StackerDBConfig::noop())
+                }
+            };
+            let mut stackerdbs =
+                StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+            if instantiate {
+                match stackerdbs.get_stackerdb_id(stackerdb_contract_id) {
+                    Ok(..) => {
+                        // reconfigure
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to reconfigure StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(NetError::NoSuchStackerDB(..)) => {
+                        // instantiate replica
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to instantiate StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(e) => {
+                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
+                    }
+                }
+            }
+            let stacker_db_sync = match StackerDBSync::new(
+                stackerdb_contract_id.clone(),
+                &stacker_db_config,
+                PeerNetworkComms::new(),
+                stackerdbs,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    continue;
+                }
+            };
+
+            stackerdb_machines.insert(
+                stackerdb_contract_id.clone(),
+                (stacker_db_config, stacker_db_sync),
+            );
+        }
+
+        let stackerdb_contract_ids: Vec<_> =
+            stackerdb_machines.keys().map(|sc| sc.clone()).collect();
+        let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -4036,7 +4115,7 @@ impl StacksNode {
             burnchain,
             view,
             config.connection_options.clone(),
-            vec![],
+            stackerdb_machines,
             epochs,
         );
 
@@ -4185,6 +4264,7 @@ impl StacksNode {
         let _ = Self::setup_mempool_db(&config);
 
         let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
+
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
 

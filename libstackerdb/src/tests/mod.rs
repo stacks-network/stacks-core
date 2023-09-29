@@ -14,12 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fs;
-
-use crate::net::stackerdb::SlotMetadata;
-use crate::net::StackerDBChunkData;
-
-use clarity::vm::ContractName;
 use stacks_common::types::chainstate::StacksAddress;
 
 use stacks_common::util::hash::Hash160;
@@ -27,8 +21,11 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
-use stacks_common::types::chainstate::{ConsensusHash, StacksPrivateKey, StacksPublicKey};
-use stacks_common::types::PrivateKey;
+use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+
+use crate::*;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_stackerdb_slot_metadata_sign_verify() {
@@ -75,4 +72,41 @@ fn test_stackerdb_slot_metadata_sign_verify() {
     bad_slot_metadata.sign(&pk).unwrap();
     bad_slot_metadata.data_hash = Sha512Trunc256Sum([0x20; 32]);
     assert!(!bad_slot_metadata.verify(&addr).unwrap());
+}
+
+#[test]
+fn test_stackerdb_paths() {
+    let pk = StacksPrivateKey::from_hex(
+        "4bbe4e7dc879afedf4bf258a7385cf78ccf3a68a77f9cfc624f433d009f812f901",
+    )
+    .unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&pk)],
+    )
+    .unwrap();
+
+    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".into());
+
+    assert_eq!(
+        stackerdb_get_metadata_path(contract_id.clone()),
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world".to_string()
+    );
+
+    assert_eq!(
+        stackerdb_get_chunk_path(contract_id.clone(), 1, Some(2)),
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1/2".to_string()
+    );
+
+    assert_eq!(
+        stackerdb_get_chunk_path(contract_id.clone(), 1, None),
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/1".to_string()
+    );
+
+    assert_eq!(
+        stackerdb_post_chunk_path(contract_id.clone()),
+        "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/chunks".to_string()
+    );
 }
