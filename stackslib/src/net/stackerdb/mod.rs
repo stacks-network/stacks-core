@@ -114,11 +114,10 @@
 #[cfg(test)]
 pub mod tests;
 
-pub mod bits;
+pub mod config;
 pub mod db;
 pub mod sync;
 
-use crate::net::ContractId;
 use crate::net::Error as net_error;
 use crate::net::NackData;
 use crate::net::NackErrorCodes;
@@ -143,7 +142,12 @@ use crate::net::neighbors::NeighborComms;
 
 use crate::net::p2p::PeerNetwork;
 
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
+
+use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = 4096;
@@ -151,7 +155,7 @@ pub const STACKERDB_INV_MAX: u32 = 4096;
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
-    pub contract_id: ContractId,
+    pub contract_id: QualifiedContractIdentifier,
     /// slot inventory for this replica
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
     /// list of data to store
@@ -167,16 +171,16 @@ pub struct StackerDBSyncResult {
 pub struct StackerDBConfig {
     /// maximum chunk size
     pub chunk_size: u64,
-    /// number of chunks in this DB.  Cannot be bigger than STACERDB_INV_MAX.
-    pub num_slots: u64,
+    /// list of who writes and how many slots they have
+    pub signers: Vec<(StacksAddress, u32)>,
     /// minimum wall-clock time between writes to the same slot.
     pub write_freq: u64,
     /// maximum number of times a slot may be written to during a reward cycle.
     pub max_writes: u32,
     /// hint for some initial peers that have replicas of this DB
-    pub hint_peers: Vec<NeighborAddress>,
+    pub hint_replicas: Vec<NeighborAddress>,
     /// hint for how many neighbors to connect to
-    pub num_neighbors: usize,
+    pub max_neighbors: usize,
 }
 
 impl StackerDBConfig {
@@ -186,10 +190,15 @@ impl StackerDBConfig {
             chunk_size: u64::MAX,
             write_freq: 0,
             max_writes: u32::MAX,
-            hint_peers: vec![],
-            num_neighbors: 8,
-            num_slots: STACKERDB_INV_MAX.into(),
+            hint_replicas: vec![],
+            max_neighbors: 8,
+            signers: vec![],
         }
+    }
+
+    /// How many slots are in this DB total?
+    pub fn num_slots(&self) -> u32 {
+        self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
 }
 
@@ -205,20 +214,6 @@ pub struct StackerDBs {
 pub struct StackerDBTx<'a> {
     sql_tx: DBTx<'a>,
     config: StackerDBConfig,
-}
-
-/// Slot metadata from the DB.
-/// This is derived state from a StackerDBChunkData message.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SlotMetadata {
-    /// Slot identifier (unique for each DB instance)
-    pub slot_id: u32,
-    /// Slot version (a lamport clock)
-    pub slot_version: u32,
-    /// data hash
-    pub data_hash: Sha512Trunc256Sum,
-    /// signature over the above
-    pub signature: MessageSignature,
 }
 
 /// Possible states a DB sync state-machine can be in
@@ -238,10 +233,10 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// what state are we in?
     state: StackerDBSyncState,
     /// which contract this is a replica for
-    pub smart_contract_id: ContractId,
+    pub smart_contract_id: QualifiedContractIdentifier,
     /// number of chunks in this DB
     pub num_slots: usize,
-    /// how frequently we accept chunk writes
+    /// how frequently we accept chunk writes, in seconds
     pub write_freq: u64,
     /// What versions of each chunk does each neighbor have?
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
@@ -260,9 +255,9 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// Downloaded chunks
     pub downloaded_chunks: HashMap<NeighborAddress, Vec<StackerDBChunkData>>,
     /// Replicas to contact
-    pub(crate) replicas: Vec<NeighborAddress>,
+    pub(crate) replicas: HashSet<NeighborAddress>,
     /// Replicas that have connected
-    pub(crate) connected_replicas: Vec<NeighborAddress>,
+    pub(crate) connected_replicas: HashSet<NeighborAddress>,
     /// Comms with neigbors
     pub(crate) comms: NC,
     /// Handle to StackerDBs
@@ -275,6 +270,11 @@ pub struct StackerDBSync<NC: NeighborComms> {
     pub total_stored: u64,
     /// total chunks pushed
     pub total_pushed: u64,
+    /// last time the state-transition function ran to completion
+    last_run_ts: u64,
+    /// whether or not we should immediately re-fetch chunks because we learned about new chunks
+    /// from our peers when they replied to our chunk-pushes with new inventory state
+    need_resync: bool,
 }
 
 impl StackerDBSyncResult {
@@ -289,6 +289,16 @@ impl StackerDBSyncResult {
             broken: HashSet::new(),
         }
     }
+}
+
+/// Event dispatcher trait for pushing out new chunk arrival info
+pub trait StackerDBEventDispatcher {
+    /// A set of one or more chunks has been obtained by this replica
+    fn new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        chunk_info: Vec<StackerDBChunkData>,
+    );
 }
 
 impl PeerNetwork {
@@ -323,7 +333,12 @@ impl PeerNetwork {
                             "Failed to run StackerDB state machine for {}: {:?}",
                             &sc, &e
                         );
-                        stacker_db_sync.reset(Some(self), config)?;
+                        if let Err(e) = stacker_db_sync.reset(Some(self), config) {
+                            info!(
+                                "Failed to reset StackerDB state machine for {}: {:?}",
+                                &sc, &e
+                            );
+                        }
                     }
                 }
             } else {
@@ -335,7 +350,10 @@ impl PeerNetwork {
     }
 
     /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here
-    pub fn make_StackerDBChunksInv_or_Nack(&self, contract_id: &ContractId) -> StacksMessageType {
+    pub fn make_StackerDBChunksInv_or_Nack(
+        &self,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> StacksMessageType {
         let slot_versions = match self.stackerdbs.get_slot_versions(contract_id) {
             Ok(versions) => versions,
             Err(e) => {
@@ -363,7 +381,7 @@ impl PeerNetwork {
     /// Returns Err(..) on DB error
     pub fn validate_received_chunk(
         &self,
-        smart_contract_id: &ContractId,
+        smart_contract_id: &QualifiedContractIdentifier,
         config: &StackerDBConfig,
         data: &StackerDBChunkData,
         expected_versions: &[u32],
@@ -424,6 +442,15 @@ impl PeerNetwork {
     /// Handle unsolicited StackerDBPushChunk messages.
     /// Generate a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
     /// the inventory vector is updated with this chunk's data.
+    ///
+    /// Note that this can happen *during* a StackerDB sync's execution, so be very careful about
+    /// modifying a state machine's contents!  The only modification possible here is to wakeup
+    /// the state machine in case it's asleep (i.e. blocked on waiting for the next sync round).
+    ///
+    /// The write frequency is not checked for this chunk. This is because the `ConversationP2P` on
+    /// which this chunk arrived will have already bandwidth-throttled the remote peer, and because
+    /// messages can be arbitrarily delayed (and bunched up) by the network anyway.
+    ///
     /// Return Ok(true) if we should store the chunk
     /// Return Ok(false) if we should drop it.
     pub fn handle_unsolicited_StackerDBPushChunk(
@@ -461,6 +488,13 @@ impl PeerNetwork {
                 // patch inventory -- we'll accept this chunk
                 data.slot_versions[chunk_data.chunk_data.slot_id as usize] =
                     chunk_data.chunk_data.slot_version;
+
+                // wake up the state machine -- force it to begin a new sync if it's asleep
+                if let Some(stackerdb_syncs) = self.stacker_db_syncs.as_mut() {
+                    if let Some(stackerdb_sync) = stackerdb_syncs.get_mut(&chunk_data.contract_id) {
+                        stackerdb_sync.wakeup();
+                    }
+                }
             }
             _ => {}
         }

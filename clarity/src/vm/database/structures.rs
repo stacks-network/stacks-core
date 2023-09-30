@@ -230,7 +230,7 @@ impl ClaritySerializable for STXBalance {
 
 impl ClarityDeserializable<STXBalance> for STXBalance {
     fn deserialize(input: &str) -> Self {
-        let bytes = hex_bytes(&input).expect("STXBalance deserialization: failed decoding bytes.");
+        let bytes = hex_bytes(input).expect("STXBalance deserialization: failed decoding bytes.");
         if bytes.len() == STXBalance::unlocked_and_v1_size {
             let amount_unlocked = u128::from_be_bytes(
                 bytes[0..16]
@@ -327,7 +327,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         &self.balance
     }
 
-    pub fn save(self) -> () {
+    pub fn save(self) {
         let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
         self.db_ref.put(&key, &self.balance)
     }
@@ -459,10 +459,10 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v2.
     pub fn is_v2_locked(&mut self) -> bool {
-        match self.canonical_balance_repr() {
-            STXBalance::LockedPoxTwo { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.canonical_balance_repr(),
+            STXBalance::LockedPoxTwo { .. }
+        )
     }
 
     /// Increase the account's current lock to `new_total_locked`.
@@ -676,10 +676,10 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v3.
     pub fn is_v3_locked(&mut self) -> bool {
-        match self.canonical_balance_repr() {
-            STXBalance::LockedPoxThree { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.canonical_balance_repr(),
+            STXBalance::LockedPoxThree { .. }
+        )
     }
 
     /////////////// GENERAL //////////////////////
@@ -967,27 +967,15 @@ impl STXBalance {
     }
 
     pub fn was_locked_by_v1(&self) -> bool {
-        if let STXBalance::LockedPoxOne { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxOne { .. })
     }
 
     pub fn was_locked_by_v2(&self) -> bool {
-        if let STXBalance::LockedPoxTwo { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxTwo { .. })
     }
 
     pub fn was_locked_by_v3(&self) -> bool {
-        if let STXBalance::LockedPoxThree { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxThree { .. })
     }
 
     pub fn has_locked_tokens_at_burn_block(

@@ -157,6 +157,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
+    cfile.node.as_mut().map(|node| node.bootstrap_node.take());
+
     if let Some(burnchain) = cfile.burnchain.as_mut() {
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
@@ -205,7 +207,7 @@ pub mod test_observer {
     use warp;
     use warp::Filter;
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
+    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, StackerDBChunksEvent};
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -214,6 +216,8 @@ pub mod test_observer {
         pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
+            Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
         pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
@@ -239,6 +243,20 @@ pub mod test_observer {
     ) -> Result<impl warp::Reply, Infallible> {
         let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
         microblock_events.push(microblocks);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_stackerdb_chunks(
+        chunks: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        debug!(
+            "signer_runloop: got stackerdb chunks: {}",
+            serde_json::to_string(&chunks).unwrap()
+        );
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
+        let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
+        stackerdb_chunks.push(event.clone());
+
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -362,6 +380,10 @@ pub mod test_observer {
         MINED_MICROBLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
+        NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -396,6 +418,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mined_microblock);
+        let new_stackerdb_chunks = warp::path!("stackerdb_chunks")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_stackerdb_chunks);
 
         info!("Spawning warp server");
         warp::serve(
@@ -406,7 +432,8 @@ pub mod test_observer {
                 .or(new_attachments)
                 .or(new_microblocks)
                 .or(mined_blocks)
-                .or(mined_microblocks),
+                .or(mined_microblocks)
+                .or(new_stackerdb_chunks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -421,12 +448,15 @@ pub mod test_observer {
     }
 
     pub fn clear() {
-        ATTACHMENTS.lock().unwrap().clear();
-        BURN_BLOCKS.lock().unwrap().clear();
         NEW_BLOCKS.lock().unwrap().clear();
+        MINED_BLOCKS.lock().unwrap().clear();
+        MINED_MICROBLOCKS.lock().unwrap().clear();
+        NEW_MICROBLOCKS.lock().unwrap().clear();
+        NEW_STACKERDB_CHUNKS.lock().unwrap().clear();
+        BURN_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
-        MINED_BLOCKS.lock().unwrap().clear();
+        ATTACHMENTS.lock().unwrap().clear();
     }
 }
 

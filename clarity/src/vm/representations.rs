@@ -114,8 +114,8 @@ impl StacksMessageCodec for ClarityName {
 
 impl StacksMessageCodec for ContractName {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize
-            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH
+            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH
         {
             return Err(codec_error::SerializeError(format!(
                 "Failed to serialize contract name: too short or too long: {}",
@@ -247,6 +247,24 @@ impl PreSymbolicExpression {
         _end_line: u32,
         _end_column: u32,
     ) {
+    }
+
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
     }
 
     pub fn sugared_contract_identifier(val: ContractName) -> PreSymbolicExpression {
@@ -476,6 +494,24 @@ impl SymbolicExpression {
     ) {
     }
 
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
+    }
+
     pub fn atom_value(val: Value) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::AtomValue(val),
@@ -613,6 +649,13 @@ pub struct Span {
 }
 
 impl Span {
+    pub const ZERO: Span = Span {
+        start_line: 0,
+        start_column: 0,
+        end_line: 0,
+        end_column: 0,
+    };
+
     pub fn zero() -> Span {
         Span {
             start_line: 0,

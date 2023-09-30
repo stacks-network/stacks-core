@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
-use stacks::deps::ctrlc as termination;
-use stacks::deps::ctrlc::SignalId;
+use stacks_common::deps_common::ctrlc as termination;
+use stacks_common::deps_common::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;

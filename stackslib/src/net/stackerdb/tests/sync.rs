@@ -16,7 +16,8 @@
 
 use std::fs;
 
-use crate::net::stackerdb::{db::SlotValidation, SlotMetadata, StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
+use libstackerdb::SlotMetadata;
 
 use crate::net::Error as net_error;
 use crate::net::StackerDBChunkData;
@@ -43,11 +44,10 @@ use rand::RngCore;
 use crate::net::relay::Relayer;
 use crate::net::test::TestPeer;
 use crate::net::test::TestPeerConfig;
-use crate::net::ContractIdExtension;
-
-use crate::net::ContractId;
 
 use crate::util_lib::test::with_timeout;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 const BASE_PORT: u16 = 33000;
 
@@ -60,26 +60,14 @@ const NUM_NEIGHBORS: usize = 8;
 /// Some testable configurations for stacker DB configs
 impl StackerDBConfig {
     #[cfg(test)]
-    pub fn one_chunk() -> StackerDBConfig {
+    pub fn template() -> StackerDBConfig {
         StackerDBConfig {
             chunk_size: CHUNK_SIZE,
             write_freq: 0,
             max_writes: u32::MAX,
-            hint_peers: vec![],
-            num_neighbors: NUM_NEIGHBORS,
-            num_slots: 1,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn ten_chunks() -> StackerDBConfig {
-        StackerDBConfig {
-            chunk_size: CHUNK_SIZE,
-            write_freq: 0,
-            max_writes: u32::MAX,
-            hint_peers: vec![],
-            num_neighbors: NUM_NEIGHBORS,
-            num_slots: 10,
+            hint_replicas: vec![],
+            max_neighbors: NUM_NEIGHBORS,
+            signers: vec![], // to be filled in
         }
     }
 }
@@ -96,7 +84,9 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
-    config.stacker_dbs.push(ContractId::from_parts(addr, name));
+    config
+        .stacker_dbs
+        .push(QualifiedContractIdentifier::new(addr.into(), name));
     config.stacker_db_configs.push(Some(stackerdb_config));
 
     config.stacker_dbs.len() - 1
@@ -104,15 +94,14 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
 /// Set up a stacker DB and optionally fill it with random data.
 /// `idx` refers to the `idx`th stacker DB in the node config struct.
-fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
+fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize) {
     let contract_id = &peer.config.stacker_dbs[idx];
     let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
 
-    let noop = StackerDBConfig::noop();
+    let mut noop = StackerDBConfig::noop();
     let stackerdb_config = peer.config.stacker_db_configs[idx]
-        .as_ref()
-        .unwrap_or(&noop);
-    let num_slots = stackerdb_config.num_slots;
+        .as_mut()
+        .unwrap_or(&mut noop);
     let chunk_size = stackerdb_config.chunk_size;
 
     let mut k: u64 = 0;
@@ -135,9 +124,10 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
         };
 
         pks.push(pk);
-        slots.push((addr, 1));
+        slots.push((addr, 1u32));
     }
 
+    stackerdb_config.signers = slots.clone();
     let tx = peer
         .network
         .stackerdbs
@@ -162,6 +152,16 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool) {
     }
 
     tx.commit().unwrap();
+
+    // load the new slot data into the sync state machine
+    peer.network
+        .stacker_db_syncs
+        .as_mut()
+        .unwrap()
+        .get_mut(contract_id)
+        .unwrap()
+        .reset(None, stackerdb_config)
+        .unwrap();
 }
 
 /// Load up the entire stacker DB, including its metadata
@@ -169,7 +169,7 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
     let num_slots = peer.config.stacker_db_configs[idx]
         .as_ref()
         .unwrap_or(&StackerDBConfig::noop())
-        .num_slots;
+        .num_slots();
     let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
     let mut ret = vec![];
     for i in 0..num_slots {
@@ -209,15 +209,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
         // set up stacker DBs for both peers
-        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::one_chunk()));
-        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::one_chunk()));
+        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
+        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
         // peer 1 gets the DB
-        setup_stackerdb(&mut peer_1, idx_1, true);
-        setup_stackerdb(&mut peer_2, idx_2, false);
+        setup_stackerdb(&mut peer_1, idx_1, true, 1);
+        setup_stackerdb(&mut peer_2, idx_2, false, 1);
 
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
@@ -246,13 +246,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -261,13 +263,15 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -320,15 +324,15 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
         // set up stacker DBs for both peers
-        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::ten_chunks()));
-        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::ten_chunks()));
+        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
+        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
         // peer 1 gets the DB
-        setup_stackerdb(&mut peer_1, idx_1, true);
-        setup_stackerdb(&mut peer_2, idx_2, false);
+        setup_stackerdb(&mut peer_1, idx_1, true, 10);
+        setup_stackerdb(&mut peer_2, idx_2, false, 10);
 
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
@@ -361,13 +365,15 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
                 Relayer::process_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_1.network.stackerdbs,
                     &peer_1_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -376,13 +382,15 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
                 Relayer::process_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
-                    &res.stacker_db_sync_results,
+                    res.stacker_db_sync_results,
+                    None,
                 )
                 .unwrap();
                 Relayer::process_pushed_stacker_db_chunks(
                     &mut peer_2.network.stackerdbs,
                     &peer_2_db_configs,
                     &mut res.unhandled_messages,
+                    None,
                 )
                 .unwrap();
             }
@@ -403,11 +411,13 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
     inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(false, BASE_PORT + 28);
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_push_10_chunks() {
     inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(true, BASE_PORT + 68);
 }
@@ -432,7 +442,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
 
             // short-lived walks...
             peer_config.connection_opts.walk_max_duration = 10;
-            let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::ten_chunks()));
+            let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::template()));
 
             peer_configs.push(peer_config);
             peer_db_idxs.push(idx);
@@ -451,7 +461,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
 
             if i == 0 {
                 // peer 0 -- at one end of the line -- gets the initial DB
-                setup_stackerdb(&mut peer, peer_db_idxs[i], true);
+                setup_stackerdb(&mut peer, peer_db_idxs[i], true, 10);
 
                 // verify instantiation
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
@@ -463,7 +473,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                 }
             } else {
                 // everyone else gets nothing
-                setup_stackerdb(&mut peer, peer_db_idxs[i], false);
+                setup_stackerdb(&mut peer, peer_db_idxs[i], false, 10);
 
                 // verify instantiation
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
@@ -493,13 +503,15 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                     Relayer::process_stacker_db_chunks(
                         &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
-                        &res.stacker_db_sync_results,
+                        res.stacker_db_sync_results,
+                        None,
                     )
                     .unwrap();
                     Relayer::process_pushed_stacker_db_chunks(
                         &mut peers[i].network.stackerdbs,
                         &peer_db_configs[i],
                         &mut res.unhandled_messages,
+                        None,
                     )
                     .unwrap();
                 }

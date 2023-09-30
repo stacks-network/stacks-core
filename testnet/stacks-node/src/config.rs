@@ -253,7 +253,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444,02539449ad94e6e6392d8c1deb2b4e61f80ae2a18964349bc14336d8b903c46a8c@cet.stacksnodes.org:20444,02ececc8ce79b8adf813f13a0255f8ae58d4357309ba0cedd523d9f1a306fcfb79@sgt.stacksnodes.org:20444,0303144ba518fe7a0fb56a8a7d488f950307a4330f146e1e1458fc63fb33defe96@est.stacksnodes.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -708,6 +708,14 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .unwrap_or(vec![])
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1521,6 +1529,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    /// stacker DBs we replicate
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -1799,6 +1809,7 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            stacker_dbs: vec![],
         }
     }
 
@@ -1838,7 +1849,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
-        debug!("Resolve '{}'", &hostport);
+        info!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -2005,6 +2016,8 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    /// Stacker DBs we replicate
+    pub stacker_dbs: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -2083,6 +2096,7 @@ pub enum EventKeyType {
     BurnchainBlocks,
     MinedBlocks,
     MinedMicroblocks,
+    StackerDBChunks,
 }
 
 impl EventKeyType {
@@ -2105,6 +2119,10 @@ impl EventKeyType {
 
         if raw_key == "microblocks" {
             return Some(EventKeyType::Microblocks);
+        }
+
+        if raw_key == "stackerdb" {
+            return Some(EventKeyType::StackerDBChunks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

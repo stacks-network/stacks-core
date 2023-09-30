@@ -1,21 +1,18 @@
-/*
- copyright: (c) 2013-2020 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -38,9 +35,7 @@ use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::CheckError;
-use crate::chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
-};
+use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
 use crate::chainstate::stacks::Error as chain_error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
@@ -59,6 +54,8 @@ use crate::net::http::*;
 use crate::net::p2p::PeerMap;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBTx;
+use crate::net::stackerdb::StackerDBs;
 use crate::net::BlocksDatum;
 use crate::net::Error as net_error;
 use crate::net::HttpRequestMetadata;
@@ -74,9 +71,11 @@ use crate::net::PeerHost;
 use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
+use crate::net::StackerDBPushChunkData;
 use crate::net::StacksHttp;
 use crate::net::StacksHttpMessage;
 use crate::net::StacksMessageType;
+use crate::net::StreamCursor;
 use crate::net::UnconfirmedTransactionResponse;
 use crate::net::UnconfirmedTransactionStatus;
 use crate::net::UrlString;
@@ -114,6 +113,7 @@ use clarity::vm::{
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
+use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -124,6 +124,8 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::clarity_vm::clarity::Error as clarity_error;
 
@@ -242,6 +244,7 @@ impl RPCPeerInfoData {
         let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
+        let stackerdb_contract_ids = network.get_local_peer().stacker_dbs.clone();
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
@@ -274,6 +277,12 @@ impl RPCPeerInfoData {
                 anchor_block_hash: network.last_anchor_block_hash.clone(),
                 anchor_block_txid: network.last_anchor_block_txid.clone(),
             }),
+            stackerdbs: Some(
+                stackerdb_contract_ids
+                    .into_iter()
+                    .map(|cid| format!("{}", cid))
+                    .collect(),
+            ),
         }
     }
 }
@@ -556,10 +565,12 @@ impl RPCNeighborsInfo {
         let bootstrap = bootstrap_nodes
             .into_iter()
             .map(|n| {
+                let stackerdb_contract_ids = peerdb.get_peer_stacker_dbs(&n).unwrap_or(vec![]);
                 RPCNeighbor::from_neighbor_key_and_pubkh(
                     n.addr.clone(),
                     Hash160::from_node_public_key(&n.public_key),
                     true,
+                    stackerdb_contract_ids,
                 )
             })
             .collect();
@@ -578,10 +589,12 @@ impl RPCNeighborsInfo {
         let sample: Vec<RPCNeighbor> = neighbor_sample
             .into_iter()
             .map(|n| {
+                let stackerdb_contract_ids = peerdb.get_peer_stacker_dbs(&n).unwrap_or(vec![]);
                 RPCNeighbor::from_neighbor_key_and_pubkh(
                     n.addr.clone(),
                     Hash160::from_node_public_key(&n.public_key),
                     true,
+                    stackerdb_contract_ids,
                 )
             })
             .collect();
@@ -596,12 +609,14 @@ impl RPCNeighborsInfo {
                     nk,
                     naddr.public_key_hash,
                     convo.is_authenticated(),
+                    convo.get_stackerdb_contract_ids().to_vec(),
                 ));
             } else {
                 inbound.push(RPCNeighbor::from_neighbor_key_and_pubkh(
                     nk,
                     naddr.public_key_hash,
                     convo.is_authenticated(),
+                    convo.get_stackerdb_contract_ids().to_vec(),
                 ));
             }
         }
@@ -2450,6 +2465,175 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
+    /// Handle a request for the vector of stacker DB slot metadata
+    fn handle_get_stackerdb_metadata<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        stackerdbs: &StackerDBs,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let response = if let Ok(slots) = stackerdbs.get_db_slot_metadata(stackerdb_contract_id) {
+            HttpResponseType::StackerDBMetadata(response_metadata, slots)
+        } else {
+            HttpResponseType::NotFound(response_metadata, "No such StackerDB contract".into())
+        };
+
+        return response.send(http, fd).map(|_| ());
+    }
+
+    /// Handle a request for a stacker DB chunk, optionally with a given version
+    fn handle_get_stackerdb_chunk<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        stackerdbs: &StackerDBs,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        slot_id: u32,
+        slot_version: Option<u32>,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let chunk_res = if let Some(version) = slot_version.as_ref() {
+            stackerdbs
+                .get_chunk(stackerdb_contract_id, slot_id, *version)
+                .map(|chunk_data| chunk_data.map(|chunk_data| chunk_data.data))
+        } else {
+            stackerdbs.get_latest_chunk(stackerdb_contract_id, slot_id)
+        };
+
+        let response = match chunk_res {
+            Ok(Some(chunk)) => HttpResponseType::StackerDBChunk(response_metadata, chunk),
+            Ok(None) | Err(net_error::NoSuchStackerDB(..)) => {
+                // not found
+                HttpResponseType::NotFound(response_metadata, "No such StackerDB chunk".into())
+            }
+            Err(e) => {
+                // some other error
+                error!("Failed to load StackerDB chunk";
+                       "smart_contract_id" => stackerdb_contract_id.to_string(),
+                       "slot_id" => slot_id,
+                       "slot_version" => slot_version,
+                       "error" => format!("{:?}", &e)
+                );
+                HttpResponseType::ServerError(
+                    response_metadata,
+                    format!("Failed to load StackerDB chunk"),
+                )
+            }
+        };
+
+        return response.send(http, fd).map(|_| ());
+    }
+
+    /// Handle a post for a new StackerDB chunk.
+    /// If we accept it, then forward it to the relayer as well
+    /// so an event can be generated for it.
+    fn handle_post_stackerdb_chunk<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        tx: &mut StackerDBTx,
+        stackerdb_contract_id: &QualifiedContractIdentifier,
+        stackerdb_chunk: &StackerDBChunkData,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<Option<StacksMessageType>, net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        if let Err(_e) = tx.get_stackerdb_id(stackerdb_contract_id) {
+            // shouldn't be necessary (this is checked against the peer network's configured DBs),
+            // but you never know.
+            let resp = HttpResponseType::NotFound(response_metadata, "No such StackerDB".into());
+            return resp.send(http, fd).and_then(|_| Ok(None));
+        }
+        if let Err(_e) = tx.try_replace_chunk(
+            stackerdb_contract_id,
+            &stackerdb_chunk.get_slot_metadata(),
+            &stackerdb_chunk.data,
+        ) {
+            let slot_metadata_opt =
+                match tx.get_slot_metadata(stackerdb_contract_id, stackerdb_chunk.slot_id) {
+                    Ok(slot_opt) => slot_opt,
+                    Err(e) => {
+                        // some other error
+                        error!("Failed to load replaced StackerDB chunk metadata";
+                               "smart_contract_id" => stackerdb_contract_id.to_string(),
+                               "error" => format!("{:?}", &e)
+                        );
+                        let resp = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load StackerDB chunk"),
+                        );
+                        return resp.send(http, fd).and_then(|_| Ok(None));
+                    }
+                };
+
+            let (reason, slot_metadata_opt) = if let Some(slot_metadata) = slot_metadata_opt {
+                (
+                    format!("Data for this slot and version already exist"),
+                    Some(slot_metadata),
+                )
+            } else {
+                (
+                    format!(
+                        "{:?}",
+                        net_error::NoSuchSlot(
+                            stackerdb_contract_id.clone(),
+                            stackerdb_chunk.slot_id
+                        )
+                    ),
+                    None,
+                )
+            };
+
+            let ack = StackerDBChunkAckData {
+                accepted: false,
+                reason: Some(reason),
+                metadata: slot_metadata_opt,
+            };
+            let resp = HttpResponseType::StackerDBChunkAck(response_metadata, ack);
+            return resp.send(http, fd).and_then(|_| Ok(None));
+        }
+
+        let slot_metadata = if let Some(md) =
+            tx.get_slot_metadata(stackerdb_contract_id, stackerdb_chunk.slot_id)?
+        {
+            md
+        } else {
+            // shouldn't be reachable
+            let resp = HttpResponseType::ServerError(
+                response_metadata,
+                format!("Failed to load slot metadata after storing chunk"),
+            );
+            return resp.send(http, fd).and_then(|_| Ok(None));
+        };
+
+        // success!
+        let ack = StackerDBChunkAckData {
+            accepted: true,
+            reason: None,
+            metadata: Some(slot_metadata),
+        };
+
+        let resp = HttpResponseType::StackerDBChunkAck(response_metadata, ack);
+        return resp.send(http, fd).and_then(|_| {
+            Ok(Some(StacksMessageType::StackerDBPushChunk(
+                StackerDBPushChunkData {
+                    contract_id: stackerdb_contract_id.clone(),
+                    rc_consensus_hash: ConsensusHash([0u8; 20]), // unused,
+                    chunk_data: stackerdb_chunk.clone(),
+                },
+            )))
+        });
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -3020,6 +3204,62 @@ impl ConversationHttp {
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
+                None
+            }
+            HttpRequestType::GetStackerDBMetadata(ref _md, ref stackerdb_contract_id) => {
+                ConversationHttp::handle_get_stackerdb_metadata(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    network.get_stackerdbs(),
+                    stackerdb_contract_id,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?;
+                None
+            }
+            HttpRequestType::GetStackerDBChunk(
+                ref _md,
+                ref stackerdb_contract_id,
+                ref slot_id,
+                ref slot_version_opt,
+            ) => {
+                ConversationHttp::handle_get_stackerdb_chunk(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    network.get_stackerdbs(),
+                    stackerdb_contract_id,
+                    *slot_id,
+                    slot_version_opt.clone(),
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?;
+                None
+            }
+            HttpRequestType::PostStackerDBChunk(
+                ref _md,
+                ref stackerdb_contract_id,
+                ref chunk_data,
+            ) => {
+                let tip_height = network.burnchain_tip.canonical_stacks_tip_height;
+                if let Ok(mut tx) = network.stackerdbs_tx_begin(stackerdb_contract_id) {
+                    ret = ConversationHttp::handle_post_stackerdb_chunk(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        &mut tx,
+                        stackerdb_contract_id,
+                        chunk_data,
+                        tip_height,
+                    )?;
+                    tx.commit()?;
+                } else {
+                    let response_metadata =
+                        HttpResponseMetadata::from_http_request_type(&req, Some(tip_height));
+                    let resp =
+                        HttpResponseType::NotFound(response_metadata, "No such StackerDB".into());
+                    resp.send(&mut self.connection.protocol, &mut reply)
+                        .map(|_| ())?;
+                };
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {
@@ -3704,6 +3944,53 @@ impl ConversationHttp {
             page_id_opt,
         )
     }
+
+    /// Make a request for a stackerDB's metadata
+    pub fn new_get_stackerdb_metadata(
+        &self,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+    ) -> HttpRequestType {
+        HttpRequestType::GetStackerDBMetadata(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            stackerdb_contract_id,
+        )
+    }
+
+    /// Make a request for a stackerDB's chunk
+    pub fn new_get_stackerdb_chunk(
+        &self,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+        slot_id: u32,
+        slot_version: Option<u32>,
+    ) -> HttpRequestType {
+        HttpRequestType::GetStackerDBChunk(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            stackerdb_contract_id,
+            slot_id,
+            slot_version,
+        )
+    }
+
+    /// Make a new post for a stackerDB's chunk
+    pub fn new_post_stackerdb_chunk(
+        &self,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+        slot_id: u32,
+        slot_version: u32,
+        sig: MessageSignature,
+        data: Vec<u8>,
+    ) -> HttpRequestType {
+        HttpRequestType::PostStackerDBChunk(
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
+            stackerdb_contract_id,
+            StackerDBChunkData {
+                slot_id,
+                slot_version,
+                sig,
+                data,
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3719,19 +4006,21 @@ mod test {
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::db::blocks::test::*;
     use crate::chainstate::stacks::db::StacksChainState;
-    use crate::chainstate::stacks::db::StreamCursor;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::test::*;
     use crate::chainstate::stacks::Error as chain_error;
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
     use crate::net::http::*;
+    use crate::net::stream::*;
     use crate::net::test::*;
     use crate::net::*;
     use clarity::vm::types::*;
+    use libstackerdb::SlotMetadata;
+    use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
     use stacks_common::util::pipe::*;
 
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
@@ -3755,7 +4044,29 @@ mod test {
             (var-set bar 1)
             (ok 1)))
         (begin
-          (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
+          (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))
+
+        ;; stacker DB
+        (define-read-only (stackerdb-get-signer-slots)
+            (ok (list
+                {
+                    signer: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R,
+                    num-slots: u3
+                }
+                {
+                    signer: 'STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW,
+                    num-slots: u3
+                })))
+
+        (define-read-only (stackerdb-get-config)
+            (ok {
+                chunk-size: u4096,
+                write-freq: u0,
+                max-writes: u4096,
+                max-neighbors: u32,
+                hint-replicas: (list )
+            }))
+    ";
 
     const TEST_CONTRACT_UNCONFIRMED: &'static str = "(define-read-only (ro-test) (ok 1))";
 
@@ -3836,12 +4147,6 @@ mod test {
             &ConversationHttp,
         ) -> bool,
     {
-        let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
-        let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
-
-        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
-        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
-
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -3871,6 +4176,22 @@ mod test {
             &vec![StacksPublicKey::from_private(&privk2)],
         )
         .unwrap();
+
+        let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
+        let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        // stacker DBs get initialized thru reconfiguration when the above block gets processed
+        peer_1_config.add_stacker_db(
+            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            StackerDBConfig::noop(),
+        );
+        peer_2_config.add_stacker_db(
+            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            StackerDBConfig::noop(),
+        );
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
+        let peer_2_indexer = BitcoinIndexer::new_unit_test(&peer_2_config.burnchain.working_dir);
 
         peer_1_config.initial_balances = vec![
             (addr1.to_account_principal(), 1000000000),
@@ -4163,13 +4484,13 @@ mod test {
         peer_2.mempool.replace(mempool);
 
         let peer_1_sortdb = peer_1.sortdb.take().unwrap();
-        let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
             .refresh_burnchain_view(
                 &peer_1_indexer,
                 &peer_1_sortdb,
-                &peer_1_stacks_node.chainstate,
+                &mut peer_1_stacks_node.chainstate,
                 false,
             )
             .unwrap();
@@ -4177,13 +4498,13 @@ mod test {
         peer_1.stacks_node = Some(peer_1_stacks_node);
 
         let peer_2_sortdb = peer_2.sortdb.take().unwrap();
-        let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
             .refresh_burnchain_view(
                 &peer_2_indexer,
                 &peer_2_sortdb,
-                &peer_2_stacks_node.chainstate,
+                &mut peer_2_stacks_node.chainstate,
                 false,
             )
             .unwrap();
@@ -4263,7 +4584,7 @@ mod test {
             .refresh_burnchain_view(
                 &peer_2_indexer,
                 &peer_2_sortdb,
-                &peer_2_stacks_node.chainstate,
+                &mut peer_2_stacks_node.chainstate,
                 false,
             )
             .unwrap();
@@ -4316,7 +4637,7 @@ mod test {
             .refresh_burnchain_view(
                 &peer_1_indexer,
                 &peer_1_sortdb,
-                &peer_1_stacks_node.chainstate,
+                &mut peer_1_stacks_node.chainstate,
                 false,
             )
             .unwrap();
@@ -4416,6 +4737,7 @@ mod test {
                                     .unwrap()
                             ))
                         );
+                        assert!(peer_data.stackerdbs.is_some());
                         true
                     }
                     _ => {
@@ -4572,6 +4894,18 @@ mod test {
                             neighbor_info.bootstrap[0].port,
                             peer_client.config.server_port
                         ); // we see ourselves as the bootstrap
+                        for n in neighbor_info.sample.iter() {
+                            assert!(n.stackerdbs.is_some());
+                        }
+                        for n in neighbor_info.bootstrap.iter() {
+                            assert!(n.stackerdbs.is_some());
+                        }
+                        for n in neighbor_info.inbound.iter() {
+                            assert!(n.stackerdbs.is_some());
+                        }
+                        for n in neighbor_info.outbound.iter() {
+                            assert!(n.stackerdbs.is_some());
+                        }
                         true
                     }
                     _ => {
@@ -6669,6 +7003,590 @@ mod test {
                 }
             },
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_stackerdb_metadata() {
+        test_rpc(
+            function_name!(),
+            40817,
+            40818,
+            50815,
+            50816,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_get_stackerdb_metadata(
+                    QualifiedContractIdentifier::parse(
+                        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                    )
+                    .unwrap(),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::StackerDBMetadata(_, metadata) => {
+                        // config was updated
+                        assert_eq!(metadata.len(), 6);
+                        for (i, slot) in metadata.iter().enumerate() {
+                            assert_eq!(slot.slot_id, i as u32);
+                            assert_eq!(slot.slot_version, 0);
+                            assert_eq!(slot.data_hash, Sha512Trunc256Sum([0u8; 32]));
+                            assert_eq!(slot.signature, MessageSignature::empty());
+                        }
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_stackerdb_versioned_chunk() {
+        test_rpc(
+            function_name!(),
+            40819,
+            40820,
+            50817,
+            50818,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                debug!("Set up peer stackerDB");
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                let tx = peer_server
+                    .network
+                    .stackerdbs
+                    .tx_begin(StackerDBConfig::noop())
+                    .unwrap();
+                tx.try_replace_chunk(&contract_id, &slot_metadata, "hello world".as_bytes())
+                    .unwrap();
+                tx.commit().unwrap();
+
+                // now go ask for it
+                convo_client.new_get_stackerdb_chunk(contract_id, 0, Some(1))
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::StackerDBChunk(_, chunk_data) => {
+                        assert_eq!(chunk_data, "hello world".as_bytes());
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_stackerdb_latest_chunk() {
+        test_rpc(
+            function_name!(),
+            40821,
+            40822,
+            50819,
+            50820,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                debug!("Set up peer stackerDB");
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                let tx = peer_server
+                    .network
+                    .stackerdbs
+                    .tx_begin(StackerDBConfig::noop())
+                    .unwrap();
+                tx.try_replace_chunk(&contract_id, &slot_metadata, "hello world".as_bytes())
+                    .unwrap();
+                tx.commit().unwrap();
+
+                // now go ask for it
+                convo_client.new_get_stackerdb_chunk(contract_id, 0, None)
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::StackerDBChunk(_, chunk_data) => {
+                        assert_eq!(chunk_data, "hello world".as_bytes());
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_stackerdb_nonexistant_chunk() {
+        test_rpc(
+            function_name!(),
+            40821,
+            40822,
+            50819,
+            50820,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                debug!("Set up peer stackerDB");
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                let tx = peer_server
+                    .network
+                    .stackerdbs
+                    .tx_begin(StackerDBConfig::noop())
+                    .unwrap();
+                tx.try_replace_chunk(&contract_id, &slot_metadata, "hello world".as_bytes())
+                    .unwrap();
+                tx.commit().unwrap();
+
+                // now go ask for it
+                convo_client.new_get_stackerdb_chunk(contract_id, 0, Some(2))
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::NotFound(..) => true,
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_stackerdb_nonexistant_db() {
+        test_rpc(
+            function_name!(),
+            40823,
+            40824,
+            50821,
+            50822,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                debug!("Set up peer stackerDB");
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                let tx = peer_server
+                    .network
+                    .stackerdbs
+                    .tx_begin(StackerDBConfig::noop())
+                    .unwrap();
+                tx.try_replace_chunk(&contract_id, &slot_metadata, "hello world".as_bytes())
+                    .unwrap();
+                tx.commit().unwrap();
+
+                // now go ask for it, but from the wrong contract
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.nope",
+                )
+                .unwrap();
+                convo_client.new_get_stackerdb_chunk(contract_id, 0, None)
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::NotFound(..) => true,
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_post_stackerdb_chunk() {
+        test_rpc(
+            function_name!(),
+            40823,
+            40824,
+            50821,
+            50822,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                convo_client.new_post_stackerdb_chunk(
+                    contract_id,
+                    slot_metadata.slot_id,
+                    slot_metadata.slot_version,
+                    slot_metadata.signature,
+                    data.to_vec(),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::StackerDBChunkAck(_, ack) => {
+                        assert!(ack.accepted);
+                        assert!(ack.metadata.is_some());
+
+                        let md = ack.metadata.clone().unwrap();
+
+                        assert_eq!(md.slot_id, 0);
+                        assert_eq!(md.slot_version, 1);
+
+                        let data = "hello world".as_bytes();
+                        let data_hash = Sha512Trunc256Sum::from_data(data);
+                        assert_eq!(md.data_hash, data_hash);
+
+                        // server actually has it
+                        let contract_id = QualifiedContractIdentifier::parse(
+                            "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            peer_server
+                                .network
+                                .stackerdbs
+                                .get_latest_chunk(&contract_id, 0)
+                                .unwrap()
+                                .unwrap(),
+                            "hello world".as_bytes()
+                        );
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_post_stale_stackerdb_chunk() {
+        test_rpc(
+            function_name!(),
+            40825,
+            40826,
+            50823,
+            50824,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                let tx = peer_server
+                    .network
+                    .stackerdbs
+                    .tx_begin(StackerDBConfig::noop())
+                    .unwrap();
+                tx.try_replace_chunk(&contract_id, &slot_metadata, "hello world".as_bytes())
+                    .unwrap();
+                tx.commit().unwrap();
+
+                // conflicting data
+                let conflict_data = "conflict".as_bytes();
+                let conflict_data_hash = Sha512Trunc256Sum::from_data(conflict_data);
+                let mut conflict_slot_metadata =
+                    SlotMetadata::new_unsigned(0, 1, conflict_data_hash);
+                conflict_slot_metadata.sign(&privk1).unwrap();
+
+                convo_client.new_post_stackerdb_chunk(
+                    contract_id,
+                    conflict_slot_metadata.slot_id,
+                    conflict_slot_metadata.slot_version,
+                    conflict_slot_metadata.signature,
+                    data.to_vec(),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::StackerDBChunkAck(_, ack) => {
+                        assert!(!ack.accepted);
+                        assert!(ack.reason.is_some());
+                        assert!(ack.metadata.is_some());
+
+                        let md = ack.metadata.clone().unwrap();
+
+                        assert_eq!(md.slot_id, 0);
+                        assert_eq!(md.slot_version, 1);
+
+                        let data = "hello world".as_bytes();
+                        let data_hash = Sha512Trunc256Sum::from_data(data);
+                        assert_eq!(md.data_hash, data_hash);
+
+                        // server actually has it
+                        let contract_id = QualifiedContractIdentifier::parse(
+                            "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            peer_server
+                                .network
+                                .stackerdbs
+                                .get_latest_chunk(&contract_id, 0)
+                                .unwrap()
+                                .unwrap(),
+                            "hello world".as_bytes()
+                        );
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_post_nonexistant_stackerdb_chunk() {
+        test_rpc(
+            function_name!(),
+            40827,
+            40828,
+            50825,
+            50826,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+                let mut slot_metadata = SlotMetadata::new_unsigned(0, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                // ... but for the wrong DB
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.nope",
+                )
+                .unwrap();
+                convo_client.new_post_stackerdb_chunk(
+                    contract_id,
+                    slot_metadata.slot_id,
+                    slot_metadata.slot_version,
+                    slot_metadata.signature,
+                    data.to_vec(),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::NotFound(..) => true,
+                    _ => false,
+                }
+            },
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_post_overflow_stackerdb_chunk() {
+        test_rpc(
+            function_name!(),
+            40829,
+            40830,
+            50827,
+            50828,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // insert a value in slot 0
+                let contract_id = QualifiedContractIdentifier::parse(
+                    "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
+                )
+                .unwrap();
+                let privk1 = StacksPrivateKey::from_hex(
+                    "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
+                )
+                .unwrap();
+
+                let data = "hello world".as_bytes();
+                let data_hash = Sha512Trunc256Sum::from_data(data);
+
+                // invalid slot!
+                let mut slot_metadata = SlotMetadata::new_unsigned(100000, 1, data_hash);
+                slot_metadata.sign(&privk1).unwrap();
+
+                convo_client.new_post_stackerdb_chunk(
+                    contract_id,
+                    slot_metadata.slot_id,
+                    slot_metadata.slot_version,
+                    slot_metadata.signature,
+                    data.to_vec(),
+                )
+            },
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
+                match http_response {
+                    HttpResponseType::StackerDBChunkAck(_, ack) => {
+                        assert!(!ack.accepted);
+                        assert!(ack.reason.is_some());
+                        assert!(ack.metadata.is_none());
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        )
     }
 
     #[test]
