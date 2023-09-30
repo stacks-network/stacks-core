@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 
 use crate::net::stackerdb::{
@@ -33,12 +33,13 @@ use crate::net::connection::ReplyHandleP2P;
 use crate::net::p2p::PeerNetwork;
 use crate::net::Error as net_error;
 use crate::net::{
-    ContractId, NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData,
-    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData,
-    StacksMessageType,
+    NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData, StackerDBChunkInvData,
+    StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData, StacksMessageType,
 };
 
 use crate::net::neighbors::NeighborComms;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
@@ -51,7 +52,7 @@ const MAX_DB_NEIGHBORS: usize = 32;
 impl<NC: NeighborComms> StackerDBSync<NC> {
     /// TODO: replace `stackerdbs` with a type parameter
     pub fn new(
-        smart_contract: ContractId,
+        smart_contract: QualifiedContractIdentifier,
         config: &StackerDBConfig,
         comms: NC,
         stackerdbs: StackerDBs,
@@ -59,7 +60,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let mut dbsync = StackerDBSync {
             state: StackerDBSyncState::ConnectBegin,
             smart_contract_id: smart_contract,
-            num_slots: config.num_slots as usize,
+            num_slots: config.num_slots() as usize,
             write_freq: config.write_freq,
             chunk_invs: HashMap::new(),
             chunk_fetch_priorities: vec![],
@@ -69,17 +70,52 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             next_chunk_push_priority: 0,
             expected_versions: vec![],
             downloaded_chunks: HashMap::new(),
-            replicas: vec![],
-            connected_replicas: vec![],
+            replicas: HashSet::new(),
+            connected_replicas: HashSet::new(),
             comms,
             stackerdbs,
             request_capacity: MAX_CHUNKS_IN_FLIGHT,
             max_neighbors: MAX_DB_NEIGHBORS,
             total_stored: 0,
             total_pushed: 0,
+            last_run_ts: 0,
+            need_resync: false,
         };
         dbsync.reset(None, config)?;
         Ok(dbsync)
+    }
+
+    /// Calculate the new set of replicas to contact.
+    /// This is the same as the set that was connected on the last sync, plus any
+    /// config hints and discovered nodes from the DB.
+    fn find_new_replicas(
+        &self,
+        mut connected_replicas: HashSet<NeighborAddress>,
+        network: Option<&PeerNetwork>,
+        config: &StackerDBConfig,
+    ) -> Result<HashSet<NeighborAddress>, net_error> {
+        // keep all connected replicas, and replenish from config hints and the DB as needed
+        let mut peers = config.hint_replicas.clone();
+        if let Some(network) = network {
+            let extra_peers: Vec<_> = PeerDB::find_stacker_db_replicas(
+                network.peerdb_conn(),
+                network.get_local_peer().network_id,
+                &self.smart_contract_id,
+                self.max_neighbors,
+            )?
+            .into_iter()
+            .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
+            .collect();
+            peers.extend(extra_peers);
+        }
+
+        for peer in peers {
+            if connected_replicas.len() >= config.max_neighbors {
+                break;
+            }
+            connected_replicas.insert(peer);
+        }
+        Ok(connected_replicas)
     }
 
     /// Reset this state machine, and get the StackerDBSyncResult with newly-obtained chunk data
@@ -104,26 +140,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             broken: self.comms.take_broken_neighbors(),
         };
 
-        let mut peers = config.hint_peers.clone();
-        if let Some(network) = network {
-            let extra_peers: Vec<_> = PeerDB::find_stacker_db_replicas(
-                network.peerdb_conn(),
-                network.get_local_peer().network_id,
-                &self.smart_contract_id,
-                self.max_neighbors,
-            )?
-            .into_iter()
-            .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
-            .collect();
-            peers.extend(extra_peers);
+        // keep all connected replicas, and replenish from config hints and the DB as needed
+        let connected_replicas = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let next_connected_replicas =
+            self.find_new_replicas(connected_replicas, network, config)?;
+        self.replicas = next_connected_replicas;
 
-            // remove duplicates
-            let peer_set: HashSet<_> = peers.into_iter().collect();
-            peers = peer_set.into_iter().collect::<Vec<_>>();
-        }
-
-        self.replicas = peers;
-        self.connected_replicas.clear();
         self.chunk_fetch_priorities.clear();
         self.chunk_push_priorities.clear();
         self.next_chunk_fetch_priority = 0;
@@ -131,11 +153,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.chunk_push_receipts.clear();
         self.expected_versions.clear();
         self.downloaded_chunks.clear();
+
+        // reset comms, but keep all replicas pinned
         self.comms.reset();
 
         // reload from config
-        self.num_slots = config.num_slots as usize;
+        self.num_slots = config.num_slots() as usize;
         self.write_freq = config.write_freq;
+
+        self.need_resync = false;
 
         Ok(result)
     }
@@ -161,9 +187,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     pub fn make_chunk_request_schedule(
         &self,
         network: &PeerNetwork,
+        local_slot_versions_opt: Option<Vec<u32>>,
     ) -> Result<Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>, net_error> {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
-        let local_slot_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
+        let local_slot_versions = if let Some(local_slot_versions) = local_slot_versions_opt {
+            local_slot_versions
+        } else {
+            self.stackerdbs.get_slot_versions(&self.smart_contract_id)?
+        };
+
         let local_write_timestamps = self
             .stackerdbs
             .get_slot_write_timestamps(&self.smart_contract_id)?;
@@ -400,12 +432,42 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
     /// Update bookkeeping about which chunks we have pushed.
     /// Stores the new chunk inventory to RAM.
+    /// Returns true if the inventory changed (indicating that we need to resync)
+    /// Returns false otherwise
     pub fn add_pushed_chunk(
         &mut self,
+        _network: &PeerNetwork,
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
-    ) {
+    ) -> bool {
+        // safety (should already be checked) -- don't accept if the size is wrong
+        if new_inv.slot_versions.len() != self.num_slots {
+            return false;
+        }
+
+        let need_resync = if let Some(old_inv) = self.chunk_invs.get(&naddr) {
+            let mut resync = false;
+            for (old_slot_id, old_version) in old_inv.slot_versions.iter().enumerate() {
+                if *old_version < new_inv.slot_versions[old_slot_id] {
+                    // remote peer indicated that it has a newer version of this chunk.
+                    test_debug!(
+                        "{:?}: peer {:?} has a newer version of slot {} ({} < {})",
+                        _network.get_local_peer(),
+                        &naddr,
+                        old_slot_id,
+                        old_version,
+                        new_inv.slot_versions[old_slot_id]
+                    );
+                    resync = true;
+                    break;
+                }
+            }
+            resync
+        } else {
+            false
+        };
+
         self.chunk_invs.insert(naddr.clone(), new_inv);
 
         self.chunk_push_priorities
@@ -418,6 +480,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         }
 
         self.total_pushed += 1;
+        need_resync
     }
 
     /// Ask inbound neighbors who replicate this DB for their chunk inventories.
@@ -516,7 +579,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Ok(false);
         }
 
-        let naddrs = mem::replace(&mut self.replicas, vec![]);
+        let naddrs = mem::replace(&mut self.replicas, HashSet::new());
         for naddr in naddrs.into_iter() {
             if self.comms.has_neighbor_session(network, &naddr) {
                 test_debug!(
@@ -524,7 +587,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     network.get_local_peer(),
                     &naddr
                 );
-                self.connected_replicas.push(naddr);
+                self.connected_replicas.insert(naddr);
                 continue;
             }
 
@@ -544,7 +607,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
                 Ok(false) => {
                     // need to retry
-                    self.replicas.push(naddr);
+                    self.replicas.insert(naddr);
                 }
                 Err(_e) => {
                     info!("Failed to begin session with {:?}: {:?}", &naddr, &_e);
@@ -615,7 +678,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             );
 
             // this neighbor is good
-            self.connected_replicas.push(naddr);
+            self.connected_replicas.insert(naddr);
         }
 
         if self.comms.count_inflight() > 0 {
@@ -641,7 +704,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
     pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
-        let naddrs = mem::replace(&mut self.connected_replicas, vec![]);
+        let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
         let mut already_sent = vec![];
         test_debug!(
             "{:?}: getchunksinv_begin: Send StackerDBGetChunksInv to {} replicas",
@@ -682,6 +745,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 StacksMessageType::StackerDBChunkInv(data) => {
                     if data.slot_versions.len() != self.num_slots {
                         info!("{:?}: Received malformed StackerDBChunkInv from {:?}: expected {} chunks, got {}", network.get_local_peer(), &naddr, self.num_slots, data.slot_versions.len());
+                        self.comms.add_broken(network, &naddr);
                         continue;
                     }
                     data
@@ -706,7 +770,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 &naddr
             );
             self.chunk_invs.insert(naddr.clone(), chunk_inv);
-            self.connected_replicas.push(naddr);
+            self.connected_replicas.insert(naddr);
         }
         if self.comms.count_inflight() > 0 {
             // not done yet, so blocked
@@ -714,7 +778,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         }
 
         // got everything. Calculate download priority
-        let priorities = self.make_chunk_request_schedule(&network)?;
+        let priorities = self.make_chunk_request_schedule(&network, None)?;
         let expected_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
 
         self.chunk_fetch_priorities = priorities;
@@ -780,6 +844,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
+                self.connected_replicas.remove(&selected_neighbor);
                 continue;
             }
 
@@ -812,6 +877,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
                 x => {
@@ -827,6 +893,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &naddr, data.slot_id
                 );
                 self.comms.add_broken(network, &naddr);
+                self.connected_replicas.remove(&naddr);
                 continue;
             }
 
@@ -912,6 +979,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
+                self.connected_replicas.remove(&selected_neighbor);
                 continue;
             }
 
@@ -929,10 +997,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         Ok(self.chunk_push_priorities.len() == 0)
     }
 
-    /// Collect push-chunk replies from neighbors
-    /// Returns Ok(true) if all inflight messages have been received (or dealt with)
-    /// Returns Ok(false) otherwise
-    pub fn pushchunks_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    /// Collect push-chunk replies from neighbors.
+    /// If a remote neighbor replies with a chunk-inv for a pushed chunk which contains newer data
+    /// than we have, then set `self.need_resync` to true.
+    /// Returns true if all inflight messages have been received (or dealt with)
+    /// Returns false otherwise
+    pub fn pushchunks_try_finish(&mut self, network: &mut PeerNetwork) -> bool {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let new_chunk_inv = match message.payload {
                 StacksMessageType::StackerDBChunkInv(data) => data,
@@ -943,6 +1013,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
                 x => {
@@ -950,6 +1021,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     continue;
                 }
             };
+
+            // must be well-formed
+            if new_chunk_inv.slot_versions.len() != self.num_slots {
+                info!("{:?}: Received malformed StackerDBChunkInv from {:?}: expected {} chunks, got {}", network.get_local_peer(), &naddr, self.num_slots, new_chunk_inv.slot_versions.len());
+                self.comms.add_broken(network, &naddr);
+                continue;
+            }
 
             // update bookkeeping
             test_debug!(
@@ -959,11 +1037,39 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             );
 
             if let Some((slot_id, _)) = self.chunk_push_receipts.get(&naddr) {
-                self.add_pushed_chunk(naddr, new_chunk_inv, *slot_id);
+                self.need_resync = self.need_resync
+                    || self.add_pushed_chunk(network, naddr, new_chunk_inv, *slot_id);
             }
         }
 
-        Ok(self.comms.count_inflight() == 0)
+        self.comms.count_inflight() == 0
+    }
+
+    /// Recalculate the download schedule based on chunkinvs received on push
+    pub fn recalculate_chunk_request_schedule(
+        &mut self,
+        network: &PeerNetwork,
+    ) -> Result<(), net_error> {
+        // figure out the new expected versions
+        let mut expected_versions = vec![0u32; self.num_slots as usize];
+        for (_, chunk_inv) in self.chunk_invs.iter() {
+            for (slot_id, slot_version) in chunk_inv.slot_versions.iter().enumerate() {
+                expected_versions[slot_id] = (*slot_version).max(expected_versions[slot_id]);
+            }
+        }
+
+        let priorities =
+            self.make_chunk_request_schedule(&network, Some(expected_versions.clone()))?;
+
+        self.chunk_fetch_priorities = priorities;
+        self.expected_versions = expected_versions;
+        Ok(())
+    }
+
+    /// Forcibly wake up the state machine if it is throttled
+    pub fn wakeup(&mut self) {
+        test_debug!("wake up StackerDB sync for {}", &self.smart_contract_id);
+        self.last_run_ts = 0;
     }
 
     /// Run the state machine.
@@ -974,6 +1080,17 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &mut PeerNetwork,
         config: &StackerDBConfig,
     ) -> Result<Option<StackerDBSyncResult>, net_error> {
+        // throttle to write_freq
+        if self.last_run_ts + config.write_freq > get_epoch_time_secs() {
+            test_debug!(
+                "{:?}: stacker DB sync for {} is throttled until {}",
+                network.get_local_peer(),
+                &self.smart_contract_id,
+                self.last_run_ts + config.write_freq
+            );
+            return Ok(None);
+        }
+
         loop {
             test_debug!(
                 "{:?}: stacker DB sync state is {:?}",
@@ -1027,16 +1144,28 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
                 StackerDBSyncState::PushChunks => {
                     let pushes_finished = self.pushchunks_begin(network)?;
-                    let inflight_finished = self.pushchunks_try_finish(network)?;
+                    let inflight_finished = self.pushchunks_try_finish(network);
                     let done = pushes_finished && inflight_finished;
                     if done {
-                        self.state = StackerDBSyncState::Finished;
+                        if self.need_resync
+                            && !network.get_connection_opts().disable_stackerdb_get_chunks
+                        {
+                            // someone pushed newer chunk data to us, and getting chunks is
+                            // enabled, so immediately go request them
+                            self.recalculate_chunk_request_schedule(network)?;
+                            self.state = StackerDBSyncState::GetChunks;
+                        } else {
+                            // done syncing
+                            self.state = StackerDBSyncState::Finished;
+                        }
+                        self.need_resync = false;
                         blocked = false;
                     }
                 }
                 StackerDBSyncState::Finished => {
                     let result = self.reset(Some(network), config)?;
                     self.state = StackerDBSyncState::ConnectBegin;
+                    self.last_run_ts = get_epoch_time_secs();
                     return Ok(Some(result));
                 }
             };

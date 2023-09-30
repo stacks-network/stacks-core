@@ -41,7 +41,7 @@ pub fn special_or(
     runtime_cost(ClarityCostFunction::Or, env, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(&arg, env, context)?;
+        let evaluated = eval(arg, env, context)?;
         let result = type_force_bool(&evaluated)?;
         if result {
             return Ok(Value::Bool(true));
@@ -61,7 +61,7 @@ pub fn special_and(
     runtime_cost(ClarityCostFunction::And, env, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(&arg, env, context)?;
+        let evaluated = eval(arg, env, context)?;
         let result = type_force_bool(&evaluated)?;
         if !result {
             return Ok(Value::Bool(false));

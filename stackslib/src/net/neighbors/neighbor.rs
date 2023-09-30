@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::net::{
-    db::PeerDB, ContractId, Error as net_error, Neighbor, NeighborAddress, NeighborKey,
-};
+use crate::net::{db::PeerDB, Error as net_error, Neighbor, NeighborAddress, NeighborKey};
 
 use crate::util_lib::db::{DBConn, DBTx};
 
@@ -33,6 +31,8 @@ use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::log;
+
+use clarity::vm::types::QualifiedContractIdentifier;
 
 /// Walk-specific helper functions for neighbors
 impl Neighbor {
@@ -57,7 +57,7 @@ impl Neighbor {
     pub fn save_update<'a>(
         &mut self,
         tx: &DBTx<'a>,
-        stacker_dbs: Option<&[ContractId]>,
+        stacker_dbs: Option<&[QualifiedContractIdentifier]>,
     ) -> Result<(), net_error> {
         self.last_contact_time = get_epoch_time_secs();
         PeerDB::update_peer(tx, &self).map_err(net_error::DBError)?;
@@ -74,7 +74,7 @@ impl Neighbor {
     pub fn save<'a>(
         &mut self,
         tx: &DBTx<'a>,
-        stacker_dbs: Option<&[ContractId]>,
+        stacker_dbs: Option<&[QualifiedContractIdentifier]>,
     ) -> Result<bool, net_error> {
         self.last_contact_time = get_epoch_time_secs();
         PeerDB::try_insert_peer(tx, &self, stacker_dbs.unwrap_or(&[])).map_err(net_error::DBError)

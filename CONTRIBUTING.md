@@ -93,28 +93,21 @@ fix: incorporate unlocks in mempool admitter, #3623
 
 ## Recommended developer setup
 ### Recommended githooks
+
 It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues are caught before
 you push your code. Follow these instruction to set it up:
+
 1. Rename `.git/hooks/pre-commit.sample` to `.git/hooks/pre-commit`
 2. Change the content of `.git/hooks/pre-commit` to be the following
-```bash
+```sh
 #!/bin/sh
-HAS_ISSUES=0
-for file in $(git diff --name-only --staged); do
-    FMT_RESULT="$(rustfmt $file --check --config group_imports=StdExternalCrate 2>/dev/null || true)"
-    if [ "$FMT_RESULT" != "" ]; then
-        HAS_ISSUES=1
-    fi
-done
-if [ $HAS_ISSUES -eq 1 ]
-then
-    echo 'rustfmt failed: run "cargo fmt --all -- --config group_imports=StdExternalCrate"'
-fi
-exit $HAS_ISSUES
+git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate || (
+  echo 'rustfmt failed: run "cargo fmt --all -- --config group_imports=StdExternalCrate"';
+  exit 1
+)
 ```
 3. Make it executable by running `chmod +x .git/hooks/pre-commit`
    That's it! Now your pre-commit hook should be configured on your local machine.
-
 
 # Creating and Reviewing PRs
 

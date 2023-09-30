@@ -30,7 +30,6 @@ fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
         size.try_into().unwrap(),
     )))
-    .into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -229,7 +228,7 @@ fn test_bad_asset_usage() {
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
-        CheckErrors::DefineNFTBadSignature.into(),
+        CheckErrors::DefineNFTBadSignature,
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
