@@ -38,12 +38,12 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::codec::MAX_MESSAGE_LEN;
 use crate::net::Error as net_error;
 use crate::net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
-use crate::types::StacksPublicKeyBuffer;
 use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -52,8 +52,8 @@ use stacks_common::util::retry::RetryReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::StacksAddress;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
 
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

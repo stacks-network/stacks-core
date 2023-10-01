@@ -25,7 +25,6 @@ use std::sync::{
 
 use rusqlite::Connection;
 
-use crate::address;
 use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -44,20 +43,21 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
-use crate::util::hash::{hex_bytes, Hash160};
-use crate::util::vrf::*;
 use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
     types::QualifiedContractIdentifier,
     Value,
 };
+use stacks_common::address;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::vrf::*;
 
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use crate::{types, util};
+use stacks_common::{types, util};
 
 use crate::chainstate::coordinator::tests::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;

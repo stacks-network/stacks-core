@@ -42,13 +42,15 @@ use crate::vm::types::{
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
-use crate::types::chainstate::{
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 
 use crate::vm::types::byte_len_of_serialization;
 
-use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
+use stacks_common::types::{
+    StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0,
+};
 
 use stacks_common::consts::MINER_REWARD_MATURITY;
 use stacks_common::consts::{

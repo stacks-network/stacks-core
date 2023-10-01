@@ -81,11 +81,6 @@ pub extern crate prometheus;
 #[macro_use]
 extern crate stacks_common;
 
-pub use stacks_common::address;
-pub use stacks_common::codec;
-pub use stacks_common::types;
-pub use stacks_common::util;
-
 #[macro_use]
 pub mod util_lib;
 
@@ -96,8 +91,6 @@ pub mod net;
 pub extern crate clarity;
 
 pub extern crate libstackerdb;
-
-pub use clarity::vm;
 
 #[macro_use]
 pub mod chainstate;

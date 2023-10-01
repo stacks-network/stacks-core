@@ -7,9 +7,9 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionSpendingCondition,
 };
-use stacks::util::vrf::VRFPublicKey;
+use stacks_common::util::vrf::VRFPublicKey;
 
-use stacks::vm::database::BurnStateDB;
+use clarity::vm::database::BurnStateDB;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
 use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;

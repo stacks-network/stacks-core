@@ -4,24 +4,13 @@ use std::sync::Mutex;
 
 use reqwest;
 
-use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, StacksBlockHeader, StacksPrivateKey,
-    StacksTransaction,
-};
-use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
-use stacks::clarity_vm::clarity::ClarityConnection;
-use stacks::codec::StacksMessageCodec;
-use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use stacks::core::PEER_VERSION_EPOCH_2_0;
-use stacks::core::PEER_VERSION_EPOCH_2_05;
-use stacks::core::PEER_VERSION_EPOCH_2_1;
-use stacks::net::GetIsTraitImplementedResponse;
-use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
-use stacks::types::chainstate::{StacksAddress, VRFSeed};
-use stacks::util::hash::Sha256Sum;
-use stacks::util::hash::{hex_bytes, to_hex};
-use stacks::vm::{
+use crate::config::InitialBalance;
+use crate::helium::RunLoop;
+use crate::tests::make_sponsored_stacks_transfer_on_testnet;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::ClarityVersion;
+use clarity::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
         mem_type_check,
@@ -29,15 +18,26 @@ use stacks::vm::{
     types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
-use stacks::{burnchains::Address, vm::ClarityVersion};
-
-use crate::config::InitialBalance;
-use crate::helium::RunLoop;
-use crate::tests::make_sponsored_stacks_transfer_on_testnet;
+use stacks::burnchains::Address;
+use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+use stacks::chainstate::stacks::{
+    db::blocks::MemPoolRejection, db::StacksChainState, StacksBlockHeader, StacksPrivateKey,
+    StacksTransaction,
+};
+use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
+use stacks::clarity_vm::clarity::ClarityConnection;
+use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::StacksAddressExtensions;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
+use stacks::core::PEER_VERSION_EPOCH_2_05;
+use stacks::core::PEER_VERSION_EPOCH_2_1;
+use stacks::net::GetIsTraitImplementedResponse;
+use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
+use stacks_common::util::hash::Sha256Sum;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use stacks_common::types::chainstate::StacksBlockId;
 

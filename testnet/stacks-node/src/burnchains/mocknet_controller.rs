@@ -16,14 +16,14 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
 };
-use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Sha256Sum;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use stacks::vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {

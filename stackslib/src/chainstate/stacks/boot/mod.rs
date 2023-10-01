@@ -32,9 +32,6 @@ use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::core::StacksEpochId;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::strings::VecDisplay;
-use clarity::codec::StacksMessageCodec;
-use clarity::types::chainstate::BlockHeaderHash;
-use clarity::util::hash::to_hex;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
@@ -55,17 +52,20 @@ use clarity::vm::types::{
 };
 use clarity::vm::Environment;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::clarity_vm::database::HeadersDBConn;
-use crate::types;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
-use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
 use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::ClarityVersion;
+use clarity::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use stacks_common::types;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use crate::core::CHAIN_ID_MAINNET;

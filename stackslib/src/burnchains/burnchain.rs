@@ -67,14 +67,14 @@ use crate::core::PEER_VERSION_TESTNET;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -85,7 +85,7 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId};
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 

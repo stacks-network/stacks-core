@@ -5,7 +5,7 @@ use crate::{
 };
 use stacks::chainstate::stacks::db::ClarityTx;
 
-use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.

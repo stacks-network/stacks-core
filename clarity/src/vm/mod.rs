@@ -55,8 +55,8 @@ pub mod clarity;
 use serde_json;
 
 // publish the non-generic StacksEpoch form for use throughout module
-use crate::types::StacksEpochId;
 pub use crate::vm::database::clarity_db::StacksEpoch;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::callables::CallableType;
 use crate::vm::contexts::GlobalContext;
@@ -581,7 +581,6 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use crate::types::StacksEpochId;
     use crate::vm::callables::{DefineType, DefinedFunction};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
@@ -593,6 +592,7 @@ mod test {
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
         Value,
     };
+    use stacks_common::types::StacksEpochId;
     use std::collections::HashMap;
 
     use super::ClarityVersion;
