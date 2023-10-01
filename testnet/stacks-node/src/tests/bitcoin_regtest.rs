@@ -10,10 +10,10 @@ use stacks::chainstate::burn::operations::BlockstackOperationType::{
 };
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::core::StacksEpochId;
-use stacks::util::hash::hex_bytes;
+use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
-use stacks::vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 use std::env;
 use std::io::{BufRead, BufReader};
 

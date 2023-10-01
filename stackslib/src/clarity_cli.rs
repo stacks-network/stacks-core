@@ -24,7 +24,6 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::process;
 
-use clarity::util::get_epoch_time_ms;
 use clarity::vm::coverage::CoverageReporter;
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -36,6 +35,7 @@ use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{

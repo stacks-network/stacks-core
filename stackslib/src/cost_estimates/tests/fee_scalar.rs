@@ -24,9 +24,9 @@ use crate::chainstate::stacks::{
 use crate::core::StacksEpochId;
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::FeeRateEstimate;
-use crate::types::chainstate::StacksAddress;
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+use clarity::vm::Value;
+use stacks_common::types::chainstate::StacksAddress;
 
 use crate::cost_estimates::tests::common::make_block_receipt;
 

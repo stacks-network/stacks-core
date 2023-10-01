@@ -4,6 +4,11 @@ use std::sync::Arc;
 
 use rand::RngCore;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::events::STXEventType;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityName, ContractName, Value};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
 use stacks::chainstate::stacks::{
@@ -14,18 +19,13 @@ use stacks::chainstate::stacks::{
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::CHAIN_ID_TESTNET;
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::hex_bytes;
 use stacks::util_lib::strings::StacksString;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::database::BurnStateDB;
-use stacks::vm::events::STXEventType;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::{ClarityName, ContractName, Value};
-use stacks::{address::AddressHashMode, util::hash::to_hex};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::{address::AddressHashMode, util::hash::to_hex};
 
 use crate::helium::RunLoop;
 use crate::tests::neon_integrations::get_chain_info;

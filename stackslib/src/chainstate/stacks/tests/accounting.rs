@@ -52,8 +52,8 @@ use stacks_common::util::vrf::VRFProof;
 
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
-use crate::types::chainstate::SortitionId;
 use crate::util_lib::boot::boot_code_addr;
+use stacks_common::types::chainstate::SortitionId;
 
 use clarity::vm::costs::LimitedCostTracker;
 

@@ -32,7 +32,7 @@ use clarity::vm::database::clarity_store::*;
 use clarity::vm::database::*;
 use clarity::vm::types::*;
 
-use crate::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
 use crate::core::StacksEpochId;
 
@@ -1077,8 +1077,8 @@ mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks_common::util::hash::*;
 
-    use crate::types::chainstate::BurnchainHeaderHash;
     use clarity::vm::types::StacksAddressExtensions;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
 

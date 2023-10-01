@@ -6,8 +6,8 @@ use std::thread;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockHeader;
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use crate::config::Config;
 use crate::config::EventKeyType;
@@ -66,7 +66,7 @@ use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::operations::BurnchainOpSigner;
 use crate::Keychain;
 
-use stacks::util::sleep_ms;
+use stacks_common::util::sleep_ms;
 
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::StacksBlockId;

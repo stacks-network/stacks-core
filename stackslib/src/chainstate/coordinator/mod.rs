@@ -70,10 +70,10 @@ use clarity::vm::{
 };
 
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
-use crate::types::chainstate::{
+use clarity::vm::database::BurnStateDB;
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
-use clarity::vm::database::BurnStateDB;
 
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 

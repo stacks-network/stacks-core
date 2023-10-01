@@ -22,8 +22,8 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
-use crate::codec::StacksMessageCodec;
 use crate::util_lib::db::Error as DatabaseError;
+use stacks_common::codec::StacksMessageCodec;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.

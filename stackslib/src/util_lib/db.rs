@@ -56,7 +56,7 @@ use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::Error as MARFError;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::MarfTrieId;
-use crate::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::TrieHash;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;

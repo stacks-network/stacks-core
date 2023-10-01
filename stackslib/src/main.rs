@@ -69,22 +69,10 @@ use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::clarity_cli::vm_execute;
-use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
-use blockstack_lib::types::chainstate::StacksAddress;
-use blockstack_lib::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
-};
-use blockstack_lib::util::get_epoch_time_ms;
-use blockstack_lib::util::hash::{hex_bytes, to_hex};
-use blockstack_lib::util::log;
-use blockstack_lib::util::retry::LogReader;
-use blockstack_lib::util::secp256k1::Secp256k1PrivateKey;
-use blockstack_lib::util::secp256k1::Secp256k1PublicKey;
-use blockstack_lib::util::sleep_ms;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
@@ -93,10 +81,22 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
-    util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
 use serde_json::Value;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
+};
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
+use stacks_common::util::retry::LogReader;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
+use stacks_common::util::{hash::Hash160, vrf::VRFProof};
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::BufReader;

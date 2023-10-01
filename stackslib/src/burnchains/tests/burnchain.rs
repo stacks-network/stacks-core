@@ -36,10 +36,10 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::Error as db_error;
 use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::to_hex;
@@ -52,7 +52,9 @@ use stacks_common::util::uint::Uint512;
 use stacks_common::util::vrf::VRFPrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
+};
 
 #[test]
 fn test_process_block_ops() {

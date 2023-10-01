@@ -41,11 +41,11 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
-use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::diagnostic::{Diagnostic, Level};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
 
 /// Legacy function
 #[cfg(any(test, features = "testing"))]
