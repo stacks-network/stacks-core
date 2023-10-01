@@ -32,11 +32,11 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::StacksEpochId;
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::types::chainstate::StacksAddress;
 use crate::util_lib::db::Error as DBError;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::*;
 
 use super::*;

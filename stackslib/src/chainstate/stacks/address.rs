@@ -46,10 +46,10 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 use crate::util_lib::boot::boot_code_addr;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 
 pub trait StacksAddressExtensions {
     fn to_b58(self) -> String;

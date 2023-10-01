@@ -433,8 +433,8 @@ mod tests {
     use stacks_common::util::vrf::*;
     use std::marker::PhantomData;
 
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-    use crate::types::chainstate::{SortitionId, VRFSeed};
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use stacks_common::types::chainstate::{SortitionId, VRFSeed};
 
     use super::BurnSamplePoint;
 

@@ -61,6 +61,7 @@ guarded_string!(
     ClarityName,
     "ClarityName",
     CLARITY_NAME_REGEX,
+    MAX_STRING_LEN,
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
@@ -68,6 +69,7 @@ guarded_string!(
     ContractName,
     "ContractName",
     CONTRACT_NAME_REGEX,
+    MAX_STRING_LEN,
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );

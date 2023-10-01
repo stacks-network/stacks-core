@@ -27,16 +27,16 @@ use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::FromColumn;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 
 pub mod processing;
 pub mod sortdb;

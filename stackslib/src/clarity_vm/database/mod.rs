@@ -22,10 +22,10 @@ use crate::chainstate::stacks::db::ChainstateTx;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::util::vrf::VRFProof;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::core::StacksEpoch;
 use crate::core::StacksEpochId;

@@ -31,7 +31,7 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, Environment, LocalContext};
 
-use crate::types::StacksEpochId;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::types::TupleData;
 

@@ -52,7 +52,7 @@ use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::strings::StacksString;
-use crate::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
@@ -66,7 +66,6 @@ use stacks_common::util::vrf::*;
 
 use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use crate::util_lib::boot::boot_code_id;
-use crate::{types, util};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::ClarityVersion;
@@ -77,6 +76,7 @@ use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
+use stacks_common::{types, util};
 
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -360,7 +360,7 @@ pub fn setup_states_with_epochs(
                 burnchain_blocks_db,
                 first_sortition.burn_header_hash,
                 registers,
-                path.clone(),
+                *path,
             ));
         } else {
             others.push(burnchain_blocks_db);

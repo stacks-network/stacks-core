@@ -31,19 +31,19 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::StacksPrivateKey;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::DoubleSha256;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -252,7 +252,7 @@ pub mod tests {
     use stacks_common::util::hash::{hex_bytes, to_hex};
     use stacks_common::util::log;
 
-    use crate::types::chainstate::SortitionId;
+    use stacks_common::types::chainstate::SortitionId;
 
     use super::*;
 

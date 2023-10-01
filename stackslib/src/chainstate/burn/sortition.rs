@@ -44,9 +44,9 @@ use stacks_common::util::uint::Uint512;
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
 
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
@@ -454,9 +454,9 @@ mod test {
     use stacks_common::util::vrf::VRFPrivateKey;
     use stacks_common::util::vrf::VRFPublicKey;
 
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::BurnchainHeaderHash;
-    use crate::types::chainstate::VRFSeed;
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::VRFSeed;
 
     use super::*;
 

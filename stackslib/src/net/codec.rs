@@ -50,13 +50,13 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::codec::{
+use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
     PREAMBLE_ENCODED_SIZE,
 };
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::StacksPublicKeyBuffer;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::StacksPublicKeyBuffer;
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::ContractName;

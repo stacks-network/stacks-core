@@ -66,8 +66,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::types::QualifiedContractIdentifier;
 
 use crate::burnchains::Txid;
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksBlockId;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 

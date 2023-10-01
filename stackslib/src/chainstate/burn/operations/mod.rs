@@ -31,10 +31,10 @@ use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::VRFSeed;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::VRFSeed;
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
@@ -47,7 +47,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub mod delegate_stx;
 pub mod leader_block_commit;

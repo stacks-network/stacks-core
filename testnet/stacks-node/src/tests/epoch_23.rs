@@ -17,10 +17,10 @@ use std::collections::HashMap;
 use std::env;
 use std::thread;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use stacks::burnchains::Burnchain;
 use stacks::core::STACKS_EPOCH_MAX;
-use stacks::util::sleep_ms;
-use stacks::vm::types::QualifiedContractIdentifier;
+use stacks_common::util::sleep_ms;
 
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;

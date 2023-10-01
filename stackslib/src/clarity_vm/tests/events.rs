@@ -20,18 +20,18 @@ use crate::clarity_vm::database::marf::MarfedKV;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::costs::ExecutionCost;
-use crate::vm::events::*;
-use crate::vm::tests::execute;
-use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::*;
+use clarity::vm::tests::execute;
+use clarity::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::ASTRules;
-use crate::vm::database::MemoryBackingStore;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::database::MemoryBackingStore;
 
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
