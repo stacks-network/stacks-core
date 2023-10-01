@@ -80,7 +80,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
     let contract_id = QualifiedContractIdentifier::transient();
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
-    if let Ok(parsed_program) = parse(&contract_id, &program, version, epoch) {
+    if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
@@ -94,7 +94,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
             )
         );
     } else {
-        assert!(false, "Failed to parse program.");
+        panic!("Failed to parse program.");
     }
 }
 
@@ -107,9 +107,9 @@ fn test_sha256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData {
+        Value::Sequence(SequenceData::Buffer(BuffData {
             data: hex_bytes(hex).unwrap(),
-        }));
+        }))
     }
 
     let expectations = [
@@ -187,9 +187,9 @@ fn test_keccak256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData {
+        Value::Sequence(SequenceData::Buffer(BuffData {
             data: hex_bytes(hex).unwrap(),
-        }));
+        }))
     }
 
     let expectations = [
@@ -387,7 +387,7 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("from-consensus-buff? should return")
             .expect_optional()
             .expect("from-consensus-buff? should return (some value)");
-        let expected_val = execute(&value_repr);
+        let expected_val = execute(value_repr);
         assert_eq!(result_val, expected_val);
     }
 
@@ -399,7 +399,7 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("to-consensus-buff? should return")
             .expect_optional()
             .expect("to-consensus-buff? should return (some buff)");
-        let expected_buff = execute(&buff_repr);
+        let expected_buff = execute(buff_repr);
         assert_eq!(result_buffer, expected_buff);
     }
 }
@@ -433,7 +433,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+    if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -449,7 +449,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from hex {:?}", addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+    if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -647,7 +647,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     let evals = parse(
         &contract_id,
-        &"(with_else 5)
+        "(with_else 5)
          (without_else 3)
          (with_else 3)",
         version,
@@ -658,7 +658,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     let function_bodies = parse(
         &contract_id,
-        &"(if (is-eq 5 x) 1 0)
+        "(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
         version,
         epoch,
@@ -672,7 +672,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[0].clone(),
             Private,
             &"with_else".into(),
-            &"",
+            "",
         );
 
         let user_function2 = DefinedFunction::new(
@@ -680,7 +680,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[1].clone(),
             Private,
             &"without_else".into(),
-            &"",
+            "",
         );
 
         let context = LocalContext::new();
@@ -719,10 +719,10 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
             assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
         } else {
-            assert!(false, "Failed to parse function bodies.");
+            panic!("Failed to parse function bodies.");
         }
     } else {
-        assert!(false, "Failed to parse function bodies.");
+        panic!("Failed to parse function bodies.");
     }
 }
 
@@ -841,7 +841,7 @@ fn test_simple_arithmetic_functions() {
         Value::UInt(u128::MAX),
         Value::UInt(137),
         Value::Int(i128::MAX),
-        Value::Int(-1 * (u32::MAX as i128 + 1)),
+        Value::Int(-(u32::MAX as i128 + 1)),
     ];
 
     tests

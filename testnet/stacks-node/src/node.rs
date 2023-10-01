@@ -29,12 +29,6 @@ use stacks::net::{
     stackerdb::StackerDBs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::TrieHash;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::UrlString;
 use stacks::{
     burnchains::db::BurnchainDB,
@@ -51,6 +45,12 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Sha256Sum;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::run_loop;
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
@@ -58,8 +58,8 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 use crate::burnchains::make_bitcoin_indexer;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use clarity::vm::database::BurnStateDB;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::vm::database::BurnStateDB;
 
 use rand::RngCore;
 use stacks::chainstate::stacks::address::PoxAddress;

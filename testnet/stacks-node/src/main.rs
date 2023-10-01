@@ -11,14 +11,15 @@ extern crate serde_json;
 #[macro_use]
 extern crate stacks_common;
 
+extern crate clarity;
 extern crate stacks;
 
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-pub use stacks::util;
-use stacks::util::hash::hex_bytes;
+pub use stacks_common::util;
+use stacks_common::util::hash::hex_bytes;
 
 pub mod monitoring;
 

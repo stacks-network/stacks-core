@@ -53,11 +53,11 @@ pub fn buff_to_int_generic(
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len() > BufferLength::try_from(16_u32).unwrap() {
-                return Err(CheckErrors::TypeValueError(
+                Err(CheckErrors::TypeValueError(
                     SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
                     value,
                 )
-                .into());
+                .into())
             } else {
                 let mut transfer_buffer = [0u8; 16];
                 let original_slice = sequence_data.as_slice();
@@ -68,55 +68,53 @@ pub fn buff_to_int_generic(
                 } else {
                     transfer_buffer.len() - original_slice.len()
                 };
-                for from_index in 0..original_slice.len() {
+                for (from_index, _) in original_slice.iter().enumerate() {
                     let to_index = from_index + offset;
                     transfer_buffer[to_index] = original_slice[from_index];
                 }
                 let value = conversion_fn(transfer_buffer);
-                return Ok(value);
+                Ok(value)
             }
         }
-        _ => {
-            return Err(CheckErrors::TypeValueError(
-                SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-                value,
-            )
-            .into())
-        }
-    };
+        _ => Err(CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            value,
+        )
+        .into()),
+    }
 }
 
 pub fn native_buff_to_int_le(value: Value) -> Result<Value> {
     fn convert_to_int_le(buffer: [u8; 16]) -> Value {
         let value = i128::from_le_bytes(buffer);
-        return Value::Int(value);
+        Value::Int(value)
     }
-    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_int_le);
+    buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_int_le)
 }
 
 pub fn native_buff_to_uint_le(value: Value) -> Result<Value> {
     fn convert_to_uint_le(buffer: [u8; 16]) -> Value {
         let value = u128::from_le_bytes(buffer);
-        return Value::UInt(value);
+        Value::UInt(value)
     }
 
-    return buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_uint_le);
+    buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_uint_le)
 }
 
 pub fn native_buff_to_int_be(value: Value) -> Result<Value> {
     fn convert_to_int_be(buffer: [u8; 16]) -> Value {
         let value = i128::from_be_bytes(buffer);
-        return Value::Int(value);
+        Value::Int(value)
     }
-    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_int_be);
+    buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_int_be)
 }
 
 pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
     fn convert_to_uint_be(buffer: [u8; 16]) -> Value {
         let value = u128::from_be_bytes(buffer);
-        return Value::UInt(value);
+        Value::UInt(value)
     }
-    return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be);
+    buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be)
 }
 
 // This method represents the unified logic between both "string to int" and "string to uint".
@@ -155,8 +153,8 @@ pub fn native_string_to_int_generic(
 fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
-        Ok(val) => return Value::some(Value::Int(val)),
-        Err(_error) => return Ok(Value::none()),
+        Ok(val) => Value::some(Value::Int(val)),
+        Err(_error) => Ok(Value::none()),
     }
 }
 
@@ -167,8 +165,8 @@ pub fn native_string_to_int(value: Value) -> Result<Value> {
 fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
-        Ok(val) => return Value::some(Value::UInt(val)),
-        Err(_error) => return Ok(Value::none()),
+        Ok(val) => Value::some(Value::UInt(val)),
+        Err(_error) => Ok(Value::none()),
     }
 }
 

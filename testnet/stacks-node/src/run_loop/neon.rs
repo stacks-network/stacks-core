@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
-use stacks::deps::ctrlc as termination;
-use stacks::deps::ctrlc::SignalId;
+use stacks_common::deps_common::ctrlc as termination;
+use stacks_common::deps_common::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
@@ -48,8 +48,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::sleep_ms;
 
 use libc;
-use stacks::util::hash::Hash160;
 use stacks_common::types::PublicKey;
+use stacks_common::util::hash::Hash160;
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]

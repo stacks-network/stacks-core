@@ -27,6 +27,7 @@ clarity = { path = "../../clarity" }
 stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
+libsigner = { path = "../../libsigner" }
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -36,6 +37,8 @@ reqwest = { version = "0.11", default_features = false, features = ["blocking", 
 clarity = { path = "../../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
+stacks-signer = { path = "../../stacks-signer" }
+p256k1 = "5.4.1"
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"

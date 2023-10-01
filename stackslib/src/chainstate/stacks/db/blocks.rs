@@ -24,7 +24,6 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use clarity::types::chainstate::SortitionId;
 use clarity::vm::ast::ASTRules;
 use rand::thread_rng;
 use rand::Rng;
@@ -53,8 +52,6 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next};
 use crate::core::mempool::MemPoolDB;
 use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use crate::core::*;
@@ -83,6 +80,8 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next};
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
@@ -94,8 +93,8 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::monitoring::{set_last_block_transaction_count, set_last_execution_cost_observed};
 use crate::util_lib::boot::boot_code_id;
-use crate::{types, util};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -7168,7 +7167,7 @@ pub mod test {
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
-    use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
 

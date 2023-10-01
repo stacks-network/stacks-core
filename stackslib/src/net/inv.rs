@@ -63,7 +63,7 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]

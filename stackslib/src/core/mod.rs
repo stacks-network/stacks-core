@@ -23,8 +23,8 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 
 pub use self::mempool::MemPoolDB;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
 pub mod mempool;

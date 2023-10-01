@@ -13,15 +13,19 @@ use std::{env, thread};
 
 use rusqlite::types::ToSql;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::ClarityVersion;
+use clarity::vm::Value;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
+use stacks::burnchains::{Address, Burnchain, PoxConstants};
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
@@ -34,25 +38,10 @@ use stacks::net::{
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
     UnconfirmedTransactionResponse,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
-use stacks::util::hash::Hash160;
-use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::ClarityVersion;
-use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{burn::ConsensusHash, stacks::StacksMicroblock},
-};
-use stacks::{
-    burnchains::{Address, Burnchain, PoxConstants},
-    vm::costs::ExecutionCost,
 };
 use stacks::{
     chainstate::stacks::{
@@ -65,6 +54,15 @@ use stacks::{
     util_lib::db::query_rows,
     util_lib::db::u64_to_sql,
 };
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 
 use crate::{
     burnchains::bitcoin_regtest_controller::BitcoinRPCRequest,
@@ -90,6 +88,8 @@ use crate::config::FeeEstimatorName;
 use crate::tests::SK_3;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
+use clarity::vm::ClarityName;
+use clarity::vm::ContractName;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::miner::{
@@ -97,8 +97,6 @@ use stacks::chainstate::stacks::miner::{
     TransactionSuccessEvent,
 };
 use stacks::net::RPCFeeEstimateResponse;
-use stacks::vm::ClarityName;
-use stacks::vm::ContractName;
 use std::convert::TryFrom;
 
 use crate::stacks_common::types::PrivateKey;
@@ -157,6 +155,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
+    cfile.node.as_mut().map(|node| node.bootstrap_node.take());
+
     if let Some(burnchain) = cfile.burnchain.as_mut() {
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
@@ -248,11 +248,13 @@ pub mod test_observer {
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
         debug!(
-            "Got stackerdb chunks: {}",
+            "signer_runloop: got stackerdb chunks: {}",
             serde_json::to_string(&chunks).unwrap()
         );
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
         let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
+        stackerdb_chunks.push(event.clone());
+
         Ok(warp::http::StatusCode::OK)
     }
 

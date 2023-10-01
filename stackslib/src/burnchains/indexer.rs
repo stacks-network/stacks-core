@@ -19,7 +19,7 @@ use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::*;
 
 use crate::core::{StacksEpoch, StacksEpochId};
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 // IPC messages between threads
 pub trait BurnHeaderIPC {

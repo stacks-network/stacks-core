@@ -7,6 +7,8 @@ use std::sync::Mutex;
 
 use rand::RngCore;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
@@ -33,12 +35,10 @@ use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::get_epoch_time_ms;
-use stacks::util::hash::hex_bytes;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -1849,7 +1849,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
-        debug!("Resolve '{}'", &hostport);
+        info!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);

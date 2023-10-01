@@ -44,6 +44,8 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
+use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::core::PEER_VERSION_EPOCH_1_0;
 use crate::core::POX_TESTNET_CYCLE_LENGTH;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::boot::boot_code_id;
@@ -52,13 +54,10 @@ use crate::{
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     core::StacksEpoch,
     core::StacksEpochId,
-    types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-    },
 };
-
-use crate::clarity_vm::clarity::Error as ClarityError;
-use crate::core::PEER_VERSION_EPOCH_1_0;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::version::ClarityVersion;

@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::sleep_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::sleep_ms;
 
 use crate::burnchains::BurnchainTip;
 use crate::Config;

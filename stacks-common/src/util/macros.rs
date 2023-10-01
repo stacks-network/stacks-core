@@ -143,13 +143,13 @@ macro_rules! define_versioned_named_enum {
 
 #[macro_export]
 macro_rules! guarded_string {
-    ($Name:ident, $Label:literal, $Regex:expr, $ErrorType:ty, $ErrorVariant:path) => {
+    ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $Name(String);
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                if value.len() > (crate::vm::representations::MAX_STRING_LEN as usize) {
+                if value.len() > ($MaxStringLength as usize) {
                     return Err($ErrorVariant($Label, value));
                 }
                 if $Regex.is_match(&value) {
@@ -167,6 +167,10 @@ macro_rules! guarded_string {
 
             pub fn len(&self) -> u8 {
                 u8::try_from(self.as_str().len()).unwrap()
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
             }
         }
 
@@ -444,13 +448,13 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Result<$thing, crate::util::HexError> {
-                use crate::util::hash::hex_bytes;
+            pub fn from_hex(hex_str: &str) -> Result<$thing, $crate::util::HexError> {
+                use $crate::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
                     (_hex_len, Ok(bytes)) => {
                         if bytes.len() != $len {
-                            return Err(crate::util::HexError::BadLength(hex_str.len()));
+                            return Err($crate::util::HexError::BadLength(hex_str.len()));
                         }
                         let mut ret = [0; $len];
                         ret.copy_from_slice(&bytes);
@@ -513,7 +517,7 @@ macro_rules! impl_byte_array_newtype {
             /// Convert to a hex string
             #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
-                use crate::util::hash::to_hex;
+                use $crate::util::hash::to_hex;
                 to_hex(&self.0)
             }
         }
@@ -590,7 +594,7 @@ macro_rules! trace {
     ($($arg:tt)*) => (
         #[cfg(any(test, feature = "testing"))]
         {
-            if crate::util::macros::is_trace() {
+            if $crate::util::macros::is_trace() {
                 debug!($($arg)*);
             }
         }
@@ -630,7 +634,7 @@ macro_rules! impl_byte_array_rusqlite_only {
                 value: rusqlite::types::ValueRef,
             ) -> rusqlite::types::FromSqlResult<Self> {
                 let hex_str = value.as_str()?;
-                let byte_str = crate::util::hash::hex_bytes(hex_str)
+                let byte_str = $crate::util::hash::hex_bytes(hex_str)
                     .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
                     .ok_or(rusqlite::types::FromSqlError::InvalidType)?;

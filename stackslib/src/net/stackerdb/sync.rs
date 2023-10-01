@@ -436,7 +436,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns false otherwise
     pub fn add_pushed_chunk(
         &mut self,
-        network: &PeerNetwork,
+        _network: &PeerNetwork,
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
@@ -453,7 +453,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     // remote peer indicated that it has a newer version of this chunk.
                     test_debug!(
                         "{:?}: peer {:?} has a newer version of slot {} ({} < {})",
-                        network.get_local_peer(),
+                        _network.get_local_peer(),
                         &naddr,
                         old_slot_id,
                         old_version,

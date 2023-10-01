@@ -19,9 +19,6 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
@@ -44,6 +41,9 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use std::collections::HashMap;

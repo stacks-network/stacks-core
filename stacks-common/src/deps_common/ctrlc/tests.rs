@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use crate::deps::ctrlc;
+use crate::deps_common::ctrlc;
 
 #[cfg(unix)]
 mod platform {

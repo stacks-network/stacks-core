@@ -43,7 +43,7 @@ use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::MagicBytes;
 use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;

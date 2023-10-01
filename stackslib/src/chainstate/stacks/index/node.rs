@@ -37,7 +37,7 @@ use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};

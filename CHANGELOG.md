@@ -14,9 +14,17 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   will be useful for tools that use the Clarity library to analyze and
   manipulate Clarity source code, e.g. a formatter.
 - New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
+- A new subsystem, called StackerDB, has been added, which allows a set of
+  Stacks nodes to store off-chain data on behalf of a specially-crafter smart
+contract.  This is an opt-in feature; Stacks nodes explicitly subscribe to
+StackerDB replicas in their config files.
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
+
+### Changed
+
+- `developer-mode` is no longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
 
 ### Fixed
 
@@ -29,6 +37,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
 - The node now gracefully shuts down even if it is in the middle of a handshake with 
   bitcoind. Fixes issue #3734.
+
+## [2.4.0.0.1]
+
+This is a minor change to add `txid` fields into the log messages from failing
+contract deploys. This will help tools (and users) more easily find the log
+messages to determine what went wrong.
 
 ## [2.4.0.0.0]
 This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.

@@ -79,7 +79,7 @@ pub fn check_special_map(
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
     for arg in args[1..].iter() {
-        let argument_type = checker.type_check(&arg, context)?;
+        let argument_type = checker.type_check(arg, context)?;
         let entry_type = match argument_type {
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
@@ -229,8 +229,7 @@ pub fn check_special_concat(
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(CheckErrors::MaxLengthOverflow)?;
-                    let type_sig = TypeSignature::list_of(list_entry_type, new_len)?;
-                    type_sig
+                    TypeSignature::list_of(list_entry_type, new_len)?
                 }
                 (BufferType(lhs_len), BufferType(rhs_len)) => {
                     let size: u32 = u32::from(lhs_len)
@@ -286,7 +285,7 @@ pub fn check_special_append(
                 .checked_add(1)
                 .ok_or(CheckErrors::MaxLengthOverflow)?;
             let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
-            return Ok(return_type);
+            Ok(return_type)
         }
         _ => Err(CheckErrors::ExpectedListApplication.into()),
     }

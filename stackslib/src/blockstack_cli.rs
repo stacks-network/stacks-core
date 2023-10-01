@@ -20,14 +20,14 @@
 #![allow(non_upper_case_globals)]
 
 extern crate blockstack_lib;
+extern crate clarity;
+extern crate stacks_common;
 
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
 
-use blockstack_lib::address::b58;
-use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -41,20 +41,22 @@ use blockstack_lib::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::clarity_cli::vm_execute;
-use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
-use blockstack_lib::types::chainstate::StacksAddress;
-use blockstack_lib::util::hash::hex_bytes;
-use blockstack_lib::util::hash::to_hex;
-use blockstack_lib::util::retry::LogReader;
 use blockstack_lib::util_lib::strings::StacksString;
-use blockstack_lib::vm::ClarityVersion;
-use blockstack_lib::vm::{
+use clarity::vm::ClarityVersion;
+use clarity::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
     types::PrincipalData,
     ClarityName, ContractName, Value,
 };
+use stacks_common::address::b58;
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::retry::LogReader;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -255,14 +257,14 @@ impl From<io::Error> for CliError {
     }
 }
 
-impl From<blockstack_lib::util::HexError> for CliError {
-    fn from(value: blockstack_lib::util::HexError) -> Self {
+impl From<stacks_common::util::HexError> for CliError {
+    fn from(value: stacks_common::util::HexError) -> Self {
         CliError::Message(format!("Bad hex string supplied: {}", value))
     }
 }
 
-impl From<blockstack_lib::vm::types::serialization::SerializationError> for CliError {
-    fn from(value: blockstack_lib::vm::types::serialization::SerializationError) -> Self {
+impl From<clarity::vm::types::serialization::SerializationError> for CliError {
+    fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
         CliError::Message(format!("Failed to deserialize: {}", value))
     }
 }

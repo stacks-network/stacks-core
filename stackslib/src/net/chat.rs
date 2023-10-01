@@ -68,8 +68,8 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::core::StacksEpoch;
-use crate::types::chainstate::PoxId;
-use crate::types::StacksPublicKeyBuffer;
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::StacksPublicKeyBuffer;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 
@@ -718,7 +718,7 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
     ) -> bool {
         let bhh = match chain_view.last_burn_block_hashes.get(&block_height) {
-            Some(ref bhh) => bhh.clone(),
+            Some(bhh) => bhh,
             None => {
                 // not present; can't prove disagreement (assume the remote peer is just stale)
                 return false;
@@ -2739,7 +2739,7 @@ mod test {
     use stacks_common::util::sleep_ms;
     use stacks_common::util::uint::*;
 
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 
     use super::*;
 

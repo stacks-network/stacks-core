@@ -38,7 +38,7 @@ use stacks_common::address::{
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 
-use crate::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksAddress;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -119,7 +119,7 @@ pub fn special_principal_of(
         _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param0).into()),
     };
 
-    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
+    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
         let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
@@ -128,9 +128,9 @@ pub fn special_principal_of(
             pubkey_to_address_v1(pub_key)
         };
         let principal = addr.to_account_principal();
-        return Ok(Value::okay(Value::Principal(principal)).unwrap());
+        Ok(Value::okay(Value::Principal(principal)).unwrap())
     } else {
-        return Ok(Value::err_uint(1));
+        Ok(Value::err_uint(1))
     }
 }
 
@@ -170,11 +170,10 @@ pub fn special_secp256k1_recover(
         _ => return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into()),
     };
 
-    match secp256k1_recover(&message, &signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature)
-    {
-        Ok(pubkey) => return Ok(Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap()),
-        _ => return Ok(Value::err_uint(1)),
-    };
+    match secp256k1_recover(message, signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
+        Ok(pubkey) => Ok(Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap()),
+        _ => Ok(Value::err_uint(1)),
+    }
 }
 
 pub fn special_secp256k1_verify(
@@ -228,6 +227,6 @@ pub fn special_secp256k1_verify(
     };
 
     Ok(Value::Bool(
-        secp256k1_verify(&message, &signature, &pubkey).is_ok(),
+        secp256k1_verify(message, signature, pubkey).is_ok(),
     ))
 }
