@@ -34,18 +34,10 @@ use std::sync::mpsc::TrySendError;
 use mio;
 use mio::net as mio_net;
 
-use crate::codec::StacksMessageCodec;
 use crate::codec::MAX_MESSAGE_LEN;
-use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
-use crate::net::codec::*;
 use crate::net::Error as net_error;
-use crate::net::HttpRequestPreamble;
-use crate::net::HttpResponsePreamble;
 use crate::net::MessageSequence;
-use crate::net::PeerAddress;
-use crate::net::Preamble;
 use crate::net::ProtocolFamily;
-use crate::net::RelayData;
 use crate::net::StacksHttp;
 use crate::net::StacksP2P;
 
@@ -59,8 +51,7 @@ use crate::net::neighbors::{
 
 use clarity::vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
 
-use crate::chainstate::burn::ConsensusHash;
-
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -91,7 +82,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
 
     /// Send this message to the waiting receiver, consuming this notification handle.
     /// May fail silently.
-    pub fn send(self, msg: P::Message) -> () {
+    pub fn send(self, msg: P::Message) {
         let msg_name = msg.get_message_name().to_string();
         let msg_id = msg.request_id();
         match self.receiver_input.send(msg) {
@@ -243,25 +234,37 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         }
     }
 
-    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
-    /// Only call this once you're done sending -- this is just to move the data along.
-    /// Return true if we're done sending; false if we need to call this again.
-    pub fn try_flush(&mut self) -> Result<bool, net_error> {
+    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe if
+    /// `drop_on_success` is true.  Returns `true` if we drained the write end, `false` if not.
+    pub fn try_flush_ex(&mut self, drop_on_success: bool) -> Result<bool, net_error> {
+        let mut ret = false;
         let fd_opt = match self.request_pipe_write.take() {
             Some(mut fd) => {
-                let res = fd.try_flush().map_err(net_error::WriteError)?;
-                if res {
-                    // all data flushed!
+                ret = fd.try_flush().map_err(net_error::WriteError)?;
+                if ret && drop_on_success {
+                    // all data flushed, and we won't send more.
                     None
                 } else {
-                    // still have data to send
+                    // still have data to send, or we will send more.
                     Some(fd)
                 }
             }
             None => None,
         };
         self.request_pipe_write = fd_opt;
-        Ok(self.request_pipe_write.is_none())
+        Ok(ret)
+    }
+
+    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
+    /// Only call this once you're done sending -- this is just to move the data along.
+    /// Return true if we're done sending; false if we need to call this again.
+    pub fn try_flush(&mut self) -> Result<bool, net_error> {
+        self.try_flush_ex(true)
+    }
+
+    /// Get a mutable reference to the inner pipe, if we have it
+    pub fn inner_pipe_out(&mut self) -> Option<&mut PipeWrite> {
+        self.request_pipe_write.as_mut()
     }
 }
 
@@ -1059,6 +1062,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             let _nr_input = match self.pending_message_fd {
                 Some(ref mut message_fd) => {
                     // consume from message-writer until we're out of data
+                    // TODO: make this configurable
                     let mut buf = [0u8; 8192];
                     let nr_input = match message_fd.read(&mut buf) {
                         Ok(0) => {
