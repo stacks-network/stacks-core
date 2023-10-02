@@ -73,7 +73,7 @@ use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
+use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork};
 use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
@@ -102,6 +102,7 @@ use std::fs::{File, OpenOptions};
 use std::io::BufReader;
 
 use libstackerdb::StackerDBChunkData;
+use stacks_common::types::net::PeerAddress;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
