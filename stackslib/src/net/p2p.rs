@@ -53,6 +53,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::core::mempool::{MemPoolDB, MemPoolEventDispatcher};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::AtlasDB;
@@ -72,19 +73,19 @@ use crate::net::poll::NetworkState;
 use crate::net::prune::*;
 use crate::net::relay::RelayerStats;
 use crate::net::relay::*;
-use crate::net::relay::*;
-use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
+use crate::net::RPCHandlerArgs;
 use crate::net::*;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::BurnStateDB;
+use stacks_common::types::net::PeerAddress;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
@@ -96,6 +97,10 @@ use crate::types::chainstate::{PoxId, SortitionId};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
+
+use crate::net::httpcore::StacksHttpRequest;
+
+use crate::net::http::HttpRequestContents;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -395,7 +400,11 @@ impl PeerNetwork {
         >,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
-        let http = HttpPeer::new(connection_opts.clone(), 0);
+        let http = HttpPeer::new(
+            connection_opts.clone(),
+            0,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        );
         let pub_ip = connection_opts.public_ip_address.clone();
         let pub_ip_learned = pub_ip.is_none();
         local_peer.public_ip_address = pub_ip.clone();
@@ -558,14 +567,14 @@ impl PeerNetwork {
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
         let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
-        let p2p_handle = net.bind(my_addr)?;
-        let http_handle = net.bind(http_addr)?;
+        let (p2p_handle, bound_p2p_addr) = net.bind(my_addr)?;
+        let (http_handle, bound_http_addr) = net.bind(http_addr)?;
 
         test_debug!(
             "{:?}: bound on p2p {:?}, http {:?}",
             &self.local_peer,
-            my_addr,
-            http_addr
+            bound_p2p_addr,
+            bound_http_addr
         );
 
         self.network = Some(net);
@@ -573,14 +582,14 @@ impl PeerNetwork {
         self.http_network_handle = http_handle;
 
         PeerNetwork::with_http(self, |_, ref mut http| {
-            http.set_server_handle(http_handle);
+            http.set_server_handle(http_handle, bound_http_addr);
         });
 
         self.bind_nk = NeighborKey {
             network_id: self.local_peer.network_id,
             peer_version: self.peer_version,
-            addrbytes: PeerAddress::from_socketaddr(my_addr),
-            port: my_addr.port(),
+            addrbytes: PeerAddress::from_socketaddr(&bound_p2p_addr),
+            port: bound_p2p_addr.port(),
         };
 
         Ok(())
@@ -688,6 +697,16 @@ impl PeerNetwork {
     /// Get a mutable ref to the header cache
     pub fn get_header_cache_mut(&mut self) -> &mut BlockHeaderCache {
         &mut self.header_cache
+    }
+
+    /// Get a ref to the AtlasDB
+    pub fn get_atlasdb(&self) -> &AtlasDB {
+        &self.atlasdb
+    }
+
+    /// Get a mut ref to the AtlasDB
+    pub fn get_atlasdb_mut(&mut self) -> &mut AtlasDB {
+        &mut self.atlasdb
     }
 
     /// Count up the number of outbound StackerDB replicas we talk to,
@@ -3585,14 +3604,14 @@ impl PeerNetwork {
         page_id: Txid,
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
-        let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(
-                PeerHost::from_socketaddr(addr),
-                Some(self.burnchain_tip.canonical_stacks_tip_height),
-            ),
-            sync_data,
-            Some(page_id),
-        );
+        let request = StacksHttpRequest::new_for_peer(
+            PeerHost::from_socketaddr(addr),
+            "POST".into(),
+            "/v2/mempool/query".into(),
+            HttpRequestContents::new()
+                .query_arg("page_id".into(), format!("{}", &page_id))
+                .payload_stacks(&sync_data),
+        )?;
 
         let event_id = self.connect_or_send_http_request(
             url.clone(),
@@ -3637,15 +3656,15 @@ impl PeerNetwork {
                             );
                             return Ok((false, None, None));
                         }
-                        Some(http_response) => match http_response {
-                            HttpResponseType::MemPoolTxs(_, page_id_opt, txs) => {
+                        Some(http_response) => match http_response.decode_mempool_txs_page() {
+                            Ok((txs, page_id_opt)) => {
                                 debug!("{:?}: Mempool sync received response for {} txs, next page {:?}", &network.local_peer, txs.len(), &page_id_opt);
                                 return Ok((true, page_id_opt, Some(txs)));
                             }
-                            _ => {
+                            Err(e) => {
                                 warn!(
-                                    "{:?}: Mempool sync request received {:?}",
-                                    &network.local_peer, &http_response
+                                    "{:?}: Mempool sync request did not receive a txs page: {:?}",
+                                    &network.local_peer, &e
                                 );
                                 return Ok((true, None, None));
                             }
@@ -5751,15 +5770,9 @@ impl PeerNetwork {
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
-                http.run(
-                    network_state,
-                    net,
-                    sortdb,
-                    chainstate,
-                    mempool,
-                    http_poll_state,
-                    handler_args,
-                )
+                let mut node_state =
+                    StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args);
+                http.run(network_state, &mut node_state, http_poll_state)
             });
             network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())
