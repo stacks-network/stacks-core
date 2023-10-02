@@ -717,41 +717,6 @@ impl StacksMessageCodec for NatPunchData {
     }
 }
 
-impl StacksMessageCodec for MemPoolSyncData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        match *self {
-            MemPoolSyncData::BloomFilter(ref bloom_filter) => {
-                write_next(fd, &MemPoolSyncDataID::BloomFilter.to_u8())?;
-                write_next(fd, bloom_filter)?;
-            }
-            MemPoolSyncData::TxTags(ref seed, ref tags) => {
-                write_next(fd, &MemPoolSyncDataID::TxTags.to_u8())?;
-                write_next(fd, seed)?;
-                write_next(fd, tags)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MemPoolSyncData, codec_error> {
-        let data_id: u8 = read_next(fd)?;
-        match MemPoolSyncDataID::from_u8(data_id).ok_or(codec_error::DeserializeError(format!(
-            "Unrecognized MemPoolSyncDataID {}",
-            &data_id
-        )))? {
-            MemPoolSyncDataID::BloomFilter => {
-                let bloom_filter: BloomFilter<BloomNodeHasher> = read_next(fd)?;
-                Ok(MemPoolSyncData::BloomFilter(bloom_filter))
-            }
-            MemPoolSyncDataID::TxTags => {
-                let seed: [u8; 32] = read_next(fd)?;
-                let txtags: Vec<TxTag> = read_next(fd)?;
-                Ok(MemPoolSyncData::TxTags(seed, txtags))
-            }
-        }
-    }
-}
-
 fn contract_id_consensus_serialize<W: Write>(
     fd: &mut W,
     cid: &QualifiedContractIdentifier,
