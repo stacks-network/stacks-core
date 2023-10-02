@@ -54,13 +54,13 @@ use crate::net::GetBlocksInv;
 use crate::net::GetPoxInv;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::GETPOXINV_MAX_BITLEN;
 use crate::net::*;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -718,13 +718,13 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
     ) -> bool {
         let bhh = match chain_view.last_burn_block_hashes.get(&block_height) {
-            Some(ref bhh) => bhh.clone(),
+            Some(bhh) => bhh,
             None => {
                 // not present; can't prove disagreement (assume the remote peer is just stale)
                 return false;
             }
         };
-        if *bhh != *their_burn_header_hash {
+        if bhh != their_burn_header_hash {
             test_debug!(
                 "Burn header hash mismatch in preamble: {} != {}",
                 bhh,
