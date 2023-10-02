@@ -1545,4 +1545,9 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
         self.storage.connection().get_root_hash_at(block_hash)
     }
+
+    /// Convert to the inner sqlite connection
+    pub fn into_sqlite_conn(self) -> Connection {
+        self.storage.into_sqlite_conn()
+    }
 }
