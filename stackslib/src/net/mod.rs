@@ -46,6 +46,7 @@ use serde_json;
 use url;
 
 use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::Burnchain;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
@@ -53,16 +54,15 @@ use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
     TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::core::mempool::*;
 use crate::core::POX_REWARD_CYCLE_LENGTH;
 use crate::net::atlas::{Attachment, AttachmentInstance};
-use crate::net::http::HttpReservedHeader;
-pub use crate::net::http::StacksBlockAcceptedData;
+use crate::net::httpcore::TipRequest;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
@@ -78,6 +78,7 @@ use clarity::vm::{
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::codec::{read_next, write_next};
+use stacks_common::types::net::{Error as AddrError, PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -88,8 +89,6 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
-use crate::chainstate::stacks::StacksBlockHeader;
-
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
@@ -99,15 +98,21 @@ use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
 use crate::vm::costs::ExecutionCost;
 
-use self::dns::*;
-pub use self::http::StacksHttp;
+use crate::net::dns::*;
+use crate::net::http::{HttpContentType, HttpNotFound, HttpServerError};
+pub use crate::net::httpcore::StacksHttp;
 
+use crate::cost_estimates::{metrics::CostMetric, CostEstimator, FeeEstimator};
+
+use crate::core::mempool::{MemPoolDB, MemPoolEventDispatcher};
 use crate::core::StacksEpoch;
 
 use libstackerdb::{
     Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
 };
 
+/// Implements RPC API
+pub mod api;
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
 /// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
@@ -131,6 +136,8 @@ pub mod db;
 pub mod dns;
 pub mod download;
 pub mod http;
+/// Links http crate to Stacks
+pub mod httpcore;
 pub mod inv;
 pub mod neighbors;
 pub mod p2p;
@@ -144,7 +151,6 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
-pub mod stream;
 
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::stackerdb::StackerDBSync;
@@ -152,7 +158,14 @@ use crate::net::stackerdb::StackerDBSyncResult;
 use crate::net::stackerdb::StackerDBs;
 
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
-pub use crate::net::stream::StreamCursor;
+
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::p2p::PeerNetwork;
+
+use crate::net::httpcore::{HttpRequestContentsExtensions, StacksHttpRequest, StacksHttpResponse};
+
+use crate::net::http::{Error as HttpErr, HttpRequestContents, HttpRequestPreamble};
 
 #[cfg(test)]
 pub mod tests;
@@ -251,8 +264,6 @@ pub enum Error {
     ClarityError(clarity_error),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
     ChainstateError(String),
-    /// Catch-all for errors that a client should receive more information about
-    ClientError(ClientError),
     /// Coordinator hung up
     CoordinatorClosed,
     /// view of state is stale (e.g. from the sortition db)
@@ -293,6 +304,8 @@ pub enum Error {
     StepTimeout,
     /// stacker DB chunk is too big
     StackerDBChunkTooBig(usize),
+    /// HTTP error
+    Http(HttpErr),
 }
 
 impl From<libstackerdb_error> for Error {
@@ -320,33 +333,23 @@ impl From<codec_error> for Error {
     }
 }
 
-/// Enum for passing data for ClientErrors
-#[derive(Debug, Clone, PartialEq)]
-pub enum ClientError {
-    /// Catch-all
-    Message(String),
-    /// 404
-    NotFound(String),
-}
-
-impl error::Error for ClientError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
+impl From<HttpErr> for Error {
+    fn from(e: HttpErr) -> Error {
+        Error::Http(e)
     }
 }
 
-impl fmt::Display for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ClientError::Message(s) => write!(f, "{}", s),
-            ClientError::NotFound(s) => write!(f, "HTTP path not matched: {}", s),
+impl From<AddrError> for Error {
+    fn from(e: AddrError) -> Error {
+        match e {
+            AddrError::DecodeError(s) => Error::DeserializeError(s),
         }
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::SerializeError(ref s) => fmt::Display::fmt(s, f),
             Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
             Error::ReadError(ref io) => fmt::Display::fmt(io, f),
@@ -395,7 +398,6 @@ impl fmt::Display for Error {
             Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
-            Error::ClientError(ref e) => write!(f, "ClientError: {}", e),
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
@@ -449,6 +451,7 @@ impl fmt::Display for Error {
             Error::StackerDBChunkTooBig(ref sz) => {
                 write!(f, "StackerDB chunk size is too big ({})", sz)
             }
+            Error::Http(e) => fmt::Display::fmt(&e, f),
         }
     }
 }
@@ -500,7 +503,6 @@ impl error::Error for Error {
             Error::PeerThrottled => None,
             Error::LookupError(ref _s) => None,
             Error::ChainstateError(ref _s) => None,
-            Error::ClientError(ref e) => Some(e),
             Error::ClarityError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
@@ -520,6 +522,7 @@ impl error::Error for Error {
             Error::InvalidStackerDBContract(..) => None,
             Error::StepTimeout => None,
             Error::StackerDBChunkTooBig(..) => None,
+            Error::Http(ref e) => Some(e),
         }
     }
 }
@@ -584,254 +587,251 @@ impl PartialEq for Error {
     }
 }
 
-/// A container for an IPv4 or IPv6 address.
-/// Rules:
-/// -- If this is an IPv6 address, the octets are in network byte order
-/// -- If this is an IPv4 address, the octets must encode an IPv6-to-IPv4-mapped address
-pub struct PeerAddress([u8; 16]);
-impl_array_newtype!(PeerAddress, u8, 16);
-impl_array_hexstring_fmt!(PeerAddress);
-impl_byte_array_newtype!(PeerAddress, u8, 16);
+/// Extension trait for PeerHost to decode it from a UrlString
+pub trait PeerHostExtensions {
+    fn try_from_url(url_str: &UrlString) -> Option<PeerHost>;
+}
 
-impl Serialize for PeerAddress {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let inst = format!("{}", self.to_socketaddr(0).ip());
-        s.serialize_str(inst.as_str())
+impl PeerHostExtensions for PeerHost {
+    fn try_from_url(url_str: &UrlString) -> Option<PeerHost> {
+        let url = match url_str.parse_to_block_url() {
+            Ok(url) => url,
+            Err(_e) => {
+                return None;
+            }
+        };
+
+        let port = match url.port_or_known_default() {
+            Some(port) => port,
+            None => {
+                return None;
+            }
+        };
+
+        match url.host() {
+            Some(url::Host::Domain(name)) => Some(PeerHost::DNS(name.to_string(), port)),
+            Some(url::Host::Ipv4(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(
+                IpAddr::V4(addr),
+                port,
+            ))),
+            Some(url::Host::Ipv6(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(
+                IpAddr::V6(addr),
+                port,
+            ))),
+            None => None,
+        }
     }
 }
 
-impl<'de> Deserialize<'de> for PeerAddress {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<PeerAddress, D::Error> {
-        let inst = String::deserialize(d)?;
-        let ip = inst.parse::<IpAddr>().map_err(de_Error::custom)?;
+/// Runtime arguments to an RPC handler
+#[derive(Default)]
+pub struct RPCHandlerArgs<'a> {
+    /// What height at which this node will terminate (testnet only)
+    pub exit_at_block_height: Option<u64>,
+    /// What's the hash of the genesis chainstate?
+    pub genesis_chainstate_hash: Sha256Sum,
+    /// event observer for the mempool
+    pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
+    /// tx runtime cost estimator
+    pub cost_estimator: Option<&'a dyn CostEstimator>,
+    /// tx fee estimator
+    pub fee_estimator: Option<&'a dyn FeeEstimator>,
+    /// tx runtime cost metric
+    pub cost_metric: Option<&'a dyn CostMetric>,
+}
 
-        Ok(PeerAddress::from_ip(&ip))
+impl<'a> RPCHandlerArgs<'a> {
+    pub fn get_estimators_ref(
+        &self,
+    ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {
+        match (self.cost_estimator, self.fee_estimator, self.cost_metric) {
+            (Some(a), Some(b), Some(c)) => Some((a, b, c)),
+            _ => None,
+        }
     }
 }
 
-impl PeerAddress {
-    pub fn from_slice(bytes: &[u8]) -> Option<PeerAddress> {
-        if bytes.len() != 16 {
-            return None;
-        }
+/// Wrapper around Stacks chainstate data that an HTTP request handler might need
+pub struct StacksNodeState<'a> {
+    inner_network: Option<&'a mut PeerNetwork>,
+    inner_sortdb: Option<&'a SortitionDB>,
+    inner_chainstate: Option<&'a mut StacksChainState>,
+    inner_mempool: Option<&'a mut MemPoolDB>,
+    inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
+    relay_message: Option<StacksMessageType>,
+}
 
-        let mut bytes16 = [0u8; 16];
-        bytes16.copy_from_slice(&bytes[0..16]);
-        Some(PeerAddress(bytes16))
-    }
-
-    /// Is this an IPv4 address?
-    pub fn is_ipv4(&self) -> bool {
-        self.ipv4_octets().is_some()
-    }
-
-    /// Get the octet representation of this peer address as an IPv4 address.
-    /// The last 4 bytes of the list contain the IPv4 address.
-    /// This method returns None if the bytes don't encode a valid IPv4-mapped address (i.e. ::ffff:0:0/96)
-    pub fn ipv4_octets(&self) -> Option<[u8; 4]> {
-        if self.0[0..12]
-            != [
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
-            ]
-        {
-            return None;
-        }
-        let mut ret = [0u8; 4];
-        ret.copy_from_slice(&self.0[12..16]);
-        Some(ret)
-    }
-
-    /// Return the bit representation of this peer address as an IPv4 address, in network byte
-    /// order.  Return None if this is not an IPv4 address.
-    pub fn ipv4_bits(&self) -> Option<u32> {
-        let octets_opt = self.ipv4_octets();
-        if octets_opt.is_none() {
-            return None;
-        }
-
-        let octets = octets_opt.unwrap();
-        Some(
-            ((octets[0] as u32) << 24)
-                | ((octets[1] as u32) << 16)
-                | ((octets[2] as u32) << 8)
-                | (octets[3] as u32),
-        )
-    }
-
-    /// Convert to SocketAddr
-    pub fn to_socketaddr(&self, port: u16) -> SocketAddr {
-        if self.is_ipv4() {
-            SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(
-                    self.0[12], self.0[13], self.0[14], self.0[15],
-                )),
-                port,
-            )
-        } else {
-            let addr_words: [u16; 8] = [
-                ((self.0[0] as u16) << 8) | (self.0[1] as u16),
-                ((self.0[2] as u16) << 8) | (self.0[3] as u16),
-                ((self.0[4] as u16) << 8) | (self.0[5] as u16),
-                ((self.0[6] as u16) << 8) | (self.0[7] as u16),
-                ((self.0[8] as u16) << 8) | (self.0[9] as u16),
-                ((self.0[10] as u16) << 8) | (self.0[11] as u16),
-                ((self.0[12] as u16) << 8) | (self.0[13] as u16),
-                ((self.0[14] as u16) << 8) | (self.0[15] as u16),
-            ];
-
-            SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::new(
-                    addr_words[0],
-                    addr_words[1],
-                    addr_words[2],
-                    addr_words[3],
-                    addr_words[4],
-                    addr_words[5],
-                    addr_words[6],
-                    addr_words[7],
-                )),
-                port,
-            )
+impl<'a> StacksNodeState<'a> {
+    pub fn new(
+        inner_network: &'a mut PeerNetwork,
+        inner_sortdb: &'a SortitionDB,
+        inner_chainstate: &'a mut StacksChainState,
+        inner_mempool: &'a mut MemPoolDB,
+        inner_rpc_args: &'a RPCHandlerArgs<'a>,
+    ) -> StacksNodeState<'a> {
+        StacksNodeState {
+            inner_network: Some(inner_network),
+            inner_sortdb: Some(inner_sortdb),
+            inner_chainstate: Some(inner_chainstate),
+            inner_mempool: Some(inner_mempool),
+            inner_rpc_args: Some(inner_rpc_args),
+            relay_message: None,
         }
     }
 
-    /// Convert from socket address
-    pub fn from_socketaddr(addr: &SocketAddr) -> PeerAddress {
-        PeerAddress::from_ip(&addr.ip())
+    /// Run func() with the inner state
+    pub fn with_node_state<F, R>(&mut self, func: F) -> R
+    where
+        F: FnOnce(
+            &mut PeerNetwork,
+            &SortitionDB,
+            &mut StacksChainState,
+            &mut MemPoolDB,
+            &RPCHandlerArgs<'a>,
+        ) -> R,
+    {
+        let network = self
+            .inner_network
+            .take()
+            .expect("FATAL: network not restored");
+        let sortdb = self
+            .inner_sortdb
+            .take()
+            .expect("FATAL: sortdb not restored");
+        let chainstate = self
+            .inner_chainstate
+            .take()
+            .expect("FATAL: chainstate not restored");
+        let mempool = self
+            .inner_mempool
+            .take()
+            .expect("FATAL: mempool not restored");
+        let rpc_args = self
+            .inner_rpc_args
+            .take()
+            .expect("FATAL: rpc args not restored");
+
+        let res = func(network, sortdb, chainstate, mempool, rpc_args);
+
+        self.inner_network = Some(network);
+        self.inner_sortdb = Some(sortdb);
+        self.inner_chainstate = Some(chainstate);
+        self.inner_mempool = Some(mempool);
+        self.inner_rpc_args = Some(rpc_args);
+
+        res
     }
 
-    /// Convert from IP address
-    pub fn from_ip(addr: &IpAddr) -> PeerAddress {
-        match addr {
-            IpAddr::V4(ref addr) => {
-                let octets = addr.octets();
-                PeerAddress([
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
-                    octets[0], octets[1], octets[2], octets[3],
-                ])
+    pub fn canonical_stacks_tip_height(&mut self) -> u32 {
+        self.with_node_state(|network, _, _, _, _| {
+            network.burnchain_tip.canonical_stacks_tip_height as u32
+        })
+    }
+
+    pub fn set_relay_message(&mut self, msg: StacksMessageType) {
+        self.relay_message = Some(msg);
+    }
+
+    pub fn take_relay_message(&mut self) -> Option<StacksMessageType> {
+        self.relay_message.take()
+    }
+
+    /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
+    /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
+    /// will return different values here.
+    ///
+    /// # Warn
+    /// - There is a potential race condition. If this function is loading the latest unconfirmed
+    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
+    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
+    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
+    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    ///
+    /// # Inputs
+    /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
+    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
+    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
+    ///
+    /// Returns the requested chain tip on success.
+    /// If the chain tip could not be found, then it returns Err(HttpNotFound)
+    /// If there was an error querying the DB, then it returns Err(HttpServerError)
+    pub fn load_stacks_chain_tip(
+        &mut self,
+        preamble: &HttpRequestPreamble,
+        contents: &HttpRequestContents,
+    ) -> Result<StacksBlockId, StacksHttpResponse> {
+        self.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+            let tip_req = contents.tip_request();
+            match tip_req {
+                TipRequest::UseLatestUnconfirmedTip => {
+                    let unconfirmed_chain_tip_opt = match &mut chainstate.unconfirmed_state {
+                        Some(unconfirmed_state) => {
+                            match unconfirmed_state.get_unconfirmed_state_if_exists() {
+                                Ok(res) => res,
+                                Err(msg) => {
+                                    return Err(StacksHttpResponse::new_error(
+                                        preamble,
+                                        &HttpNotFound::new(format!("No unconfirmed tip: {}", &msg)),
+                                    ));
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+
+                    if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
+                        Ok(unconfirmed_chain_tip)
+                    } else {
+                        match chainstate.get_stacks_chain_tip(sortdb) {
+                            Ok(Some(tip)) => Ok(StacksBlockHeader::make_index_block_hash(
+                                &tip.consensus_hash,
+                                &tip.anchored_block_hash,
+                            )),
+                            Ok(None) => {
+                                return Err(StacksHttpResponse::new_error(
+                                    preamble,
+                                    &HttpNotFound::new("No such confirmed tip".to_string()),
+                                ));
+                            }
+                            Err(e) => {
+                                return Err(StacksHttpResponse::new_error(
+                                    preamble,
+                                    &HttpServerError::new(format!(
+                                        "Failed to load chain tip: {:?}",
+                                        &e
+                                    )),
+                                ));
+                            }
+                        }
+                    }
+                }
+                TipRequest::SpecificTip(tip) => Ok(tip.clone()),
+                TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb) {
+                    Ok(Some(tip)) => Ok(StacksBlockHeader::make_index_block_hash(
+                        &tip.consensus_hash,
+                        &tip.anchored_block_hash,
+                    )),
+                    Ok(None) => {
+                        return Err(StacksHttpResponse::new_error(
+                            preamble,
+                            &HttpNotFound::new(
+                                "No stacks chain tip exists at this point in time.".to_string(),
+                            ),
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(StacksHttpResponse::new_error(
+                            preamble,
+                            &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e)),
+                        ));
+                    }
+                },
             }
-            IpAddr::V6(ref addr) => {
-                let words = addr.segments();
-                PeerAddress([
-                    (words[0] >> 8) as u8,
-                    (words[0] & 0xff) as u8,
-                    (words[1] >> 8) as u8,
-                    (words[1] & 0xff) as u8,
-                    (words[2] >> 8) as u8,
-                    (words[2] & 0xff) as u8,
-                    (words[3] >> 8) as u8,
-                    (words[3] & 0xff) as u8,
-                    (words[4] >> 8) as u8,
-                    (words[4] & 0xff) as u8,
-                    (words[5] >> 8) as u8,
-                    (words[5] & 0xff) as u8,
-                    (words[6] >> 8) as u8,
-                    (words[6] & 0xff) as u8,
-                    (words[7] >> 8) as u8,
-                    (words[7] & 0xff) as u8,
-                ])
-            }
-        }
-    }
-
-    /// Convert from ipv4 octets
-    pub fn from_ipv4(o1: u8, o2: u8, o3: u8, o4: u8) -> PeerAddress {
-        PeerAddress([
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, o1, o2, o3, o4,
-        ])
-    }
-
-    /// Is this the any-network address?  i.e. 0.0.0.0 (v4) or :: (v6)?
-    pub fn is_anynet(&self) -> bool {
-        self.0 == [0x00; 16] || self == &PeerAddress::from_ipv4(0, 0, 0, 0)
-    }
-
-    /// Is this a private IP address?
-    pub fn is_in_private_range(&self) -> bool {
-        if self.is_ipv4() {
-            // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
-            self.0[12] == 10
-                || (self.0[12] == 172 && self.0[13] >= 16 && self.0[13] <= 31)
-                || (self.0[12] == 192 && self.0[13] == 168)
-        } else {
-            self.0[0] >= 0xfc
-        }
+        })
     }
 }
 
 pub const STACKS_PUBLIC_KEY_ENCODED_SIZE: u32 = 33;
-
-/// supported HTTP content types
-#[derive(Debug, Clone, PartialEq)]
-pub enum HttpContentType {
-    Bytes,
-    Text,
-    JSON,
-}
-
-impl fmt::Display for HttpContentType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl HttpContentType {
-    pub fn as_str(&self) -> &'static str {
-        match *self {
-            HttpContentType::Bytes => "application/octet-stream",
-            HttpContentType::Text => "text/plain",
-            HttpContentType::JSON => "application/json",
-        }
-    }
-}
-
-impl FromStr for HttpContentType {
-    type Err = codec_error;
-
-    fn from_str(header: &str) -> Result<HttpContentType, codec_error> {
-        let s = header.to_string().to_lowercase();
-        if s == "application/octet-stream" {
-            Ok(HttpContentType::Bytes)
-        } else if s == "text/plain" {
-            Ok(HttpContentType::Text)
-        } else if s == "application/json" {
-            Ok(HttpContentType::JSON)
-        } else {
-            Err(codec_error::DeserializeError(
-                "Unsupported HTTP content type".to_string(),
-            ))
-        }
-    }
-}
-
-/// HTTP request preamble
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpRequestPreamble {
-    pub version: HttpVersion,
-    pub verb: String,
-    pub path: String,
-    pub host: PeerHost,
-    pub content_type: Option<HttpContentType>,
-    pub content_length: Option<u32>,
-    pub keep_alive: bool,
-    pub headers: HashMap<String, String>,
-}
-
-/// HTTP response preamble
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpResponsePreamble {
-    pub status_code: u16,
-    pub reason: String,
-    pub keep_alive: bool,
-    pub content_length: Option<u32>, // if not given, then content will be transfer-encoed: chunked
-    pub content_type: HttpContentType, // required header
-    pub request_id: u32,             // X-Request-ID
-    pub headers: HashMap<String, String>,
-}
-
-/// Maximum size an HTTP request or response preamble can be (within reason)
-pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE: u32 = 4096;
-pub const HTTP_PREAMBLE_MAX_NUM_HEADERS: usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
 #[derive(Debug, Clone, PartialEq)]
@@ -1014,17 +1014,6 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
-define_u8_enum!(MemPoolSyncDataID {
-    BloomFilter = 0x01,
-    TxTags = 0x02
-});
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum MemPoolSyncData {
-    BloomFilter(BloomFilter<BloomNodeHasher>),
-    TxTags([u8; 32], Vec<TxTag>),
-}
-
 /// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBHandshakeData {
@@ -1115,774 +1104,6 @@ pub enum StacksMessageType {
     StackerDBPushChunk(StackerDBPushChunkData),
 }
 
-/// Peer address variants
-#[derive(Clone, PartialEq)]
-pub enum PeerHost {
-    DNS(String, u16),
-    IP(PeerAddress, u16),
-}
-
-impl fmt::Display for PeerHost {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            PeerHost::DNS(ref s, ref p) => write!(f, "{}:{}", s, p),
-            PeerHost::IP(ref a, ref p) => write!(f, "{}", a.to_socketaddr(*p)),
-        }
-    }
-}
-
-impl fmt::Debug for PeerHost {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            PeerHost::DNS(ref s, ref p) => write!(f, "PeerHost::DNS({},{})", s, p),
-            PeerHost::IP(ref a, ref p) => write!(f, "PeerHost::IP({:?},{})", a, p),
-        }
-    }
-}
-
-impl Hash for PeerHost {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match *self {
-            PeerHost::DNS(ref name, ref port) => {
-                "DNS".hash(state);
-                name.hash(state);
-                port.hash(state);
-            }
-            PeerHost::IP(ref addrbytes, ref port) => {
-                "IP".hash(state);
-                addrbytes.hash(state);
-                port.hash(state);
-            }
-        }
-    }
-}
-
-impl PeerHost {
-    pub fn hostname(&self) -> String {
-        match *self {
-            PeerHost::DNS(ref s, _) => s.clone(),
-            PeerHost::IP(ref a, ref p) => format!("{}", a.to_socketaddr(*p).ip()),
-        }
-    }
-
-    pub fn port(&self) -> u16 {
-        match *self {
-            PeerHost::DNS(_, ref p) => *p,
-            PeerHost::IP(_, ref p) => *p,
-        }
-    }
-
-    pub fn from_host_port(host: String, port: u16) -> PeerHost {
-        // try as IP, and fall back to DNS
-        match host.parse::<IpAddr>() {
-            Ok(addr) => PeerHost::IP(PeerAddress::from_ip(&addr), port),
-            Err(_) => PeerHost::DNS(host, port),
-        }
-    }
-
-    pub fn from_socketaddr(socketaddr: &SocketAddr) -> PeerHost {
-        PeerHost::IP(PeerAddress::from_socketaddr(socketaddr), socketaddr.port())
-    }
-
-    pub fn try_from_url(url_str: &UrlString) -> Option<PeerHost> {
-        let url = match url_str.parse_to_block_url() {
-            Ok(url) => url,
-            Err(_e) => {
-                return None;
-            }
-        };
-
-        let port = match url.port_or_known_default() {
-            Some(port) => port,
-            None => {
-                return None;
-            }
-        };
-
-        match url.host() {
-            Some(url::Host::Domain(name)) => Some(PeerHost::DNS(name.to_string(), port)),
-            Some(url::Host::Ipv4(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(
-                IpAddr::V4(addr),
-                port,
-            ))),
-            Some(url::Host::Ipv6(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(
-                IpAddr::V6(addr),
-                port,
-            ))),
-            None => None,
-        }
-    }
-
-    pub fn to_host_port(&self) -> (String, u16) {
-        match *self {
-            PeerHost::DNS(ref s, ref p) => (s.clone(), *p),
-            PeerHost::IP(ref i, ref p) => (format!("{}", i.to_socketaddr(0).ip()), *p),
-        }
-    }
-}
-
-/// Affirmation map data reported
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCAffirmationData {
-    pub heaviest: AffirmationMap,
-    pub stacks_tip: AffirmationMap,
-    pub sortition_tip: AffirmationMap,
-    pub tentative_best: AffirmationMap,
-}
-
-/// Information about the last PoX anchor block
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCLastPoxAnchorData {
-    pub anchor_block_hash: BlockHeaderHash,
-    pub anchor_block_txid: Txid,
-}
-
-/// The data we return on GET /v2/info
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCPeerInfoData {
-    pub peer_version: u32,
-    pub pox_consensus: ConsensusHash,
-    pub burn_block_height: u64,
-    pub stable_pox_consensus: ConsensusHash,
-    pub stable_burn_block_height: u64,
-    pub server_version: String,
-    pub network_id: u32,
-    pub parent_network_id: u32,
-    pub stacks_tip_height: u64,
-    pub stacks_tip: BlockHeaderHash,
-    pub stacks_tip_consensus_hash: ConsensusHash,
-    pub genesis_chainstate_hash: Sha256Sum,
-    pub unanchored_tip: Option<StacksBlockId>,
-    pub unanchored_seq: Option<u16>,
-    pub exit_at_block_height: Option<u64>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_public_key: Option<StacksPublicKeyBuffer>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_public_key_hash: Option<Hash160>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub affirmations: Option<RPCAffirmationData>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stackerdbs: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCPoxCurrentCycleInfo {
-    pub id: u64,
-    pub min_threshold_ustx: u64,
-    pub stacked_ustx: u64,
-    pub is_pox_active: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCPoxNextCycleInfo {
-    pub id: u64,
-    pub min_threshold_ustx: u64,
-    pub min_increment_ustx: u64,
-    pub stacked_ustx: u64,
-    pub prepare_phase_start_block_height: u64,
-    pub blocks_until_prepare_phase: i64,
-    pub reward_phase_start_block_height: u64,
-    pub blocks_until_reward_phase: u64,
-    pub ustx_until_pox_rejection: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCPoxContractVersion {
-    pub contract_id: String,
-    pub activation_burnchain_block_height: u64,
-    pub first_reward_cycle_id: u64,
-}
-
-/// The data we return on GET /v2/pox
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCPoxInfoData {
-    pub contract_id: String,
-    pub pox_activation_threshold_ustx: u64,
-    pub first_burnchain_block_height: u64,
-    pub current_burnchain_block_height: u64,
-    pub prepare_phase_block_length: u64,
-    pub reward_phase_block_length: u64,
-    pub reward_slots: u64,
-    pub rejection_fraction: u64,
-    pub total_liquid_supply_ustx: u64,
-    pub current_cycle: RPCPoxCurrentCycleInfo,
-    pub next_cycle: RPCPoxNextCycleInfo,
-
-    // below are included for backwards-compatibility
-    pub min_amount_ustx: u64,
-    pub prepare_cycle_length: u64,
-    pub reward_cycle_id: u64,
-    pub reward_cycle_length: u64,
-    pub rejection_votes_left_required: u64,
-    pub next_reward_cycle_in: u64,
-
-    // Information specific to each PoX contract version
-    pub contract_versions: Vec<RPCPoxContractVersion>,
-}
-
-/// Headers response payload
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExtendedStacksHeader {
-    pub consensus_hash: ConsensusHash,
-    #[serde(
-        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
-        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
-    )]
-    pub header: StacksBlockHeader,
-    pub parent_block_id: StacksBlockId,
-}
-
-/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
-fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
-    header: &StacksBlockHeader,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let bytes = header.serialize_to_vec();
-    let header_hex = to_hex(&bytes);
-    s.serialize_str(&header_hex.as_str())
-}
-
-/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
-fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<StacksBlockHeader, D::Error> {
-    let header_hex = String::deserialize(d)?;
-    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
-    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
-}
-
-impl StacksMessageCodec for ExtendedStacksHeader {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.consensus_hash)?;
-        write_next(fd, &self.header)?;
-        write_next(fd, &self.parent_block_id)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ExtendedStacksHeader, codec_error> {
-        let ch = read_next(fd)?;
-        let bh = read_next(fd)?;
-        let pbid = read_next(fd)?;
-        Ok(ExtendedStacksHeader {
-            consensus_hash: ch,
-            header: bh,
-            parent_block_id: pbid,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCFeeEstimate {
-    pub fee_rate: f64,
-    pub fee: u64,
-}
-
-impl RPCFeeEstimate {
-    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> Vec<RPCFeeEstimate> {
-        let estimated_fees_f64 = fee_rates.clone() * (scalar as f64);
-        vec![
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.low as u64,
-                fee_rate: fee_rates.low,
-            },
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.middle as u64,
-                fee_rate: fee_rates.middle,
-            },
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.high as u64,
-                fee_rate: fee_rates.high,
-            },
-        ]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCFeeEstimateResponse {
-    pub estimated_cost: ExecutionCost,
-    pub estimated_cost_scalar: u64,
-    pub estimations: Vec<RPCFeeEstimate>,
-    pub cost_scalar_change_by_byte: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Copy, Hash)]
-#[repr(u8)]
-pub enum HttpVersion {
-    Http10 = 0x10,
-    Http11 = 0x11,
-}
-
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct HttpRequestMetadata {
-    pub version: HttpVersion,
-    pub peer: PeerHost,
-    pub keep_alive: bool,
-    pub canonical_stacks_tip_height: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DataVarResponse {
-    pub data: String,
-    #[serde(rename = "proof")]
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub marf_proof: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConstantValResponse {
-    pub data: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MapEntryResponse {
-    pub data: String,
-    #[serde(rename = "proof")]
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub marf_proof: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ContractSrcResponse {
-    pub source: String,
-    pub publish_height: u32,
-    #[serde(rename = "proof")]
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub marf_proof: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetIsTraitImplementedResponse {
-    pub is_implemented: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CallReadOnlyResponse {
-    pub okay: bool,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<String>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AccountEntryResponse {
-    pub balance: String,
-    pub locked: String,
-    pub unlock_height: u64,
-    pub nonce: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub balance_proof: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub nonce_proof: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum UnconfirmedTransactionStatus {
-    Microblock {
-        block_hash: BlockHeaderHash,
-        seq: u16,
-    },
-    Mempool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UnconfirmedTransactionResponse {
-    pub tx: String,
-    pub status: UnconfirmedTransactionStatus,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PostTransactionRequestBody {
-    pub tx: String,
-    pub attachment: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct GetAttachmentResponse {
-    pub attachment: Attachment,
-}
-
-impl Serialize for GetAttachmentResponse {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let hex_encoded = to_hex(&self.attachment.content[..]);
-        s.serialize_str(hex_encoded.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for GetAttachmentResponse {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GetAttachmentResponse, D::Error> {
-        let payload = String::deserialize(d)?;
-        let hex_encoded = payload.parse::<String>().map_err(de_Error::custom)?;
-        let bytes = hex_bytes(&hex_encoded).map_err(de_Error::custom)?;
-        let attachment = Attachment::new(bytes);
-        Ok(GetAttachmentResponse { attachment })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetAttachmentsInvResponse {
-    pub block_id: StacksBlockId,
-    pub pages: Vec<AttachmentPage>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttachmentPage {
-    pub index: u32,
-    pub inventory: Vec<u8>,
-}
-
-/// Request ID to use or expect from non-Stacks HTTP clients.
-/// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
-/// to be this value.  This is needed to support fetching immutables like block and microblock data
-/// from non-Stacks nodes (like Gaia hubs, CDNs, vanilla HTTP servers, and so on).
-pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
-
-impl HttpRequestMetadata {
-    pub fn new(
-        host: String,
-        port: u16,
-        canonical_stacks_tip_height: Option<u64>,
-    ) -> HttpRequestMetadata {
-        HttpRequestMetadata {
-            version: HttpVersion::Http11,
-            peer: PeerHost::from_host_port(host, port),
-            keep_alive: true,
-            canonical_stacks_tip_height,
-        }
-    }
-
-    pub fn from_host(
-        peer_host: PeerHost,
-        canonical_stacks_tip_height: Option<u64>,
-    ) -> HttpRequestMetadata {
-        HttpRequestMetadata {
-            version: HttpVersion::Http11,
-            peer: peer_host,
-            keep_alive: true,
-            canonical_stacks_tip_height,
-        }
-    }
-
-    pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
-        let mut canonical_stacks_tip_height = None;
-        for header in &preamble.headers {
-            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
-                HttpReservedHeader::try_from_str(&header.0, &header.1)
-            {
-                canonical_stacks_tip_height = Some(h);
-                break;
-            }
-        }
-        HttpRequestMetadata {
-            version: preamble.version,
-            peer: preamble.host.clone(),
-            keep_alive: preamble.keep_alive,
-            canonical_stacks_tip_height,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CallReadOnlyRequestBody {
-    pub sender: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sponsor: Option<String>,
-    pub arguments: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FeeRateEstimateRequestBody {
-    #[serde(default)]
-    pub estimated_len: Option<u64>,
-    pub transaction_payload: String,
-}
-
-/// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCNeighbor {
-    pub network_id: u32,
-    pub peer_version: u32,
-    #[serde(rename = "ip")]
-    pub addrbytes: PeerAddress,
-    pub port: u16,
-    pub public_key_hash: Hash160,
-    pub authenticated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stackerdbs: Option<Vec<QualifiedContractIdentifier>>,
-}
-
-impl RPCNeighbor {
-    pub fn from_neighbor_key_and_pubkh(
-        nk: NeighborKey,
-        pkh: Hash160,
-        auth: bool,
-        stackerdbs: Vec<QualifiedContractIdentifier>,
-    ) -> RPCNeighbor {
-        RPCNeighbor {
-            network_id: nk.network_id,
-            peer_version: nk.peer_version,
-            addrbytes: nk.addrbytes,
-            port: nk.port,
-            public_key_hash: pkh,
-            authenticated: auth,
-            stackerdbs: Some(stackerdbs),
-        }
-    }
-}
-
-/// Struct given back from a call to `/v2/neighbors`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCNeighborsInfo {
-    pub bootstrap: Vec<RPCNeighbor>,
-    pub sample: Vec<RPCNeighbor>,
-    pub inbound: Vec<RPCNeighbor>,
-    pub outbound: Vec<RPCNeighbor>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TipRequest {
-    UseLatestAnchoredTip,
-    UseLatestUnconfirmedTip,
-    SpecificTip(StacksBlockId),
-}
-
-/// All HTTP request paths we support, and the arguments they carry in their paths
-#[derive(Debug, Clone, PartialEq)]
-pub enum HttpRequestType {
-    GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, TipRequest),
-    GetNeighbors(HttpRequestMetadata),
-    GetHeaders(HttpRequestMetadata, u64, TipRequest),
-    GetBlock(HttpRequestMetadata, StacksBlockId),
-    GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
-    GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
-    GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
-    GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
-    PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
-    PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
-    PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
-    GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
-    GetDataVar(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        ClarityName,
-        TipRequest,
-        bool,
-    ),
-    GetConstantVal(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        ClarityName,
-        TipRequest,
-    ),
-    GetMapEntry(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        ClarityName,
-        Value,
-        TipRequest,
-        bool,
-    ),
-    FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
-    CallReadOnlyFunction(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        PrincipalData,
-        Option<PrincipalData>,
-        ClarityName,
-        Vec<Value>,
-        TipRequest,
-    ),
-    GetTransferCost(HttpRequestMetadata),
-    GetContractSrc(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        TipRequest,
-        bool,
-    ),
-    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, TipRequest),
-    OptionsPreflight(HttpRequestMetadata, String),
-    GetAttachment(HttpRequestMetadata, Hash160),
-    GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
-    GetIsTraitImplemented(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        TraitIdentifier,
-        TipRequest,
-    ),
-    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
-    /// StackerDB HTTP queries
-    GetStackerDBMetadata(HttpRequestMetadata, QualifiedContractIdentifier),
-    GetStackerDBChunk(
-        HttpRequestMetadata,
-        QualifiedContractIdentifier,
-        u32,
-        Option<u32>,
-    ),
-    PostStackerDBChunk(
-        HttpRequestMetadata,
-        QualifiedContractIdentifier,
-        StackerDBChunkData,
-    ),
-    /// catch-all for any errors we should surface from parsing
-    ClientError(HttpRequestMetadata, ClientError),
-}
-
-/// The fields that Actually Matter to http responses
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpResponseMetadata {
-    pub client_version: HttpVersion,
-    pub client_keep_alive: bool,
-    pub request_id: u32,
-    pub content_length: Option<u32>,
-    pub canonical_stacks_tip_height: Option<u64>,
-}
-
-impl HttpResponseMetadata {
-    pub fn make_request_id() -> u32 {
-        let mut rng = thread_rng();
-        let mut request_id = HTTP_REQUEST_ID_RESERVED;
-        while request_id == HTTP_REQUEST_ID_RESERVED {
-            request_id = rng.next_u32();
-        }
-        request_id
-    }
-
-    pub fn new(
-        client_version: HttpVersion,
-        request_id: u32,
-        content_length: Option<u32>,
-        client_keep_alive: bool,
-        canonical_stacks_tip_height: Option<u64>,
-    ) -> HttpResponseMetadata {
-        HttpResponseMetadata {
-            client_version: client_version,
-            client_keep_alive: client_keep_alive,
-            request_id: request_id,
-            content_length: content_length,
-            canonical_stacks_tip_height: canonical_stacks_tip_height,
-        }
-    }
-
-    pub fn from_preamble(
-        request_version: HttpVersion,
-        preamble: &HttpResponsePreamble,
-    ) -> HttpResponseMetadata {
-        let mut canonical_stacks_tip_height = None;
-        for header in &preamble.headers {
-            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
-                HttpReservedHeader::try_from_str(&header.0, &header.1)
-            {
-                canonical_stacks_tip_height = Some(h);
-                break;
-            }
-        }
-        HttpResponseMetadata {
-            client_version: request_version,
-            client_keep_alive: preamble.keep_alive,
-            request_id: preamble.request_id,
-            content_length: preamble.content_length.clone(),
-            canonical_stacks_tip_height: canonical_stacks_tip_height,
-        }
-    }
-
-    pub fn empty_error() -> HttpResponseMetadata {
-        HttpResponseMetadata {
-            client_version: HttpVersion::Http11,
-            client_keep_alive: false,
-            request_id: HttpResponseMetadata::make_request_id(),
-            content_length: Some(0),
-            canonical_stacks_tip_height: None,
-        }
-    }
-
-    fn from_http_request_type(
-        req: &HttpRequestType,
-        canonical_stacks_tip_height: Option<u64>,
-    ) -> HttpResponseMetadata {
-        let metadata = req.metadata();
-        HttpResponseMetadata::new(
-            metadata.version,
-            HttpResponseMetadata::make_request_id(),
-            None,
-            metadata.keep_alive,
-            canonical_stacks_tip_height,
-        )
-    }
-}
-
-/// All data-plane message types a peer can reply with.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HttpResponseType {
-    PeerInfo(HttpResponseMetadata, RPCPeerInfoData),
-    PoxInfo(HttpResponseMetadata, RPCPoxInfoData),
-    Neighbors(HttpResponseMetadata, RPCNeighborsInfo),
-    Headers(HttpResponseMetadata, Vec<ExtendedStacksHeader>),
-    HeaderStream(HttpResponseMetadata),
-    Block(HttpResponseMetadata, StacksBlock),
-    BlockStream(HttpResponseMetadata),
-    Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
-    MicroblockStream(HttpResponseMetadata),
-    TransactionID(HttpResponseMetadata, Txid),
-    StacksBlockAccepted(HttpResponseMetadata, StacksBlockId, bool),
-    MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
-    TokenTransferCost(HttpResponseMetadata, u64),
-    GetDataVar(HttpResponseMetadata, DataVarResponse),
-    GetConstantVal(HttpResponseMetadata, ConstantValResponse),
-    GetMapEntry(HttpResponseMetadata, MapEntryResponse),
-    CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
-    GetAccount(HttpResponseMetadata, AccountEntryResponse),
-    GetContractABI(HttpResponseMetadata, ContractInterface),
-    GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
-    GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
-    UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
-    GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
-    GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
-    MemPoolTxStream(HttpResponseMetadata),
-    MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
-    OptionsPreflight(HttpResponseMetadata),
-    TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
-    StackerDBMetadata(HttpResponseMetadata, Vec<SlotMetadata>),
-    StackerDBChunk(HttpResponseMetadata, Vec<u8>),
-    StackerDBChunkAck(HttpResponseMetadata, StackerDBChunkAckData),
-    // peer-given error responses
-    BadRequest(HttpResponseMetadata, String),
-    BadRequestJSON(HttpResponseMetadata, serde_json::Value),
-    Unauthorized(HttpResponseMetadata, String),
-    PaymentRequired(HttpResponseMetadata, String),
-    Forbidden(HttpResponseMetadata, String),
-    NotFound(HttpResponseMetadata, String),
-    ServerError(HttpResponseMetadata, String),
-    ServiceUnavailable(HttpResponseMetadata, String),
-    Error(HttpResponseMetadata, u16, String),
-}
-
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum UrlScheme {
-    Http,
-    Https,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum StacksMessageID {
@@ -1922,20 +1143,6 @@ pub struct StacksMessage {
     pub preamble: Preamble,
     pub relayers: Vec<RelayData>,
     pub payload: StacksMessageType,
-}
-
-/// Message type for HTTP
-#[derive(Debug, Clone, PartialEq)]
-pub enum StacksHttpMessage {
-    Request(HttpRequestType),
-    Response(HttpResponseType),
-}
-
-/// HTTP message preamble
-#[derive(Debug, Clone, PartialEq)]
-pub enum StacksHttpPreamble {
-    Request(HttpRequestPreamble),
-    Response(HttpResponsePreamble),
 }
 
 /// Network messages implement this to have multiple messages in flight.
@@ -2021,8 +1228,6 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
-
-impl_byte_array_message_codec!(PeerAddress, 16);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -2354,7 +1559,7 @@ impl NetworkResult {
 pub trait Requestable: std::fmt::Display {
     fn get_url(&self) -> &UrlString;
 
-    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType;
+    fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
 #[cfg(test)]
@@ -2412,8 +1617,8 @@ pub mod test {
     use crate::net::p2p::*;
     use crate::net::poll::*;
     use crate::net::relay::*;
-    use crate::net::rpc::RPCHandlerArgs;
     use crate::net::Error as net_error;
+    use crate::net::RPCHandlerArgs;
     use crate::util_lib::strings::*;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -3242,6 +2447,14 @@ pub mod test {
             let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_dbs);
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
+
+            // extract bound ports (which may be different from what's in the config file, if e.g.
+            // they were 0
+            let p2p_port = peer_network.bound_neighbor_key().port;
+            let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
+
+            config.server_port = p2p_port;
+            config.http_port = http_port;
 
             TestPeer {
                 config: config,
