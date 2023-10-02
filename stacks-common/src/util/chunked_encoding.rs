@@ -22,6 +22,8 @@ use std::io::{Read, Write};
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::deps_common::httparse;
 
+/// NOTE: it is imperative that the given Read and Write impls here _never_ fail with EWOULDBLOCK.
+
 #[derive(Debug)]
 pub enum ChunkedError {
     DeserializeError(String),
@@ -342,6 +344,10 @@ impl HttpChunkedTransferWriterState {
             chunk_buf: vec![],
             corked: false,
         }
+    }
+
+    pub fn get_chunk_size(&self) -> usize {
+        self.chunk_size
     }
 }
 
