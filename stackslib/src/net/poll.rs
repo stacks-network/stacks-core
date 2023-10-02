@@ -17,7 +17,6 @@
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
@@ -143,8 +142,8 @@ impl NetworkState {
     }
 
     /// Bind to the given socket address.
-    /// Returns the handle to the poll state, used to key network poll events.
-    pub fn bind(&mut self, addr: &SocketAddr) -> Result<usize, net_error> {
+    /// Returns the handle to the poll state and the bound address, used to key network poll events.
+    pub fn bind(&mut self, addr: &SocketAddr) -> Result<(usize, SocketAddr), net_error> {
         let server = NetworkState::bind_address(addr)?;
         let next_server_event = self.next_event_id()?;
 
@@ -160,8 +159,15 @@ impl NetworkState {
                 net_error::BindError
             })?;
 
+        // N.B. the port for `addr` might be 0, in which case, `local_addr` may not be equal to
+        // `addr` since the port will be system-assigned.  Use `local_adddr`.
+        let local_addr = server.local_addr().map_err(|e| {
+            error!("Failed to get local address for server: {:?}", &e);
+            net_error::BindError
+        })?;
+
         let network_server = NetworkServerState {
-            addr: addr.clone(),
+            addr: local_addr.clone(),
             server_socket: server,
             server_event: mio::Token(next_server_event),
         };
@@ -174,7 +180,7 @@ impl NetworkState {
         self.servers.push(network_server);
         self.event_map.insert(next_server_event, 0); // server events always mapped to 0
 
-        Ok(next_server_event)
+        Ok((next_server_event, local_addr))
     }
 
     /// Register a socket for read/write notifications with this poller.
@@ -480,62 +486,54 @@ mod test {
     fn test_bind() {
         let mut ns = NetworkState::new(100).unwrap();
         let mut server_events = HashSet::new();
-        for port in 49000..49010 {
-            let addr = format!("127.0.0.1:{}", &port)
-                .parse::<SocketAddr>()
-                .unwrap();
-            let event_id = ns.bind(&addr).unwrap();
+        for _ in 0..10 {
+            let addr = "127.0.0.1:0".parse::<SocketAddr>().unwrap();
+            let (event_id, _local_addr) = ns.bind(&addr).unwrap();
             assert!(!server_events.contains(&event_id));
             server_events.insert(event_id);
         }
     }
 
     #[test]
-    #[ignore]
     fn test_register_deregister() {
         let mut ns = NetworkState::new(100).unwrap();
         let mut server_events = vec![];
         let mut event_ids = HashSet::new();
-        for port in 49010..49020 {
-            let addr = format!("127.0.0.1:{}", &port)
-                .parse::<SocketAddr>()
-                .unwrap();
-            let event_id = ns.bind(&addr).unwrap();
+        let mut ports = vec![];
+        for _ in 0..10 {
+            let addr = "127.0.0.1:0".parse::<SocketAddr>().unwrap();
+            let (event_id, local_addr) = ns.bind(&addr).unwrap();
             server_events.push(event_id);
             event_ids.insert(event_id);
+
+            ports.push(local_addr.port());
         }
 
         let mut client_events = vec![];
-        for port in 49010..49020 {
+        for (i, port) in ports.iter().enumerate() {
             let addr = format!("127.0.0.1:{}", &port)
                 .parse::<SocketAddr>()
                 .unwrap();
             let sock = NetworkState::connect(&addr).unwrap();
 
-            let event_id = ns.register(server_events[port - 49010], 1, &sock).unwrap();
+            let event_id = ns.register(server_events[i], 1, &sock).unwrap();
+            assert!(event_id != 0);
+            assert!(!event_ids.contains(&event_id));
+            ns.deregister(event_id, &sock).unwrap();
+
+            let event_id = ns.register(server_events[i], 101, &sock).unwrap();
             assert!(event_id != 0);
             assert!(!event_ids.contains(&event_id));
             ns.deregister(event_id, &sock).unwrap();
 
             let event_id = ns
-                .register(server_events[port - 49010], 101, &sock)
+                .register(server_events[i], server_events[i], &sock)
                 .unwrap();
             assert!(event_id != 0);
             assert!(!event_ids.contains(&event_id));
             ns.deregister(event_id, &sock).unwrap();
 
-            let event_id = ns
-                .register(
-                    server_events[port - 49010],
-                    server_events[port - 49010],
-                    &sock,
-                )
-                .unwrap();
-            assert!(event_id != 0);
-            assert!(!event_ids.contains(&event_id));
-            ns.deregister(event_id, &sock).unwrap();
-
-            let event_id = ns.register(server_events[port - 49010], 11, &sock).unwrap();
+            let event_id = ns.register(server_events[i], 11, &sock).unwrap();
             assert!(!event_ids.contains(&event_id));
 
             event_ids.insert(event_id);
@@ -543,7 +541,7 @@ mod test {
         }
 
         test_debug!("=====");
-        for port in 49010..49020 {
+        for (i, port) in ports.iter().enumerate() {
             let addr = format!("127.0.0.1:{}", &port)
                 .parse::<SocketAddr>()
                 .unwrap();
@@ -552,22 +550,19 @@ mod test {
             // can't use non-server events
             assert_eq!(
                 Err(net_error::RegisterError),
-                ns.register(client_events[port - 49010], port - 49010 + 1, &sock)
+                ns.register(client_events[i], i + 1, &sock)
             );
         }
     }
 
     #[test]
-    #[ignore]
     fn test_register_too_many_peers() {
         let mut ns = NetworkState::new(10).unwrap();
         let mut event_ids = HashSet::new();
-        let addr = format!("127.0.0.1:{}", &49019)
-            .parse::<SocketAddr>()
-            .unwrap();
-        let server_event_id = ns.bind(&addr).unwrap();
-
-        for port in 49020..49030 {
+        let addr = "127.0.0.1:0".parse::<SocketAddr>().unwrap();
+        let (server_event_id, local_addr) = ns.bind(&addr).unwrap();
+        let port = local_addr.port();
+        for _ in 0..10 {
             let addr = format!("127.0.0.1:{}", &port)
                 .parse::<SocketAddr>()
                 .unwrap();
@@ -580,8 +575,8 @@ mod test {
             assert!(!event_ids.contains(&event_id));
         }
 
-        // the 21st socket should fail
-        let addr = "127.0.0.1:49031".parse::<SocketAddr>().unwrap();
+        // the 11th socket should fail
+        let addr = format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap();
         let sock = NetworkState::connect(&addr).unwrap();
         let res = ns.register(server_event_id, 11, &sock);
         assert_eq!(Err(net_error::TooManyPeers), res);
