@@ -29,12 +29,15 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot::boot_code_id;
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
-use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc};
 
 use crate::types::chainstate::BlockHeaderHash;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
+
+use serde::de::{Deserialize, Error as de_Error};
+use serde::ser::Serialize;
 
 /// Implements AtlasDB and associated API. Stores information about attachments and attachment
 /// instances.
@@ -58,6 +61,40 @@ const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;
 const MAX_UNINSTANTIATED_ATTACHMENTS_MIN: u32 = 50_000;
 const UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN: u32 = 86_400;
 const UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN: u32 = 172_800;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAttachmentResponse {
+    pub attachment: Attachment,
+}
+
+impl Serialize for GetAttachmentResponse {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let hex_encoded = to_hex(&self.attachment.content[..]);
+        s.serialize_str(hex_encoded.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GetAttachmentResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GetAttachmentResponse, D::Error> {
+        let payload = String::deserialize(d)?;
+        let hex_encoded = payload.parse::<String>().map_err(de_Error::custom)?;
+        let bytes = hex_bytes(&hex_encoded).map_err(de_Error::custom)?;
+        let attachment = Attachment::new(bytes);
+        Ok(GetAttachmentResponse { attachment })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetAttachmentsInvResponse {
+    pub block_id: StacksBlockId,
+    pub pages: Vec<AttachmentPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachmentPage {
+    pub index: u32,
+    pub inventory: Vec<u8>,
+}
 
 #[derive(Debug, Clone)]
 pub struct AtlasConfig {
