@@ -41,7 +41,6 @@ use crate::core::mempool::*;
 use crate::net::chat::*;
 use crate::net::connection::*;
 use crate::net::db::*;
-use crate::net::http::*;
 use crate::net::p2p::*;
 use crate::net::poll::*;
 use crate::net::rpc::*;
@@ -2468,7 +2467,7 @@ pub mod test {
     use crate::net::codec::*;
     use crate::net::download::test::run_get_blocks_and_microblocks;
     use crate::net::download::*;
-    use crate::net::http::*;
+    use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
     use crate::net::inv::*;
     use crate::net::test::*;
     use crate::net::*;
@@ -2503,6 +2502,10 @@ pub mod test {
     use stacks_common::types::chainstate::TrieHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::MerkleTree;
+
+    use crate::net::api::getinfo::RPCPeerInfoData;
+
+    use crate::net::httpcore::StacksHttpMessage;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {
@@ -3140,10 +3143,12 @@ pub mod test {
         }
     }
 
-    fn http_rpc(peer_http: u16, request: HttpRequestType) -> Result<HttpResponseType, net_error> {
+    fn http_rpc(
+        peer_http: u16,
+        request: StacksHttpRequest,
+    ) -> Result<StacksHttpResponse, net_error> {
         use std::net::TcpStream;
 
-        let request_path = request.request_path();
         let mut sock = TcpStream::connect(
             &format!("127.0.0.1:{}", peer_http)
                 .parse::<SocketAddr>()
@@ -3151,7 +3156,7 @@ pub mod test {
         )
         .unwrap();
 
-        let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+        let request_bytes = request.try_serialize().unwrap();
         match sock.write_all(&request_bytes) {
             Ok(_) => {}
             Err(e) => {
@@ -3175,7 +3180,12 @@ pub mod test {
         }
 
         test_debug!("Client received {} bytes", resp.len());
-        let response = StacksHttp::parse_response(&request_path, &resp).unwrap();
+        let response = StacksHttp::parse_response(
+            &request.preamble().verb,
+            &request.preamble().path_and_query_str,
+            &resp,
+        )
+        .unwrap();
         match response {
             StacksHttpMessage::Response(x) => Ok(x),
             _ => {
@@ -3332,15 +3342,16 @@ pub mod test {
     }
 
     fn http_get_info(http_port: u16) -> RPCPeerInfoData {
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
+        let mut request = HttpRequestPreamble::new_for_peer(
+            PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
+            "GET".to_string(),
+            "/v2/info".to_string(),
+        );
         request.keep_alive = false;
-        let getinfo = HttpRequestType::GetInfo(request);
+        let getinfo = StacksHttpRequest::new(request, HttpRequestContents::new());
         let response = http_rpc(http_port, getinfo).unwrap();
-        if let HttpResponseType::PeerInfo(_, peer_info) = response {
-            peer_info
-        } else {
-            panic!("Did not get peer info, but got {:?}", &response);
-        }
+        let peer_info = response.decode_peer_info().unwrap();
+        peer_info
     }
 
     fn http_post_block(
@@ -3354,15 +3365,18 @@ pub mod test {
             block.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
+        let mut request = HttpRequestPreamble::new_for_peer(
+            PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
+            "POST".to_string(),
+            "/v2/blocks".to_string(),
+        );
         request.keep_alive = false;
-        let post_block = HttpRequestType::PostBlock(request, consensus_hash.clone(), block.clone());
+        let post_block =
+            StacksHttpRequest::new(request, HttpRequestContents::new().payload_stacks(block));
+
         let response = http_rpc(http_port, post_block).unwrap();
-        if let HttpResponseType::StacksBlockAccepted(_, _, accepted) = response {
-            accepted
-        } else {
-            panic!("Received {:?}, expected StacksBlockAccepted", &response);
-        }
+        let accepted = response.decode_stacks_block_accepted().unwrap();
+        accepted.accepted
     }
 
     fn http_post_microblock(
@@ -3378,17 +3392,24 @@ pub mod test {
             mblock.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
+        let mut request = HttpRequestPreamble::new_for_peer(
+            PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
+            "POST".to_string(),
+            "/v2/microblocks".to_string(),
+        );
         request.keep_alive = false;
         let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        let post_microblock =
-            HttpRequestType::PostMicroblock(request, mblock.clone(), TipRequest::SpecificTip(tip));
+        let post_microblock = StacksHttpRequest::new(
+            request,
+            HttpRequestContents::new()
+                .payload_stacks(mblock)
+                .for_specific_tip(tip),
+        );
+
         let response = http_rpc(http_port, post_microblock).unwrap();
-        if let HttpResponseType::MicroblockHash(..) = response {
-            return true;
-        } else {
-            panic!("Received {:?}, expected MicroblockHash", &response);
-        }
+        let payload = response.get_http_payload_ok().unwrap();
+        let bhh: BlockHeaderHash = serde_json::from_value(payload.try_into().unwrap()).unwrap();
+        return true;
     }
 
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
