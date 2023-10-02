@@ -24,7 +24,7 @@ use crate::util_lib::db::Error as DatabaseError;
 use crate::{
     burnchains::Txid,
     core::MemPoolDB,
-    net::{Error as net_error, HttpRequestType},
+    net::{httpcore::StacksHttpRequest, Error as net_error},
     util::get_epoch_time_secs,
     util_lib::db::{tx_busy_handler, DBConn},
 };
@@ -49,11 +49,11 @@ pub fn increment_rpc_calls_counter() {
 }
 
 pub fn instrument_http_request_handler<F, R>(
-    req: HttpRequestType,
+    req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
-    F: FnOnce(HttpRequestType) -> Result<R, net_error>,
+    F: FnOnce(StacksHttpRequest) -> Result<R, net_error>,
 {
     #[cfg(feature = "monitoring_prom")]
     increment_rpc_calls_counter();
