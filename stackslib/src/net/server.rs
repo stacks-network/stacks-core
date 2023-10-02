@@ -21,6 +21,8 @@ use std::io::{Read, Write};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+use std::net::SocketAddr;
+
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvError;
@@ -28,67 +30,72 @@ use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 
-use crate::net::atlas::AtlasDB;
-use crate::net::connection::*;
-use crate::net::db::*;
-use crate::net::http::*;
-use crate::net::p2p::{PeerMap, PeerNetwork};
-use crate::net::poll::*;
-use crate::net::rpc::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::p2p::PeerNetwork;
+use crate::net::poll::{NetworkPollState, NetworkState};
+use crate::net::rpc::ConversationHttp;
 use crate::net::Error as net_error;
-use crate::net::*;
+use crate::net::{NeighborKey, PeerHostExtensions, StacksMessageType, StacksNodeState, UrlString};
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::net::http::HttpBadRequest;
+
 use crate::chainstate::stacks::db::StacksChainState;
-
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
+use crate::core::mempool::MemPoolDB;
 
 use mio::net as mio_net;
 
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
-
-use crate::core::mempool::*;
 
 #[derive(Debug)]
 pub struct HttpPeer {
-    // ongoing http conversations (either they reached out to us, or we to them)
+    /// ongoing http conversations (either they reached out to us, or we to them)
     pub peers: HashMap<usize, ConversationHttp>,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
-    // outbound connections that are pending connection
+    /// outbound connections that are pending connection
     pub connecting: HashMap<
         usize,
         (
             mio_net::TcpStream,
             Option<UrlString>,
-            Option<HttpRequestType>,
+            Option<StacksHttpRequest>,
             u64,
         ),
     >,
 
-    // server network handle
+    /// server network handle
     pub http_server_handle: usize,
 
-    // connection options
+    /// server socket address
+    pub http_server_addr: SocketAddr,
+
+    /// connection options
     pub connection_opts: ConnectionOptions,
 }
 
 impl HttpPeer {
-    pub fn new(conn_opts: ConnectionOptions, server_handle: usize) -> HttpPeer {
+    pub fn new(
+        conn_opts: ConnectionOptions,
+        server_handle: usize,
+        server_addr: SocketAddr,
+    ) -> HttpPeer {
         HttpPeer {
             peers: HashMap::new(),
             sockets: HashMap::new(),
 
             connecting: HashMap::new(),
             http_server_handle: server_handle,
+            http_server_addr: server_addr,
 
             connection_opts: conn_opts,
         }
     }
 
-    pub fn set_server_handle(&mut self, h: usize) -> () {
+    pub fn set_server_handle(&mut self, h: usize, addr: SocketAddr) -> () {
         self.http_server_handle = h;
+        self.http_server_addr = addr;
     }
 
     /// Is there a HTTP conversation open to this data_url that is not in progress?
@@ -132,7 +139,7 @@ impl HttpPeer {
         network: &PeerNetwork,
         data_url: UrlString,
         addr: SocketAddr,
-        request: Option<HttpRequestType>,
+        request: Option<StacksHttpRequest>,
     ) -> Result<usize, net_error> {
         if let Some(event_id) = self.find_free_conversation(&data_url) {
             let http_nk = NeighborKey {
@@ -212,12 +219,11 @@ impl HttpPeer {
     fn register_http(
         &mut self,
         network_state: &mut NetworkState,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
+        node_state: &mut StacksNodeState,
         event_id: usize,
         mut socket: mio_net::TcpStream,
         outbound_url: Option<UrlString>,
-        initial_request: Option<HttpRequestType>,
+        initial_request: Option<StacksHttpRequest>,
     ) -> Result<(), net_error> {
         let client_addr = match socket.peer_addr() {
             Ok(addr) => addr,
@@ -267,7 +273,12 @@ impl HttpPeer {
             }
 
             // prime the socket
-            match HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, mempool, chainstate) {
+            let saturation_res =
+                node_state.with_node_state(|_network, _sortdb, chainstate, mempool, _rpc_args| {
+                    HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, mempool, chainstate)
+                });
+
+            match saturation_res {
                 Ok(_) => {}
                 Err(e) => {
                     let _ = network_state.deregister(event_id, &socket);
@@ -369,8 +380,7 @@ impl HttpPeer {
     fn process_new_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
+        node_state: &mut StacksNodeState,
         poll_state: &mut NetworkPollState,
     ) -> Vec<usize> {
         let mut registered = vec![];
@@ -402,15 +412,9 @@ impl HttpPeer {
                 continue;
             }
 
-            if let Err(_e) = self.register_http(
-                network_state,
-                mempool,
-                chainstate,
-                event_id,
-                client_sock,
-                None,
-                None,
-            ) {
+            if let Err(_e) =
+                self.register_http(network_state, node_state, event_id, client_sock, None, None)
+            {
                 // NOTE: register_http will deregister the socket for us
                 continue;
             }
@@ -424,14 +428,10 @@ impl HttpPeer {
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
     fn process_http_conversation(
-        network: &mut PeerNetwork,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
-        mempool: &mut MemPoolDB,
+        node_state: &mut StacksNodeState,
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
-        handler_args: &RPCHandlerArgs,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -451,20 +451,25 @@ impl HttpPeer {
                         // got sent bad data.  If this was an inbound conversation, send it a HTTP
                         // 400 and close the socket.
                         debug!("Got a bad HTTP message on socket {:?}", &client_sock);
-                        match convo.reply_error(
-                            client_sock,
-                            HttpResponseType::BadRequest(
-                                HttpResponseMetadata::empty_error(),
-                                "".to_string(),
+                        match convo.reply_error(StacksHttpResponse::new_empty_error(
+                            &HttpBadRequest::new(
+                                "Received an HTTP message that the node could not decode"
+                                    .to_string(),
                             ),
-                        ) {
+                        )) {
                             Ok(_) => {
-                                match HttpPeer::saturate_http_socket(
-                                    client_sock,
-                                    convo,
-                                    mempool,
-                                    chainstate,
-                                ) {
+                                // prime the socket
+                                let saturation_res = node_state.with_node_state(
+                                    |_network, _sortdb, chainstate, mempool, _rpc_args| {
+                                        HttpPeer::saturate_http_socket(
+                                            client_sock,
+                                            convo,
+                                            mempool,
+                                            chainstate,
+                                        )
+                                    },
+                                );
+                                match saturation_res {
                                     Ok(_) => {}
                                     Err(e) => {
                                         debug!(
@@ -499,7 +504,7 @@ impl HttpPeer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        let msgs = match convo.chat(network, sortdb, chainstate, mempool, handler_args) {
+        let msgs = match convo.chat(node_state) {
             Ok(msgs) => msgs,
             Err(e) => {
                 debug!(
@@ -514,7 +519,11 @@ impl HttpPeer {
         if !convo_dead {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
-            match HttpPeer::saturate_http_socket(client_sock, convo, mempool, chainstate) {
+            let saturation_res =
+                node_state.with_node_state(|_network, _sortdb, chainstate, mempool, _rpc_args| {
+                    HttpPeer::saturate_http_socket(client_sock, convo, mempool, chainstate)
+                });
+            match saturation_res {
                 Ok(_) => {}
                 Err(e) => {
                     debug!(
@@ -538,8 +547,7 @@ impl HttpPeer {
     fn process_connecting_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
+        node_state: &mut StacksNodeState,
         poll_state: &mut NetworkPollState,
     ) -> () {
         for event_id in poll_state.ready.iter() {
@@ -551,8 +559,7 @@ impl HttpPeer {
 
                 if let Err(_e) = self.register_http(
                     network_state,
-                    mempool,
-                    chainstate,
+                    node_state,
                     *event_id,
                     socket,
                     data_url.clone(),
@@ -574,11 +581,7 @@ impl HttpPeer {
     fn process_ready_sockets(
         &mut self,
         poll_state: &mut NetworkPollState,
-        network: &mut PeerNetwork,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
-        mempool: &mut MemPoolDB,
-        handler_args: &RPCHandlerArgs,
+        node_state: &mut StacksNodeState,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -602,14 +605,10 @@ impl HttpPeer {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
                     match HttpPeer::process_http_conversation(
-                        network,
-                        sortdb,
-                        chainstate,
-                        mempool,
+                        node_state,
                         *event_id,
                         client_sock,
                         convo,
-                        handler_args,
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
@@ -636,21 +635,18 @@ impl HttpPeer {
     /// Flush outgoing replies, but don't block.
     /// Drop broken handles.
     /// Return the list of conversation event IDs to close (i.e. they're broken, or the request is done)
-    fn flush_conversations(
-        &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Vec<usize> {
+    fn flush_conversations(&mut self, node_state: &mut StacksNodeState) -> Vec<usize> {
         let mut close = vec![];
 
         // flush each outgoing conversation
         for (event_id, ref mut convo) in self.peers.iter_mut() {
-            match convo.try_flush(mempool, chainstate) {
-                Ok(_) => {}
-                Err(_e) => {
-                    info!("Broken HTTP connection {:?}: {:?}", convo, &_e);
-                    close.push(*event_id);
-                }
+            let flush_res =
+                node_state.with_node_state(|_network, _sortdb, chainstate, mempool, _rpc_args| {
+                    convo.try_flush(mempool, chainstate)
+                });
+            if let Err(e) = flush_res {
+                info!("Broken HTTP connection {:?}: {:?}", convo, &e);
+                close.push(*event_id);
             }
             if convo.is_drained() && !convo.is_keep_alive() {
                 // did some work, but nothing more to do and we're not keep-alive
@@ -671,35 +667,24 @@ impl HttpPeer {
     pub fn run(
         &mut self,
         network_state: &mut NetworkState,
-        network: &mut PeerNetwork,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
-        mempool: &mut MemPoolDB,
+        node_state: &mut StacksNodeState,
         mut poll_state: NetworkPollState,
-        handler_args: &RPCHandlerArgs,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
-        self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state);
+        self.process_new_sockets(network_state, node_state, &mut poll_state);
 
         // set up connected sockets
-        self.process_connecting_sockets(network_state, mempool, chainstate, &mut poll_state);
+        self.process_connecting_sockets(network_state, node_state, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (stacks_msgs, error_events) = self.process_ready_sockets(
-            &mut poll_state,
-            network,
-            sortdb,
-            chainstate,
-            mempool,
-            handler_args,
-        );
+        let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, node_state);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(network_state, error_event);
         }
 
         // move conversations along
-        let close_events = self.flush_conversations(mempool, chainstate);
+        let close_events = self.flush_conversations(node_state);
         for close_event in close_events {
             debug!("Close HTTP connection on event {}", close_event);
             self.deregister_http(network_state, close_event);
@@ -721,7 +706,7 @@ impl HttpPeer {
 mod test {
     use super::*;
     use crate::net::codec::*;
-    use crate::net::http::*;
+    use crate::net::httpcore::*;
     use crate::net::rpc::*;
     use crate::net::test::*;
     use crate::net::*;
@@ -889,20 +874,23 @@ mod test {
             1,
             0,
             |client_id, _| {
-                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                let mut request = StacksHttpRequest::new_for_peer(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51001),
-                    None,
-                ));
-                request.metadata_mut().keep_alive = false;
+                    "GET".to_string(),
+                    "/v2/info".to_string(),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
                 let http_response_bytes = http_response_bytes_res.unwrap();
                 let response =
-                    StacksHttp::parse_response("/v2/info", &http_response_bytes).unwrap();
+                    StacksHttp::parse_response("GET", "/v2/info", &http_response_bytes).unwrap();
                 true
             },
         );
@@ -919,20 +907,23 @@ mod test {
             10,
             0,
             |client_id, _| {
-                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                let mut request = StacksHttpRequest::new_for_peer(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51011),
-                    None,
-                ));
-                request.metadata_mut().keep_alive = false;
+                    "GET".to_string(),
+                    "/v2/info".to_string(),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
                 let http_response_bytes = http_response_bytes_res.unwrap();
                 let response =
-                    StacksHttp::parse_response("/v2/info", &http_response_bytes).unwrap();
+                    StacksHttp::parse_response("GET", "/v2/info", &http_response_bytes).unwrap();
                 true
             },
         );
@@ -965,16 +956,16 @@ mod test {
                     123,
                 );
 
-                let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(
-                        PeerHost::from_host_port("127.0.0.1".to_string(), 51021),
-                        None,
-                    ),
-                    index_block_hash,
-                );
-                request.metadata_mut().keep_alive = false;
+                let mut request = StacksHttpRequest::new_for_peer(
+                    PeerHost::from_host_port("127.0.0.1".to_string(), 51021),
+                    "GET".to_string(),
+                    format!("/v2/blocks/{}", &index_block_hash),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
@@ -990,10 +981,14 @@ mod test {
 
                 let request_path = format!("/v2/blocks/{}", &index_block_hash);
                 let response =
-                    StacksHttp::parse_response(&request_path, &http_response_bytes).unwrap();
+                    StacksHttp::parse_response("GET", &request_path, &http_response_bytes).unwrap();
                 match response {
-                    StacksHttpMessage::Response(HttpResponseType::Block(md, block_data)) => {
-                        block_data == peer_server_block
+                    StacksHttpMessage::Response(stacks_http_response) => {
+                        if let Ok(block) = StacksHttpResponse::decode_block(stacks_http_response) {
+                            block == peer_server_block
+                        } else {
+                            false
+                        }
                     }
                     _ => false,
                 }
@@ -1029,16 +1024,16 @@ mod test {
                     123,
                 );
 
-                let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(
-                        PeerHost::from_host_port("127.0.0.1".to_string(), 51031),
-                        None,
-                    ),
-                    index_block_hash,
-                );
-                request.metadata_mut().keep_alive = false;
+                let mut request = StacksHttpRequest::new_for_peer(
+                    PeerHost::from_host_port("127.0.0.1".to_string(), 51031),
+                    "GET".to_string(),
+                    format!("/v2/blocks/{}", &index_block_hash),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
@@ -1054,10 +1049,14 @@ mod test {
 
                 let request_path = format!("/v2/blocks/{}", &index_block_hash);
                 let response =
-                    StacksHttp::parse_response(&request_path, &http_response_bytes).unwrap();
+                    StacksHttp::parse_response("GET", &request_path, &http_response_bytes).unwrap();
                 match response {
-                    StacksHttpMessage::Response(HttpResponseType::Block(md, block_data)) => {
-                        block_data == peer_server_block
+                    StacksHttpMessage::Response(stacks_http_response) => {
+                        if let Ok(block) = StacksHttpResponse::decode_block(stacks_http_response) {
+                            block == peer_server_block
+                        } else {
+                            false
+                        }
                     }
                     _ => false,
                 }
@@ -1083,31 +1082,37 @@ mod test {
             10,
             0,
             |client_id, _| {
-                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                let mut request = StacksHttpRequest::new_for_peer(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51041),
-                    None,
-                ));
-                request.metadata_mut().keep_alive = false;
+                    "GET".to_string(),
+                    "/v2/info".to_string(),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
                     Ok(http_response_bytes) => {
                         // should be a PeerInfo
-                        let response =
-                            match StacksHttp::parse_response("/v2/info", &http_response_bytes) {
-                                Ok(res) => res,
-                                Err(e) => {
-                                    eprintln!(
-                                        "Failed to parse /v2/info response from:\n{:?}\n{:?}",
-                                        &http_response_bytes, &e
-                                    );
-                                    assert!(false);
-                                    unreachable!();
-                                }
-                            };
+                        let response = match StacksHttp::parse_response(
+                            "GET",
+                            "/v2/info",
+                            &http_response_bytes,
+                        ) {
+                            Ok(res) => res,
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to parse /v2/info response from:\n{:?}\n{:?}",
+                                    &http_response_bytes, &e
+                                );
+                                assert!(false);
+                                unreachable!();
+                            }
+                        };
                         *have_success.borrow_mut() = true;
                         true
                     }
@@ -1139,13 +1144,16 @@ mod test {
             1,
             30,
             |client_id, _| {
-                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                let mut request = StacksHttpRequest::new_for_peer(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51051),
-                    None,
-                ));
-                request.metadata_mut().keep_alive = false;
+                    "GET".to_string(),
+                    "/v2/info".to_string(),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
@@ -1211,17 +1219,16 @@ mod test {
 
                 let signed_contract_tx = signer.get_tx().unwrap();
 
-                let mut request = HttpRequestType::PostTransaction(
-                    HttpRequestMetadata::from_host(
-                        PeerHost::from_host_port("127.0.0.1".to_string(), 51061),
-                        None,
-                    ),
-                    signed_contract_tx,
-                    None,
-                );
-                request.metadata_mut().keep_alive = false;
+                let mut request = StacksHttpRequest::new_for_peer(
+                    PeerHost::from_host_port("127.0.0.1".to_string(), 51061),
+                    "POST".to_string(),
+                    "/v2/transactions".to_string(),
+                    HttpRequestContents::new().payload_stacks(&signed_contract_tx),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| {
@@ -1313,13 +1320,16 @@ mod test {
                 sleep_ms(15_000);
 
                 // send a different request
-                let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+                let mut request = StacksHttpRequest::new_for_peer(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51083),
-                    None,
-                ));
-                request.metadata_mut().keep_alive = false;
+                    "GET".to_string(),
+                    "/v2/info".to_string(),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, res| true,
@@ -1363,16 +1373,16 @@ mod test {
                     123,
                 );
 
-                let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(
-                        PeerHost::from_host_port("127.0.0.1".to_string(), 51071),
-                        None,
-                    ),
-                    index_block_hash,
-                );
-                request.metadata_mut().keep_alive = false;
+                let mut request = StacksHttpRequest::new_for_peer(
+                    PeerHost::from_host_port("127.0.0.1".to_string(), 51071),
+                    "GET".to_string(),
+                    format!("/v2/blocks/{}", index_block_hash),
+                    HttpRequestContents::new(),
+                )
+                .unwrap();
+                request.preamble_mut().keep_alive = false;
 
-                let request_bytes = StacksHttp::serialize_request(&request).unwrap();
+                let request_bytes = request.try_serialize().unwrap();
                 request_bytes
             },
             |client_id, http_response_bytes_res| true,
