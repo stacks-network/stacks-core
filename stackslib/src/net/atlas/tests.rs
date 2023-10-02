@@ -23,23 +23,26 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::connection::ConnectionOptions;
-use crate::net::{
-    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
-    PeerHost, Requestable,
-};
+use crate::net::Requestable;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
+
+use crate::net::http::{HttpResponsePayload, HttpResponsePreamble, HttpVersion};
+use crate::net::httpcore::StacksHttpResponse;
+
+use crate::net::atlas::GetAttachmentsInvResponse;
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
     BatchedRequestsResult, ReliabilityReport,
 };
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance, AttachmentPage};
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {
@@ -131,8 +134,7 @@ fn new_attachments_inventory_request(
     }
 }
 
-fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpResponseType {
-    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true, None);
+fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> StacksHttpResponse {
     let pages = pages
         .into_iter()
         .map(|(index, inventory)| AttachmentPage { index, inventory })
@@ -141,7 +143,14 @@ fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpRespons
         block_id: StacksBlockId([0u8; 32]),
         pages,
     };
-    HttpResponseType::GetAttachmentsInv(md, response)
+
+    let response_json = serde_json::to_value(&response).unwrap();
+    let body = HttpResponsePayload::try_from_json(response_json).unwrap();
+
+    StacksHttpResponse::new(
+        HttpResponsePreamble::raw_ok_json(HttpVersion::Http11, false),
+        body,
+    )
 }
 
 #[test]
