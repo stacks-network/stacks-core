@@ -30,7 +30,6 @@ use crate::chainstate::stacks::TransactionVersion;
 use crate::net::test::TestEventObserver;
 use crate::net::Error as net_error;
 use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
 use crate::net::StackerDBConfig;
 
 use clarity::vm::ClarityVersion;
@@ -41,6 +40,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpoch;
 use stacks_common::util::hash::Hash160;
 
