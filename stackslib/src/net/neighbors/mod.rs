@@ -18,7 +18,6 @@ use crate::net::db::PeerDB;
 use crate::net::Error as net_error;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 
 use crate::net::codec::*;
 use crate::net::*;
