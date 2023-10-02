@@ -5582,7 +5582,8 @@ impl<'a> SortitionHandleTx<'a> {
             .first()
             .as_ref()
             .expect("FATAL: zero-length list of tied block IDs")
-            .clone();
+            .to_owned();
+
         let winner_index = *mapping
             .get(&winner)
             .expect("FATAL: winning block ID not mapped");
