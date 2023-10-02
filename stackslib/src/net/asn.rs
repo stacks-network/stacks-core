@@ -19,7 +19,6 @@ use std::io::BufRead;
 use std::io::BufReader;
 
 use crate::net::Error as net_error;
-use crate::net::PeerAddress;
 
 use regex::Captures;
 use regex::Regex;
