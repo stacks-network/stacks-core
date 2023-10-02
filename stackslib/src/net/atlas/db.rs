@@ -660,10 +660,7 @@ impl AtlasDB {
         Ok(rows)
     }
 
-    pub fn find_attachment(
-        &mut self,
-        content_hash: &Hash160,
-    ) -> Result<Option<Attachment>, db_error> {
+    pub fn find_attachment(&self, content_hash: &Hash160) -> Result<Option<Attachment>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
         let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 1"
             .to_string();
