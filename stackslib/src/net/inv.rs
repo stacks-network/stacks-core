@@ -49,7 +49,6 @@ use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
