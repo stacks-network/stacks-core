@@ -1,0 +1,1624 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::blocks::StagingBlock;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::core::MemPoolDB;
+use crate::core::StacksEpoch;
+use crate::net::connection::ConnectionOptions;
+use crate::net::http::{
+    common::HTTP_PREAMBLE_MAX_ENCODED_SIZE, http_reason, Error as HttpError, HttpBadRequest,
+    HttpContentType, HttpErrorResponse, HttpNotFound, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError, HttpVersion,
+};
+use crate::net::p2p::PeerNetwork;
+use crate::net::server::HttpPeer;
+use crate::net::Error as NetError;
+use crate::net::MessageSequence;
+use crate::net::ProtocolFamily;
+use crate::net::StacksNodeState;
+use crate::net::UrlString;
+/// This module binds the http library to Stacks as a `ProtocolFamily` implementation
+use std::collections::{BTreeMap, HashMap};
+use std::fmt;
+use std::io;
+use std::io::{Read, Write};
+use std::mem;
+use std::net::SocketAddr;
+
+use regex::{Captures, Regex};
+
+use url::Url;
+
+use stacks_common::codec::read_next;
+use stacks_common::codec::Error as CodecError;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::net::PeerHost;
+use stacks_common::types::Address;
+use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::retry::{BoundReader, RetryReader};
+
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
+use clarity::vm::ClarityName;
+use clarity::vm::ContractName;
+
+use percent_encoding::percent_decode_str;
+
+const CHUNK_BUF_LEN: usize = 32768;
+
+/// canonical stacks tip height header
+pub const STACKS_HEADER_HEIGHT: &'static str = "X-Canonical-Stacks-Tip-Height";
+
+/// request ID header
+pub const STACKS_REQUEST_ID: &'static str = "X-Request-Id";
+
+/// Request ID to use or expect from non-Stacks HTTP clients.
+/// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
+/// to be this value.  This is needed to support fetching immutables like block and microblock data
+/// from non-Stacks nodes (like Gaia hubs, CDNs, vanilla HTTP servers, and so on).
+pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
+
+/// All representations of the `tip=` query parameter value
+#[derive(Debug, Clone, PartialEq)]
+pub enum TipRequest {
+    UseLatestAnchoredTip,
+    UseLatestUnconfirmedTip,
+    SpecificTip(StacksBlockId),
+}
+
+impl TipRequest {}
+
+impl ToString for TipRequest {
+    fn to_string(&self) -> String {
+        match self {
+            Self::UseLatestAnchoredTip => "".to_string(),
+            Self::UseLatestUnconfirmedTip => "latest".to_string(),
+            Self::SpecificTip(ref tip) => format!("{}", tip),
+        }
+    }
+}
+
+impl From<&str> for TipRequest {
+    fn from(s: &str) -> TipRequest {
+        if s == "latest" {
+            TipRequest::UseLatestUnconfirmedTip
+        } else if let Ok(block_id) = StacksBlockId::from_hex(s) {
+            TipRequest::SpecificTip(block_id)
+        } else {
+            TipRequest::UseLatestAnchoredTip
+        }
+    }
+}
+
+/// Extension to HttpRequestPreamble to give it awareness of Stacks-specific fields
+pub trait HttpPreambleExtensions {
+    /// Set the node's canonical Stacks chain tip
+    fn set_canonical_stacks_tip_height(&mut self, height: Option<u32>);
+    /// Set the node's request ID
+    fn set_request_id(&mut self, req_id: u32);
+    /// Get the canonical stacks chain tip
+    fn get_canonical_stacks_tip_height(&self) -> Option<u32>;
+    /// Get the request ID
+    fn get_request_id(&self) -> Option<u32>;
+}
+
+impl HttpPreambleExtensions for HttpRequestPreamble {
+    /// Set the canonical Stacks chain tip height
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+        if let Some(height) = height_opt {
+            self.add_header(
+                "X-Canonical-Stacks-Tip-Height".into(),
+                format!("{}", &height),
+            );
+        } else {
+            self.remove_header("X-Canonical-Stacks-Tip-Height".to_string());
+        }
+    }
+
+    /// Set the request ID
+    fn set_request_id(&mut self, id: u32) {
+        self.add_header("X-Request-Id".into(), format!("{}", id));
+    }
+
+    /// Get the canonical Stacks chain tip
+    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+        self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
+            .and_then(|hdr| hdr.parse::<u32>().ok())
+    }
+
+    /// Get the request ID
+    fn get_request_id(&self) -> Option<u32> {
+        self.get_header("X-Request-Id".to_string())
+            .and_then(|req| req.parse::<u32>().ok())
+    }
+}
+
+impl HttpPreambleExtensions for HttpResponsePreamble {
+    /// Set the canonical Stacks chain tip height
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+        if let Some(height) = height_opt {
+            self.add_header(
+                "X-Canonical-Stacks-Tip-Height".into(),
+                format!("{}", &height),
+            );
+        } else {
+            self.remove_header("X-Canonical-Stacks-Tip-Height".to_string());
+        }
+    }
+
+    /// Set the request ID
+    fn set_request_id(&mut self, id: u32) {
+        self.add_header("X-Request-Id".into(), format!("{}", id));
+    }
+
+    /// Get the canonical Stacks chain tip
+    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+        self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
+            .and_then(|hdr| hdr.parse::<u32>().ok())
+    }
+
+    /// Get the request ID
+    fn get_request_id(&self) -> Option<u32> {
+        self.get_header("X-Request-Id".to_string())
+            .and_then(|req| req.parse::<u32>().ok())
+    }
+}
+
+/// This module contains request helpers for decoding common data found in the request path regex captures.
+/// The error types convert to HTTP responses.
+pub mod request {
+    use super::*;
+
+    /// Get and parse a contract address from a path's captures, given the address and contract
+    /// regex field names.
+    pub fn get_contract_address(
+        captures: &Captures,
+        address_key: &str,
+        contract_key: &str,
+    ) -> Result<QualifiedContractIdentifier, HttpError> {
+        let address = if let Some(address_str) = captures.name(address_key) {
+            if let Some(addr) = StacksAddress::from_string(&address_str.as_str()) {
+                addr
+            } else {
+                return Err(HttpError::Http(
+                    400,
+                    format!("Failed to decode `{}`", address_key),
+                ));
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", address_key)));
+        };
+
+        let contract_name = if let Some(contract_str) = captures.name(contract_key) {
+            if let Ok(contract_name) = ContractName::try_from(contract_str.as_str().to_string()) {
+                contract_name
+            } else {
+                return Err(HttpError::Http(
+                    400,
+                    format!("Failed to decode `{}`", contract_key),
+                ));
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", contract_key)));
+        };
+
+        let contract_identifier = QualifiedContractIdentifier::new(address.into(), contract_name);
+
+        Ok(contract_identifier)
+    }
+
+    /// Get and parse a StacksBlockId from a path's captures, given the name of the regex field.
+    pub fn get_block_hash(captures: &Captures, key: &str) -> Result<StacksBlockId, HttpError> {
+        let block_id = if let Some(block_id) = captures.name(key) {
+            match StacksBlockId::from_hex(block_id.as_str()) {
+                Ok(bhh) => bhh,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(block_id)
+    }
+
+    /// Get and parse a Txid from a path's captures, given the name of the regex field.
+    pub fn get_txid(captures: &Captures, key: &str) -> Result<Txid, HttpError> {
+        let txid = if let Some(txid) = captures.name(key) {
+            match Txid::from_hex(txid.as_str()) {
+                Ok(bhh) => bhh,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(txid)
+    }
+
+    /// Get and parse a Clarity name from a path's captures, given the name of the regex field.
+    pub fn get_clarity_name(captures: &Captures, key: &str) -> Result<ClarityName, HttpError> {
+        let clarity_name = if let Some(name_str) = captures.name(key) {
+            if let Ok(clarity_name) = ClarityName::try_from(name_str.as_str().to_string()) {
+                clarity_name
+            } else {
+                return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+
+        Ok(clarity_name)
+    }
+
+    /// Get and parse a ConsensusHash from a path's captures, given the name of the regex field.
+    pub fn get_consensus_hash(captures: &Captures, key: &str) -> Result<ConsensusHash, HttpError> {
+        let ch = if let Some(ch_str) = captures.name(key) {
+            match ConsensusHash::from_hex(ch_str.as_str()) {
+                Ok(ch) => ch,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(ch)
+    }
+
+    /// Get and parse a u32 from a path's captures, given the name of the regex field.
+    pub fn get_u32(captures: &Captures, key: &str) -> Result<u32, HttpError> {
+        let u = if let Some(u32_str) = captures.name(key) {
+            match u32_str.as_str().parse::<u32>() {
+                Ok(x) => x,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(u)
+    }
+}
+
+/// Extension to HttpRequestContents to give it awareness of Stacks-specific fields
+pub trait HttpRequestContentsExtensions {
+    /// Chain constructor: Request a specific tip
+    fn for_specific_tip(self, tip: StacksBlockId) -> Self;
+    /// Chain constructor: use a given TipRequest
+    fn for_tip(self, tip_req: TipRequest) -> Self;
+    /// Identify the tip request
+    fn tip_request(&self) -> TipRequest;
+    /// Determine if we should return a MARF proof
+    fn get_with_proof(&self) -> bool;
+}
+
+impl HttpRequestContentsExtensions for HttpRequestContents {
+    /// Request a specific tip
+    fn for_specific_tip(self, tip: StacksBlockId) -> Self {
+        self.query_arg("tip".to_string(), format!("{}", &tip))
+    }
+
+    /// Use a particular tip request
+    fn for_tip(mut self, tip_req: TipRequest) -> Self {
+        if tip_req != TipRequest::UseLatestAnchoredTip {
+            self.query_arg("tip".to_string(), format!("{}", &tip_req.to_string()))
+        } else {
+            let _ = self.take_query_arg(&"tip".to_string());
+            self
+        }
+    }
+
+    /// Ref the tip request
+    fn tip_request(&self) -> TipRequest {
+        self.get_query_args()
+            .get("tip")
+            .map(|tip| tip.as_str().into())
+            .unwrap_or(TipRequest::UseLatestAnchoredTip)
+    }
+
+    /// Get the proof= query parameter value
+    fn get_with_proof(&self) -> bool {
+        let with_proof = if let Some(proof_val) = self.get_query_arg(&"proof".to_string()) {
+            proof_val == "1"
+        } else {
+            false
+        };
+
+        with_proof
+    }
+}
+
+/// Work around Clone blanket implementations not being object-safe
+pub trait RPCRequestHandlerClone {
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler>;
+}
+
+impl<T> RPCRequestHandlerClone for T
+where
+    T: 'static + RPCRequestHandler + Clone,
+{
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn RPCRequestHandler> {
+    fn clone(&self) -> Box<dyn RPCRequestHandler> {
+        self.clone_rpc_handler_box()
+    }
+}
+
+/// Trait that every HTTP round-trip request type must implement.
+pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone {
+    /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
+    /// `try_handle_request()`
+    fn restart(&mut self);
+    /// Instantiate the HTTP response headers and body from a request
+    fn try_handle_request(
+        &mut self,
+        request_preamble: HttpRequestPreamble,
+        request_body: HttpRequestContents,
+        state: &mut StacksNodeState,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>;
+
+    /// Helper to get the canonical sortition tip
+    fn get_canonical_burn_chain_tip(
+        &self,
+        preamble: &HttpRequestPreamble,
+        sortdb: &SortitionDB,
+    ) -> Result<BlockSnapshot, StacksHttpResponse> {
+        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+            StacksHttpResponse::new_error(
+                &preamble,
+                &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
+            )
+        })
+    }
+
+    /// Helper to get the current Stacks epoch
+    fn get_stacks_epoch(
+        &self,
+        preamble: &HttpRequestPreamble,
+        sortdb: &SortitionDB,
+        block_height: u64,
+    ) -> Result<StacksEpoch, StacksHttpResponse> {
+        SortitionDB::get_stacks_epoch(sortdb.conn(), block_height)
+            .map_err(|e| {
+                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
+            })?
+            .ok_or_else(|| {
+                let msg = format!(
+                    "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                    block_height
+                );
+                warn!("{}", &msg);
+                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+            })
+    }
+
+    /// Helper to get the Stacks tip
+    fn get_stacks_chain_tip(
+        &self,
+        preamble: &HttpRequestPreamble,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> Result<StagingBlock, StacksHttpResponse> {
+        chainstate
+            .get_stacks_chain_tip(sortdb)
+            .map_err(|e| {
+                let msg = format!("Failed to load stacks chain tip: {:?}", &e);
+                warn!("{}", &msg);
+                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+            })?
+            .ok_or_else(|| {
+                let msg =
+                    "No stacks tip exists yet. Perhaps no blocks have been processed by this node"
+                        .to_string();
+                warn!("{}", &msg);
+                StacksHttpResponse::new_error(&preamble, &HttpNotFound::new(msg))
+            })
+    }
+}
+
+/// A decoded HttpRequest for use in Stacks
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksHttpRequest {
+    preamble: HttpRequestPreamble,
+    contents: HttpRequestContents,
+}
+
+impl StacksHttpRequest {
+    pub fn new(preamble: HttpRequestPreamble, contents: HttpRequestContents) -> Self {
+        Self { preamble, contents }
+    }
+
+    /// Instantiate a request to a remote Stacks peer
+    /// `path` is just the request path.  Query arguments are added via `contents`.  Any query
+    /// component to `path` will be silently dropped.
+    ///
+    /// In Stacks, all requests must have a known content length.  If it cannot be calculated, then
+    /// this method will fail.
+    pub fn new_for_peer(
+        peerhost: PeerHost,
+        verb: String,
+        path: String,
+        contents: HttpRequestContents,
+    ) -> Result<Self, NetError> {
+        let mut preamble = HttpRequestPreamble::new_for_peer(peerhost, verb, path);
+        if let Some(ct) = contents.content_type() {
+            preamble.set_content_type(ct);
+        }
+        let content_length = contents.content_length()?;
+        if content_length > 0 || contents.content_type().is_some() {
+            preamble.set_content_length(content_length);
+        }
+        let (decoded_path, _) = decode_request_path(&preamble.path_and_query_str)?;
+        let full_query_string = contents.get_full_query_string();
+        if full_query_string.len() > 0 {
+            preamble.path_and_query_str = format!("{}?{}", &decoded_path, &full_query_string);
+        } else {
+            preamble.path_and_query_str = decoded_path;
+        }
+
+        Ok(Self { preamble, contents })
+    }
+
+    /// Get a reference to the request premable metadata
+    pub fn preamble(&self) -> &HttpRequestPreamble {
+        &self.preamble
+    }
+
+    /// Get a mutable reference to the request premable metadata
+    pub fn preamble_mut(&mut self) -> &mut HttpRequestPreamble {
+        &mut self.preamble
+    }
+
+    /// Get a reference to the request contents
+    pub fn contents(&self) -> &HttpRequestContents {
+        &self.contents
+    }
+
+    /// Get a reference to the fully-qualified request path
+    pub fn request_path(&self) -> &str {
+        &self.preamble.path_and_query_str
+    }
+
+    /// Write out this message to a Write.
+    /// NOTE: In practice, the Write will be a reply handle endpoint, so writing to it won't block.
+    pub fn send<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+        self.preamble.send(fd)?;
+        self.contents.get_payload().send(fd).map_err(NetError::from)
+    }
+
+    /// Add a request header
+    pub fn add_header(&mut self, hdr: String, value: String) {
+        self.preamble.add_header(hdr, value);
+    }
+
+    /// Get a ref to all request headers
+    pub fn get_headers(&self) -> &BTreeMap<String, String> {
+        &self.preamble.headers
+    }
+
+    /// Clear all extra headers
+    pub fn clear_headers(&mut self) {
+        self.preamble.headers.clear();
+    }
+
+    /// Destruct into parts
+    pub fn destruct(self) -> (HttpRequestPreamble, HttpRequestContents) {
+        (self.preamble, self.contents)
+    }
+
+    #[cfg(test)]
+    pub fn try_serialize(&self) -> Result<Vec<u8>, NetError> {
+        let mut ret = vec![];
+        self.send(&mut ret)?;
+        Ok(ret)
+    }
+}
+
+/// A received HTTP response (fully decoded in RAM)
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksHttpResponse {
+    /// Information about the response (e.g. headers and header-derived data)
+    preamble: HttpResponsePreamble,
+    /// The body contents
+    body: HttpResponsePayload,
+}
+
+impl From<StacksHttpResponse> for Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+    fn from(resp: StacksHttpResponse) -> Self {
+        resp.try_into_contents()
+    }
+}
+
+impl StacksHttpResponse {
+    pub fn new(preamble: HttpResponsePreamble, body: HttpResponsePayload) -> StacksHttpResponse {
+        StacksHttpResponse { preamble, body }
+    }
+
+    pub fn preamble(&self) -> &HttpResponsePreamble {
+        &self.preamble
+    }
+
+    pub fn body(&self) -> &HttpResponsePayload {
+        &self.body
+    }
+
+    pub fn destruct(self) -> (HttpResponsePreamble, HttpResponsePayload) {
+        (self.preamble, self.body)
+    }
+
+    /// Convert into an HTTP response so an HttpRequest impl can return it
+    pub fn try_into_contents(
+        self,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        Ok((self.preamble, self.body.try_into()?))
+    }
+
+    /// Send this HTTP response on a given Write.  Only used for testing; in practice, the RPC
+    /// request handler takes care of sending or streaming data back.
+    pub fn send<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+        self.preamble.consensus_serialize(fd)?;
+        if self.preamble.content_length.is_some() {
+            self.body.send(fd).map_err(NetError::from)
+        } else {
+            self.body
+                .send_chunked(CHUNK_BUF_LEN, fd)
+                .map_err(NetError::from)
+        }
+    }
+
+    /// Make a new HTTP error response, in reaction to a request
+    pub fn new_error(
+        preamble: &HttpRequestPreamble,
+        error: &dyn HttpErrorResponse,
+    ) -> StacksHttpResponse {
+        let payload = error.payload();
+        let content_type = match &payload {
+            HttpResponsePayload::Empty => HttpContentType::Bytes,
+            HttpResponsePayload::Bytes(..) => HttpContentType::Bytes,
+            HttpResponsePayload::Text(..) => HttpContentType::Text,
+            HttpResponsePayload::JSON(..) => HttpContentType::JSON,
+        };
+        let content_length = payload.try_content_length();
+        let preamble = HttpResponsePreamble::from_http_request_preamble(
+            preamble,
+            error.code(),
+            http_reason(error.code()),
+            content_length,
+            content_type,
+        );
+        StacksHttpResponse::new(preamble, payload)
+    }
+
+    /// Make a new HTTP error response for text, apropos of nothing
+    pub fn new_empty_error(error: &dyn HttpErrorResponse) -> StacksHttpResponse {
+        let code = error.code();
+        let payload = error.payload();
+        let reason = http_reason(code);
+        let preamble = match &payload {
+            HttpResponsePayload::Empty => HttpResponsePreamble::error_bytes(code, reason),
+            HttpResponsePayload::Bytes(..) => HttpResponsePreamble::error_bytes(code, reason),
+            HttpResponsePayload::JSON(..) => HttpResponsePreamble::error_json(code, reason),
+            HttpResponsePayload::Text(ref txt) => {
+                HttpResponsePreamble::error_text(code, reason, txt)
+            }
+        };
+
+        StacksHttpResponse::new(preamble, payload)
+    }
+
+    /// Get the internal payload if the HTTP response was 200.
+    /// If it was 404, return NotFoundError
+    /// Otherwise, if it was not 200, return RecvError
+    pub fn get_http_payload_ok(self) -> Result<HttpResponsePayload, NetError> {
+        let (preamble, payload) = self.destruct();
+        if preamble.status_code == 404 {
+            return Err(NetError::NotFoundError);
+        }
+
+        if preamble.status_code != 200 {
+            return Err(NetError::RecvError(format!(
+                "HTTP status {}",
+                &preamble.status_code
+            )));
+        }
+
+        Ok(payload)
+    }
+
+    /// Clear all extra headers
+    pub fn clear_headers(&mut self) {
+        self.preamble.headers.clear();
+    }
+
+    #[cfg(test)]
+    pub fn try_serialize(&self) -> Result<Vec<u8>, NetError> {
+        let mut ret = vec![];
+        self.send(&mut ret)?;
+        Ok(ret)
+    }
+}
+
+/// Message type for HTTP
+#[derive(Debug, Clone, PartialEq)]
+pub enum StacksHttpMessage {
+    Request(StacksHttpRequest),
+    Response(StacksHttpResponse),
+    Error(String, StacksHttpResponse),
+}
+
+/// HTTP message preamble
+#[derive(Debug, Clone, PartialEq)]
+pub enum StacksHttpPreamble {
+    Request(HttpRequestPreamble),
+    Response(HttpResponsePreamble),
+}
+
+impl StacksHttpPreamble {
+    #[cfg(test)]
+    pub fn expect_request(self) -> HttpRequestPreamble {
+        match self {
+            Self::Request(x) => x,
+            _ => panic!("Not a request preamble"),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn expect_response(self) -> HttpResponsePreamble {
+        match self {
+            Self::Response(x) => x,
+            _ => panic!("Not a response preamble"),
+        }
+    }
+}
+
+impl StacksMessageCodec for StacksHttpPreamble {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        match *self {
+            StacksHttpPreamble::Request(ref req) => req.consensus_serialize(fd),
+            StacksHttpPreamble::Response(ref res) => res.consensus_serialize(fd),
+        }
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, CodecError> {
+        let mut retry_fd = RetryReader::new(fd);
+
+        // the byte stream can decode to a http request or a http response, but not both.
+        match HttpRequestPreamble::consensus_deserialize(&mut retry_fd) {
+            Ok(request) => Ok(StacksHttpPreamble::Request(request)),
+            Err(e_request) => {
+                // maybe a http response?
+                retry_fd.set_position(0);
+                match HttpResponsePreamble::consensus_deserialize(&mut retry_fd) {
+                    Ok(response) => Ok(StacksHttpPreamble::Response(response)),
+                    Err(e) => {
+                        // underflow?
+                        match (e_request, e) {
+                            (CodecError::ReadError(ref ioe1), CodecError::ReadError(ref ioe2)) => {
+                                if ioe1.kind() == io::ErrorKind::UnexpectedEof && ioe2.kind() == io::ErrorKind::UnexpectedEof {
+                                    // out of bytes
+                                    Err(CodecError::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
+                                }
+                                else {
+                                    Err(CodecError::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
+                                }
+                            },
+                            (e_req, e_res) => Err(CodecError::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl MessageSequence for StacksHttpMessage {
+    fn request_id(&self) -> u32 {
+        // there is at most one in-flight HTTP request, as far as a Connection<P> is concerned
+        HTTP_REQUEST_ID_RESERVED
+    }
+
+    fn get_message_name(&self) -> &'static str {
+        "StachsHttpMessage"
+    }
+}
+
+/// A partially-decoded, streamed HTTP message (response) being received.
+/// Internally used by StacksHttp to keep track of chunk-decoding state.
+#[derive(Debug, Clone, PartialEq)]
+struct StacksHttpRecvStream {
+    state: HttpChunkedTransferReaderState,
+    data: Vec<u8>,
+    total_consumed: usize, // number of *encoded* bytes consumed
+}
+
+impl StacksHttpRecvStream {
+    pub fn new(max_size: u64) -> StacksHttpRecvStream {
+        StacksHttpRecvStream {
+            state: HttpChunkedTransferReaderState::new(max_size),
+            data: vec![],
+            total_consumed: 0,
+        }
+    }
+
+    /// Feed data into our chunked transfer reader state.  If we finish reading a stream, return
+    /// the decoded bytes (as Some(Vec<u8>) and the total number of encoded bytes consumed).
+    /// Always returns the number of bytes consumed.
+    pub fn consume_data<R: Read>(
+        &mut self,
+        fd: &mut R,
+    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+        let mut consumed = 0;
+        let mut blocked = false;
+        while !blocked {
+            let mut decoded_buf = vec![0u8; CHUNK_BUF_LEN];
+            let (read_pass, consumed_pass) = match self.state.do_read(fd, &mut decoded_buf) {
+                Ok((0, num_consumed)) => {
+                    trace!(
+                        "consume_data blocked on 0 decoded bytes ({} consumed)",
+                        num_consumed
+                    );
+                    blocked = true;
+                    (0, num_consumed)
+                }
+                Ok((num_read, num_consumed)) => (num_read, num_consumed),
+                Err(e) => match e.kind() {
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+                        trace!("consume_data blocked on read error");
+                        blocked = true;
+                        (0, 0)
+                    }
+                    _ => {
+                        return Err(NetError::ReadError(e));
+                    }
+                },
+            };
+
+            consumed += consumed_pass;
+            if read_pass > 0 {
+                self.data.extend_from_slice(&decoded_buf[0..read_pass]);
+            }
+        }
+
+        self.total_consumed += consumed;
+
+        // did we get a message?
+        if self.state.is_eof() {
+            // reset
+            let message_data = mem::replace(&mut self.data, vec![]);
+            let total_consumed = self.total_consumed;
+
+            self.state = HttpChunkedTransferReaderState::new(self.state.max_size);
+            self.total_consumed = 0;
+
+            Ok((Some((message_data, total_consumed)), consumed))
+        } else {
+            Ok((None, consumed))
+        }
+    }
+}
+
+/// Information about an in-flight request
+#[derive(Debug, Clone, PartialEq)]
+struct StacksHttpReplyData {
+    request_id: u32,
+    stream: StacksHttpRecvStream,
+}
+
+/// Stacks HTTP state machine implementation, for bufferring up data.
+/// One of these exists per Connection<P: Protocol>.
+/// There can be at most one HTTP request in-flight (i.e. we don't do pipelining).
+///
+/// This state machine gets used for both clients and servers.  A client issues an HTTP request,
+/// and must receive a follow-up HTTP reply (or the state machine errors out).  A server receives
+/// an HTTP request, and sends an HTTP reply.
+#[derive(Clone)]
+pub struct StacksHttp {
+    /// Address of peer
+    peer_addr: SocketAddr,
+    /// offset body after '\r\n\r\n' if known
+    body_start: Option<usize>,
+    /// number of preamble bytes seen so far
+    num_preamble_bytes: usize,
+    /// last 4 bytes of the preamble we've seen, just in case the \r\n\r\n straddles two calls to
+    /// read_preamble()
+    last_four_preamble_bytes: [u8; 4],
+    /// Incoming reply state
+    reply: Option<StacksHttpReplyData>,
+    /// Size of HTTP chunks to write
+    chunk_size: usize,
+    /// Which request handler is active.
+    /// This is only used if this state-machine is used by a client to issue a request and then
+    /// parse a reply.  If instead this state-machine is used by the server to parse a request and
+    /// send a reply, it will be unused.
+    request_handler_index: Option<usize>,
+    /// HTTP request handlers (verb, regex, request-handler, response-handler)
+    request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler>)>,
+    /// Maximum size of call arguments
+    pub maximum_call_argument_size: u32,
+    /// Maximum execution budget of a read-only call
+    pub read_only_call_limit: ExecutionCost,
+}
+
+impl StacksHttp {
+    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
+        let mut http = StacksHttp {
+            peer_addr,
+            body_start: None,
+            num_preamble_bytes: 0,
+            last_four_preamble_bytes: [0u8; 4],
+            reply: None,
+            chunk_size: 8192,
+            request_handler_index: None,
+            request_handlers: vec![],
+            maximum_call_argument_size: conn_opts.maximum_call_argument_size,
+            read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+        };
+        http.register_rpc_methods();
+        http
+    }
+
+    /// Register an API RPC endpoint
+    pub fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
+        &mut self,
+        handler: Handler,
+    ) {
+        self.request_handlers.push((
+            handler.verb().to_string(),
+            handler.path_regex(),
+            Box::new(handler),
+        ));
+    }
+
+    /// Find the HTTP request handler to use to process the reply, given the request path.
+    /// Returns the index into the list of handlers
+    fn find_response_handler(&self, request_verb: &str, request_path: &str) -> Option<usize> {
+        for (i, (verb, regex, _)) in self.request_handlers.iter().enumerate() {
+            if request_verb != verb {
+                continue;
+            }
+            let _captures = if let Some(caps) = regex.captures(request_path) {
+                caps
+            } else {
+                continue;
+            };
+
+            return Some(i);
+        }
+        None
+    }
+
+    /// Force the state machine to expect a response
+    #[cfg(test)]
+    pub fn set_response_handler(&mut self, request_verb: &str, request_path: &str) {
+        let handler_index = self
+            .find_response_handler(request_verb, request_path)
+            .expect(&format!(
+                "FATAL: could not find handler for '{}' '{}'",
+                request_verb, request_path
+            ));
+        self.request_handler_index = Some(handler_index);
+    }
+
+    /// Try to parse an inbound HTTP request using a given handler, preamble, and body
+    #[cfg(test)]
+    pub fn handle_try_parse_request(
+        &self,
+        handler: &mut dyn RPCRequestHandler,
+        preamble: &HttpRequestPreamble,
+        body: &[u8],
+    ) -> Result<StacksHttpRequest, NetError> {
+        let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
+        let captures = if let Some(caps) = handler.path_regex().captures(&decoded_path) {
+            caps
+        } else {
+            return Err(NetError::NotFoundError);
+        };
+
+        let payload = match handler.try_parse_request(
+            preamble,
+            &captures,
+            if query.len() > 0 { Some(&query) } else { None },
+            body,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                handler.restart();
+                return Err(e.into());
+            }
+        };
+
+        let request = StacksHttpRequest::new(preamble.clone(), payload);
+        Ok(request)
+    }
+
+    /// Try to parse an inbound HTTP request, given its decoded HTTP preamble.
+    /// The body will be in the `fd`.
+    /// Returns the parsed HTTP request if successful.
+    pub fn try_parse_request(
+        &mut self,
+        preamble: &HttpRequestPreamble,
+        body: &[u8],
+    ) -> Result<StacksHttpRequest, NetError> {
+        let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
+        test_debug!("decoded_path: '{}', query: '{}'", &decoded_path, &query);
+
+        // NOTE: This loop starts out like `find_response_handler()`, but `captures`'s lifetime is
+        // bound to `regex` so we can't just return it from `find_response_handler()`.  Thus, it's
+        // duplicated here.
+        for (verb, regex, request) in self.request_handlers.iter_mut() {
+            if &preamble.verb != verb {
+                continue;
+            }
+            let captures = if let Some(caps) = regex.captures(&decoded_path) {
+                caps
+            } else {
+                continue;
+            };
+
+            let payload = match request.try_parse_request(
+                preamble,
+                &captures,
+                if query.len() > 0 { Some(&query) } else { None },
+                body,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    request.restart();
+                    return Err(e.into());
+                }
+            };
+
+            info!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
+            let request = StacksHttpRequest::new(preamble.clone(), payload);
+            return Ok(request);
+        }
+
+        test_debug!("Failed to parse '{}'", &preamble.path_and_query_str);
+        Err(NetError::NotFoundError)
+    }
+
+    /// Parse out an HTTP response error message
+    pub fn try_parse_error_response(
+        preamble: &HttpResponsePreamble,
+        body: &[u8],
+    ) -> Result<StacksHttpResponse, NetError> {
+        if preamble.status_code < 400 || preamble.status_code > 599 {
+            return Err(NetError::DeserializeError(
+                "Inavlid response: not an error".to_string(),
+            ));
+        }
+
+        let payload = if preamble.content_type == HttpContentType::Text {
+            let mut error_text = String::new();
+            let mut ioc = io::Cursor::new(body);
+            let mut bound_fd = BoundReader::from_reader(&mut ioc, MAX_MESSAGE_LEN as u64);
+            bound_fd
+                .read_to_string(&mut error_text)
+                .map_err(NetError::ReadError)?;
+
+            HttpResponsePayload::Text(error_text)
+        } else if preamble.content_type == HttpContentType::JSON {
+            let mut ioc = io::Cursor::new(body);
+            let mut bound_fd = BoundReader::from_reader(&mut ioc, MAX_MESSAGE_LEN as u64);
+            let json_val = serde_json::from_reader(&mut bound_fd).map_err(|_| {
+                NetError::DeserializeError("Failed to decode JSON value".to_string())
+            })?;
+
+            HttpResponsePayload::JSON(json_val)
+        } else {
+            return Err(NetError::DeserializeError(format!(
+                "Invalid error response: expected text/plain or application/json, got {:?}",
+                &preamble.content_type
+            )));
+        };
+
+        Ok(StacksHttpResponse::new(preamble.clone(), payload))
+    }
+
+    /// Try to parse an inbound HTTP response, given its decoded HTTP preamble, and the HTTP
+    /// version and request path that had originally sent.  The body will be read from `fd`.
+    pub fn try_parse_response(
+        &mut self,
+        request_handler_index: usize,
+        preamble: &HttpResponsePreamble,
+        body: &[u8],
+    ) -> Result<StacksHttpResponse, NetError> {
+        if preamble.status_code >= 400 {
+            return Self::try_parse_error_response(preamble, body);
+        }
+
+        let (_, _, parser) = self
+            .request_handlers
+            .get(request_handler_index)
+            .expect("FATAL: tried to use nonexistent response handler");
+        let payload = parser.try_parse_response(preamble, body)?;
+        let response = StacksHttpResponse::new(preamble.clone(), payload);
+        return Ok(response);
+    }
+
+    /// Handle an HTTP request by generating an HTTP response.
+    /// Returns Ok((preamble, contents)) on success.  Note that this could be an HTTP error
+    /// message.
+    /// Returns Err(..) on failure to decode or generate the response.
+    pub fn try_handle_request(
+        &mut self,
+        request: StacksHttpRequest,
+        node: &mut StacksNodeState,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
+        let response_handler_index =
+            if let Some(i) = self.find_response_handler(&request.preamble().verb, &decoded_path) {
+                i
+            } else {
+                // method not found
+                return StacksHttpResponse::new_error(
+                    &request.preamble,
+                    &HttpNotFound::new(format!(
+                        "No such API endpoint '{} {}'",
+                        &request.preamble().verb,
+                        &decoded_path
+                    )),
+                )
+                .try_into_contents();
+            };
+
+        let (_, _, request_handler) = self
+            .request_handlers
+            .get_mut(response_handler_index)
+            .expect("FATAL: request points to a nonexistent handler");
+        let request_preamble = request.preamble.clone();
+        let request_result =
+            request_handler.try_handle_request(request.preamble, request.contents, node);
+        request_handler.restart();
+
+        let (response_preamble, response_contents) = match request_result {
+            Ok((rp, rc)) => (rp, rc),
+            Err(NetError::Http(e)) => {
+                return StacksHttpResponse::new_error(&request_preamble, &*e.into_http_error())
+                    .try_into_contents()
+            }
+            Err(e) => {
+                warn!("Irrecoverable error when handling request"; "path" => %request_preamble.path_and_query_str, "error" => %e);
+                return Err(e);
+            }
+        };
+        Ok((response_preamble, response_contents))
+    }
+
+    #[cfg(test)]
+    pub fn num_pending(&self) -> usize {
+        if self.reply.is_some() {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Set up the pending response
+    /// Called indirectly from ProtocolFamily::read_preamble() when handling an HTTP response
+    /// Used for dealing with streaming data
+    fn set_pending(&mut self, preamble: &HttpResponsePreamble) {
+        self.reply = Some(StacksHttpReplyData {
+            request_id: preamble
+                .get_request_id()
+                .unwrap_or(HTTP_REQUEST_ID_RESERVED),
+            stream: StacksHttpRecvStream::new(MAX_MESSAGE_LEN as u64),
+        });
+    }
+
+    /// Set the preamble. This is only relevant for receiving an HTTP response to a request that we
+    /// already sent.  It gets called from ProtocolFamily::read_preamble().
+    ///
+    /// This method will set up this state machine to consume the message associated with this
+    /// premable, if the response is chunked.
+    fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), NetError> {
+        match preamble {
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                // we can only receive a response if we're expecting it
+                if self.request_handler_index.is_none() {
+                    return Err(NetError::DeserializeError(
+                        "Unexpected HTTP response: no active request handler".to_string(),
+                    ));
+                }
+                if http_response_preamble.is_chunked() {
+                    // we can only receive one response at a time
+                    if self.reply.is_some() {
+                        test_debug!("Have pending reply already");
+                        return Err(NetError::InProgress);
+                    }
+
+                    self.set_pending(http_response_preamble);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Clear any pending response state -- i.e. due to a failed request.
+    fn reset(&mut self) -> () {
+        self.request_handler_index = None;
+        self.reply = None;
+    }
+
+    /// Used for processing chunk-encoded streams.
+    /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
+    /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
+    /// Returns Ok((Some(decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call)) if we're done decoding.
+    /// Returns Ok((None, number of bytes gotten in this call)) if there's more to decode.
+    pub fn consume_data<R: Read>(
+        &mut self,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+        assert!(preamble.is_chunked());
+        assert!(self.reply.is_some());
+
+        if let Some(reply) = self.reply.as_mut() {
+            match reply.stream.consume_data(fd) {
+                Ok(res) => match res {
+                    (None, sz) => Ok((None, sz)),
+                    (Some((byte_vec, bytes_total)), sz) => {
+                        // done receiving
+                        self.reply = None;
+                        Ok((Some((byte_vec, bytes_total)), sz))
+                    }
+                },
+                Err(e) => {
+                    // broken stream
+                    self.reset();
+                    Err(e)
+                }
+            }
+        } else {
+            unreachable!();
+        }
+    }
+
+    /// Calculate the search window for \r\n\r\n
+    fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
+        let window = match i {
+            0 => [
+                self.last_four_preamble_bytes[0],
+                self.last_four_preamble_bytes[1],
+                self.last_four_preamble_bytes[2],
+                self.last_four_preamble_bytes[3],
+            ],
+            1 => [
+                self.last_four_preamble_bytes[1],
+                self.last_four_preamble_bytes[2],
+                self.last_four_preamble_bytes[3],
+                buf[0],
+            ],
+            2 => [
+                self.last_four_preamble_bytes[2],
+                self.last_four_preamble_bytes[3],
+                buf[0],
+                buf[1],
+            ],
+            3 => [self.last_four_preamble_bytes[3], buf[0], buf[1], buf[2]],
+            _ => [buf[i - 4], buf[i - 3], buf[i - 2], buf[i - 1]],
+        };
+        window
+    }
+
+    /// Given a fully-formed single HTTP response, parse it (used by clients).
+    #[cfg(test)]
+    pub fn parse_response(
+        verb: &str,
+        request_path: &str,
+        response_buf: &[u8],
+    ) -> Result<StacksHttpMessage, NetError> {
+        let mut http = StacksHttp::new(
+            "127.0.0.1:20443".parse().unwrap(),
+            &ConnectionOptions::default(),
+        );
+
+        let response_handler_index =
+            http.find_response_handler(verb, request_path)
+                .ok_or(NetError::SendError(format!(
+                    "No such handler for '{} {}'",
+                    verb, request_path
+                )))?;
+        http.request_handler_index = Some(response_handler_index);
+
+        let (preamble, message_offset) = http.read_preamble(response_buf)?;
+        let is_chunked = match preamble {
+            StacksHttpPreamble::Response(ref resp) => resp.is_chunked(),
+            _ => {
+                return Err(NetError::DeserializeError(
+                    "Invalid HTTP message: did not get a Response preamble".to_string(),
+                ));
+            }
+        };
+
+        let mut message_bytes = &response_buf[message_offset..];
+
+        if is_chunked {
+            match http.stream_payload(&preamble, &mut message_bytes) {
+                Ok((Some((message, _)), _)) => Ok(message),
+                Ok((None, _)) => Err(NetError::UnderflowError(
+                    "Not enough bytes to form a streamed HTTP response".to_string(),
+                )),
+                Err(e) => Err(e),
+            }
+        } else {
+            let (message, _) = http.read_payload(&preamble, &mut message_bytes)?;
+            Ok(message)
+        }
+    }
+}
+
+impl ProtocolFamily for StacksHttp {
+    type Preamble = StacksHttpPreamble;
+    type Message = StacksHttpMessage;
+
+    /// how big can a preamble get?
+    fn preamble_size_hint(&mut self) -> usize {
+        HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize
+    }
+
+    /// how big is this message?  Might not know if we're dealing with chunked encoding.
+    fn payload_len(&mut self, preamble: &StacksHttpPreamble) -> Option<usize> {
+        match *preamble {
+            StacksHttpPreamble::Request(ref http_request_preamble) => {
+                Some(http_request_preamble.get_content_length() as usize)
+            }
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                match http_response_preamble.content_length {
+                    Some(len) => Some(len as usize),
+                    None => None,
+                }
+            }
+        }
+    }
+
+    /// Read the next HTTP preamble (be it a request or a response), and return the preamble and
+    /// the number of bytes consumed while reading it.
+    fn read_preamble(&mut self, buf: &[u8]) -> Result<(StacksHttpPreamble, usize), NetError> {
+        // does this contain end-of-headers marker, including the last four bytes of preamble we
+        // saw?
+        if self.body_start.is_none() {
+            for i in 0..=buf.len() {
+                let window = self.body_start_search_window(i, buf);
+                if window == [13, 10, 13, 10] {
+                    self.body_start = Some(self.num_preamble_bytes + i);
+                }
+            }
+        }
+        if self.body_start.is_none() {
+            // haven't found the body yet, so update `last_four_preamble_bytes`
+            // and report underflow
+            let len = buf.len();
+            let last_four_preamble_bytes = self.body_start_search_window(len, buf);
+            self.num_preamble_bytes += len;
+            self.last_four_preamble_bytes = last_four_preamble_bytes;
+            return Err(NetError::UnderflowError(
+                "Not enough bytes to form HTTP preamble".into(),
+            ));
+        }
+
+        let mut cursor = io::Cursor::new(buf);
+
+        let preamble = {
+            let mut rd =
+                BoundReader::from_reader(&mut cursor, HTTP_PREAMBLE_MAX_ENCODED_SIZE as u64);
+            let preamble: StacksHttpPreamble = read_next(&mut rd)?;
+            preamble
+        };
+
+        let preamble_len = cursor.position() as usize;
+        self.set_preamble(&preamble)?;
+
+        Ok((preamble, preamble_len))
+    }
+
+    /// Stream a payload of unknown length.  Only gets called if payload_len() returns None.
+    ///
+    /// Returns Ok((Some((message, num-bytes-consumed)), num-bytes-read)) if we read enough data to
+    /// form a message.  `num-bytes-consumed` is the number of bytes required to parse the message,
+    /// and `num-bytes-read` is the number of bytes read in this call.
+    ///
+    /// Returns Ok((None, num-bytes-read)) if we consumed data (i.e. `num-bytes-read` bytes), but
+    /// did not yet have enough of the message to parse it.  The caller should try again.
+    ///
+    /// Returns Error on irrecoverable error.
+    fn stream_payload<R: Read>(
+        &mut self,
+        preamble: &StacksHttpPreamble,
+        fd: &mut R,
+    ) -> Result<(Option<(StacksHttpMessage, usize)>, usize), NetError> {
+        assert!(self.payload_len(preamble).is_none());
+        match preamble {
+            StacksHttpPreamble::Request(_) => {
+                // HTTP requests can't be chunk-encoded, so this should never be reached
+                unreachable!()
+            }
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                assert!(http_response_preamble.is_chunked());
+
+                // sanity check -- if we're receiving a response, then we must have earlier issued
+                // a request. Thus, we must already know which response handler to use.
+                // Otherwise, someone sent us malforemd data.
+                if self.request_handler_index.is_none() {
+                    self.reset();
+                    return Err(NetError::DeserializeError(
+                        "Unsolicited HTTP response".to_string(),
+                    ));
+                }
+
+                // message of unknown length.  Buffer up and maybe we can parse it.
+                let (message_bytes_opt, num_read) =
+                    self.consume_data(http_response_preamble, fd).map_err(|e| {
+                        self.reset();
+                        e
+                    })?;
+
+                match message_bytes_opt {
+                    Some((message_bytes, total_bytes_consumed)) => {
+                        // can parse!
+                        test_debug!(
+                            "read http response payload of {} bytes (just buffered {})",
+                            message_bytes.len(),
+                            num_read,
+                        );
+
+                        // we now know the content-length, so pass it into the parser.
+                        let handler_index =
+                            self.request_handler_index
+                                .ok_or(NetError::DeserializeError(
+                                    "Unknown HTTP response handler".to_string(),
+                                ))?;
+
+                        let parse_res = self.try_parse_response(
+                            handler_index,
+                            http_response_preamble,
+                            &message_bytes[..],
+                        );
+
+                        // done parsing
+                        self.reset();
+                        match parse_res {
+                            Ok(data_response) => Ok((
+                                Some((
+                                    StacksHttpMessage::Response(data_response),
+                                    total_bytes_consumed,
+                                )),
+                                num_read,
+                            )),
+                            Err(e) => {
+                                info!("Failed to parse HTTP response: {:?}", &e);
+                                Err(e)
+                            }
+                        }
+                    }
+                    None => {
+                        // need more data
+                        trace!(
+                            "did not read http response payload, but buffered {}",
+                            num_read
+                        );
+                        Ok((None, num_read))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Parse a payload of known length.
+    /// Only gets called if payload_len() returns Some(...).
+    ///
+    /// Return Ok(message, num-bytes-consumed) if we decoded a message.  The message will
+    /// have consumed `num-bytes-consumed` bytes.
+    ///
+    /// Return Err(..) if we failed to decode the message.
+    fn read_payload(
+        &mut self,
+        preamble: &StacksHttpPreamble,
+        buf: &[u8],
+    ) -> Result<(StacksHttpMessage, usize), NetError> {
+        match preamble {
+            StacksHttpPreamble::Request(ref http_request_preamble) => {
+                // all requests have a known length
+                let len = http_request_preamble.get_content_length() as usize;
+                assert!(len <= buf.len(), "{} > {}", len, buf.len());
+
+                trace!("read http request payload of {} bytes", len);
+
+                match self.try_parse_request(http_request_preamble, &buf[0..len]) {
+                    Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), len)),
+                    Err(e) => {
+                        match e {
+                            NetError::Http(http_error) => {
+                                // convert into a response
+                                let resp = StacksHttpResponse::new_error(
+                                    http_request_preamble,
+                                    &*http_error.into_http_error(),
+                                );
+                                self.reset();
+                                return Ok((
+                                    StacksHttpMessage::Error(
+                                        http_request_preamble.path_and_query_str.clone(),
+                                        resp,
+                                    ),
+                                    len,
+                                ));
+                            }
+                            _ => {
+                                info!("Failed to parse HTTP request: {:?}", &e);
+                                self.reset();
+                                Err(e)
+                            }
+                        }
+                    }
+                }
+            }
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                assert!(!http_response_preamble.is_chunked());
+
+                // message of known length
+                test_debug!("read http response payload of {} bytes", buf.len(),);
+
+                // sanity check -- if we're receiving a response, then we must have earlier issued
+                // a request. Thus, we must already know which response handler to use.
+                // Otherwise, someone sent us malformed data.
+                let handler_index = if let Some(i) = self.request_handler_index.as_ref() {
+                    *i
+                } else {
+                    self.reset();
+                    return Err(NetError::DeserializeError(
+                        "Unsolicited HTTP response".to_string(),
+                    ));
+                };
+
+                let res = self.try_parse_response(handler_index, http_response_preamble, buf);
+                self.reset();
+                res.map(|data_response| (StacksHttpMessage::Response(data_response), buf.len()))
+            }
+        }
+    }
+
+    fn verify_payload_bytes(
+        &mut self,
+        _key: &StacksPublicKey,
+        _preamble: &StacksHttpPreamble,
+        _bytes: &[u8],
+    ) -> Result<(), NetError> {
+        // not defined for HTTP messages, but maybe we could add a signature header at some point
+        // in the future if needed.
+        Ok(())
+    }
+
+    /// Write out a message to `fd`.
+    ///
+    /// NOTE: If we're sending a StacksHttpMessage::Request(..), then the next preamble and payload
+    /// received _must be_ a StacksHttpMessage::Response(..) in response to the request.
+    /// If it is not, then that decode will fail.
+    fn write_message<W: Write>(
+        &mut self,
+        fd: &mut W,
+        message: &StacksHttpMessage,
+    ) -> Result<(), NetError> {
+        match *message {
+            StacksHttpMessage::Request(ref req) => {
+                // client cannot send more than one request in parallel
+                if self.request_handler_index.is_some() {
+                    test_debug!("Have pending request already");
+                    return Err(NetError::InProgress);
+                }
+
+                // find the response handler we'll use
+                let (decoded_path, _) = decode_request_path(&req.preamble().path_and_query_str)?;
+                let handler_index = self
+                    .find_response_handler(&req.preamble().verb, &decoded_path)
+                    .ok_or(NetError::SendError(format!(
+                        "No response handler found for `{} {}`",
+                        &req.preamble().verb,
+                        &decoded_path
+                    )))?;
+
+                req.send(fd)?;
+
+                // remember this so we'll know how to decode the response.
+                // The next preamble and message we'll read _must be_ a response!
+                self.request_handler_index = Some(handler_index);
+                Ok(())
+            }
+            StacksHttpMessage::Response(ref resp) => resp.send(fd),
+            StacksHttpMessage::Error(_, ref resp) => resp.send(fd),
+        }
+    }
+}
+
+impl PeerNetwork {
+    /// Send a (non-blocking) HTTP request to a remote peer.
+    /// Returns the event ID on success.
+    pub fn connect_or_send_http_request(
+        &mut self,
+        data_url: UrlString,
+        addr: SocketAddr,
+        request: StacksHttpRequest,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<usize, NetError> {
+        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
+            PeerNetwork::with_http(network, |ref mut network, ref mut http| {
+                match http.connect_http(
+                    network_state,
+                    network,
+                    data_url.clone(),
+                    addr.clone(),
+                    Some(request.clone()),
+                ) {
+                    Ok(event_id) => Ok(event_id),
+                    Err(NetError::AlreadyConnected(event_id, _)) => {
+                        match http.get_conversation_and_socket(event_id) {
+                            (Some(ref mut convo), Some(ref mut socket)) => {
+                                convo.send_request(request)?;
+                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
+                                Ok(event_id)
+                            }
+                            (_, _) => {
+                                debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
+                                Err(NetError::PeerNotConnected)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            })
+        })
+    }
+}
+
+/// Given a raw path, decode it (i.e. if it's url-encoded)
+/// Return the (decoded-path, query-string) on success
+pub fn decode_request_path(path: &str) -> Result<(String, String), NetError> {
+    let local_url = format!("http://local{}", path);
+    let url = Url::parse(&local_url).map_err(|_e| {
+        NetError::DeserializeError("Http request path could not be parsed".to_string())
+    })?;
+
+    let decoded_path = percent_decode_str(url.path()).decode_utf8().map_err(|_e| {
+        NetError::DeserializeError("Http request path could not be parsed as UTF-8".to_string())
+    })?;
+
+    let query_str = url.query();
+    Ok((
+        decoded_path.to_string(),
+        query_str.unwrap_or("").to_string(),
+    ))
+}
