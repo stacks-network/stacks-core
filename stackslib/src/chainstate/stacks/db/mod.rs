@@ -63,7 +63,6 @@ use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::net::Error as net_error;
-use crate::net::MemPoolSyncData;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
@@ -84,7 +83,7 @@ use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;
 use stacks_common::util;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -96,6 +95,11 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use clarity::vm::Value;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+
+use serde::de::Error as de_Error;
+use serde::Deserialize;
 
 pub mod accounts;
 pub mod blocks;
@@ -200,6 +204,57 @@ pub struct StacksEpochReceipt {
     /// in.
     pub evaluated_epoch: StacksEpochId,
     pub epoch_transition: bool,
+}
+
+/// Headers we serve over the network
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtendedStacksHeader {
+    pub consensus_hash: ConsensusHash,
+    #[serde(
+        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
+        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
+    )]
+    pub header: StacksBlockHeader,
+    pub parent_block_id: StacksBlockId,
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
+    header: &StacksBlockHeader,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let bytes = header.serialize_to_vec();
+    let header_hex = to_hex(&bytes);
+    s.serialize_str(&header_hex.as_str())
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<StacksBlockHeader, D::Error> {
+    let header_hex = String::deserialize(d)?;
+    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
+    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
+}
+
+impl StacksMessageCodec for ExtendedStacksHeader {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.header)?;
+        write_next(fd, &self.parent_block_id)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ExtendedStacksHeader, codec_error> {
+        let ch = read_next(fd)?;
+        let bh = read_next(fd)?;
+        let pbid = read_next(fd)?;
+        Ok(ExtendedStacksHeader {
+            consensus_hash: ch,
+            header: bh,
+            parent_block_id: pbid,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1553,6 +1608,20 @@ impl StacksChainState {
             &self.root_path,
             self.marf_opts.clone(),
         )
+    }
+
+    /// Re-open the chainstate DB
+    pub fn reopen_db(&self) -> Result<DBConn, Error> {
+        let path = PathBuf::from(self.root_path.clone());
+        let header_index_root_path = StacksChainState::header_index_root_path(path);
+        let header_index_root = header_index_root_path
+            .to_str()
+            .ok_or_else(|| Error::DBError(db_error::ParseError))?
+            .to_string();
+
+        let state_index =
+            StacksChainState::open_db(self.mainnet, self.chain_id, &header_index_root)?;
+        Ok(state_index.into_sqlite_conn())
     }
 
     pub fn blocks_path(mut path: PathBuf) -> PathBuf {
