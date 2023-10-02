@@ -19,6 +19,7 @@ use crate::util::hash::Hash160;
 use std::cmp::Ordering;
 
 pub mod chainstate;
+pub mod net;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
