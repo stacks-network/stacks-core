@@ -42,6 +42,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::chainstate::stacks::StacksBlockHeader;
+use crate::core::mempool::MemPoolDB;
 use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
@@ -53,6 +54,8 @@ use crate::net::connection::ReplyHandleHttp;
 use crate::net::db::PeerDB;
 use crate::net::db::*;
 use crate::net::dns::*;
+use crate::net::http::HttpRequestContents;
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::inv::InvState;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
@@ -62,13 +65,13 @@ use crate::net::Error as net_error;
 use crate::net::GetBlocksInv;
 use crate::net::Neighbor;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
@@ -147,6 +150,28 @@ impl BlockRequestKey {
             canonical_stacks_tip_height,
         }
     }
+
+    /// Make a request for a block
+    fn make_getblock_request(&self, peer_host: PeerHost) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            peer_host,
+            "GET".into(),
+            format!("/v2/blocks/{}", &self.index_block_hash),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to create HTTP request for infallible data")
+    }
+
+    /// Make a request for a stream of confirmed microblocks
+    fn make_confirmed_microblocks_request(&self, peer_host: PeerHost) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            peer_host,
+            "GET".into(),
+            format!("/v2/microblocks/confirmed/{}", &self.index_block_hash),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to create HTTP request for infallible data")
+    }
 }
 
 impl Requestable for BlockRequestKey {
@@ -154,20 +179,11 @@ impl Requestable for BlockRequestKey {
         &self.data_url
     }
 
-    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
+    fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest {
         match self.kind {
-            BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
-                HttpRequestMetadata::from_host(peer_host, Some(self.canonical_stacks_tip_height)),
-                self.index_block_hash,
-            ),
+            BlockRequestKeyKind::Block => self.make_getblock_request(peer_host),
             BlockRequestKeyKind::ConfirmedMicroblockStream => {
-                HttpRequestType::GetMicroblocksConfirmed(
-                    HttpRequestMetadata::from_host(
-                        peer_host,
-                        Some(self.canonical_stacks_tip_height),
-                    ),
-                    self.index_block_hash,
-                )
+                self.make_confirmed_microblocks_request(peer_host)
             }
         }
     }
@@ -499,47 +515,44 @@ impl BlockDownloader {
                                 debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                                 pending_block_requests.insert(block_key, event_id);
                             }
-                            Some(http_response) => match http_response {
-                                HttpResponseType::Block(_md, block) => {
-                                    if StacksBlockHeader::make_index_block_hash(
-                                        &block_key.consensus_hash,
-                                        &block.block_hash(),
-                                    ) != block_key.index_block_hash
-                                    {
-                                        info!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
+                            Some(http_response) => {
+                                match StacksHttpResponse::decode_block(http_response) {
+                                    Ok(block) => {
+                                        if StacksBlockHeader::make_index_block_hash(
+                                            &block_key.consensus_hash,
+                                            &block.block_hash(),
+                                        ) != block_key.index_block_hash
+                                        {
+                                            info!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
+                                            self.broken_peers.push(event_id);
+                                            self.broken_neighbors.push(block_key.neighbor.clone());
+                                        } else {
+                                            // got the block
+                                            debug!(
+                                                "Got block {}: {}/{}",
+                                                &block_key.sortition_height,
+                                                &block_key.consensus_hash,
+                                                block.block_hash()
+                                            );
+                                            self.blocks.insert(block_key, block);
+                                        }
+                                    }
+                                    Err(net_error::NotFoundError) => {
+                                        // remote peer didn't have the block
+                                        info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &block_key.neighbor, &block_key.data_url, block_key.sortition_height, &block_key.index_block_hash, &block_key.consensus_hash);
+
+                                        // the fact that we asked this peer means that it's block inv indicated
+                                        // it was present, so the absence is the mark of a broken peer
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
-                                    } else {
-                                        // got the block
-                                        debug!(
-                                            "Got block {}: {}/{}",
-                                            &block_key.sortition_height,
-                                            &block_key.consensus_hash,
-                                            block.block_hash()
-                                        );
-                                        self.blocks.insert(block_key, block);
+                                    }
+                                    Err(e) => {
+                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e);
+                                        self.broken_peers.push(event_id);
+                                        self.broken_neighbors.push(block_key.neighbor.clone());
                                     }
                                 }
-                                // TODO: redirect?
-                                HttpResponseType::NotFound(_, _) => {
-                                    // remote peer didn't have the block
-                                    info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &block_key.neighbor, &block_key.data_url, block_key.sortition_height, &block_key.index_block_hash, &block_key.consensus_hash);
-
-                                    // the fact that we asked this peer means that it's block inv indicated
-                                    // it was present, so the absence is the mark of a broken peer
-                                    self.broken_peers.push(event_id);
-                                    self.broken_neighbors.push(block_key.neighbor.clone());
-                                }
-                                _ => {
-                                    // wrong message response
-                                    info!(
-                                        "Got bad HTTP response from {:?}: {:?}",
-                                        &block_key.data_url, &http_response
-                                    );
-                                    self.broken_peers.push(event_id);
-                                    self.broken_neighbors.push(block_key.neighbor.clone());
-                                }
-                            },
+                            }
                         }
                     }
                 }
@@ -633,45 +646,45 @@ impl BlockDownloader {
                                 debug!("Event {} ({:?}, {:?} for microblocks built by {:?}) is still waiting for a response", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                                 pending_microblock_requests.insert(rh_block_key, event_id);
                             }
-                            Some(http_response) => match http_response {
-                                HttpResponseType::Microblocks(_md, microblocks) => {
-                                    if microblocks.len() == 0 {
-                                        // we wouldn't have asked for a 0-length stream
-                                        info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
+                            Some(http_response) => {
+                                match StacksHttpResponse::decode_microblocks(http_response) {
+                                    Ok(microblocks) => {
+                                        if microblocks.len() == 0 {
+                                            // we wouldn't have asked for a 0-length stream
+                                            info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
+                                            self.broken_peers.push(event_id);
+                                            self.broken_neighbors.push(block_key.neighbor.clone());
+                                        } else {
+                                            // have microblocks (but we don't know yet if they're well-formed)
+                                            debug!(
+                                                "Got (tentative) microblocks {}: {}/{}-{}",
+                                                block_key.sortition_height,
+                                                &block_key.consensus_hash,
+                                                &block_key.index_block_hash,
+                                                microblocks[0].block_hash()
+                                            );
+                                            self.microblocks.insert(block_key, microblocks);
+                                        }
+                                    }
+                                    Err(net_error::NotFoundError) => {
+                                        // remote peer didn't have the microblock, even though their blockinv said
+                                        // they did.
+                                        info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
+
+                                        // the fact that we asked this peer means that it's block inv indicated
+                                        // it was present, so the absence is the mark of a broken peer.
+                                        // HOWEVER, there has been some bugs recently about nodes reporting
+                                        // invalid microblock streams as present, even though they are
+                                        // truly absent.  Don't punish these peers with a ban; just don't
+                                        // talk to them for a while.
+                                    }
+                                    Err(e) => {
+                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e);
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
-                                    } else {
-                                        // have microblocks (but we don't know yet if they're well-formed)
-                                        debug!(
-                                            "Got (tentative) microblocks {}: {}/{}-{}",
-                                            block_key.sortition_height,
-                                            &block_key.consensus_hash,
-                                            &block_key.index_block_hash,
-                                            microblocks[0].block_hash()
-                                        );
-                                        self.microblocks.insert(block_key, microblocks);
                                     }
                                 }
-                                // TODO: redirect?
-                                HttpResponseType::NotFound(_, _) => {
-                                    // remote peer didn't have the microblock, even though their blockinv said
-                                    // they did.
-                                    info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
-
-                                    // the fact that we asked this peer means that it's block inv indicated
-                                    // it was present, so the absence is the mark of a broken peer.
-                                    // HOWEVER, there has been some bugs recently about nodes reporting
-                                    // invalid microblock streams as present, even though they are
-                                    // truly absent.  Don't punish these peers with a ban; just don't
-                                    // talk to them for a while.
-                                }
-                                _ => {
-                                    // wrong message response
-                                    info!("Got bad HTTP response from {:?}", &block_key.data_url);
-                                    self.broken_peers.push(event_id);
-                                    self.broken_neighbors.push(block_key.neighbor.clone());
-                                }
-                            },
+                            }
                         }
                     }
                 }
@@ -1914,47 +1927,6 @@ impl PeerNetwork {
         test_debug!("{:?}: block_dns_lookups_try_finish", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut _network, ref mut downloader| {
             downloader.dns_lookups_try_finish(dns_client)
-        })
-    }
-
-    /// Send a (non-blocking) HTTP request to a remote peer.
-    /// Returns the event ID on success.
-    pub fn connect_or_send_http_request(
-        &mut self,
-        data_url: UrlString,
-        addr: SocketAddr,
-        request: HttpRequestType,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Result<usize, net_error> {
-        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            PeerNetwork::with_http(network, |ref mut network, ref mut http| {
-                match http.connect_http(
-                    network_state,
-                    network,
-                    data_url.clone(),
-                    addr.clone(),
-                    Some(request.clone()),
-                ) {
-                    Ok(event_id) => Ok(event_id),
-                    Err(net_error::AlreadyConnected(event_id, _)) => {
-                        match http.get_conversation_and_socket(event_id) {
-                            (Some(ref mut convo), Some(ref mut socket)) => {
-                                convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
-                                Ok(event_id)
-                            }
-                            (_, _) => {
-                                debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                                Err(net_error::PeerNotConnected)
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                }
-            })
         })
     }
 
