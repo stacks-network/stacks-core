@@ -43,6 +43,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::ExtendedStacksHeader;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::Error;
@@ -60,10 +61,8 @@ use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use crate::core::*;
 use crate::cost_estimates::EstimatorError;
 use crate::net::relay::Relayer;
-use crate::net::stream::{BlockStreamData, HeaderStreamData, MicroblockStreamData, Streamer};
 use crate::net::BlocksInvData;
 use crate::net::Error as net_error;
-use crate::net::ExtendedStacksHeader;
 use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
@@ -1179,6 +1178,15 @@ impl StacksChainState {
     ) -> Result<Option<StagingMicroblock>, Error> {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(parent_consensus_hash, parent_block_hash);
+        Self::load_staging_microblock_indexed(blocks_conn, &parent_index_hash, microblock_hash)
+    }
+
+    /// Load up a preprocessed microblock given the index block hash of the anchored parent
+    pub fn load_staging_microblock_indexed(
+        blocks_conn: &DBConn,
+        parent_index_hash: &StacksBlockId,
+        microblock_hash: &BlockHeaderHash,
+    ) -> Result<Option<StagingMicroblock>, Error> {
         match StacksChainState::load_staging_microblock_info(
             blocks_conn,
             &parent_index_hash,
@@ -2926,6 +2934,7 @@ impl StacksChainState {
 
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
     /// Returns None if no such microblock.
+    #[cfg(test)]
     fn stream_microblock_get_rowid(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
@@ -2957,458 +2966,29 @@ impl StacksChainState {
         Ok(microblock_info)
     }
 
-    /// Write header data to the fd
-    fn write_stream_data<W: Write, R: Read, S: Streamer>(
-        fd: &mut W,
-        stream: &mut S,
-        input: &mut R,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let mut buf = vec![0u8; count as usize];
-        let nr = input.read(&mut buf).map_err(Error::ReadError)?;
-        fd.write_all(&buf[0..nr]).map_err(Error::WriteError)?;
-
-        stream.add_bytes(nr as u64);
-
-        Ok(nr as u64)
-    }
-
-    /// Stream header data from one Read to one Write
-    fn stream_data<W: Write, R: Read + Seek, S: Streamer>(
-        fd: &mut W,
-        stream: &mut S,
-        input: &mut R,
-        count: u64,
-    ) -> Result<u64, Error> {
-        input
-            .seek(SeekFrom::Start(stream.offset()))
-            .map_err(Error::ReadError)?;
-
-        StacksChainState::write_stream_data(fd, stream, input, count)
-    }
-
-    /// Stream a single header's data from disk
-    /// If this method returns 0, it's because we're EOF on the header and should begin the next.
-    ///
-    /// The data streamed to `fd` is meant to be part of a JSON array.  The header data will be
-    /// encoded as JSON, and a `,` will be written after it if there are more headers to follow.
-    /// The caller is responsible for writing `[` before writing headers, and writing `]` after all
-    /// headers have been written.
-    ///
-    /// Returns the number of bytes written
-    pub fn stream_one_header<W: Write>(
-        blocks_conn: &DBConn,
-        block_path: &str,
-        fd: &mut W,
-        stream: &mut HeaderStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        if stream.header_bytes.is_none() && stream.num_headers > 0 {
-            let header =
-                StacksChainState::load_block_header_indexed(block_path, &stream.index_block_hash)?
-                    .ok_or(Error::NoSuchBlockError)?;
-
-            let header_info =
-                StacksChainState::load_staging_block_info(blocks_conn, &stream.index_block_hash)?
-                    .ok_or(Error::NoSuchBlockError)?;
-
-            let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
-                &header_info.parent_consensus_hash,
-                &header_info.parent_anchored_block_hash,
-            );
-
-            let mut header_bytes = vec![];
-            let extended_header = ExtendedStacksHeader {
-                consensus_hash: header_info.consensus_hash,
-                header: header,
-                parent_block_id: parent_index_block_hash,
-            };
-
-            serde_json::to_writer(&mut header_bytes, &extended_header).map_err(|e| {
-                Error::NetError(net_error::SerializeError(format!(
-                    "Failed to send as JSON: {:?}",
-                    &e
-                )))
-            })?;
-
-            if stream.num_headers > 1 {
-                header_bytes.push(',' as u8);
-            }
-
-            test_debug!(
-                "header_bytes: {}",
-                String::from_utf8(header_bytes.clone()).unwrap()
-            );
-
-            stream.header_bytes = Some(header_bytes);
-            stream.offset = 0;
-        }
-
-        if stream.header_bytes.is_some() {
-            let header_bytes = stream
-                .header_bytes
-                .take()
-                .expect("Do not have header bytes and did not set them");
-            let res = (|| {
-                if stream.offset >= (header_bytes.len() as u64) {
-                    // EOF
-                    return Ok(0);
-                }
-
-                let num_bytes = StacksChainState::write_stream_data(
-                    fd,
-                    stream,
-                    &mut &header_bytes[(stream.offset as usize)..],
-                    count,
-                )?;
-                test_debug!(
-                    "Stream header hash={} offset={} total_bytes={}, num_bytes={} num_headers={}",
-                    &stream.index_block_hash,
-                    stream.offset,
-                    stream.total_bytes,
-                    num_bytes,
-                    stream.num_headers
-                );
-                Ok(num_bytes)
-            })();
-            stream.header_bytes = Some(header_bytes);
-            res
-        } else {
-            Ok(0)
-        }
-    }
-
-    /// Stream multiple headers from disk, moving in reverse order from the chain tip back.
-    /// The format will be a JSON array.
-    /// Returns total number of bytes written (will be equal to the number of bytes read).
-    /// Returns 0 if we run out of headers
-    pub fn stream_headers<W: Write>(
-        &self,
-        fd: &mut W,
-        stream: &mut HeaderStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let mut to_write = count;
-        while to_write > 0 {
-            let nw = match StacksChainState::stream_one_header(
-                &self.db(),
-                &self.blocks_path,
-                fd,
-                stream,
-                to_write,
-            ) {
-                Ok(nw) => nw,
-                Err(Error::DBError(db_error::NotFoundError)) => {
-                    // out of headers
-                    debug!(
-                        "No more header to stream after {}",
-                        &stream.index_block_hash
-                    );
-                    stream.header_bytes = None;
-                    stream.end_of_stream = true;
-                    break;
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            };
-
-            if nw == 0 {
-                if stream.num_headers == 0 {
-                    // out of headers
-                    debug!(
-                        "No more header to stream after {}",
-                        &stream.index_block_hash
-                    );
-                    stream.header_bytes = None;
-                    stream.end_of_stream = true;
-                    break;
-                }
-
-                // EOF on header; move to the next one (its parent)
-                let header_info = match StacksChainState::load_staging_block_info(
-                    &self.db(),
-                    &stream.index_block_hash,
-                )? {
-                    Some(x) => x,
-                    None => {
-                        // out of headers
-                        debug!(
-                            "Out of headers to stream after block {}",
-                            &stream.index_block_hash
-                        );
-                        stream.header_bytes = None;
-                        stream.end_of_stream = true;
-                        break;
-                    }
-                };
-
-                let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &header_info.parent_consensus_hash,
-                    &header_info.parent_anchored_block_hash,
-                );
-
-                stream.index_block_hash = parent_index_block_hash;
-                stream.num_headers = stream
-                    .num_headers
-                    .checked_sub(1)
-                    .expect("BUG: streamed more headers than called for");
-
-                stream.header_bytes = None;
-            } else {
-                to_write = to_write
-                    .checked_sub(nw)
-                    .expect("BUG: wrote more data than called for");
-            }
-
-            debug!(
-                "Streaming header={}: to_write={}, nw={}",
-                &stream.index_block_hash, to_write, nw
-            );
-        }
-        debug!(
-            "Streamed headers ({} remaining): {} - {} = {}",
-            stream.num_headers,
-            count,
-            to_write,
-            count - to_write
-        );
-        Ok(count - to_write)
-    }
-
-    /// Stream a single microblock's data from the staging database.
-    /// If this method returns 0, it's because we're EOF on the blob.
-    pub fn stream_one_microblock<W: Write>(
-        blocks_conn: &DBConn,
-        fd: &mut W,
-        stream: &mut MicroblockStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let rowid = match stream.rowid {
-            None => {
-                // need to get rowid in order to get the blob
-                match StacksChainState::stream_microblock_get_rowid(
-                    blocks_conn,
-                    &stream.parent_index_block_hash,
-                    &stream.microblock_hash,
-                )? {
-                    Some(rid) => rid,
-                    None => {
-                        test_debug!("Microblock hash={:?} not in DB", &stream.microblock_hash,);
-                        return Err(Error::NoSuchBlockError);
-                    }
-                }
-            }
-            Some(rid) => rid,
-        };
-
-        stream.rowid = Some(rowid);
-        let mut blob = blocks_conn
-            .blob_open(
-                DatabaseName::Main,
-                "staging_microblocks_data",
-                "block_data",
-                rowid,
-                true,
-            )
-            .map_err(|e| {
-                match e {
-                    sqlite_error::SqliteFailure(_, _) => {
-                        // blob got moved out of staging
-                        Error::NoSuchBlockError
-                    }
-                    _ => Error::DBError(db_error::SqliteError(e)),
-                }
-            })?;
-
-        let num_bytes = StacksChainState::stream_data(fd, stream, &mut blob, count)?;
-        test_debug!(
-            "Stream microblock rowid={} hash={} offset={} total_bytes={}, num_bytes={}",
-            rowid,
-            &stream.microblock_hash,
-            stream.offset,
-            stream.total_bytes,
-            num_bytes
-        );
-        Ok(num_bytes)
-    }
-
-    /// Stream multiple microblocks from staging, moving in reverse order from the stream tail to the stream head.
-    /// Returns total number of bytes written (will be equal to the number of bytes read).
-    /// Returns 0 if we run out of microblocks in the staging db
-    pub fn stream_microblocks_confirmed<W: Write>(
-        chainstate: &StacksChainState,
-        fd: &mut W,
-        stream: &mut MicroblockStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let mut to_write = count;
-        while to_write > 0 {
-            let nw =
-                StacksChainState::stream_one_microblock(&chainstate.db(), fd, stream, to_write)?;
-            if nw == 0 {
-                // EOF on microblock blob; move to the next one (its parent)
-                let mblock_info = match StacksChainState::load_staging_microblock_info(
-                    &chainstate.db(),
-                    &stream.parent_index_block_hash,
-                    &stream.microblock_hash,
-                )? {
-                    Some(x) => x,
-                    None => {
-                        // out of mblocks
-                        debug!(
-                            "Out of microblocks to stream after confirmed microblock {}",
-                            &stream.microblock_hash
-                        );
-                        break;
-                    }
-                };
-
-                let rowid = match StacksChainState::stream_microblock_get_rowid(
-                    &chainstate.db(),
-                    &stream.parent_index_block_hash,
-                    &mblock_info.parent_hash,
-                )? {
-                    Some(rid) => rid,
-                    None => {
-                        // out of mblocks
-                        debug!(
-                            "No rowid found for confirmed stream microblock {}",
-                            &mblock_info.parent_hash
-                        );
-                        break;
-                    }
-                };
-
-                stream.offset = 0;
-                stream.rowid = Some(rowid);
-                stream.microblock_hash = mblock_info.parent_hash;
-            } else {
-                to_write = to_write
-                    .checked_sub(nw)
-                    .expect("BUG: wrote more data than called for");
-            }
-            debug!(
-                "Streaming microblock={}: to_write={}, nw={}",
-                &stream.microblock_hash, to_write, nw
-            );
-        }
-        debug!(
-            "Streamed confirmed microblocks: {} - {} = {}",
-            count,
-            to_write,
-            count - to_write
-        );
-        Ok(count - to_write)
-    }
-
-    /// Stream block data from the chunk store.
-    pub fn stream_data_from_chunk_store<W: Write>(
+    /// Read one header for the purposes of streaming.
+    pub fn read_extended_header(
+        db: &DBConn,
         blocks_path: &str,
-        fd: &mut W,
-        stream: &mut BlockStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let block_path =
-            StacksChainState::get_index_block_path(blocks_path, &stream.index_block_hash)?;
+        index_block_hash: &StacksBlockId,
+    ) -> Result<ExtendedStacksHeader, Error> {
+        let header = StacksChainState::load_block_header_indexed(blocks_path, index_block_hash)?
+            .ok_or(Error::NoSuchBlockError)?;
 
-        // The reason we open a file on each call to stream data is because we don't want to
-        // exhaust the supply of file descriptors.  Maybe a future version of this code will do
-        // something like cache the set of open files so we don't have to keep re-opening them.
-        let mut file_fd = fs::OpenOptions::new()
-            .read(true)
-            .write(false)
-            .create(false)
-            .truncate(false)
-            .open(&block_path)
-            .map_err(|e| {
-                if e.kind() == io::ErrorKind::NotFound {
-                    error!("File not found: {:?}", &block_path);
-                    Error::NoSuchBlockError
-                } else {
-                    Error::ReadError(e)
-                }
-            })?;
+        let header_info = StacksChainState::load_staging_block_info(db, index_block_hash)?
+            .ok_or(Error::NoSuchBlockError)?;
 
-        StacksChainState::stream_data(fd, stream, &mut file_fd, count)
-    }
+        let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
+            &header_info.parent_consensus_hash,
+            &header_info.parent_anchored_block_hash,
+        );
 
-    /// Stream block data from the chain state.
-    /// Returns the number of bytes written, and updates `stream` to point to the next point to
-    /// read.  Writes the bytes streamed to `fd`.
-    pub fn stream_block<W: Write>(
-        &mut self,
-        fd: &mut W,
-        stream: &mut BlockStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        StacksChainState::stream_data_from_chunk_store(&self.blocks_path, fd, stream, count)
-    }
-
-    /// Stream unconfirmed microblocks from the staging DB.  Pull only from the staging DB.
-    /// Returns the number of bytes written, and updates `stream` to point to the next point to
-    /// read.  Wrties the bytes streamed to `fd`.
-    pub fn stream_microblocks_unconfirmed<W: Write>(
-        chainstate: &StacksChainState,
-        fd: &mut W,
-        stream: &mut MicroblockStreamData,
-        count: u64,
-    ) -> Result<u64, Error> {
-        let mut to_write = count;
-        while to_write > 0 {
-            let nw =
-                StacksChainState::stream_one_microblock(&chainstate.db(), fd, stream, to_write)?;
-            if nw == 0 {
-                // EOF on microblock blob; move to the next one
-                let next_seq = match stream.seq {
-                    u16::MAX => {
-                        return Err(Error::NoSuchBlockError);
-                    }
-                    x => x + 1,
-                };
-                let next_mblock_hash = match StacksChainState::load_next_descendant_microblock(
-                    &chainstate.db(),
-                    &stream.index_block_hash,
-                    next_seq,
-                )? {
-                    Some(mblock) => {
-                        test_debug!(
-                            "Switch to {}-{} ({})",
-                            &stream.index_block_hash,
-                            &mblock.block_hash(),
-                            next_seq
-                        );
-                        mblock.block_hash()
-                    }
-                    None => {
-                        // EOF on stream
-                        break;
-                    }
-                };
-
-                let rowid = match StacksChainState::stream_microblock_get_rowid(
-                    &chainstate.db(),
-                    &stream.parent_index_block_hash,
-                    &next_mblock_hash,
-                )? {
-                    Some(rid) => rid,
-                    None => {
-                        // out of mblocks
-                        break;
-                    }
-                };
-
-                stream.offset = 0;
-                stream.rowid = Some(rowid);
-                stream.microblock_hash = next_mblock_hash;
-                stream.seq = next_seq;
-            } else {
-                to_write = to_write
-                    .checked_sub(nw)
-                    .expect("BUG: wrote more data than called for");
-            }
-        }
-        Ok(count - to_write)
+        let extended_header = ExtendedStacksHeader {
+            consensus_hash: header_info.consensus_hash,
+            header: header,
+            parent_block_id: parent_index_block_hash,
+        };
+        Ok(extended_header)
     }
 
     /// Check whether or not there exists a Stacks block at or higher
@@ -7160,7 +6740,6 @@ pub mod test {
     use crate::chainstate::stacks::*;
     use crate::core::mempool::*;
     use crate::net::test::*;
-    use crate::net::ExtendedStacksHeader;
     use crate::util_lib::db::Error as db_error;
     use crate::util_lib::db::*;
     use stacks_common::util::hash::*;
