@@ -1345,4 +1345,46 @@ pub mod test {
             txs: txs_anchored,
         }
     }
+
+    pub fn make_codec_test_microblock(num_txs: usize) -> StacksMicroblock {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+        let all_txs = codec_all_transactions(
+            &TransactionVersion::Testnet,
+            0x80000000,
+            &TransactionAnchorMode::OffChainOnly,
+            &TransactionPostConditionMode::Allow,
+        );
+
+        let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();
+        let txid_vecs = txs_mblock
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+
+        let mut header = StacksMicroblockHeader {
+            version: 6,
+            sequence: 1,
+            prev_block: BlockHeaderHash([0x11; 32]),
+            tx_merkle_root,
+            signature: MessageSignature::empty(),
+        };
+
+        header.sign(&privk).unwrap();
+        StacksMicroblock {
+            header: header,
+            txs: txs_mblock,
+        }
+    }
 }
