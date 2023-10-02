@@ -111,8 +111,10 @@ lazy_static! {
                      parent TEXT NOT NULL,
                      -- the latest bitcoin block whose data is viewable from this stacks block
                      burn_view TEXT NOT NULL,
+                     -- miner's signature over the block
+                     miner_signature TEXT NOT NULL,
                      -- stackers' signature over the block
-                     signature TEXT NOT NULL,
+                     stacker_signature TEXT NOT NULL,
                      tx_merkle_root TEXT NOT NULL,
                      state_index_root TEXT NOT NULL,
 
@@ -184,7 +186,9 @@ pub struct NakamotoBlockHeader {
     /// The MARF trie root hash after this block has been processed
     pub state_index_root: TrieHash,
     /// Recoverable ECDSA signature from the tenure's miner.
-    pub signature: MessageSignature,
+    pub miner_signature: MessageSignature,
+    /// Recoverable ECDSA signature from the stacker set active during the tenure.
+    pub stacker_signature: MessageSignature,
 }
 
 #[derive(Debug, Clone)]
@@ -199,12 +203,15 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     fn from_row(row: &rusqlite::Row) -> Result<NakamotoBlockHeader, DBError> {
         let version = row.get("version")?;
         let chain_length_i64: i64 = row.get("chain_length")?;
-        let chain_length = chain_length_i64.try_into().map_err(|_| DBError::Overflow)?;
+        let chain_length = chain_length_i64
+            .try_into()
+            .map_err(|_| DBError::ParseError)?;
         let burn_spent_i64: i64 = row.get("burn_spent")?;
-        let burn_spent = burn_spent_i64.try_into().map_err(|_| DBError::Overflow)?;
+        let burn_spent = burn_spent_i64.try_into().map_err(|_| DBError::ParseError)?;
         let parent = row.get("parent")?;
         let burn_view = row.get("burn_view")?;
-        let signature = row.get("signature")?;
+        let stacker_signature = row.get("stacker_signature")?;
+        let miner_signature = row.get("miner_signature")?;
         let tx_merkle_root = row.get("tx_merkle_root")?;
         let state_index_root = row.get("state_index_root")?;
 
@@ -214,7 +221,8 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             burn_spent,
             parent,
             burn_view,
-            signature,
+            stacker_signature,
+            miner_signature,
             tx_merkle_root,
             state_index_root,
         })
@@ -230,7 +238,8 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.burn_view)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
-        write_next(fd, &self.signature)?;
+        write_next(fd, &self.miner_signature)?;
+        write_next(fd, &self.stacker_signature)?;
 
         Ok(())
     }
@@ -244,7 +253,8 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             burn_view: read_next(fd)?,
             tx_merkle_root: read_next(fd)?,
             state_index_root: read_next(fd)?,
-            signature: read_next(fd)?,
+            miner_signature: read_next(fd)?,
+            stacker_signature: read_next(fd)?,
         })
     }
 }
@@ -371,7 +381,7 @@ impl NakamotoChainState {
         let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
         conn.query_row(qry, &[block], |row| row.get(0))
             .optional()
-            .map_err(|e| ChainstateError::DBError(e.into()))
+            .map_err(ChainstateError::from)
     }
 
     /// Return the total transactions fees during the tenure up to and including
@@ -404,14 +414,13 @@ impl NakamotoChainState {
         if candidate_headers.len() == 0 {
             // no nakamoto_block_headers at that tenure height, check if there's a stack block header where
             //   block_height = tenure_height
-            let ancestor_at_height = match tx
+            let Some(ancestor_at_height) = tx
                 .get_ancestor_block_hash(tenure_height, tip_index_hash)?
                 .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
                 .transpose()?
                 .flatten()
-            {
-                Some(x) => x,
-                None => return Ok(None),
+            else {
+                return Ok(None);
             };
             // only return if it is an epoch-2 block, because that's
             // the only case where block_height can be interpreted as
@@ -424,11 +433,11 @@ impl NakamotoChainState {
         }
 
         for candidate in candidate_headers.into_iter() {
-            let ancestor_at_height = match tx.get_ancestor_block_hash(tenure_height, tip_index_hash)
-            {
-                Ok(Some(ancestor_at_height)) => ancestor_at_height,
+            let Ok(Some(ancestor_at_height)) =
+                tx.get_ancestor_block_hash(tenure_height, tip_index_hash)
+            else {
                 // if there's an error or no result, this candidate doesn't match, so try next candidate
-                _ => continue,
+                continue;
             };
             if ancestor_at_height == candidate.index_block_hash() {
                 return Ok(Some(candidate));
@@ -439,6 +448,11 @@ impl NakamotoChainState {
 
     /// Return the tenure height of `block` if it was a nakamoto block, or the
     ///  Stacks block height of `block` if it was an epoch-2 block
+    ///
+    /// In Stacks 2.x, the tenure height and block height are the
+    /// same. A miner's tenure in Stacks 2.x is entirely encompassed
+    /// in the single Bitcoin-anchored Stacks block they produce, as
+    /// well as the microblock stream they append to it.
     pub fn get_tenure_height(
         conn: &Connection,
         block: &StacksBlockId,
@@ -501,12 +515,15 @@ impl NakamotoChainState {
         assert_eq!(tip_info.stacks_block_height, header.chain_length,);
         assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
 
-        let index_root = &tip_info.index_root;
-        let consensus_hash = &tip_info.consensus_hash;
-        let burn_header_hash = &tip_info.burn_header_hash;
-        let block_height = tip_info.stacks_block_height;
-        let burn_header_height = tip_info.burn_header_height;
-        let burn_header_timestamp = tip_info.burn_header_timestamp;
+        let StacksHeaderInfo {
+            index_root,
+            consensus_hash,
+            burn_header_hash,
+            stacks_block_height,
+            burn_header_height,
+            burn_header_timestamp,
+            ..
+        } = tip_info;
 
         let block_size_str = format!("{}", tip_info.anchored_block_size);
 
@@ -515,15 +532,15 @@ impl NakamotoChainState {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
-        assert!(block_height < (i64::MAX as u64));
+        assert!(*stacks_block_height < (i64::MAX as u64));
 
         let args: &[&dyn ToSql] = &[
-            &u64_to_sql(block_height)?,
+            &u64_to_sql(*stacks_block_height)?,
             &index_root,
             &consensus_hash,
             &burn_header_hash,
             &burn_header_height,
-            &u64_to_sql(burn_header_timestamp)?,
+            &u64_to_sql(*burn_header_timestamp)?,
             &block_size_str,
             &HeaderTypeNames::Nakamoto,
             &header.version,
@@ -531,7 +548,8 @@ impl NakamotoChainState {
             &u64_to_sql(header.burn_spent)?,
             &header.parent,
             &header.burn_view,
-            &header.signature,
+            &header.miner_signature,
+            &header.stacker_signature,
             &header.tx_merkle_root,
             &header.state_index_root,
             &block_hash,
@@ -553,7 +571,7 @@ impl NakamotoChainState {
 
                      header_type,
                      version, chain_length, burn_spent, parent,
-                     burn_view, signature, tx_merkle_root, state_index_root,
+                     burn_view, miner_signature, stacker_signature, tx_merkle_root, state_index_root,
 
                      block_hash,
                      index_block_hash,
@@ -564,7 +582,7 @@ impl NakamotoChainState {
                      affirmation_weight,
                      tenure_height,
                      tenure_changed)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             args
         )?;
 
@@ -616,18 +634,10 @@ impl NakamotoChainState {
         let index_block_hash = StacksBlockId::new(&new_consensus_hash, &new_block_hash);
 
         // store each indexed field
-        test_debug!(
-            "Headers index_put_begin {}-{}",
-            &parent_hash,
-            &index_block_hash,
-        );
+        test_debug!("Headers index_put_begin {parent_hash}-{index_block_hash}");
         let root_hash =
             headers_tx.put_indexed_all(&parent_hash, &index_block_hash, &vec![], &vec![])?;
-        test_debug!(
-            "Headers index_indexed_all finished {}-{}",
-            &parent_hash,
-            &index_block_hash,
-        );
+        test_debug!("Headers index_indexed_all finished {parent_hash}-{index_block_hash}");
 
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone().into(),

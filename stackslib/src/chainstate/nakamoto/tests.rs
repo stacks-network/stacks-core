@@ -117,7 +117,8 @@ pub fn nakamoto_advance_tip_simple() {
                 "582a30eeea84437d222cf8f27cc090860c9eefbaa0fba166b6ef8a814bcc0a85",
             )
             .unwrap(),
-            signature: MessageSignature([0; 65]),
+            stacker_signature: MessageSignature([0; 65]),
+            miner_signature: MessageSignature([0; 65]),
         },
         txs: vec![coinbase_tx],
     };
@@ -217,10 +218,10 @@ pub fn nakamoto_advance_tip_multiple() {
     let mut last_block: Option<NakamotoBlock> = None;
     let index_roots = [
         "a8fa50e42ee48d393ac86036d8eec1bf6ada344de4100478fed37f1106281033",
-        "acbe6208306b4c2ded4d694b673ed5d86c1ab90aef5505017046be0ce1bde356",
-        "4797f6458d3da8a41a236a187e6ecf38944626a71d0ceda6195e346a1f14d3ba",
-        "b274115d4d317dc3377064c86494bf392d6e9e0d7739e310b605c7f9ad12aad9",
-        "6363beac4a9a3eff040808ea515e2b2e641f38b113ad0cb1524e339628911336",
+        "c431be733f37dee9dce70e6de51f616c2ed8b23583af8f7c4a8bce86c5f0a183",
+        "0c5e890e95e2f92ef36934bc0e5d71a6715974593f7d952b07ee6f959dae3f1c",
+        "0cd7696c4920ea5bc498ea46ee1df8566e06ea0bc8fd16a1e0ffd292d55f746e",
+        "84177188b1c02af772d2442b760fd9215b9dfadeed5723504acda2c94b068d15",
     ];
 
     for i in 1..6 {
@@ -291,7 +292,8 @@ pub fn nakamoto_advance_tip_multiple() {
                 burn_view: parent_snapshot.burn_header_hash.clone(),
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash::from_hex(&index_roots[usize::from(i) - 1]).unwrap(),
-                signature: MessageSignature([0; 65]),
+                stacker_signature: MessageSignature([0; 65]),
+                miner_signature: MessageSignature([0; 65]),
             },
             txs: vec![coinbase_tx, transacter_tx],
         };
