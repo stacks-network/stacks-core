@@ -43,7 +43,6 @@ use crate::net::stackerdb::{
 
 use crate::net::Error as net_error;
 use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -62,6 +61,7 @@ use clarity::vm::types::{
 use clarity::vm::ClarityName;
 
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
