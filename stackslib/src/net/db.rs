@@ -62,7 +62,6 @@ use crate::net::asn::ASEntry4;
 use crate::net::Neighbor;
 use crate::net::NeighborAddress;
 use crate::net::NeighborKey;
-use crate::net::PeerAddress;
 use crate::net::ServiceFlags;
 
 use crate::burnchains::PrivateKey;
@@ -72,15 +71,11 @@ use crate::core::NETWORK_P2P_PORT;
 
 use crate::util_lib::strings::UrlString;
 
+use stacks_common::types::net::PeerAddress;
+
 pub const PEERDB_VERSION: &'static str = "2";
 
 const NUM_SLOTS: usize = 8;
-
-impl PeerAddress {
-    pub fn to_bin(&self) -> String {
-        to_bin(&self.0)
-    }
-}
 
 impl FromColumn<PeerAddress> for PeerAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
@@ -1360,7 +1355,7 @@ impl PeerDB {
     }
 
     /// Get a peer's advertized stacker DBs
-    fn static_get_peer_stacker_dbs(
+    pub fn static_get_peer_stacker_dbs(
         conn: &Connection,
         neighbor: &Neighbor,
     ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
@@ -1834,7 +1829,7 @@ mod test {
     use super::*;
     use crate::net::Neighbor;
     use crate::net::NeighborKey;
-    use crate::net::PeerAddress;
+    use stacks_common::types::net::PeerAddress;
 
     use stacks_common::types::chainstate::StacksAddress;
 
