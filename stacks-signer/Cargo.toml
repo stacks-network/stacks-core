@@ -37,7 +37,7 @@ slog-term = "2.6.0"
 stacks-common = { path = "../stacks-common" }
 thiserror = "1.0"
 toml = "0.5.6"
-wsts = { git = "https://github.com/Trust-Machines/wsts", branch = "add-network-types" }
+wsts = { git = "https://github.com/Trust-Machines/wsts", tag = "4.0.0rc1" }
 
 [dependencies.serde_json]
 version = "1.0"

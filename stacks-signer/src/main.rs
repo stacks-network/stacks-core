@@ -58,7 +58,7 @@ use std::{
 };
 use wsts::{
     state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
-    v1,
+    v2,
 };
 
 struct SpawnedSigner {
@@ -93,11 +93,11 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator<v1::Aggregator>> = RunLoop::from(&config);
+    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator<v1::Aggregator>>,
+        RunLoop<FrostCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.node_host;

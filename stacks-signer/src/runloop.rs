@@ -12,7 +12,7 @@ use wsts::{
         signer::SigningRound,
         OperationResult, PublicKeys,
     },
-    v1,
+    v2,
 };
 
 /// Which operation to perform
@@ -51,7 +51,7 @@ pub struct RunLoop<C> {
     /// The signing round used to sign messages
     // TODO: update this to use frost_signer directly instead of the frost signing round
     // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
-    pub signing_round: SigningRound<v1::Signer>,
+    pub signing_round: SigningRound<v2::Signer>,
     /// The stacks client
     pub stacks_client: StacksClient,
     /// Received Commands that need to be processed
@@ -176,7 +176,7 @@ impl<C: Coordinatable> RunLoop<C> {
     }
 }
 
-impl From<&Config> for RunLoop<FrostCoordinator<v1::Aggregator>> {
+impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
     /// Creates new runloop from a config
     fn from(config: &Config) -> Self {
         // TODO: this should be a config option
