@@ -283,11 +283,12 @@ impl VRFProof {
         &self.c
     }
 
+    #[allow(clippy::needless_range_loop)]
     pub fn check_c(c: &ed25519_Scalar) -> bool {
         let c_bytes = c.reduce().to_bytes();
 
         // upper 16 bytes of c must be 0's
-        for c_byte in c_bytes.iter().skip(16) {
+        for c_byte in c_bytes[16..32].iter() {
             if *c_byte != 0 {
                 return false;
             }

@@ -349,7 +349,7 @@ mod test {
             let expected_recv_buf = send_bytes.clone();
 
             pipe_read.set_nonblocking(true);
-            pipe_write.write_all(&send_bytes[..]).unwrap();
+            let _ = pipe_write.write(&send_bytes[..]).unwrap();
 
             for i in 0..recv_list.len() {
                 let mut buf = vec![0u8; recv_list[i]];
@@ -511,7 +511,7 @@ mod test {
             let res = pipe_read.read(&mut bytes).unwrap_err();
             assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
 
-            pipe_write.write_all(segment).unwrap();
+            let _ = pipe_write.write(segment).unwrap();
 
             // should should succeed since the data is in the receiver's inbox
             let res = pipe_write.try_flush().unwrap();
@@ -554,7 +554,7 @@ mod test {
 
             // write each _byte_
             for (i, byte) in segment.iter().enumerate() {
-                pipe_write.write_all(&[*byte]).unwrap();
+                let _ = pipe_write.write(&[*byte]).unwrap();
                 let res = pipe_write.try_flush().unwrap();
 
                 // first write flushes; subsequent ones don't
