@@ -14,6 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![forbid(missing_docs)]
+/*!
+# libsigner: a library for creating and operating a Stacks Nakamato compliant signer.
+
+Usage documentation can be found in the [README](https://github.com/stacks-network/stacks-blockchain/libsigner/README.md).
+*/
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]

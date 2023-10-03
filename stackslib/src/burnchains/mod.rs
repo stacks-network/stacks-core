@@ -40,10 +40,10 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
 
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;

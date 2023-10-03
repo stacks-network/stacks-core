@@ -10,3 +10,17 @@ members = [
     "libsigner",
     "stacks-signer",
     "testnet/stacks-node"]
+
+# Use a bit more than default optimization for
+#  dev builds to speed up test execution
+[profile.dev]
+opt-level = 1
+
+# Use release-level optimization for dependencies
+# This slows down "first" builds on development environments,
+#  but won't impact subsequent builds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+debug = true

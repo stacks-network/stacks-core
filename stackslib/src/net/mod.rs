@@ -54,7 +54,6 @@ use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::Error as chainstate_error;
-use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
     TransactionPayload,
@@ -77,6 +76,7 @@ use clarity::vm::{
 };
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::codec::{read_next, write_next};
 use stacks_common::types::net::{Error as AddrError, PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
@@ -89,14 +89,15 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
-use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use crate::chainstate::stacks::StacksBlockHeader;
+
 use crate::cost_estimates::FeeRateEstimate;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use crate::types::StacksPublicKeyBuffer;
-use crate::util::hash::Sha256Sum;
-use crate::vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::hash::Sha256Sum;
 
 use crate::net::dns::*;
 use crate::net::http::{HttpContentType, HttpNotFound, HttpServerError};
@@ -1582,7 +1583,6 @@ pub mod test {
     use rand;
     use rand::RngCore;
 
-    use crate::address::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::bitcoin::keys::*;
@@ -1624,6 +1624,7 @@ pub mod test {
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
+    use stacks_common::address::*;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;

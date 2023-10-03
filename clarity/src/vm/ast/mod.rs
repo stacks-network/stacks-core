@@ -41,11 +41,11 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
-use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::diagnostic::{Diagnostic, Level};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
 
 /// Legacy function
 #[cfg(any(test, features = "testing"))]
@@ -73,12 +73,10 @@ fn parse_in_epoch(
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
     if epoch_id >= StacksEpochId::Epoch21 {
         parse_v2(source_code)
+    } else if ast_rules == ASTRules::Typical {
+        parse_v1_no_stack_limit(source_code)
     } else {
-        if ast_rules == ASTRules::Typical {
-            parse_v1_no_stack_limit(source_code)
-        } else {
-            parse_v1(source_code)
-        }
+        parse_v1(source_code)
     }
 }
 
@@ -606,7 +604,7 @@ mod test {
                 let mut cost_track = LimitedCostTracker::new_free();
                 let ast = build_ast(
                     &QualifiedContractIdentifier::transient(),
-                    &progn,
+                    progn,
                     &mut cost_track,
                     *version,
                     *epoch,

@@ -16,7 +16,6 @@
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use clarity::types::StacksEpochId;
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -32,6 +31,7 @@ use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use clarity::vm::tests::test_clarity_versions;

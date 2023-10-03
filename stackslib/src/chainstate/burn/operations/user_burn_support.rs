@@ -31,17 +31,17 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPublicKey, VRF};
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 // return type for parse_data (below)
 struct ParsedData {
@@ -314,14 +314,14 @@ mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::core::StacksEpochId;
-    use crate::types::chainstate::StacksAddress;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
     use stacks_common::util::log;
 
-    use crate::types::chainstate::SortitionId;
+    use stacks_common::types::chainstate::SortitionId;
 
     use super::*;
 

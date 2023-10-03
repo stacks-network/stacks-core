@@ -36,7 +36,6 @@ use crate::chainstate::stacks::db::MinerRewardInfo;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::codec::MAX_MESSAGE_LEN;
 use crate::net::Error as net_error;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
@@ -51,6 +50,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
@@ -58,8 +58,8 @@ use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};

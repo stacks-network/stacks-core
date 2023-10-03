@@ -49,22 +49,22 @@ use crate::net::stackerdb::{
 };
 use crate::net::Error as net_error;
 use crate::net::*;
-use crate::types::chainstate::StacksBlockId;
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::monitoring::update_stacks_tip_height;
-use crate::types::chainstate::{PoxId, SortitionId};
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::StacksEpochId;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
@@ -1753,7 +1753,7 @@ impl Relayer {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data]);
                 }
             }
-            for (contract_id, new_chunks) in all_events.iter() {
+            for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
         }
@@ -1814,7 +1814,7 @@ impl Relayer {
         }
 
         if let Some(observer) = event_observer.as_ref() {
-            for (contract_id, new_chunks) in all_events.iter() {
+            for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
         }

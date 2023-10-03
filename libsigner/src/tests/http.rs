@@ -55,7 +55,7 @@ fn test_decode_http_request_ok() {
             expected_headers.insert(key.to_string(), val.to_string());
         }
 
-        let (verb, path, headers, _) = decode_http_request(data.as_bytes()).unwrap();
+        let (verb, path, headers, _) = decode_http_request(data.as_bytes()).unwrap().destruct();
         assert_eq!(verb, expected_verb.to_string());
         assert_eq!(path, expected_path.to_string());
         assert_eq!(headers, expected_headers);
@@ -166,9 +166,9 @@ fn test_decode_http_body() {
 
             let mut state = HttpChunkedTransferWriterState::new(5);
             let mut buf = vec![];
-            let mut body_bytes = expected_body.as_bytes().to_vec();
+            let body_bytes = expected_body.as_bytes().to_vec();
             let mut fd = HttpChunkedTransferWriter::from_writer_state(&mut buf, &mut state);
-            fd.write_all(&mut body_bytes).unwrap();
+            fd.write_all(&body_bytes).unwrap();
             fd.flush().unwrap();
             (hdrs, buf)
         } else {
@@ -177,7 +177,7 @@ fn test_decode_http_body() {
             (hdrs, body)
         };
 
-        let body = decode_http_body(&headers, &mut &encoded_body).unwrap();
+        let body = decode_http_body(&headers, &encoded_body).unwrap();
         assert_eq!(&body[..], expected_body.as_bytes());
     }
 }
@@ -252,9 +252,9 @@ fn test_run_http_request_with_body() {
         // test with chunking
         let mut state = HttpChunkedTransferWriterState::new(5);
         let mut buf = vec![];
-        let mut body_bytes = "this is the song that never ends".as_bytes().to_vec();
+        let body_bytes = "this is the song that never ends".as_bytes().to_vec();
         let mut fd = HttpChunkedTransferWriter::from_writer_state(&mut buf, &mut state);
-        fd.write_all(&mut body_bytes).unwrap();
+        fd.write_all(&body_bytes).unwrap();
         fd.flush().unwrap();
 
         let mut msock_chunked = MockHTTPSocket::new(format!("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n{}", str::from_utf8(&buf).unwrap()));

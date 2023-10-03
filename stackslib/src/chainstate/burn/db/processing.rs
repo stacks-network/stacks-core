@@ -380,7 +380,7 @@ mod tests {
     use crate::core::MICROSTACKS_PER_STACKS;
     use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
 
-    use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
 
     use super::*;
 

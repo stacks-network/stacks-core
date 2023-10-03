@@ -1,11 +1,11 @@
-use stacks::address::AddressHashMode;
 use stacks::burnchains::BurnchainSigner;
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
 };
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::hash::{Hash160, Sha256Sum};
-use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::{Hash160, Sha256Sum};
+use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use super::operations::BurnchainOpSigner;
 
@@ -196,14 +196,14 @@ impl Keychain {
 mod tests {
     use std::collections::HashMap;
 
-    use stacks::address::AddressHashMode;
     use stacks::burnchains::PrivateKey;
     use stacks::chainstate::stacks::{
         StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
     };
-    use stacks::types::chainstate::StacksAddress;
-    use stacks::util::hash::{Hash160, Sha256Sum};
-    use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::{Hash160, Sha256Sum};
+    use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
     use crate::operations::BurnchainOpSigner;
 

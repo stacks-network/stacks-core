@@ -68,9 +68,9 @@ use crate::net::NeighborKey;
 use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::*;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
@@ -79,7 +79,7 @@ use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;

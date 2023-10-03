@@ -39,8 +39,8 @@ use crate::vm::types::{
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
-use crate::codec::{Error as codec_error, StacksMessageCodec};
 use crate::vm::types::byte_len_of_serialization;
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 
 use super::{ListTypeData, TupleTypeSignature};
 
@@ -270,7 +270,7 @@ impl PrincipalData {
         let mut header = [0];
         r.read_exact(&mut header)?;
 
-        let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad principal prefix")?;
+        let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad principal prefix")?;
 
         match prefix {
             TypePrefix::PrincipalStandard => {
@@ -367,7 +367,7 @@ impl DeserializeStackItem {
                     if *next_sanitize {
                         return Ok(None);
                     }
-                    let field_type = some_tuple.field_type(&next_name).ok_or_else(|| {
+                    let field_type = some_tuple.field_type(next_name).ok_or_else(|| {
                         SerializationError::DeserializeExpected(TypeSignature::TupleType(
                             some_tuple.clone(),
                         ))
@@ -599,7 +599,7 @@ impl Value {
 
             let mut header = [0];
             r.read_exact(&mut header)?;
-            let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad type prefix")?;
+            let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad type prefix")?;
 
             let item = match prefix {
                 TypePrefix::Int => {
@@ -774,12 +774,10 @@ impl Value {
                                         expected_type.unwrap().clone(),
                                     ));
                                 }
-                            } else {
-                                if len as u64 != tuple_type.len() {
-                                    return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
-                                    ));
-                                }
+                            } else if len as u64 != tuple_type.len() {
+                                return Err(SerializationError::DeserializeExpected(
+                                    expected_type.unwrap().clone(),
+                                ));
                             }
                             Some(tuple_type)
                         }
@@ -816,7 +814,7 @@ impl Value {
                             TupleData::from_data_typed(
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
-                                &tuple_type,
+                                tuple_type,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -935,7 +933,7 @@ impl Value {
                         mut processed_entries,
                     } => {
                         let push_entry = if sanitize {
-                            if let Some(_) = expected_type.as_ref() {
+                            if expected_type.is_some() {
                                 // if performing tuple sanitization, don't include a field
                                 //  if it was sanitized
                                 !next_sanitize
@@ -1060,7 +1058,7 @@ impl Value {
                 let total_len: u32 = value.data.iter().fold(0u32, |len, c| len + c.len() as u32);
                 w.write_all(&(total_len.to_be_bytes()))?;
                 for bytes in value.data.iter() {
-                    w.write_all(&bytes)?
+                    w.write_all(bytes)?
                 }
             }
             Sequence(SequenceData::String(ASCII(value))) => {
@@ -1100,8 +1098,8 @@ impl Value {
         expected: &TypeSignature,
         sanitize: bool,
     ) -> Result<Value, SerializationError> {
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes(&mut data, expected, sanitize)
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes(&data, expected, sanitize)
     }
 
     /// This function attempts to deserialize a byte buffer into a
@@ -1136,13 +1134,9 @@ impl Value {
     /// Try to deserialize a value from a hex string without type information. This *does not*
     /// perform sanitization.
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
-        let hex = if hex.starts_with("0x") {
-            &hex[2..]
-        } else {
-            &hex
-        };
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes_untyped(&mut data)
+        let hex = hex.strip_prefix("0x").unwrap_or(hex);
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes_untyped(&data)
     }
 
     pub fn serialized_size(&self) -> u32 {
@@ -1268,7 +1262,7 @@ impl Value {
                     None => return Some((Value::none(), false)),
                 };
                 let (sanitized_data, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, some_data)?;
+                    Self::sanitize_value(epoch, inner_type, some_data)?;
                 (Value::some(sanitized_data).ok()?, did_sanitize_child)
             }
             Value::Response(response) => {
@@ -1281,7 +1275,7 @@ impl Value {
                 let response_data = *response.data;
                 let inner_type = if response_ok { &rt.0 } else { &rt.1 };
                 let (sanitized_inner, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, response_data)?;
+                    Self::sanitize_value(epoch, inner_type, response_data)?;
                 let sanitized_resp = if response_ok {
                     Value::okay(sanitized_inner)
                 } else {
@@ -1318,7 +1312,7 @@ impl ClaritySerializable for u32 {
 
 impl ClarityDeserializable<u32> for u32 {
     fn deserialize(input: &str) -> Self {
-        let bytes = hex_bytes(&input).expect("u32 deserialization: failed decoding bytes.");
+        let bytes = hex_bytes(input).expect("u32 deserialization: failed decoding bytes.");
         assert_eq!(bytes.len(), 4);
         u32::from_be_bytes(
             bytes[0..4]
@@ -1370,7 +1364,7 @@ pub mod tests {
     use stacks_common::types::StacksEpochId;
 
     fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap()))
     }
 
     fn test_deser_ser(v: Value) {
@@ -1396,12 +1390,10 @@ pub mod tests {
     }
 
     fn test_bad_expectation(v: Value, e: TypeSignature) {
-        assert!(
-            match Value::try_deserialize_hex(&v.serialize_to_hex(), &e, false).unwrap_err() {
-                SerializationError::DeserializeExpected(_) => true,
-                _ => false,
-            }
-        )
+        assert!(matches!(
+            Value::try_deserialize_hex(&v.serialize_to_hex(), &e, false).unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ))
     }
 
     #[test]
@@ -1483,7 +1475,7 @@ pub mod tests {
 
         // make a list that says it is longer than it is!
         //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
-        let mut eof = vec![3u8; 64 as usize];
+        let mut eof = vec![3u8; 64_usize];
         // list prefix
         eof[0] = 11;
         // list length
@@ -1501,13 +1493,13 @@ pub mod tests {
         */
 
         match Value::deserialize_read(&mut eof.as_slice(), None, false) {
-            Ok(_) => assert!(false, "Accidentally parsed truncated slice"),
+            Ok(_) => panic!("Accidentally parsed truncated slice"),
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => assert!(false, "Invalid I/O error: {:?}", &ioe),
+                    _ => panic!("Invalid I/O error: {:?}", &ioe),
                 },
-                _ => assert!(false, "Invalid deserialize error: {:?}", &eres),
+                _ => panic!("Invalid deserialize error: {:?}", &eres),
             },
         }
     }
@@ -1677,40 +1669,37 @@ pub mod tests {
         );
 
         // field number not equal to expectations
-        assert!(match Value::try_deserialize_hex(
-            &t_3.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_3.serialize_to_hex(),
+                &TypeSignature::type_of(&t_1),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field type mismatch
-        assert!(match Value::try_deserialize_hex(
-            &t_2.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_2.serialize_to_hex(),
+                &TypeSignature::type_of(&t_1),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field not-present in expected
-        assert!(match Value::try_deserialize_hex(
-            &t_1.serialize_to_hex(),
-            &TypeSignature::type_of(&t_4),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_1.serialize_to_hex(),
+                &TypeSignature::type_of(&t_4),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
     }
 
     #[apply(test_clarity_versions)]
@@ -2050,10 +2039,7 @@ pub mod tests {
                 RollbackWrapper::deserialize_value(&serialized, good_type, &epoch).map(|x| x.value);
             if epoch < StacksEpochId::Epoch24 {
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    _ => panic!("Expected a DeserializeExpected error"),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             } else {
                 let value = result.unwrap();
                 assert_eq!(&value, expected_out);
@@ -2063,10 +2049,7 @@ pub mod tests {
                 eprintln!("Testing bad type: {}", bad_type);
                 let result = RollbackWrapper::deserialize_value(&serialized, bad_type, &epoch);
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    e => panic!("Expected a DeserializeExpected error, got = {}", e),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             }
 
             // now test the value::sanitize routine

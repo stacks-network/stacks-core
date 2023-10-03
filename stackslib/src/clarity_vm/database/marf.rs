@@ -22,8 +22,8 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
-use crate::codec::StacksMessageCodec;
 use crate::util_lib::db::Error as DatabaseError;
+use stacks_common::codec::StacksMessageCodec;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -88,7 +88,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(miner_tip) => miner_tip.to_owned(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 
@@ -102,7 +102,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(miner_tip) => miner_tip.to_owned(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 

@@ -93,7 +93,7 @@ use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::chainstate::stacks::StacksBlockHeader;
-use crate::types::chainstate::{PoxId, SortitionId};
+use stacks_common::types::chainstate::{PoxId, SortitionId};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -5814,9 +5814,9 @@ mod test {
     use crate::net::relay::test::make_contract_tx;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::BurnchainHeaderHash;
     use crate::util_lib::test::*;
     use clarity::vm::types::StacksAddressExtensions;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::util::log;
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
     use stacks_common::util::sleep_ms;

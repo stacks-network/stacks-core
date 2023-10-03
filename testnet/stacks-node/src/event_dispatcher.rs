@@ -8,6 +8,10 @@ use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 use serde_json::json;
 
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
+use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -19,16 +23,12 @@ use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
 };
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDropReason;
 use stacks::core::mempool::MemPoolEventDispatcher;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks::util::hash::bytes_to_hex;
-use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
-use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::util::hash::bytes_to_hex;
 
 use super::config::{EventKeyType, EventObserverConfig};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -40,6 +40,8 @@ use stacks::chainstate::stacks::TransactionPayload;
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 
 use stacks::libstackerdb::StackerDBChunkData;
+
+pub use libsigner::StackerDBChunksEvent;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -88,13 +90,6 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
-}
-
-/// Event structure for newly-arrived StackerDB data
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct StackerDBChunksEvent {
-    pub contract_id: QualifiedContractIdentifier,
-    pub modified_slots: Vec<StackerDBChunkData>,
 }
 
 impl EventObserver {
@@ -477,8 +472,8 @@ impl StackerDBEventDispatcher for EventDispatcher {
     /// Relay new StackerDB chunks
     fn new_stackerdb_chunks(
         &self,
-        contract_id: &QualifiedContractIdentifier,
-        chunks: &[StackerDBChunkData],
+        contract_id: QualifiedContractIdentifier,
+        chunks: Vec<StackerDBChunkData>,
     ) {
         self.process_new_stackerdb_chunks(contract_id, chunks);
     }
@@ -914,8 +909,8 @@ impl EventDispatcher {
     /// Infallible.
     pub fn process_new_stackerdb_chunks(
         &self,
-        contract_id: &QualifiedContractIdentifier,
-        new_chunks: &[StackerDBChunkData],
+        contract_id: QualifiedContractIdentifier,
+        new_chunks: Vec<StackerDBChunkData>,
     ) {
         let interested_observers: Vec<_> = self
             .registered_observers
@@ -923,7 +918,6 @@ impl EventDispatcher {
             .enumerate()
             .filter(|(obs_id, _observer)| {
                 self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -931,8 +925,8 @@ impl EventDispatcher {
         }
 
         let payload = serde_json::to_value(StackerDBChunksEvent {
-            contract_id: contract_id.clone(),
-            modified_slots: new_chunks.to_vec(),
+            contract_id,
+            modified_slots: new_chunks,
         })
         .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
 

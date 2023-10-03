@@ -19,10 +19,9 @@ mod http;
 use std::io::Write;
 use std::mem;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-
-use serde_json;
 
 use crate::{Signer, SignerRunLoop, StackerDBChunksEvent, StackerDBEventReceiver};
 
@@ -51,18 +50,24 @@ impl SimpleRunLoop {
     }
 }
 
-impl SignerRunLoop<Vec<StackerDBChunksEvent>> for SimpleRunLoop {
+enum Command {
+    Empty,
+}
+
+impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }
 
     fn get_event_timeout(&self) -> Duration {
-        self.poll_timeout.clone()
+        self.poll_timeout
     }
 
     fn run_one_pass(
         &mut self,
         event: Option<StackerDBChunksEvent>,
+        _cmd: Option<Command>,
+        _res: Sender<Vec<StackerDBChunksEvent>>,
     ) -> Option<Vec<StackerDBChunksEvent>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
@@ -70,9 +75,9 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>> for SimpleRunLoop {
         }
 
         if self.events.len() >= self.max_events {
-            return Some(mem::replace(&mut self.events, vec![]));
+            Some(mem::take(&mut self.events))
         } else {
-            return None;
+            None
         }
     }
 }
@@ -87,9 +92,10 @@ fn test_simple_signer() {
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
     )
     .unwrap()]);
-    let mut signer = Signer::new(SimpleRunLoop::new(5), ev);
+    let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
+    let mut signer = Signer::new(SimpleRunLoop::new(5), ev, cmd_recv, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
-    let thread_endpoint = endpoint.clone();
 
     let mut chunks = vec![];
     for i in 0..5 {
@@ -113,7 +119,7 @@ fn test_simple_signer() {
     let mock_stacks_node = thread::spawn(move || {
         let mut num_sent = 0;
         while num_sent < thread_chunks.len() {
-            let mut sock = match TcpStream::connect(&thread_endpoint) {
+            let mut sock = match TcpStream::connect(endpoint) {
                 Ok(sock) => sock,
                 Err(..) => {
                     sleep_ms(100);
@@ -134,7 +140,20 @@ fn test_simple_signer() {
 
     let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(5000);
-    let accepted_events = running_signer.stop().unwrap();
+    let mut accepted_events = running_signer.stop().unwrap();
+
+    chunks.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
+    accepted_events.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
 
     // runloop got the event that the mocked stacks node sent
     assert_eq!(accepted_events, chunks);

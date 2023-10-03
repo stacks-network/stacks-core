@@ -25,10 +25,10 @@ use crate::{
     burnchains::Txid,
     core::MemPoolDB,
     net::{httpcore::StacksHttpRequest, Error as net_error},
-    util::get_epoch_time_secs,
     util_lib::db::{tx_busy_handler, DBConn},
 };
 use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};
 use std::convert::TryInto;
 use std::error::Error;

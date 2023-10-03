@@ -68,15 +68,15 @@ use stacks_common::util::sleep_ms;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use stacks_common::util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
 
+use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
-use crate::{
-    chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
-};
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
+use stacks_common::util::vrf::VRFProof;
 
 use super::MemPoolDB;
 

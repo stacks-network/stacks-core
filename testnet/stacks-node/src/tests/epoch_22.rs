@@ -8,8 +8,8 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::chainstate::stacks::miner::signal_mining_ready;
 use stacks::core::STACKS_EPOCH_MAX;
-use stacks::types::chainstate::StacksAddress;
-use stacks::types::PrivateKey;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::PrivateKey;
 
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;
@@ -37,7 +37,7 @@ use stacks::clarity_cli::vm_execute as execute;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::ClarityVersion;
 
-use stacks::util::sleep_ms;
+use stacks_common::util::sleep_ms;
 
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::StacksBlockId;

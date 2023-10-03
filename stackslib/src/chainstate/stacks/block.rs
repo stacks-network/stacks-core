@@ -29,10 +29,10 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
-use crate::codec::MAX_MESSAGE_LEN;
 use crate::core::*;
 use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::retry::BoundReader;
@@ -41,11 +41,11 @@ use stacks_common::util::vrf::*;
 
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -939,7 +939,7 @@ mod test {
     use stacks_common::util::hash::*;
     use std::error::Error;
 
-    use crate::types::chainstate::StacksAddress;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 

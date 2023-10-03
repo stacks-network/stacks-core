@@ -68,8 +68,8 @@ use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in

@@ -34,12 +34,15 @@ use std::sync::mpsc::TrySendError;
 use mio;
 use mio::net as mio_net;
 
-use crate::codec::MAX_MESSAGE_LEN;
+use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
+use crate::net::codec::*;
 use crate::net::Error as net_error;
 use crate::net::MessageSequence;
 use crate::net::ProtocolFamily;
 use crate::net::StacksHttp;
 use crate::net::StacksP2P;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::MAX_MESSAGE_LEN;
 
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};

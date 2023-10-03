@@ -28,20 +28,24 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use crate::error::RPCError;
 use crate::http::run_http_request;
 
-use serde_json;
-
+/// Trait for connecting to and querying a signer Stacker DB replica
 pub trait SignerSession {
+    /// connect to the replica
     fn connect(
         &mut self,
         host: SocketAddr,
         stackerdb_contract_id: QualifiedContractIdentifier,
     ) -> Result<(), RPCError>;
+    /// query the replica for a list of chunks
     fn list_chunks(&mut self) -> Result<Vec<SlotMetadata>, RPCError>;
+    /// query the replica for zero or more chunks
     fn get_chunks(
         &mut self,
         slots_and_versions: &[(u32, u32)],
     ) -> Result<Vec<Option<Vec<u8>>>, RPCError>;
+    /// query the replica for zero or more latest chunks
     fn get_latest_chunks(&mut self, slot_ids: &[u32]) -> Result<Vec<Option<Vec<u8>>>, RPCError>;
+    /// Upload a chunk to the stacker DB instance
     fn put_chunk(&mut self, chunk: StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError>;
 
     /// Get a single chunk with the given version
@@ -87,7 +91,7 @@ impl StackerDBSession {
     /// connect or reconnect to the node
     fn connect_or_reconnect(&mut self) -> Result<(), RPCError> {
         debug!("connect to {}", &self.host);
-        self.sock = Some(TcpStream::connect(self.host.clone())?);
+        self.sock = Some(TcpStream::connect(self.host)?);
         Ok(())
     }
 
@@ -96,9 +100,10 @@ impl StackerDBSession {
     where
         F: FnOnce(&mut StackerDBSession, &mut TcpStream) -> R,
     {
-        if self.sock.is_none() {
-            self.connect_or_reconnect()?;
-        }
+        // TODO: fix this so we can use persistent connection
+        // See https://github.com/stacks-network/stacks-blockchain/issues/3922
+        //if self.sock.is_none() {
+        self.connect_or_reconnect()?;
 
         let mut sock = if let Some(s) = self.sock.take() {
             s
