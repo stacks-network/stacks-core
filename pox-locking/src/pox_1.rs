@@ -119,6 +119,7 @@ pub fn pox_lock_v1(
 }
 
 /// Handle special cases when calling into the PoX v1 contract
+#[allow(clippy::needless_return)]
 pub fn handle_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
@@ -171,18 +172,20 @@ pub fn handle_contract_call(
                     }),
                 ));
             }
-            Ok(())
+            return Ok(());
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
-            None,
-        )),
+        Err(LockingError::DefunctPoxContract) => {
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
-            Err(ClarityError::Runtime(
+            return Err(ClarityError::Runtime(
                 RuntimeErrorType::PoxAlreadyLocked,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             panic!(

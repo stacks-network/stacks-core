@@ -272,6 +272,7 @@ fn pox_lock_v2(
 }
 
 /// Handle responses from stack-stx and delegate-stack-stx -- functions that *lock up* STX
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -310,18 +311,20 @@ fn handle_stack_lockup_pox_v2(
                     locked_address: stacker,
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
-            Ok(Some(event))
+            return Ok(Some(event));
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
-            None,
-        )),
+        Err(LockingError::DefunctPoxContract) => {
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
-            Err(ClarityError::Runtime(
+            return Err(ClarityError::Runtime(
                 RuntimeErrorType::PoxAlreadyLocked,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             panic!(
@@ -334,6 +337,7 @@ fn handle_stack_lockup_pox_v2(
 
 /// Handle responses from stack-extend and delegate-stack-extend -- functions that *extend
 /// already-locked* STX.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_extension_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -375,12 +379,14 @@ fn handle_stack_lockup_extension_pox_v2(
                     locked_address: stacker,
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
-            Ok(Some(event))
+            return Ok(Some(event));
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
-            None,
-        )),
+        Err(LockingError::DefunctPoxContract) => {
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
@@ -395,6 +401,7 @@ fn handle_stack_lockup_extension_pox_v2(
 
 /// Handle responses from stack-increase and delegate-stack-increase -- functions that *increase
 /// already-locked* STX amounts.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_increase_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -435,12 +442,14 @@ fn handle_stack_lockup_increase_pox_v2(
                     contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                 }));
 
-            Ok(Some(event))
+            return Ok(Some(event));
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
-            None,
-        )),
+        Err(LockingError::DefunctPoxContract) => {
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
