@@ -45,7 +45,6 @@ use stacks_signer::{
         RunDkgArgs, SignArgs, StackerDBArgs,
     },
     config::{Config, Network},
-    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
     runloop::{RunLoop, RunLoopCommand},
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
@@ -56,6 +55,10 @@ use std::{
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
+};
+use wsts::{
+    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
+    v2,
 };
 
 struct SpawnedSigner {
@@ -90,11 +93,11 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator> = RunLoop::from(&config);
+    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator>,
+        RunLoop<FrostCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
     let endpoint = config.node_host;
@@ -114,10 +117,16 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
         OperationResult::Dkg(point) => {
             println!("Received aggregate group key: {point}");
         }
-        OperationResult::Sign(signature, schnorr_proof) => {
+        OperationResult::Sign(signature) => {
             panic!(
-                "Received unexpected signature ({},{}) and schnorr proof ({},{})",
-                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+                "Received unexpected signature ({},{})",
+                &signature.R, &signature.z,
+            );
+        }
+        OperationResult::SignTaproot(schnorr_proof) => {
+            panic!(
+                "Received unexpected schnorr proof ({},{})",
+                &schnorr_proof.r, &schnorr_proof.s,
             );
         }
     }
@@ -131,10 +140,16 @@ fn process_sign_result(sign_res: &[OperationResult]) {
         OperationResult::Dkg(point) => {
             panic!("Received unexpected aggregate group key: {point}");
         }
-        OperationResult::Sign(signature, schnorr_proof) => {
-            println!(
-                "Received good signature ({},{}) and schnorr proof ({},{})",
-                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+        OperationResult::Sign(signature) => {
+            panic!(
+                "Received bood signature ({},{})",
+                &signature.R, &signature.z,
+            );
+        }
+        OperationResult::SignTaproot(schnorr_proof) => {
+            panic!(
+                "Received unexpected schnorr proof ({},{})",
+                &schnorr_proof.r, &schnorr_proof.s,
             );
         }
     }
@@ -184,7 +199,11 @@ fn handle_sign(args: SignArgs) {
     let spawned_signer = spawn_running_signer(&args.config);
     spawned_signer
         .cmd_send
-        .send(RunLoopCommand::Sign { message: args.data })
+        .send(RunLoopCommand::Sign {
+            message: args.data,
+            is_taproot: false,
+            merkle_root: None,
+        })
         .unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
@@ -198,7 +217,11 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     spawned_signer
         .cmd_send
-        .send(RunLoopCommand::Sign { message: args.data })
+        .send(RunLoopCommand::Sign {
+            message: args.data,
+            is_taproot: false,
+            merkle_root: None,
+        })
         .unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
