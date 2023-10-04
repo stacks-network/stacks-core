@@ -336,7 +336,7 @@ fn main() {
 fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
     let version = match network {
         Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
     StacksAddress::from_public_keys(
         version,

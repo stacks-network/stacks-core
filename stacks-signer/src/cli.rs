@@ -135,7 +135,7 @@ pub struct GenerateFilesArgs {
     /// The total number of key ids to distribute among the signers
     pub num_keys: u32,
     #[arg(long, value_parser = parse_network)]
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network to use. One of "mainnet", "testnet", or "mocknet".
     pub network: Network,
     /// The directory to write the test data files to
     #[arg(long, default_value = ".")]
@@ -168,14 +168,15 @@ fn parse_data(data: &str) -> Result<String, String> {
     Ok(data)
 }
 
-/// Parse the network. Must be one of "mainnet" or "testnet".
+/// Parse the network. Must be one of "mainnet", "testnet", or "mocknet".
 fn parse_network(network: &str) -> Result<Network, String> {
     Ok(match network.to_lowercase().as_str() {
         "mainnet" => Network::Mainnet,
         "testnet" => Network::Testnet,
+        "mocknet" => Network::Mocknet,
         _ => {
             return Err(format!(
-                "Invalid network: {}. Must be one of \"mainnet\" or \"testnet\".",
+                "Invalid network: {}. Must be one of \"mainnet\", \"testnet\", or \"mocknet\".",
                 network
             ))
         }

@@ -67,6 +67,8 @@ pub enum Network {
     Mainnet,
     /// The testnet network
     Testnet,
+    /// The mocknet network
+    Mocknet,
 }
 
 impl Network {
