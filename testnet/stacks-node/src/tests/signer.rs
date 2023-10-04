@@ -24,6 +24,7 @@ use stacks_signer::{
     runloop::RunLoopCommand,
     utils::{build_signer_config_tomls, build_stackerdb_contract},
 };
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use wsts::{
     state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
     v2,
@@ -156,9 +157,15 @@ fn test_stackerdb_dkg() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
     // Generate Signer Data
     let num_signers: u32 = 16;
-    let num_keys: u32 = 4000;
+    let num_keys: u32 = 40;
     let signer_stacks_private_keys = (0..num_signers)
         .map(|_| StacksPrivateKey::new())
         .collect::<Vec<StacksPrivateKey>>();

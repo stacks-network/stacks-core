@@ -56,6 +56,7 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use wsts::{
     state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
     v2,
@@ -298,6 +299,12 @@ fn handle_generate_files(args: GenerateFilesArgs) {
 
 fn main() {
     let cli = Cli::parse();
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
     match cli.command {
         Command::GetChunk(args) => {
             handle_get_chunk(args);
