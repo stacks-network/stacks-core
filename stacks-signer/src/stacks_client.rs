@@ -1,10 +1,10 @@
 use bincode::Error as BincodeError;
-use frost_signer::{net::Message, signing_round::MessageTypes};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
 use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn};
+use wsts::net::{Message, Packet};
 
 use crate::config::Config;
 
@@ -59,7 +59,7 @@ impl StacksClient {
     pub fn send_message(
         &mut self,
         id: u32,
-        message: Message,
+        message: Packet,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let message_bytes = bincode::serialize(&message)?;
         let slot_id = slot_id(id, &message.msg);
@@ -101,18 +101,17 @@ impl StacksClient {
 }
 
 /// Helper function to determine the slot ID for the provided stacker-db writer id and the message type
-fn slot_id(id: u32, message: &MessageTypes) -> u32 {
+fn slot_id(id: u32, message: &Message) -> u32 {
     let slot_id = match message {
-        MessageTypes::DkgBegin(_) => 0,
-        MessageTypes::DkgPrivateBegin(_) => 1,
-        MessageTypes::DkgEnd(_) => 2,
-        MessageTypes::DkgPublicEnd(_) => 3,
-        MessageTypes::DkgPublicShare(_) => 4,
-        MessageTypes::DkgPrivateShares(_) => 5,
-        MessageTypes::NonceRequest(_) => 6,
-        MessageTypes::NonceResponse(_) => 7,
-        MessageTypes::SignShareRequest(_) => 8,
-        MessageTypes::SignShareResponse(_) => 9,
+        Message::DkgBegin(_) => 0,
+        Message::DkgPrivateBegin(_) => 1,
+        Message::DkgEnd(_) => 2,
+        Message::DkgPublicShares(_) => 4,
+        Message::DkgPrivateShares(_) => 5,
+        Message::NonceRequest(_) => 6,
+        Message::NonceResponse(_) => 7,
+        Message::SignatureShareRequest(_) => 8,
+        Message::SignatureShareResponse(_) => 9,
     };
     SLOTS_PER_USER * id + slot_id
 }

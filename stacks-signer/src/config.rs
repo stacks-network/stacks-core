@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use frost_signer::config::{PublicKeys, SignerKeyIds};
+use hashbrown::HashMap;
 use p256k1::{ecdsa, scalar::Scalar};
 use serde::Deserialize;
 use stacks_common::types::chainstate::StacksPrivateKey;
@@ -26,6 +26,10 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
+use wsts::state_machine::PublicKeys;
+
+/// List of key_ids for each signer_id
+pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 
