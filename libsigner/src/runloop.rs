@@ -133,6 +133,12 @@ impl<EV: EventReceiver, R> RunningSigner<EV, R> {
         // kill event receiver
         self.stop_signal.send();
 
+        self.join()
+    }
+
+    /// Wait for the signer to terminate, and get the final state.
+    /// WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurs.
+    pub fn join(self) -> Option<R> {
         debug!("Try join event loop...");
         // wait for event receiver join
         let _ = self.event_join.join().map_err(|thread_panic| {

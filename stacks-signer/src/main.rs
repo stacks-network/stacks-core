@@ -227,11 +227,10 @@ fn handle_dkg_sign(args: SignArgs) {
 
 fn handle_run(args: RunDkgArgs) {
     debug!("Running signer...");
-    let _spawned_signer = spawn_running_signer(&args.config);
+    let spawned_signer = spawn_running_signer(&args.config);
     println!("Signer spawned successfully. Waiting for messages to process...");
-    loop {
-        std::thread::sleep(Duration::from_secs(10));
-    }
+    // Wait for the spawned signer to stop (will only occur if an error occurs)
+    let _ = spawned_signer.running_signer.join();
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
