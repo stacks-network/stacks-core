@@ -3349,7 +3349,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn convo_handshake_accept() {
         with_timeout(100, || {
             let conn_opts = ConnectionOptions::default();

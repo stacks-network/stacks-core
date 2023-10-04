@@ -240,7 +240,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe if
     /// `drop_on_success` is true.  Returns `true` if we drained the write end, `false` if not.
     pub fn try_flush_ex(&mut self, drop_on_success: bool) -> Result<bool, net_error> {
-        let mut ret = false;
+        let ret;
         let fd_opt = match self.request_pipe_write.take() {
             Some(mut fd) => {
                 ret = fd.try_flush().map_err(net_error::WriteError)?;
@@ -252,7 +252,10 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     Some(fd)
                 }
             }
-            None => None,
+            None => {
+                ret = true;
+                None
+            }
         };
         self.request_pipe_write = fd_opt;
         Ok(ret)
