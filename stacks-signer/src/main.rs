@@ -174,7 +174,7 @@ fn handle_list_chunks(args: StackerDBArgs) {
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
     let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
-    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data.data);
+    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
@@ -195,7 +195,7 @@ fn handle_sign(args: SignArgs) {
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data.data,
+            message: args.data,
             is_taproot: false,
             merkle_root: None,
         })
@@ -213,7 +213,7 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data.data,
+            message: args.data,
             is_taproot: false,
             merkle_root: None,
         })

@@ -7,13 +7,7 @@ use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::{address::b58, types::chainstate::StacksPrivateKey};
 
-/// Wrapper around b58 data to enable CLI parsing
-// Cannot pass Vec<u8> directly or it will expect a space seperated list of chars from the command line
-#[derive(Clone, Debug)]
-pub struct B58Data {
-    /// The data
-    pub data: Vec<u8>,
-}
+extern crate alloc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -100,7 +94,7 @@ pub struct PutChunkArgs {
     pub slot_version: u32,
     /// The data to upload
     #[arg(required = false, value_parser = parse_data)]
-    pub data: B58Data,
+    pub data: alloc::vec::Vec<u8>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -111,7 +105,7 @@ pub struct SignArgs {
     pub config: PathBuf,
     /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
-    pub data: B58Data,
+    pub data: alloc::vec::Vec<u8>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -163,7 +157,7 @@ fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
 }
 
 /// Parse the input data
-fn parse_data(data: &str) -> Result<B58Data, String> {
+fn parse_data(data: &str) -> Result<Vec<u8>, String> {
     let encoded_data = if data == "-" {
         // Parse the data from stdin
         let mut data = String::new();
@@ -174,7 +168,7 @@ fn parse_data(data: &str) -> Result<B58Data, String> {
     };
     let data =
         b58::from(&encoded_data).map_err(|e| format!("Failed to decode provided data: {}", e))?;
-    Ok(B58Data { data })
+    Ok(data)
 }
 
 /// Parse the network. Must be one of "mainnet", "testnet", or "mocknet".
