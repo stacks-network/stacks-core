@@ -39,6 +39,7 @@ stacks-common = { path = "../../stacks-common", features = ["default", "testing"
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer" }
 p256k1 = "5.4.1"
+wsts = { git = "https://github.com/Trust-Machines/wsts", tag = "4.0.0rc1" }
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
