@@ -78,8 +78,8 @@ impl error::Error for HexError {
     }
     fn description(&self) -> &str {
         match *self {
-            HexError::BadLength(_) => "sha256d hex string non-64 length",
-            HexError::BadCharacter(_) => "sha256d bad hex character",
+            HexError::BadLength(_) => "hex string non-64 length",
+            HexError::BadCharacter(_) => "bad hex character",
         }
     }
 }
