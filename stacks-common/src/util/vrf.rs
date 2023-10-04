@@ -517,20 +517,21 @@ impl VRF {
 
     /// ECVRF proof routine
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.1
+    #[allow(clippy::op_ref)]
     pub fn prove(secret: &VRFPrivateKey, alpha: &[u8]) -> VRFProof {
         let (Y_point, x_scalar, trunc_hash) = VRF::expand_privkey(secret);
         let H_point = VRF::hash_to_curve(&Y_point, alpha);
 
-        let Gamma_point = x_scalar * H_point;
+        let Gamma_point = &x_scalar * &H_point;
         let k_scalar = VRF::nonce_generation(&trunc_hash, &H_point);
 
-        let kB_point = k_scalar * ED25519_BASEPOINT_POINT;
-        let kH_point = k_scalar * H_point;
+        let kB_point = &k_scalar * &ED25519_BASEPOINT_POINT;
+        let kH_point = &k_scalar * &H_point;
 
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
         let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
 
-        let s_full_scalar = k_scalar + c_scalar * x_scalar;
+        let s_full_scalar = &k_scalar + &c_scalar * &x_scalar;
         let s_scalar = s_full_scalar.reduce();
 
         // NOTE: expect() won't panic because c_scalar is guaranteed to have
@@ -544,6 +545,7 @@ impl VRF {
     /// Return Ok(false) if not
     /// Return Err(Error) if the public key is invalid, or we are unable to do one of the
     /// necessary internal data conversions.
+    #[allow(clippy::op_ref)]
     pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &[u8]) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);
         let s_reduced = proof.s().reduce();
@@ -554,8 +556,8 @@ impl VRF {
             return Err(Error::InvalidPublicKey);
         }
 
-        let U_point = s_reduced * ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
-        let V_point = s_reduced * H_point - proof.c() * proof.Gamma();
+        let U_point = &s_reduced * &ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
+        let V_point = &s_reduced * &H_point - proof.c() * proof.Gamma();
 
         let c_prime_hashbuf = VRF::hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
         let c_prime = VRF::ed25519_scalar_from_hash128(&c_prime_hashbuf);
