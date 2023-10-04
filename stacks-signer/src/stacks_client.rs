@@ -19,7 +19,10 @@ use stacks_common::{
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
     warn,
 };
-use wsts::net::{Message, Packet};
+use wsts::{
+    net::{Message, Packet},
+    Point,
+};
 
 use crate::config::{Config, Network};
 
@@ -173,6 +176,28 @@ impl StacksClient {
                 }
             }
         }
+    }
+
+    /// Retrieve the current DKG aggregate public key
+    pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, RPCError> {
+        let _burn_block_height = self.get_burn_block_height()?;
+        todo!("Make the read only contract call to retrieve the aggregate public key for the given block height")
+    }
+
+    /// Retreive the DKG aggregate public key vote cast by the signer
+    pub fn get_aggregate_public_key_vote(&self) -> Result<Option<Point>, RPCError> {
+        let _burn_block_height = self.get_burn_block_height()?;
+        todo!("Make the read only contract call to retrieve the aggregate public key vote cast by the sender for a given block height")
+    }
+
+    /// Retreive the current burn block height
+    fn get_burn_block_height(&self) -> Result<u64, RPCError> {
+        todo!("Get the current burn block height from the stacks node")
+    }
+
+    /// Cast the DKG aggregate public key vote
+    pub fn cast_aggregate_public_key_vote(&self, _vote: Point) -> Result<(), RPCError> {
+        todo!("Make the contract call to cast the aggregate public key vote. See mini contract vote-for-threshold-wallet-candidate function")
     }
 
     /// Retrieve the total number of slots allocated to a stacker-db writer
