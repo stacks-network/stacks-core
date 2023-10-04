@@ -1089,10 +1089,11 @@ impl Requestable for AttachmentsInventoryRequest {
         for page in self.pages.iter() {
             page_indexes.insert(*page);
         }
-        let page_list: Vec<String> = page_indexes
+        let mut page_list: Vec<String> = page_indexes
             .into_iter()
             .map(|i| format!("{}", &i))
             .collect();
+        page_list.sort();
         StacksHttpRequest::new_for_peer(
             peer_host,
             "GET".into(),
@@ -1102,7 +1103,7 @@ impl Requestable for AttachmentsInventoryRequest {
                     "index_block_hash".into(),
                     format!("{}", &self.index_block_hash),
                 )
-                .query_arg("page_indexes".into(), page_list[..].join(",")),
+                .query_arg("pages_indexes".into(), page_list[..].join(",")),
         )
         .expect("FATAL: failed to create an HTTP request for infallible data")
     }

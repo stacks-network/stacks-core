@@ -624,25 +624,28 @@ fn test_downloader_context_attachment_inventories_requests() {
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:30443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:20443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:40443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 }
 
