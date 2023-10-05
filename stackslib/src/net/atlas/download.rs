@@ -22,7 +22,6 @@ use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::atlas::MAX_RETRY_DELAY;
 use crate::net::atlas::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use crate::net::connection::ConnectionOptions;
@@ -47,8 +46,6 @@ use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PE
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp;
-
-use crate::core::mempool::MemPoolDB;
 
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 
@@ -112,8 +109,6 @@ impl AttachmentsDownloader {
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         network: &mut PeerNetwork,
     ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
@@ -167,13 +162,8 @@ impl AttachmentsDownloader {
             }
         };
 
-        let mut progress = AttachmentsBatchStateMachine::try_proceed(
-            ongoing_fsm,
-            dns_client,
-            network,
-            mempool,
-            chainstate,
-        );
+        let mut progress =
+            AttachmentsBatchStateMachine::try_proceed(ongoing_fsm, dns_client, network);
 
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
@@ -630,8 +620,6 @@ impl AttachmentsBatchStateMachine {
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
         network: &mut PeerNetwork,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> AttachmentsBatchStateMachine {
         match fsm {
             AttachmentsBatchStateMachine::Initialized(context) => {
@@ -666,8 +654,6 @@ impl AttachmentsBatchStateMachine {
                     attachments_invs_requests,
                     &context.dns_lookups,
                     network,
-                    mempool,
-                    chainstate,
                     &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
@@ -691,8 +677,6 @@ impl AttachmentsBatchStateMachine {
                     attachments_requests,
                     &context.dns_lookups,
                     network,
-                    mempool,
-                    chainstate,
                     &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
@@ -868,8 +852,6 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
         fsm: BatchedRequestsState<T>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         network: &mut PeerNetwork,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;
@@ -891,13 +873,8 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     if let Some(requestable) = queue.pop() {
                         let mut requestables = VecDeque::new();
                         requestables.push_back(requestable);
-                        let res = PeerNetwork::begin_request(
-                            network,
-                            dns_lookups,
-                            &mut requestables,
-                            mempool,
-                            chainstate,
-                        );
+                        let res =
+                            PeerNetwork::begin_request(network, dns_lookups, &mut requestables);
                         if let Some((request, event_id)) = res {
                             results.remaining.insert(event_id, request);
                         }
