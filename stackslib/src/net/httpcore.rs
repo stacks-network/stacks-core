@@ -1569,8 +1569,6 @@ impl PeerNetwork {
         data_url: UrlString,
         addr: SocketAddr,
         request: StacksHttpRequest,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> Result<usize, NetError> {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             PeerNetwork::with_http(network, |ref mut network, ref mut http| {
@@ -1586,7 +1584,7 @@ impl PeerNetwork {
                         match http.get_conversation_and_socket(event_id) {
                             (Some(ref mut convo), Some(ref mut socket)) => {
                                 convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
+                                HttpPeer::saturate_http_socket(socket, convo)?;
                                 Ok(event_id)
                             }
                             (_, _) => {
