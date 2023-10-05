@@ -181,6 +181,7 @@ fn test_http_request_type_codec() {
         PeerHost::DNS("localhost".to_string(), 12345),
         &ConnectionOptions::default(),
         100,
+        32,
     );
     let tx = make_test_transaction();
     let tx_body = tx.serialize_to_vec();
