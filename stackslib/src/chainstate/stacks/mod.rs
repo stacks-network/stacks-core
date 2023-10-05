@@ -91,6 +91,7 @@ pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
+    ExpectedTenureChange,
     InvalidStacksMicroblock(String, BlockHeaderHash),
     // The bool is true if the invalid transaction was quietly ignored.
     InvalidStacksTransaction(String, bool),
@@ -218,6 +219,10 @@ impl fmt::Display for Error {
                 f,
                 "Stacks Epoch 2-style block building off of Nakamoto block"
             ),
+            Error::ExpectedTenureChange => write!(
+                f,
+                "Block has a different tenure than parent, but no tenure change transaction"
+            ),
         }
     }
 }
@@ -259,6 +264,7 @@ impl error::Error for Error {
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
             Error::InvalidChildOfNakomotoBlock => None,
+            Error::ExpectedTenureChange => None,
         }
     }
 }
@@ -300,6 +306,7 @@ impl Error {
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
+            Error::ExpectedTenureChange => "ExpectedTenureChange",
         }
     }
 

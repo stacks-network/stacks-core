@@ -1598,6 +1598,7 @@ mod test {
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
                 TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
+            TransactionPayload::TenureChange(_) => todo!(),
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
 

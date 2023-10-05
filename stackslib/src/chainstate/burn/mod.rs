@@ -121,6 +121,7 @@ pub struct BlockSnapshot {
     ///   will accrue to the sortition winner elected by this block
     ///   or to the next winner if there is no winner in this block
     pub accumulated_coinbase_ustx: u128,
+    pub miner_pk_hash: Option<Hash160>,
 }
 
 impl SortitionHash {

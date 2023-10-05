@@ -4573,128 +4573,49 @@ impl StacksChainState {
         let mut applied = false;
 
         if let Some(sortition_epoch) = sortition_epoch {
-            // the parent stacks block has a different epoch than what the Sortition DB
-            //  thinks should be in place.
-            if stacks_parent_epoch != sortition_epoch.epoch_id {
-                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
+            // check if the parent stacks block has a different epoch than what the Sortition DB
+            //  thinks should be in place, and apply epoch transitions
+            let mut current_epoch = stacks_parent_epoch;
+            while current_epoch != sortition_epoch.epoch_id {
+                applied = true;
+                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %current_epoch);
                 // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
-                assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
+                assert!(current_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, current epoch = {}", sortition_epoch.epoch_id, current_epoch);
                 // time for special cases:
-                match stacks_parent_epoch {
+                match current_epoch {
                     StacksEpochId::Epoch10 => {
                         panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
                     }
-                    StacksEpochId::Epoch20 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch2_05 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch21 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch22 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch2_05 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch21 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch22 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch21 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch22 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch22 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
+                    StacksEpochId::Epoch20 => {
+                        receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                        current_epoch = StacksEpochId::Epoch2_05;
+                    }
+                    StacksEpochId::Epoch2_05 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                        current_epoch = StacksEpochId::Epoch21;
+                    }
+                    StacksEpochId::Epoch21 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                        current_epoch = StacksEpochId::Epoch22;
+                    }
+                    StacksEpochId::Epoch22 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                        current_epoch = StacksEpochId::Epoch23;
+                    }
                     StacksEpochId::Epoch23 => {
-                        assert_eq!(
-                            sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch24,
-                            "Should only transition from Epoch23 to Epoch24"
-                        );
                         receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                        applied = true;
+                        current_epoch = StacksEpochId::Epoch24;
                     }
                     StacksEpochId::Epoch24 => {
-                        panic!("No defined transition from Epoch23 forward")
+                        current_epoch = StacksEpochId::Epoch30;
+                    }
+                    StacksEpochId::Epoch30 => {
+                        panic!("No defined transition from Epoch30 forward")
                     }
                 }
             }
         }
+
         Ok((applied, receipts))
     }
 
@@ -5282,7 +5203,8 @@ impl StacksChainState {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch30 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5367,11 +5289,13 @@ impl StacksChainState {
                         pox_start_cycle_info,
                     )
                 }
-                StacksEpochId::Epoch24 => Self::handle_pox_cycle_start_pox_3(
-                    clarity_tx,
-                    pox_reward_cycle,
-                    pox_start_cycle_info,
-                ),
+                StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
+                    Self::handle_pox_cycle_start_pox_3(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");

@@ -22,9 +22,9 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
 use lazy_static::{__Deref, lazy_static};
-use rand_chacha::rand_core::block;
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{Connection, OptionalExtension, ToSql};
+use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
@@ -35,12 +35,12 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
-use super::burn::db::sortdb::SortitionHandleTx;
+use super::burn::db::sortdb::{SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
@@ -83,7 +83,40 @@ impl FromSql for HeaderTypeNames {
 }
 
 lazy_static! {
+    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+
     pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_1: Vec<String> = vec![
+    r#"
+      -- Table for staging nakamoto blocks
+      CREATE TABLE nakamoto_staging_blocks (
+                     block_hash TEXT NOT NULL,
+                     -- the consensus hash of the burnchain block that selected this block's **tenure**
+                     consensus_hash TEXT NOT NULL,
+                     burn_view TEXT NOT NULL,
+                     -- the parent index_block_hash
+                     parent_block_id TEXT NOT NULL,
+
+                     -- has the burnchain view that this block depends on been processed?
+                     burn_attachable INT NOT NULL,
+                     -- has the parent stacks block that this block depends on been processed?
+                     stacks_attachable INT NOT NULL,
+                     -- set to 1 if this block can never be attached
+                     orphaned INT NOT NULL,
+                     -- has this block been processed?
+                     processed INT NOT NULL,
+
+                     height INT NOT NULL,
+                                          
+                     index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and anchored_block_hash
+                     download_time INT NOT NULL,               -- how long the block was in-flight
+                     arrival_time INT NOT NULL,                -- when this block was stored
+                     processed_time INT NOT NULL,              -- when this block was processed
+
+                     -- block data
+                     data BLOB NOT NULL,
+                    
+                     PRIMARY KEY(block_hash,consensus_hash)
+    );"#.into(),
     r#"
       -- Table for Nakamoto Block Headers
       CREATE TABLE nakamoto_block_headers (
@@ -91,8 +124,6 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- all consensus hashes are guaranteed to be unique
-                     consensus_hash TEXT UNIQUE NOT NULL,
                      -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
@@ -117,7 +148,10 @@ lazy_static! {
                      stacker_signature TEXT NOT NULL,
                      tx_merkle_root TEXT NOT NULL,
                      state_index_root TEXT NOT NULL,
-
+                     -- the consensus hash of the burnchain block that selected this block's tenure
+                     consensus_hash TEXT NOT NULL,
+                     -- the consensus hash of the burnchain block that selected this block's tenure
+                     parent_consensus_hash TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
                      header_type TEXT NOT NULL,
@@ -189,6 +223,11 @@ pub struct NakamotoBlockHeader {
     pub miner_signature: MessageSignature,
     /// Recoverable ECDSA signature from the stacker set active during the tenure.
     pub stacker_signature: MessageSignature,
+    /// The consensus hash of the burnchain block that selected this tenure.
+    pub consensus_hash: ConsensusHash,
+    /// The consensus hash of the burnchain block that selected the tenure of this block's parent.
+    ///  (note: nakamoto blocks produced in the same tenure as their parent will have the same consensus hash)
+    pub parent_consensus_hash: ConsensusHash,
 }
 
 #[derive(Debug, Clone)]
@@ -214,6 +253,8 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let miner_signature = row.get("miner_signature")?;
         let tx_merkle_root = row.get("tx_merkle_root")?;
         let state_index_root = row.get("state_index_root")?;
+        let consensus_hash = row.get("consensus_hash")?;
+        let parent_consensus_hash = row.get("parent_consensus_hash")?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -225,6 +266,8 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             miner_signature,
             tx_merkle_root,
             state_index_root,
+            consensus_hash,
+            parent_consensus_hash,
         })
     }
 }
@@ -240,6 +283,8 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.stacker_signature)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.parent_consensus_hash)?;
 
         Ok(())
     }
@@ -255,11 +300,37 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             stacker_signature: read_next(fd)?,
+            consensus_hash: read_next(fd)?,
+            parent_consensus_hash: read_next(fd)?,
         })
     }
 }
 
 impl NakamotoBlockHeader {
+    pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+        let mut hasher = Sha512_256::new();
+        let fd = &mut hasher;
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.chain_length)?;
+        write_next(fd, &self.burn_spent)?;
+        write_next(fd, &self.parent)?;
+        write_next(fd, &self.burn_view)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.parent_consensus_hash)?;
+        Ok(Sha512Trunc256Sum::from_hasher(hasher))
+    }
+
+    pub fn recover_miner_pk(&self) -> Option<Secp256k1PublicKey> {
+        let signed_hash = self.signature_hash().ok()?;
+        let recovered_pk =
+            Secp256k1PublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature)
+                .ok()?;
+
+        Some(recovered_pk)
+    }
+
     pub fn block_hash(&self) -> BlockHeaderHash {
         BlockHeaderHash::from_serializer(self)
             .expect("BUG: failed to serialize block header hash struct")
@@ -317,6 +388,136 @@ impl NakamotoBlock {
 }
 
 impl NakamotoChainState {
+    /// Notify the staging database that a given stacks block has been processed.
+    /// This will update the attachable status for children blocks, as well as marking the stacks
+    ///  block itself as processed.
+    pub fn set_block_processed(
+        staging_db_tx: &rusqlite::Transaction,
+        block: &StacksBlockId,
+    ) -> Result<(), ChainstateError> {
+        let update_dependents = "UPDATE nakamoto_staging_blocks SET stacks_attachable = 1
+                                 WHERE parent_block_id = ?";
+        staging_db_tx.execute(&update_dependents, &[&block])?;
+
+        let clear_staged_block =
+            "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2
+                                  WHERE index_block_hash = ?1";
+        staging_db_tx.execute(
+            &clear_staged_block,
+            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+        )?;
+
+        Ok(())
+    }
+
+    /// Notify the staging database that a given burn block has been processed.
+    /// This is required for staged blocks to be eligible for processing.
+    pub fn set_burn_block_processed(
+        staging_db_tx: &rusqlite::Transaction,
+        block: &BurnchainHeaderHash,
+    ) -> Result<(), ChainstateError> {
+        let update_dependents = "UPDATE nakamoto_staging_blocks SET burn_attachable = 1
+                                 WHERE burn_view = ?";
+        staging_db_tx.execute(&update_dependents, &[&block])?;
+
+        Ok(())
+    }
+
+    pub fn next_ready_block(
+        staging_db_conn: &Connection,
+    ) -> Result<NakamotoBlock, ChainstateError> {
+        let query = "SELECT data FROM nakamoto_staging_blocks
+                     WHERE burn_attachable = 1
+                       AND stacks_attachable = 1
+                       AND orphaned = 0
+                       AND processed = 0
+                     ORDER BY height ASC";
+        staging_db_conn.query_row_and_then(query, NO_PARAMS, |row| {
+            let data: Vec<u8> = row.get("data")?;
+            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+            Ok(block)
+        })
+    }
+
+    pub fn accept_block(
+        block: NakamotoBlock,
+        sortdb: &SortitionHandleConn,
+        staging_db_tx: &rusqlite::Transaction,
+    ) -> Result<(), ChainstateError> {
+        let recovered_miner_pk = block.header.recover_miner_pk().ok_or_else(|| {
+            warn!(
+                "Stacks block downloaded with unrecoverable miner public key";
+                "block_hash" => %block.header.block_hash(),
+            );
+            return ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into());
+        })?;
+
+        if sortdb
+            .expects_blocks_from_tenure(&recovered_miner_pk)?
+            .is_none()
+        {
+            let msg = format!("Received block, signed by {recovered_miner_pk:?}, but this pubkey was not associated with recent tenures");
+            warn!("{}", msg);
+            return Err(ChainstateError::InvalidStacksBlock(msg));
+        };
+
+        if !sortdb.expects_stacker_signature(&block.header.stacker_signature)? {
+            let msg = format!("Received block, signed by {recovered_miner_pk:?}, but the stacker signature does not match the active stacking cycle");
+            warn!("{}", msg);
+            return Err(ChainstateError::InvalidStacksBlock(msg));
+        }
+
+        // if the burnview of this block has been processed, then it
+        // is ready to be processed from the perspective of the
+        // burnchain
+        let burn_attachable = sortdb.processed_block(&block.header.burn_view)?;
+        // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
+        let stacks_attachable = staging_db_tx.query_row(
+            "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ? AND processed = 1",
+            rusqlite::params![&block.header.parent],
+            |_row| Ok(())
+        ).optional()?.is_some();
+
+        let block_hash = block.header.block_hash();
+        let block_id = StacksBlockId::new(&block.header.consensus_hash, &block_hash);
+        staging_db_tx.execute(
+            "INSERT INTO nakamoto_staging_blocks (
+                     block_hash,
+                     consensus_hash,
+                     burn_view,
+                     parent_block_id,
+                     burn_attachable,
+                     stacks_attachable,
+                     orphaned,
+                     processed,
+
+                     height,
+                     index_block_hash,
+                     download_time,
+                     arrival_time,
+                     processed_time,
+                     data ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                &block_hash,
+                &block.header.consensus_hash,
+                &block.header.burn_view,
+                &block.header.parent,
+                if burn_attachable { 1 } else { 0 },
+                if stacks_attachable { 1 } else { 0 },
+                0,
+                0,
+                u64_to_sql(block.header.chain_length)?,
+                &block_id,
+                0,
+                0,
+                0,
+                block.serialize_to_vec(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
     /// Create the block reward for a NakamotoBlock
     /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
     ///    accumulated rewards from missed sortitions or initial mining rewards.
@@ -547,6 +748,7 @@ impl NakamotoChainState {
             &u64_to_sql(header.chain_length)?,
             &u64_to_sql(header.burn_spent)?,
             &header.parent,
+            &header.parent_consensus_hash,
             &header.burn_view,
             &header.miner_signature,
             &header.stacker_signature,
@@ -570,7 +772,7 @@ impl NakamotoChainState {
                      burn_header_timestamp, block_size,
 
                      header_type,
-                     version, chain_length, burn_spent, parent,
+                     version, chain_length, burn_spent, parent, parent_consensus_hash,
                      burn_view, miner_signature, stacker_signature, tx_merkle_root, state_index_root,
 
                      block_hash,
@@ -582,7 +784,7 @@ impl NakamotoChainState {
                      affirmation_weight,
                      tenure_height,
                      tenure_changed)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             args
         )?;
 
@@ -596,7 +798,6 @@ impl NakamotoChainState {
         parent_tip: &StacksBlockHeaderTypes,
         parent_consensus_hash: &ConsensusHash,
         new_tip: &NakamotoBlockHeader,
-        new_consensus_hash: &ConsensusHash,
         new_burn_header_hash: &BurnchainHeaderHash,
         new_burnchain_height: u32,
         new_burnchain_timestamp: u64,
@@ -617,6 +818,7 @@ impl NakamotoChainState {
         if new_tip.parent != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
             assert_eq!(new_tip.parent, parent_tip.block_hash());
+            assert_eq!(&new_tip.parent_consensus_hash, parent_consensus_hash);
         }
 
         assert_eq!(
@@ -627,11 +829,9 @@ impl NakamotoChainState {
             new_tip.chain_length
         );
 
-        let parent_hash =
-            StacksChainState::get_index_hash(parent_consensus_hash, &parent_tip.block_hash());
-
+        let parent_hash = StacksBlockId::new(parent_consensus_hash, &parent_tip.block_hash());
         let new_block_hash = new_tip.block_hash();
-        let index_block_hash = StacksBlockId::new(&new_consensus_hash, &new_block_hash);
+        let index_block_hash = StacksBlockId::new(&new_tip.consensus_hash, &new_block_hash);
 
         // store each indexed field
         test_debug!("Headers index_put_begin {parent_hash}-{index_block_hash}");
@@ -644,7 +844,7 @@ impl NakamotoChainState {
             microblock_tail: None,
             index_root: root_hash,
             stacks_block_height: new_tip.chain_length,
-            consensus_hash: new_consensus_hash.clone(),
+            consensus_hash: new_tip.consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
@@ -734,7 +934,7 @@ impl NakamotoChainState {
 
         debug!(
             "Advanced to new tip! {}/{}",
-            new_consensus_hash, new_block_hash,
+            &new_tip.consensus_hash, new_block_hash,
         );
         Ok(new_tip_info)
     }
@@ -1010,7 +1210,6 @@ impl NakamotoChainState {
         burn_dbconn: &mut SortitionHandleTx,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
-        chain_tip_consensus_hash: &ConsensusHash,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
         chain_tip_burn_header_height: u32,
         chain_tip_burn_header_timestamp: u64,
@@ -1043,6 +1242,15 @@ impl NakamotoChainState {
             )
         };
 
+        if parent_ch != block.header.parent_consensus_hash {
+            warn!("Error processing nakamoto block: Parent consensus hash does not match db view";
+                  "db_view" => %parent_ch,
+                  "block_view" => %block.header.parent_consensus_hash);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Parent consensus hash does not match".into(),
+            ));
+        }
+
         // check that the burnchain block that this block is associated with has been processed
         let burn_view_hash = block.header.burn_view.clone();
         let sortition_tip = burn_dbconn.context.chain_tip.clone();
@@ -1063,6 +1271,9 @@ impl NakamotoChainState {
         let parent_block_id = StacksChainState::get_index_hash(&parent_ch, &parent_block_hash);
 
         let tenure_changed = block.tenure_changed(&parent_block_id);
+        if !tenure_changed && (block.is_first_mined() || parent_ch != block.header.consensus_hash) {
+            return Err(ChainstateError::ExpectedTenureChange);
+        }
 
         let parent_tenure_height = if block.is_first_mined() {
             0
@@ -1118,8 +1329,8 @@ impl NakamotoChainState {
 
         debug!(
             "Append nakamoto block";
-            "block" => format!("{}/{}", chain_tip_consensus_hash, block_hash),
-            "parent_block" => format!("{}/{}", parent_ch, parent_block_hash),
+            "block" => format!("{}/{block_hash}", block.header.consensus_hash),
+            "parent_block" => format!("{parent_ch}/{parent_block_hash}"),
             "stacks_height" => next_block_height,
             "total_burns" => block.header.burn_spent,
             "evaluated_epoch" => %evaluated_epoch
@@ -1223,14 +1434,17 @@ impl NakamotoChainState {
         let block_limit = clarity_tx
             .block_limit()
             .ok_or_else(|| ChainstateError::InvalidChainstateDB)?;
-        let clarity_commit = clarity_tx.precommit_to_block(chain_tip_consensus_hash, &block_hash);
+        let clarity_commit =
+            clarity_tx.precommit_to_block(&block.header.consensus_hash, &block_hash);
 
         // figure out if there any accumulated rewards by
         //   getting the snapshot that elected this block.
-        let accumulated_rewards =
-            SortitionDB::get_block_snapshot_consensus(burn_dbconn.tx(), chain_tip_consensus_hash)?
-                .expect("CORRUPTION: failed to load snapshot that elected processed block")
-                .accumulated_coinbase_ustx;
+        let accumulated_rewards = SortitionDB::get_block_snapshot_consensus(
+            burn_dbconn.tx(),
+            &block.header.consensus_hash,
+        )?
+        .expect("CORRUPTION: failed to load snapshot that elected processed block")
+        .accumulated_coinbase_ustx;
 
         let coinbase_at_block = StacksChainState::get_coinbase_reward(
             chain_tip_burn_header_height as u64,
@@ -1249,7 +1463,7 @@ impl NakamotoChainState {
                 warn!("While processing tenure change, failed to look up parent tenure";
                       "parent_tenure_height" => parent_tenure_height,
                       "block_hash" => %block_hash,
-                      "block_consensus_hash" => %chain_tip_consensus_hash);
+                      "block_consensus_hash" => %block.header.consensus_hash);
                 ChainstateError::NoSuchBlockError
             })?;
             // fetch the parent tenure fees by reading the total tx fees from this block's
@@ -1263,7 +1477,7 @@ impl NakamotoChainState {
                     warn!("While processing tenure change, failed to look up parent block's total tx fees";
                           "parent_block_id" => %parent_block_id,
                           "block_hash" => %block_hash,
-                          "block_consensus_hash" => %chain_tip_consensus_hash);
+                          "block_consensus_hash" => %block.header.consensus_hash);
                     ChainstateError::NoSuchBlockError
                 })?
             } else {
@@ -1287,7 +1501,7 @@ impl NakamotoChainState {
                         .ok_or(ChainstateError::InvalidStacksBlock(
                             "No coinbase transaction in tenure changing block".into(),
                         ))?,
-                    chain_tip_consensus_hash,
+                    &block.header.consensus_hash,
                     next_block_height,
                     parent_tenure_fees,
                     burnchain_commit_burn,
@@ -1309,7 +1523,6 @@ impl NakamotoChainState {
             &parent_chain_tip.anchored_header,
             &parent_chain_tip.consensus_hash,
             &block.header,
-            chain_tip_consensus_hash,
             chain_tip_burn_header_hash,
             chain_tip_burn_header_height,
             chain_tip_burn_header_timestamp,
@@ -1329,7 +1542,8 @@ impl NakamotoChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+        let new_block_id = new_tip.index_block_hash();
+        chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
         monitoring::set_last_block_transaction_count(block.txs.len() as u64);
         monitoring::set_last_execution_cost_observed(&block_execution_cost, &block_limit);
@@ -1369,6 +1583,8 @@ impl NakamotoChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
         };
+
+        NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
     }

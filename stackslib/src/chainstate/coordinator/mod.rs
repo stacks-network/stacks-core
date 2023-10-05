@@ -277,7 +277,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                 info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
                 return Ok(RewardSet::empty());
             }
-            StacksEpochId::Epoch24 => {
+            StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
                 // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
                 if burnchain
                     .pox_constants
@@ -2141,6 +2141,16 @@ impl<
         self.inner_handle_new_burnchain_block(&mut HashSet::new())
     }
 
+    /// Are affirmation maps active during the epoch?
+    fn affirmation_maps_active(&self, epoch: &StacksEpochId) -> bool {
+        if *epoch >= StacksEpochId::Epoch21 {
+            return true;
+        } else if self.config.always_use_affirmation_maps {
+            return true;
+        }
+        return false;
+    }
+
     /// Handle a new burnchain block, optionally rolling back the canonical PoX sortition history
     /// and setting it up to be replayed in the event the network affirms a different history.  If
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
@@ -2175,7 +2185,7 @@ impl<
             before_canonical_snapshot.block_height
         ));
 
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
+        if self.affirmation_maps_active(&cur_epoch.epoch_id) {
             self.handle_affirmation_reorg()?;
         }
 
@@ -3017,41 +3027,19 @@ impl<
                             winner_snapshot.block_height
                         ));
 
-                        match cur_epoch.epoch_id {
-                            StacksEpochId::Epoch10 => {
-                                panic!("BUG: Snapshot predates Stacks 2.0");
+                        if self.affirmation_maps_active(&cur_epoch.epoch_id) {
+                            if let Some(pox_anchor) =
+                                self.consider_pox_anchor(&pox_anchor, &winner_snapshot)?
+                            {
+                                return Ok(Some(pox_anchor));
                             }
-                            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                                if self.config.always_use_affirmation_maps {
-                                    // use affirmation maps even if they're not supported yet.
-                                    // if the chain is healthy, this won't cause a chain split.
-                                    if let Some(pox_anchor) =
-                                        self.consider_pox_anchor(&pox_anchor, &winner_snapshot)?
-                                    {
-                                        return Ok(Some(pox_anchor));
-                                    }
-                                } else {
-                                    // 2.0/2.05 behavior: only consult the sortition DB
-                                    // if, just after processing the block, we _know_ that this block is a pox anchor, that means
-                                    //   that sortitions have already begun processing that didn't know about this pox anchor.
-                                    //   we need to trigger an unwind
-                                    info!("Discovered an old anchor block: {}", &pox_anchor);
-                                    return Ok(Some(pox_anchor));
-                                }
-                            }
-                            StacksEpochId::Epoch21
-                            | StacksEpochId::Epoch22
-                            | StacksEpochId::Epoch23
-                            | StacksEpochId::Epoch24 => {
-                                // 2.1 and onward behavior: the anchor block must also be the
-                                // heaviest-confirmed anchor block by BTC weight, and the highest
-                                // such anchor block if there are multiple contenders.
-                                if let Some(pox_anchor) =
-                                    self.consider_pox_anchor(&pox_anchor, &winner_snapshot)?
-                                {
-                                    return Ok(Some(pox_anchor));
-                                }
-                            }
+                        } else {
+                            // 2.0/2.05 behavior: only consult the sortition DB
+                            // if, just after processing the block, we _know_ that this block is a pox anchor, that means
+                            //   that sortitions have already begun processing that didn't know about this pox anchor.
+                            //   we need to trigger an unwind
+                            info!("Discovered an old anchor block: {}", &pox_anchor);
+                            return Ok(Some(pox_anchor));
                         }
                     }
                 }

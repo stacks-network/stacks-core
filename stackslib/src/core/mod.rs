@@ -61,6 +61,10 @@ pub const PEER_VERSION_EPOCH_2_2: u8 = 0x07;
 pub const PEER_VERSION_EPOCH_2_3: u8 = 0x08;
 pub const PEER_VERSION_EPOCH_2_4: u8 = 0x09;
 
+/// How many tenures back from the chain tip does the node accept
+/// blocks from a miner.
+pub const NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD: usize = 3;
+
 // this should be updated to the latest network epoch version supported by
 //  this node. this will be checked by the `validate_epochs()` method.
 pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_4 as u32;
@@ -425,6 +429,10 @@ pub static STACKS_EPOCH_2_3_MARKER: u8 = 0x08;
 /// Stacks 2.4 epoch marker.  All block-commits in 2.4 must have a memo bitfield with this value
 /// *or greater*.
 pub static STACKS_EPOCH_2_4_MARKER: u8 = 0x09;
+
+/// Stacks 3.0 epoch marker.  All block-commits in 2.4 must have a memo bitfield with this value
+/// *or greater*.
+pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x09;
 
 #[test]
 fn test_ord_for_stacks_epoch() {
@@ -961,6 +969,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpochId::Epoch22 => StacksEpoch::unit_test_2_2(first_burnchain_height),
             StacksEpochId::Epoch23 => StacksEpoch::unit_test_2_3(first_burnchain_height),
             StacksEpochId::Epoch24 => StacksEpoch::unit_test_2_4(first_burnchain_height),
+            StacksEpochId::Epoch30 => todo!(),
         }
     }
 

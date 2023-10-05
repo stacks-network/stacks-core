@@ -43,8 +43,9 @@ use crate::chainstate::stacks::db::{
     ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
-    TokenTransferMemo, TransactionAuth, TransactionPayload, TransactionVersion,
+    CoinbasePayload, SchnorrThresholdSignature, StacksBlockHeader, StacksTransaction,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::core;
 use crate::core::StacksEpochExtension;
@@ -92,7 +93,6 @@ pub fn nakamoto_advance_tip_simple() {
 
     let mut sortdb_tx = sort_db.tx_handle_begin(&tip.sortition_id).unwrap();
 
-    let chain_tip_consensus_hash = ConsensusHash([0; 20]);
     let chain_tip_burn_header_hash = BurnchainHeaderHash([0; 32]);
     let chain_tip_burn_header_height = 1;
     let chain_tip_burn_header_timestamp = 100;
@@ -105,6 +105,29 @@ pub fn nakamoto_advance_tip_simple() {
     coinbase_tx.chain_id = chainstate_chain_id;
     let txid = coinbase_tx.txid();
     coinbase_tx.sign_next_origin(&txid, &stacker_sk).unwrap();
+
+    let parent_block_id =
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+    let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
+        previous_tenure_end: parent_block_id,
+        previous_tenure_blocks: 0,
+        cause: TenureChangeCause::BlockFound,
+        pubkey_hash: Hash160([0; 20]),
+        signature: SchnorrThresholdSignature {},
+        signers: vec![],
+    });
+    let mut tenure_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&stacker_sk).unwrap(),
+        tenure_change_tx_payload,
+    );
+    tenure_tx.chain_id = chainstate_chain_id;
+    tenure_tx.set_origin_nonce(1);
+    let txid = tenure_tx.txid();
+    let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
+    tenure_tx_signer.sign_origin(&stacker_sk).unwrap();
+    let tenure_tx = tenure_tx_signer.get_tx().unwrap();
+
     let block = NakamotoBlock {
         header: NakamotoBlockHeader {
             version: 100,
@@ -114,13 +137,15 @@ pub fn nakamoto_advance_tip_simple() {
             burn_view: tip.burn_header_hash.clone(),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
             state_index_root: TrieHash::from_hex(
-                "582a30eeea84437d222cf8f27cc090860c9eefbaa0fba166b6ef8a814bcc0a85",
+                "9f283c59142dec747911897fc120f1d2af8c0384830a95e1847803ee31a70ab1",
             )
             .unwrap(),
             stacker_signature: MessageSignature([0; 65]),
             miner_signature: MessageSignature([0; 65]),
+            consensus_hash: ConsensusHash([0; 20]),
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
         },
-        txs: vec![coinbase_tx],
+        txs: vec![coinbase_tx, tenure_tx],
     };
     let block_size = 10;
     let burnchain_commit_burn = 1;
@@ -155,7 +180,6 @@ pub fn nakamoto_advance_tip_simple() {
         &mut sortdb_tx,
         &pox_constants,
         &parent_chain_tip,
-        &chain_tip_consensus_hash,
         &chain_tip_burn_header_hash,
         chain_tip_burn_header_height,
         chain_tip_burn_header_timestamp,
@@ -167,6 +191,9 @@ pub fn nakamoto_advance_tip_simple() {
     )
     .unwrap();
 }
+
+#[test]
+pub fn staging_blocks() {}
 
 // Assemble 5 nakamoto blocks, invoking append_block. Check that miner rewards
 //  mature as expected.
@@ -217,11 +244,11 @@ pub fn nakamoto_advance_tip_multiple() {
 
     let mut last_block: Option<NakamotoBlock> = None;
     let index_roots = [
-        "a8fa50e42ee48d393ac86036d8eec1bf6ada344de4100478fed37f1106281033",
-        "c431be733f37dee9dce70e6de51f616c2ed8b23583af8f7c4a8bce86c5f0a183",
-        "0c5e890e95e2f92ef36934bc0e5d71a6715974593f7d952b07ee6f959dae3f1c",
-        "0cd7696c4920ea5bc498ea46ee1df8566e06ea0bc8fd16a1e0ffd292d55f746e",
-        "84177188b1c02af772d2442b760fd9215b9dfadeed5723504acda2c94b068d15",
+        "c76d48e971b2ea3c78c476486455090da37df260a41eef355d4e9330faf166c0",
+        "443403486d617e96e44aa6ff6056e575a7d29fd02a987452502e20c98929fe20",
+        "1c078414b996a42eabd7fc0b731d8ac49a74141313bdfbe4166349c3d1d27946",
+        "69cafb50ad1debcd0dee83d58b1a06060a5dd9597ec153e6129edd80c4368226",
+        "449f086937fda06db5859ce69c2c6bdd7d4d104bf4a6d2745bc81a17391daf36",
     ];
 
     for i in 1..6 {
@@ -278,10 +305,35 @@ pub fn nakamoto_advance_tip_multiple() {
         );
         transacter_tx.chain_id = chainstate_chain_id;
         transacter_tx.set_tx_fee(transacter_fee);
-        transacter_tx.set_origin_nonce((i - 1).into());
+        transacter_tx.set_origin_nonce((2 * (i - 1)).into());
         let mut transacter_tx_signer = StacksTransactionSigner::new(&transacter_tx);
         transacter_tx_signer.sign_origin(&transacter_sk).unwrap();
         let transacter_tx = transacter_tx_signer.get_tx().unwrap();
+
+        let new_bhh = BurnchainHeaderHash([i; 32]);
+        let new_ch = ConsensusHash([i; 20]);
+        let new_sh = SortitionHash([1; 32]);
+
+        let parent_block_id = StacksBlockId::new(&parent_snapshot.consensus_hash, &parent);
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
+            previous_tenure_end: parent_block_id,
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0; 20]),
+            signature: SchnorrThresholdSignature {},
+            signers: vec![],
+        });
+        let mut tenure_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&transacter_sk).unwrap(),
+            tenure_change_tx_payload,
+        );
+        tenure_tx.chain_id = chainstate_chain_id;
+        tenure_tx.set_origin_nonce((2 * (i - 1) + 1).into());
+        let txid = tenure_tx.txid();
+        let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
+        tenure_tx_signer.sign_origin(&transacter_sk).unwrap();
+        let tenure_tx = tenure_tx_signer.get_tx().unwrap();
 
         let block = NakamotoBlock {
             header: NakamotoBlockHeader {
@@ -294,13 +346,11 @@ pub fn nakamoto_advance_tip_multiple() {
                 state_index_root: TrieHash::from_hex(&index_roots[usize::from(i) - 1]).unwrap(),
                 stacker_signature: MessageSignature([0; 65]),
                 miner_signature: MessageSignature([0; 65]),
+                consensus_hash: new_ch,
+                parent_consensus_hash: parent_snapshot.consensus_hash.clone(),
             },
-            txs: vec![coinbase_tx, transacter_tx],
+            txs: vec![coinbase_tx, transacter_tx, tenure_tx],
         };
-
-        let new_bhh = BurnchainHeaderHash([i; 32]);
-        let new_ch = ConsensusHash([i; 20]);
-        let new_sh = SortitionHash([1; 32]);
 
         let new_snapshot = BlockSnapshot {
             block_height: parent_snapshot.block_height + 1,
@@ -326,6 +376,7 @@ pub fn nakamoto_advance_tip_multiple() {
             parent_sortition_id: parent_snapshot.sortition_id.clone(),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
+            miner_pk_hash: None,
         };
 
         sortdb_tx
@@ -343,7 +394,6 @@ pub fn nakamoto_advance_tip_multiple() {
         sortdb_tx.commit().unwrap();
         let mut sortdb_tx = sort_db.tx_handle_begin(&new_snapshot.sortition_id).unwrap();
 
-        let chain_tip_consensus_hash = new_snapshot.consensus_hash.clone();
         let chain_tip_burn_header_hash = new_snapshot.burn_header_hash.clone();
         let chain_tip_burn_header_height = new_snapshot.block_height;
         let chain_tip_burn_header_timestamp = new_snapshot.burn_header_timestamp;
@@ -370,7 +420,6 @@ pub fn nakamoto_advance_tip_multiple() {
             &mut sortdb_tx,
             &pox_constants,
             &parent_chain_tip,
-            &chain_tip_consensus_hash,
             &chain_tip_burn_header_hash,
             chain_tip_burn_header_height.try_into().unwrap(),
             chain_tip_burn_header_timestamp,

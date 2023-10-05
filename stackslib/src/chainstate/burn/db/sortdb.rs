@@ -35,6 +35,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
+use secp256k1::Secp256k1;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksAddress;
@@ -46,6 +47,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
@@ -85,7 +87,10 @@ use crate::chainstate::ChainstateDB;
 use crate::core::AST_RULES_PRECHECK_SIZE;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::core::{
+    StacksEpoch, StacksEpochExtension, StacksEpochId, NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD,
+    STACKS_EPOCH_MAX,
+};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::tx_begin_immediate;
@@ -183,33 +188,37 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
+        let miner_pk_hash = row.get("miner_pk_hash")?;
+
         let snapshot = BlockSnapshot {
-            block_height: block_height,
-            burn_header_timestamp: burn_header_timestamp,
-            burn_header_hash: burn_header_hash,
-            parent_burn_header_hash: parent_burn_header_hash,
-            consensus_hash: consensus_hash,
-            ops_hash: ops_hash,
-            total_burn: total_burn,
-            sortition: sortition,
-            sortition_hash: sortition_hash,
-            winning_block_txid: winning_block_txid,
-            winning_stacks_block_hash: winning_stacks_block_hash,
-            index_root: index_root,
-            num_sortitions: num_sortitions,
+            block_height,
+            burn_header_timestamp,
+            burn_header_hash,
+            parent_burn_header_hash,
+            consensus_hash,
+            ops_hash,
+            total_burn,
+            sortition,
+            sortition_hash,
+            winning_block_txid,
+            winning_stacks_block_hash,
+            index_root,
+            num_sortitions,
 
-            stacks_block_accepted: stacks_block_accepted,
-            stacks_block_height: stacks_block_height,
-            arrival_index: arrival_index,
+            stacks_block_accepted,
+            stacks_block_height,
+            arrival_index,
 
-            canonical_stacks_tip_height: canonical_stacks_tip_height,
-            canonical_stacks_tip_hash: canonical_stacks_tip_hash,
-            canonical_stacks_tip_consensus_hash: canonical_stacks_tip_consensus_hash,
+            canonical_stacks_tip_height,
+            canonical_stacks_tip_hash,
+            canonical_stacks_tip_consensus_hash,
 
             sortition_id,
             parent_sortition_id,
             pox_valid,
             accumulated_coinbase_ustx,
+
+            miner_pk_hash,
         };
         Ok(snapshot)
     }
@@ -606,7 +615,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "8";
+pub const SORTITION_DB_VERSION: &'static str = "9";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -868,6 +877,9 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
 ];
+
+const SORTITION_DB_SCHEMA_9: &'static [&'static str] =
+    &[r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -1830,6 +1842,39 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
+    /// Does the sortition db expect to receive unknown blocks from
+    /// this tenure?
+    ///
+    /// This is used by nakamoto nodes while they are at or near the
+    /// current chain tip: only recent tenures can receive blocks this
+    /// way. Otherwise, the `BlockHeaderHash` must have been
+    /// explicitly confirmed by a block commit.
+    pub fn expects_blocks_from_tenure(
+        &self,
+        miner_pk: &Secp256k1PublicKey,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        let to_check = Hash160::from_node_public_key(miner_pk);
+        let mut cur_tip = self.context.chain_tip.clone();
+        for _ in 1..NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD {
+            let cur_snapshot = SortitionDB::get_block_snapshot(self.sqlite(), &cur_tip)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+            if cur_snapshot.miner_pk_hash == Some(to_check) {
+                return Ok(Some(cur_snapshot));
+            }
+            cur_tip = cur_snapshot.parent_sortition_id.clone();
+        }
+        Ok(None)
+    }
+
+    /// Does the sortition db expect to receive blocks from
+    /// signed by this stacker set?
+    pub fn expects_stacker_signature(
+        &self,
+        _stacker_signature: &MessageSignature,
+    ) -> Result<bool, db_error> {
+        Ok(true)
+    }
+
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -1944,6 +1989,15 @@ impl<'a> SortitionHandleConn<'a> {
             Some(x) => x,
         };
         SortitionDB::get_block_snapshot(self.conn(), &sortition_id)
+    }
+
+    /// Has `burn_header_hash` been processed in the current fork?
+    pub fn processed_block(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<bool, db_error> {
+        self.get_sortition_id_for_bhh(burn_header_hash)
+            .map(|result| result.is_some())
     }
 
     pub fn get_tip_snapshot(&self) -> Result<Option<BlockSnapshot>, db_error> {
@@ -2828,6 +2882,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8(&db_tx)?;
+        SortitionDB::apply_schema_9(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -3062,6 +3117,15 @@ impl SortitionDB {
                     // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
             }
+            StacksEpochId::Epoch30 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
+                    // TODO: This should move to Epoch 30 once it is added
+                    || version == "8"
+            }
         }
     }
 
@@ -3186,6 +3250,18 @@ impl SortitionDB {
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &["8"],
+        )?;
+        Ok(())
+    }
+
+    fn apply_schema_9(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_9 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["9"],
         )?;
         Ok(())
     }
@@ -7076,6 +7152,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -7325,6 +7402,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -7534,6 +7612,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
@@ -7587,6 +7666,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let snapshot_without_sortition = BlockSnapshot {
@@ -7640,6 +7720,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
@@ -8274,6 +8355,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 } else {
                     total_burn += 1;
@@ -8350,6 +8432,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 };
 
@@ -8602,6 +8685,7 @@ pub mod tests {
                 canonical_stacks_tip_height: 0,
                 canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                 canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                miner_pk_hash: None,
             };
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
@@ -9206,6 +9290,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0x09; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0x0a; 20]),
+            miner_pk_hash: None,
         };
 
         let best_height = 123;
