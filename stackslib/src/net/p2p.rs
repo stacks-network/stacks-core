@@ -1092,7 +1092,11 @@ impl PeerNetwork {
                 return Err(net_error::NotConnected);
             }
             Some(ref mut network) => {
-                let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
+                let sock = NetworkState::connect(
+                    &neighbor.addrbytes.to_socketaddr(neighbor.port),
+                    self.connection_opts.socket_send_buffer_size,
+                    self.connection_opts.socket_recv_buffer_size,
+                )?;
                 let hint_event_id = network.next_event_id()?;
                 let registered_event_id =
                     network.register(self.p2p_network_handle, hint_event_id, &sock)?;
@@ -2428,14 +2432,13 @@ impl PeerNetwork {
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Option<Vec<StacksTransaction>> {
         if ibd {
             return None;
         }
 
-        return match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
+        return match self.do_mempool_sync(dns_client_opt, mempool) {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -2773,7 +2776,6 @@ impl PeerNetwork {
     fn do_network_block_download(
         &mut self,
         sortdb: &SortitionDB,
-        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2796,7 +2798,7 @@ impl PeerNetwork {
             mut microblocks,
             mut broken_http_peers,
             mut broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, mempool, chainstate, dns_client, ibd) {
+        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -3600,7 +3602,6 @@ impl PeerNetwork {
         url: &UrlString,
         addr: &SocketAddr,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         page_id: Txid,
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
@@ -3613,13 +3614,7 @@ impl PeerNetwork {
                 .payload_stacks(&sync_data),
         )?;
 
-        let event_id = self.connect_or_send_http_request(
-            url.clone(),
-            addr.clone(),
-            request,
-            mempool,
-            chainstate,
-        )?;
+        let event_id = self.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
         return Ok((false, Some(event_id)));
     }
 
@@ -3682,7 +3677,6 @@ impl PeerNetwork {
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> (bool, Option<Vec<StacksTransaction>>) {
         if get_epoch_time_secs() <= self.mempool_sync_deadline {
             debug!(
@@ -3770,13 +3764,7 @@ impl PeerNetwork {
                         "{:?}: Mempool sync will query {} for mempool transactions at {}",
                         &self.local_peer, url, page_id
                     );
-                    match self.mempool_sync_send_query(
-                        url,
-                        addr,
-                        mempool,
-                        chainstate,
-                        page_id.clone(),
-                    ) {
+                    match self.mempool_sync_send_query(url, addr, mempool, page_id.clone()) {
                         Ok((false, Some(event_id))) => {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
@@ -3864,7 +3852,6 @@ impl PeerNetwork {
     fn do_network_work(
         &mut self,
         sortdb: &SortitionDB,
-        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
@@ -4071,7 +4058,6 @@ impl PeerNetwork {
                         Some(ref mut dns_client) => {
                             let done = self.do_network_block_download(
                                 sortdb,
-                                mempool,
                                 chainstate,
                                 *dns_client,
                                 ibd,
@@ -4132,8 +4118,6 @@ impl PeerNetwork {
 
     fn do_attachment_downloads(
         &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
     ) {
@@ -4158,7 +4142,7 @@ impl PeerNetwork {
                     self,
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
-                        match attachments_downloader.run(dns_client, mempool, chainstate, network) {
+                        match attachments_downloader.run(dns_client, network) {
                             Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
                                 dead_events.append(events_to_deregister);
@@ -5466,7 +5450,6 @@ impl PeerNetwork {
         // an already-used network ID.
         let do_prune = self.do_network_work(
             sortdb,
-            mempool,
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
@@ -5494,14 +5477,12 @@ impl PeerNetwork {
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
-        if let Some(mut txs) =
-            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)
-        {
+        if let Some(mut txs) = self.do_network_mempool_sync(&mut dns_client_opt, mempool, ibd) {
             network_result.synced_transactions.append(&mut txs);
         }
 
         // download attachments
-        self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
+        self.do_attachment_downloads(dns_client_opt, network_result);
 
         // synchronize stacker DBs
         match self.run_stacker_db_sync() {
