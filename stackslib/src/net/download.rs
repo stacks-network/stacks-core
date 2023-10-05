@@ -1938,8 +1938,6 @@ impl PeerNetwork {
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> Option<(T, usize)> {
         loop {
             match requestables.pop_front() {
@@ -1961,8 +1959,6 @@ impl PeerNetwork {
                                 requestable.get_url().clone(),
                                 addr.clone(),
                                 request,
-                                mempool,
-                                chainstate,
                             ) {
                                 Ok(handle) => {
                                     debug!(
@@ -2001,11 +1997,7 @@ impl PeerNetwork {
     }
 
     /// Start fetching blocks
-    pub fn block_getblocks_begin(
-        &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
+    pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
@@ -2013,13 +2005,7 @@ impl PeerNetwork {
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(
-                            network,
-                            &downloader.dns_lookups,
-                            keys,
-                            mempool,
-                            chainstate,
-                        ) {
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             }
@@ -2049,11 +2035,7 @@ impl PeerNetwork {
     }
 
     /// Proceed to get microblocks
-    pub fn block_getmicroblocks_begin(
-        &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
+    pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
@@ -2061,13 +2043,7 @@ impl PeerNetwork {
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(
-                            network,
-                            &downloader.dns_lookups,
-                            keys,
-                            mempool,
-                            chainstate,
-                        ) {
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             }
@@ -2386,7 +2362,6 @@ impl PeerNetwork {
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
-        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2488,13 +2463,13 @@ impl PeerNetwork {
                     self.block_dns_lookups_try_finish(dns_client)?;
                 }
                 BlockDownloaderState::GetBlocksBegin => {
-                    self.block_getblocks_begin(mempool, chainstate)?;
+                    self.block_getblocks_begin()?;
                 }
                 BlockDownloaderState::GetBlocksFinish => {
                     self.block_getblocks_try_finish()?;
                 }
                 BlockDownloaderState::GetMicroblocksBegin => {
-                    self.block_getmicroblocks_begin(mempool, chainstate)?;
+                    self.block_getmicroblocks_begin()?;
                 }
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
