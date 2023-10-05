@@ -249,6 +249,11 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
+                    test_debug!(
+                        "Still have data to send, drop_on_success = {}, ret = {}",
+                        drop_on_success,
+                        ret
+                    );
                     Some(fd)
                 }
             }
@@ -392,6 +397,10 @@ pub struct ConnectionOptions {
     pub mempool_max_tx_query: u64,
     /// how long a mempool sync is allowed to take, in total, before timing out
     pub mempool_sync_timeout: u64,
+    /// socket read buffer size
+    pub socket_recv_buffer_size: u32,
+    /// socket write buffer size
+    pub socket_send_buffer_size: u32,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -481,6 +490,8 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
+            socket_recv_buffer_size: 131072, // Linux default
+            socket_send_buffer_size: 16384, // Linux default
 
             // no faults on by default
             disable_neighbor_walk: false,
