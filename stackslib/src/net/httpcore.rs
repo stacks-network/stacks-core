@@ -1005,7 +1005,10 @@ impl StacksHttp {
         }
 
         test_debug!("Failed to parse '{}'", &preamble.path_and_query_str);
-        Err(NetError::NotFoundError)
+        Err(NetError::Http(HttpError::Http(
+            404,
+            "No such file or directory".into(),
+        )))
     }
 
     /// Parse out an HTTP response error message

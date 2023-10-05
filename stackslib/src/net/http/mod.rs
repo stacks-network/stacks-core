@@ -140,7 +140,7 @@ impl Error {
                 "Failed to parse data (underflow): {:?}",
                 &x
             ))),
-            Error::Http(code, msg) => Box::new(HttpError::new(code, msg)),
+            Error::Http(code, msg) => http_error_from_code_and_text(code, msg),
             Error::AppError(x) => Box::new(HttpServerError::new(format!(
                 "Unhandled application error: {:?}",
                 &x
