@@ -140,28 +140,42 @@ use crate::net::api::{getpoxinfo::RPCPoxCurrentCycleInfo, getpoxinfo::RPCPoxNext
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 pub struct ConversationHttp {
+    /// send/receive buffering state-machine for interfacing with a non-blocking socket
     connection: ConnectionHttp,
+    /// poll ID for this struct's associated socket
     conn_id: usize,
+    /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
     timeout: u64,
     /// remote host's identifier (DNS or IP).  Goes into the `Host:` header
     peer_host: PeerHost,
+    /// URL of the remote peer's data, if given
     outbound_url: Option<UrlString>,
     /// remote host's IP address
     peer_addr: SocketAddr,
+    /// remote host's keep-alive setting
     keep_alive: bool,
-    total_request_count: u64,     // number of messages taken from the inbox
-    total_reply_count: u64,       // number of messages responsed to
-    last_request_timestamp: u64, // absolute timestamp of the last time we received at least 1 byte in a request
-    last_response_timestamp: u64, // absolute timestamp of the last time we sent at least 1 byte in a response
-    connection_time: u64,         // when this converation was instantiated
-
-    canonical_stacks_tip_height: Option<u32>, // chain tip height of the peer's Stacks blockchain
+    /// number of messages consumed
+    total_request_count: u64,
+    /// number of messages sent
+    total_reply_count: u64,
+    /// absolute timestamp of the last time we recieved at least 1 byte
+    last_request_timestamp: u64,
+    /// absolute timestamp of the last time we sent at least 1 byte
+    last_response_timestamp: u64,
+    /// absolute time when this conversation was instantiated
+    connection_time: u64,
+    /// stacks canonical chain tip that this peer reported
+    canonical_stacks_tip_height: Option<u32>,
+    /// Ongoing replies
     reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
-
-    // our outstanding request/response to the remote peer, if any
+    /// outstanding request
     pending_request: Option<ReplyHandleHttp>,
+    /// outstanding response
     pending_response: Option<StacksHttpResponse>,
+    /// whether or not there's an error response pending
     pending_error_response: bool,
+    /// how much data to buffer (i.e. the socket's send buffer size)
+    socket_send_buffer_size: u32,
 }
 
 impl fmt::Display for ConversationHttp {
@@ -195,6 +209,7 @@ impl ConversationHttp {
         peer_host: PeerHost,
         conn_opts: &ConnectionOptions,
         conn_id: usize,
+        socket_send_buffer_size: u32,
     ) -> ConversationHttp {
         let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
         ConversationHttp {
@@ -214,6 +229,7 @@ impl ConversationHttp {
             total_reply_count: 0,
             last_request_timestamp: 0,
             last_response_timestamp: 0,
+            socket_send_buffer_size,
             connection_time: get_epoch_time_secs(),
         }
     }
@@ -341,11 +357,7 @@ impl ConversationHttp {
     }
 
     /// Make progress on outbound requests.
-    fn send_outbound_responses(
-        &mut self,
-        _mempool: &MemPoolDB,
-        _chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
+    fn send_outbound_responses(&mut self) -> Result<(), net_error> {
         // send out streamed responses in the order they were requested
         let mut drained_handle = false;
         let mut drained_stream = false;
@@ -364,17 +376,25 @@ impl ConversationHttp {
         {
             do_keep_alive = *keep_alive;
 
-            // write out the last-generated data into the write-end of the reply handle's pipe
-            if let Some(pipe_fd) = reply.inner_pipe_out() {
-                let num_written = http_response.pipe_out(pipe_fd)?;
-                if num_written == 0 {
-                    // no more chunks
+            while !drained_stream {
+                // write out the last-generated data into the write-end of the reply handle's pipe
+                if let Some(pipe_fd) = reply.inner_pipe_out() {
+                    let num_written = http_response.pipe_out(pipe_fd)?;
+                    if num_written == 0 {
+                        // no more chunks
+                        drained_stream = true;
+                    }
+                    test_debug!("{}: Wrote {} bytes", &_self_str, num_written);
+                    if (pipe_fd.pending() as u32) >= self.socket_send_buffer_size {
+                        // we've written more data than can be dumped into the socket buffer, so
+                        // we're good to go for now -- we'll get an edge trigger next time the data
+                        // drains from this socket.
+                        break;
+                    }
+                } else {
+                    test_debug!("{}: No inner pipe", &_self_str);
                     drained_stream = true;
                 }
-                test_debug!("{}: Wrote {} bytes", &_self_str, num_written);
-            } else {
-                test_debug!("{}: No inner pipe", &_self_str);
-                drained_stream = true;
             }
 
             if !drained_stream {
@@ -511,12 +531,8 @@ impl ConversationHttp {
     }
 
     /// Make progress on in-flight messages.
-    pub fn try_flush(
-        &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
-        self.send_outbound_responses(mempool, chainstate)?;
+    pub fn try_flush(&mut self) -> Result<(), net_error> {
+        self.send_outbound_responses()?;
         self.recv_inbound_response()?;
         Ok(())
     }
@@ -658,17 +674,15 @@ impl ConversationHttp {
     }
 
     /// Write data out of our HTTP connection.  Write as much as we can
-    pub fn send<W: Write>(
-        &mut self,
-        w: &mut W,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
-    ) -> Result<usize, net_error> {
+    pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {
-            // prime the Write
-            self.try_flush(mempool, chainstate)?;
+            test_debug!("{:?}: Try to send bytes (total {})", self, total_sz);
 
+            // fill the reply handles in self.connection with data
+            self.try_flush()?;
+
+            // dump reply handle state into `w`
             let sz = match self.connection.send_data(w) {
                 Ok(sz) => sz,
                 Err(e) => {
@@ -676,6 +690,7 @@ impl ConversationHttp {
                     return Err(e);
                 }
             };
+            test_debug!("{:?}: Sent {} bytes (total {})", self, sz, total_sz);
 
             total_sz += sz;
             if sz > 0 {
