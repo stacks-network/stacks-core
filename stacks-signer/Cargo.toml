@@ -28,6 +28,7 @@ libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 p256k1 = "5.5"
 rand_core = "0.6"
+reqwest = { version = "0.11.22", features = ["blocking", "json"] }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -35,6 +36,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-json = { version = "2.3.0", optional = true }
 slog-term = "2.6.0"
 stacks-common = { path = "../stacks-common" }
+stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 toml = "0.5.6"
 tracing = "0.1.37"

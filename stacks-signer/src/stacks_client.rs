@@ -1,10 +1,22 @@
 use bincode::Error as BincodeError;
+use blockstack_lib::chainstate::stacks::{
+    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSpendingCondition, TransactionVersion,
+};
+use clarity::vm::Value as ClarityValue;
+use clarity::vm::{ClarityName, ContractName};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
+use serde_json::json;
 use slog::{slog_debug, slog_warn};
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::{debug, warn};
+use stacks_common::{
+    codec::StacksMessageCodec,
+    debug,
+    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+    warn,
+};
 use wsts::net::{Message, Packet};
 
 use crate::config::Config;
@@ -29,6 +41,9 @@ pub enum ClientError {
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
+    /// A request sent to the Stacks Node sent an invalid response
+    #[error("Unable to parse JSON response from url {0}, error response was {1}")]
+    UnableToParseResponseJSON(String, String),
 }
 
 /// TODO: Add stacks node communication to this
@@ -53,6 +68,34 @@ impl From<&Config> for StacksClient {
             slot_versions: HashMap::new(),
         }
     }
+}
+
+/// Trait used to make interact with Clarity contracts for use in the signing process
+pub trait InteractWithStacksContracts {
+    /// Submits a transaction to a node RPC server
+    fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String;
+
+    /// Call read only tx
+    fn read_only_contract_call(
+        http_origin: &str,
+        sender: &StacksAddress,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+    ) -> String;
+
+    /// Creates a contract call transaction
+    fn transaction_contract_call(
+        sender: &StacksPrivateKey,
+        nonce: u64,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+        tx_version: TransactionVersion,
+        chain_id: u32,
+    ) -> Vec<u8>;
 }
 
 impl StacksClient {
@@ -99,8 +142,157 @@ impl StacksClient {
         // See: https://github.com/stacks-network/stacks-blockchain/issues/3921
         SLOTS_PER_USER
     }
+
+    fn seralize_sign_tx_anchor_mode_version(
+        payload: TransactionPayload,
+        sender: &StacksPrivateKey,
+        payer: Option<&StacksPrivateKey>,
+        sender_nonce: u64,
+        payer_nonce: Option<u64>,
+        tx_fee: u64,
+        anchor_mode: TransactionAnchorMode,
+        version: TransactionVersion,
+        chain_id: u32,
+    ) -> Vec<u8> {
+        let mut sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+        sender_spending_condition.set_nonce(sender_nonce);
+
+        let auth = match (payer, payer_nonce) {
+            (Some(payer), Some(payer_nonce)) => {
+                let mut payer_spending_condition =
+                    TransactionSpendingCondition::new_singlesig_p2pkh(
+                        StacksPublicKey::from_private(payer),
+                    )
+                    .expect("Failed to create p2pkh spending condition from public key.");
+                payer_spending_condition.set_nonce(payer_nonce);
+                payer_spending_condition.set_tx_fee(tx_fee);
+                TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
+            }
+            _ => {
+                sender_spending_condition.set_tx_fee(tx_fee);
+                TransactionAuth::Standard(sender_spending_condition)
+            }
+        };
+        let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
+        unsigned_tx.anchor_mode = anchor_mode;
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(sender).unwrap();
+        if let (Some(payer), Some(_)) = (payer, payer_nonce) {
+            tx_signer.sign_sponsor(payer).unwrap();
+        }
+
+        let mut buf = vec![];
+        tx_signer
+            .get_tx()
+            .unwrap()
+            .consensus_serialize(&mut buf)
+            .unwrap();
+        buf
+    }
 }
 
+impl InteractWithStacksContracts for StacksClient {
+    fn transaction_contract_call(
+        sender: &StacksPrivateKey,
+        nonce: u64,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+        tx_version: TransactionVersion,
+        chain_id: u32,
+    ) -> Vec<u8> {
+        let contract_name = ContractName::from(contract_name);
+        let function_name = ClarityName::from(function_name);
+
+        let payload = TransactionContractCall {
+            address: contract_addr.clone(),
+            contract_name,
+            function_name,
+            function_args: function_args.iter().map(|x| x.clone()).collect(),
+        };
+
+        let tx_fee = 0;
+
+        Self::seralize_sign_tx_anchor_mode_version(
+            payload.into(),
+            sender,
+            None,
+            nonce,
+            None,
+            tx_fee,
+            TransactionAnchorMode::OnChainOnly,
+            tx_version,
+            chain_id,
+        )
+    }
+
+    fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+        let client = reqwest::blocking::Client::new();
+        let path = format!("{http_origin}/v2/transactions");
+        let res = client
+            .post(&path)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx.clone())
+            .send()
+            .unwrap();
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            assert_eq!(
+                res,
+                StacksTransaction::consensus_deserialize(&mut &tx[..])
+                    .unwrap()
+                    .txid()
+                    .to_string()
+            );
+            return res;
+        } else {
+            // FIXME (https://github.com/stacks-network/stacks-blockchain/issues/3993): this needs to handled better
+            eprintln!("Submit tx error: {}", res.text().unwrap());
+            panic!("");
+        }
+    }
+
+    fn read_only_contract_call(
+        http_origin: &str,
+        sender: &StacksAddress,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+    ) -> String {
+        let body = json!({
+            "sender": sender.to_string(),
+            "arguments": function_args
+        })
+        .to_string();
+
+        let client = reqwest::blocking::Client::new();
+        let path = format!(
+            "{http_origin}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}"
+        );
+        let res = client
+            .post(&path)
+            .header("Content-TYpe", "application/json")
+            .body(body)
+            .send()
+            .unwrap();
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            return res;
+        } else {
+            // FIXME (https://github.com/stacks-network/stacks-blockchain/issues/3993): this needs to handled better
+            eprintln!("Submit tx error: {}", res.text().unwrap());
+            panic!("");
+        }
+    }
+}
 /// Helper function to determine the slot ID for the provided stacker-db writer id and the message type
 fn slot_id(id: u32, message: &Message) -> u32 {
     let slot_id = match message {
