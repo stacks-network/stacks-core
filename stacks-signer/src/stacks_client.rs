@@ -113,6 +113,34 @@ impl From<&Config> for StacksClient {
     }
 }
 
+/// Trait used to make interact with Clarity contracts for use in the signing process
+pub trait InteractWithStacksContracts {
+    /// Submits a transaction to a node RPC server
+    fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String;
+
+    /// Call read only tx
+    fn read_only_contract_call(
+        http_origin: &str,
+        sender: &StacksAddress,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+    ) -> String;
+
+    /// Creates a contract call transaction
+    fn transaction_contract_call(
+        sender: &StacksPrivateKey,
+        nonce: u64,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+        tx_version: TransactionVersion,
+        chain_id: u32,
+    ) -> Vec<u8>;
+}
+
 impl StacksClient {
     /// Sends messages to the stacker-db
     pub fn send_message(

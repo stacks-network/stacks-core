@@ -401,7 +401,7 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "libc",
- "miniz_oxide",
+ "miniz_oxide 0.6.2",
  "object",
  "rustc-demangle",
 ]
@@ -602,6 +602,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
 dependencies = [
  "nom",
+]
+
+[[package]]
+name = "cfb"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
+dependencies = [
+ "byteorder",
+ "fnv",
+ "uuid",
 ]
 
 [[package]]
@@ -1108,6 +1119,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23d2f3407d9a573d666de4b5bdf10569d73ca9478087346697dcbae6244bfbcd"
+
+[[package]]
 name = "ed25519-dalek"
 version = "1.0.0-pre.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1217,6 +1234,16 @@ dependencies = [
  "rand 0.8.5",
  "rustc-hex",
  "static_assertions",
+]
+
+[[package]]
+name = "flate2"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6c98ee8095e9d1dcbf2fcc6d95acccb90d1c81db1e44725c6a984b1dbdfb010"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide 0.7.1",
 ]
 
 [[package]]
@@ -1650,7 +1677,7 @@ dependencies = [
  "base64 0.13.1",
  "cookie",
  "futures-lite",
- "infer",
+ "infer 0.2.3",
  "pin-project-lite",
  "rand 0.7.3",
  "serde",
@@ -1802,6 +1829,15 @@ name = "infer"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
+
+[[package]]
+name = "infer"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a898e4b7951673fce96614ce5751d13c40fc5674bc2d759288e46c3ab62598b3"
+dependencies = [
+ "cfb",
+]
 
 [[package]]
 name = "inout"
@@ -2086,6 +2122,15 @@ name = "miniz_oxide"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b275950c28b37e794e8c55d88aeb5e139d0ce23fdbbeda68f8d7174abdf9e8fa"
+dependencies = [
+ "adler",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7810e0be55b428ada41041c41f32c9f1a42817901b4ccf45fa3d4b6561e74c7"
 dependencies = [
  "adler",
 ]
@@ -3061,6 +3106,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f3208ce4d8448b3f3e7d168a73f5e0c43a61e32930de3bceeccedb388b6bf06"
 
 [[package]]
+name = "rusty_pool"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ed36cdb20de66d89a17ea04b8883fc7a386f2cf877aaedca5005583ce4876ff"
+dependencies = [
+ "crossbeam-channel",
+ "futures",
+ "futures-channel",
+ "futures-executor",
+ "num_cpus",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3561,6 +3619,7 @@ dependencies = [
  "stacks-common",
  "stackslib",
  "thiserror",
+ "tinyhttp",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -3914,6 +3973,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyhttp"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1717d1b967dfc6804aff10fcfae626ced89af72f24a5d0867fcdede9a1928174"
+dependencies = [
+ "tinyhttp-codegen",
+ "tinyhttp-internal",
+]
+
+[[package]]
+name = "tinyhttp-codegen"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d2307a8061313d3ce77aed335694f15c14928189491676a02cf7ee1e7e36d16"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+ "tinyhttp-internal",
+]
+
+[[package]]
+name = "tinyhttp-internal"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e9ca774a4e165f552e56ec1cd246fa69e069a7bfe8cfa6b2d2acb9fc80e4ef"
+dependencies = [
+ "dyn-clone",
+ "flate2",
+ "infer 0.12.0",
+ "lazy_static",
+ "log",
+ "mime_guess",
+ "num_cpus",
+ "openssl",
+ "rusty_pool",
+ "uluru",
+]
+
+[[package]]
 name = "tinytemplate"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4170,6 +4268,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "uluru"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "794a32261a1f5eb6a4462c81b59cec87b5c27d5deea7dd1ac8fc781c41d226db"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "unicase"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4254,6 +4361,12 @@ name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
+
+[[package]]
+name = "uuid"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79daa5ed5740825c40b389c5e50312b9c86df53fccd33f281df655642b43869d"
 
 [[package]]
 name = "valuable"
