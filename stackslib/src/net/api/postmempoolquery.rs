@@ -200,6 +200,7 @@ impl HttpChunkGenerator for StacksMemPoolStream {
                 // next call will cork the stream
                 self.finished = true;
             }
+            self.num_txs += next_txs.len() as u64;
             return Ok(chunk);
         } else if let Some(next_txid) = next_last_randomized_txid_opt {
             // no more txs to send
