@@ -169,31 +169,20 @@ const TEST_CONTRACT_UNCONFIRMED: &'static str = "
 ";
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
-fn convo_send_recv(
-    sender: &mut ConversationHttp,
-    sender_mempool: &MemPoolDB,
-    sender_chainstate: &mut StacksChainState,
-    receiver: &mut ConversationHttp,
-    receiver_mempool: &MemPoolDB,
-    receiver_chainstate: &mut StacksChainState,
-) -> () {
+fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) -> () {
     let (mut pipe_read, mut pipe_write) = Pipe::new();
     pipe_read.set_nonblocking(true);
 
     loop {
-        sender.try_flush(sender_mempool, sender_chainstate).unwrap();
-        receiver
-            .try_flush(sender_mempool, receiver_chainstate)
-            .unwrap();
+        sender.try_flush().unwrap();
+        receiver.try_flush().unwrap();
 
         pipe_write.try_flush().unwrap();
 
         let all_relays_flushed =
             receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
 
-        let nw = sender
-            .send(&mut pipe_write, sender_mempool, sender_chainstate)
-            .unwrap();
+        let nw = sender.send(&mut pipe_write).unwrap();
         let nr = receiver.recv(&mut pipe_read).unwrap();
 
         debug!(
@@ -785,6 +774,7 @@ impl<'a> TestRPC<'a> {
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
             0,
+            32,
         );
 
         let convo_2 = ConversationHttp::new(
@@ -795,6 +785,7 @@ impl<'a> TestRPC<'a> {
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
             1,
+            32,
         );
 
         TestRPC {
@@ -834,14 +825,7 @@ impl<'a> TestRPC<'a> {
             let peer_2_mempool = peer_2.mempool.take().unwrap();
 
             debug!("test_rpc: Peer 1 sends to Peer 2");
-            convo_send_recv(
-                &mut convo_1,
-                &peer_1_mempool,
-                peer_1.chainstate(),
-                &mut convo_2,
-                &peer_2_mempool,
-                peer_2.chainstate(),
-            );
+            convo_send_recv(&mut convo_1, &mut convo_2);
 
             // hack around the borrow-checker
             let peer_1_sortdb = peer_1.sortdb.take().unwrap();
@@ -903,26 +887,12 @@ impl<'a> TestRPC<'a> {
             peer_2.stacks_node = Some(peer_2_stacks_node);
             let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-            convo_send_recv(
-                &mut convo_2,
-                &peer_2_mempool,
-                peer_2.chainstate(),
-                &mut convo_1,
-                &peer_1_mempool,
-                peer_1.chainstate(),
-            );
+            convo_send_recv(&mut convo_2, &mut convo_1);
 
             debug!("test_rpc: Peer 1 flush");
 
             // hack around the borrow-checker
-            convo_send_recv(
-                &mut convo_1,
-                &peer_1_mempool,
-                peer_1.chainstate(),
-                &mut convo_2,
-                &peer_2_mempool,
-                peer_2.chainstate(),
-            );
+            convo_send_recv(&mut convo_1, &mut convo_2);
 
             peer_2.mempool = Some(peer_2_mempool);
 
@@ -954,9 +924,7 @@ impl<'a> TestRPC<'a> {
                 convo_1.chat(&mut node_state).unwrap();
             }
 
-            convo_1
-                .try_flush(&peer_1_mempool, &mut peer_1_stacks_node.chainstate)
-                .unwrap();
+            convo_1.try_flush().unwrap();
 
             peer_1.sortdb = Some(peer_1_sortdb);
             peer_1.stacks_node = Some(peer_1_stacks_node);
