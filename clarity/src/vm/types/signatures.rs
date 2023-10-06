@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::btree_map::Entry;
 // TypeSignatures
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
@@ -137,10 +138,7 @@ impl SequenceSubtype {
     }
 
     pub fn is_list_type(&self) -> bool {
-        match &self {
-            SequenceSubtype::ListType(_) => true,
-            _ => false,
-        }
+        matches!(self, SequenceSubtype::ListType(_))
     }
 }
 
@@ -452,7 +450,7 @@ impl ListTypeData {
 
         let list_data = ListTypeData {
             entry_type: Box::new(entry_type),
-            max_len: max_len as u32,
+            max_len,
         };
         let would_be_size = list_data
             .inner_size()
@@ -512,11 +510,7 @@ impl TypeSignature {
     }
 
     pub fn is_response_type(&self) -> bool {
-        if let TypeSignature::ResponseType(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, TypeSignature::ResponseType(_))
     }
 
     pub fn is_no_type(&self) -> bool {
@@ -530,7 +524,7 @@ impl TypeSignature {
 
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
         match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&other),
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
@@ -549,7 +543,7 @@ impl TypeSignature {
                     } else if my_list_type.max_len >= other_list_type.max_len {
                         my_list_type
                             .entry_type
-                            .admits_type_v2_0(&*other_list_type.entry_type)
+                            .admits_type_v2_0(&other_list_type.entry_type)
                     } else {
                         Ok(false)
                     }
@@ -645,7 +639,7 @@ impl TypeSignature {
                     } else if my_list_type.max_len >= other_list_type.max_len {
                         my_list_type
                             .entry_type
-                            .admits_type_v2_1(&*other_list_type.entry_type)
+                            .admits_type_v2_1(&other_list_type.entry_type)
                     } else {
                         Ok(false)
                     }
@@ -811,16 +805,16 @@ impl TypeSignature {
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
     type Error = CheckErrors;
     fn try_from(mut type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
-        if type_data.len() == 0 {
+        if type_data.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data.drain(..) {
-            if type_map.contains_key(&name) {
-                return Err(CheckErrors::NameAlreadyUsed(name.into()));
+            if let Entry::Vacant(e) = type_map.entry(name.clone()) {
+                e.insert(type_info);
             } else {
-                type_map.insert(name, type_info);
+                return Err(CheckErrors::NameAlreadyUsed(name.into()));
             }
         }
         TupleTypeSignature::try_from(type_map)
@@ -830,7 +824,7 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     type Error = CheckErrors;
     fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
-        if type_map.len() == 0 {
+        if type_map.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
         for child_sig in type_map.values() {
@@ -856,6 +850,11 @@ impl TupleTypeSignature {
         self.type_map.len() as u64
     }
 
+    /// Returns whether the tuple type is empty
+    pub fn is_empty(&self) -> bool {
+        self.type_map.is_empty()
+    }
+
     pub fn field_type(&self, field: &str) -> Option<&TypeSignature> {
         self.type_map.get(field)
     }
@@ -879,7 +878,7 @@ impl TupleTypeSignature {
             }
         }
 
-        return Ok(true);
+        Ok(true)
     }
 
     pub fn parse_name_type_pair_list<A: CostTracker>(
@@ -931,7 +930,7 @@ impl FunctionSignature {
         }
         let args_iter = self.args.iter().zip(args.iter());
         for (expected_arg, arg) in args_iter {
-            if !arg.admits_type(epoch, &expected_arg)? {
+            if !arg.admits_type(epoch, expected_arg)? {
                 return Ok(false);
             }
         }
@@ -1288,7 +1287,7 @@ impl TypeSignature {
                 }
             }
             (ListUnionType(l1), ListUnionType(l2)) => {
-                Ok(ListUnionType(l1.union(&l2).cloned().collect()))
+                Ok(ListUnionType(l1.union(l2).cloned().collect()))
             }
             (x, y) => {
                 if x == y {
@@ -1349,7 +1348,7 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData> {
-        let children_types: Vec<_> = args.iter().map(|x| TypeSignature::type_of(x)).collect();
+        let children_types: Vec<_> = args.iter().map(TypeSignature::type_of).collect();
         TypeSignature::parent_list_type(&children_types)
     }
 
@@ -1468,7 +1467,7 @@ impl TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
-        Ok(TypeSignature::new_option(inner_type)?)
+        TypeSignature::new_option(inner_type)
     }
 
     pub fn parse_response_type_repr<A: CostTracker>(
@@ -1481,7 +1480,7 @@ impl TypeSignature {
         }
         let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
-        Ok(TypeSignature::new_response(ok_type, err_type)?)
+        TypeSignature::new_response(ok_type, err_type)
     }
 
     pub fn parse_type_repr<A: CostTracker>(
@@ -1575,7 +1574,7 @@ impl TypeSignature {
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
-                let arg_t = TypeSignature::parse_type_repr(epoch, &arg_type, accounting)?;
+                let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
                 fn_args.push(arg_t);
             }
 
@@ -2024,7 +2023,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            let _ = TypeSignature::from_string(*desc, version, epoch); // panics on failed types.
+            let _ = TypeSignature::from_string(desc, version, epoch); // panics on failed types.
         }
     }
 

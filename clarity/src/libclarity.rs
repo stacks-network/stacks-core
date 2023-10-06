@@ -27,6 +27,9 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
+#[macro_use]
+extern crate serde_json;
+
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 extern crate rstest;
@@ -50,11 +53,6 @@ pub use stacks_common::{
 #[macro_use]
 /// The Clarity virtual machine
 pub mod vm;
-
-pub use stacks_common::address;
-
-/// A high level library for interacting with the Clarity vm
-// pub mod core;
 
 pub mod boot_util {
     use std::convert::TryFrom;
@@ -83,9 +81,9 @@ const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
 const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
 
 #[cfg(debug_assertions)]
-const BUILD_TYPE: &'static str = "debug";
+const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
-const BUILD_TYPE: &'static str = "release";
+const BUILD_TYPE: &str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
     let git_branch = GIT_BRANCH.unwrap_or("");

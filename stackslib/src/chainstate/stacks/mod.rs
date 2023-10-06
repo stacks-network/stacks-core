@@ -54,15 +54,16 @@ use crate::chainstate::stacks::db::MinerRewardInfo;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
-};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
+};
 
 pub mod address;
 pub mod auth;

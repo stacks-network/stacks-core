@@ -716,6 +716,10 @@ mod test {
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::net::TcpStream;
+
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+
     use std::sync::mpsc::sync_channel;
     use std::sync::mpsc::Receiver;
     use std::sync::mpsc::RecvError;
@@ -744,14 +748,11 @@ mod test {
     use crate::chainstate::stacks::Error as chain_error;
     use crate::chainstate::stacks::StacksBlockHeader;
     use crate::chainstate::stacks::*;
-    use crate::chainstate::stacks::*;
     use crate::net::codec::*;
     use crate::net::http::*;
     use crate::net::rpc::*;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::BurnchainHeaderHash;
 
     fn test_http_server<F, C>(
         test_name: &str,

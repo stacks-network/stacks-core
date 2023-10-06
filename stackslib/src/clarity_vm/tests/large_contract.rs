@@ -34,11 +34,10 @@ use clarity::vm::types::{
 use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
-#[cfg(test)]
-use rstest::rstest;
-#[cfg(test)]
-use rstest_reuse::{self, *};
+
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
@@ -47,9 +46,12 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot::boot_code_id;
+
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])

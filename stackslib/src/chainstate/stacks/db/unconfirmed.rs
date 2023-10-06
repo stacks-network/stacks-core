@@ -39,8 +39,9 @@ use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::*;
 use crate::net::Error as net_error;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::Error as db_error;
+
+use stacks_common::types::chainstate::StacksBlockId;
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 

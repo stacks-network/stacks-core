@@ -41,8 +41,6 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
 use crate::chainstate::burn::ConsensusHash;
-use crate::codec::StacksMessageCodec;
-use crate::codec::MAX_MESSAGE_LEN;
 use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::codec::*;
@@ -63,6 +61,8 @@ use crate::net::ProtocolFamily;
 use crate::net::RelayData;
 use crate::net::StacksHttp;
 use crate::net::StacksP2P;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::MAX_MESSAGE_LEN;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly

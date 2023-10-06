@@ -3,28 +3,31 @@ use std::convert::TryFrom;
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
+
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
     StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
     StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::StacksEpochId;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
-use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
-use stacks::util::{hash::*, secp256k1::*};
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::database::NULL_BURN_STATE_DB;
-use stacks::vm::{
+
+use clarity::vm::database::NULL_BURN_STATE_DB;
+use clarity::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
     types::StandardPrincipalData, Value,
 };
-use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode};
+use stacks::chainstate::stacks::TransactionAnchorMode;
+
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
+use stacks_common::util::{hash::*, secp256k1::*};
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
@@ -32,6 +35,7 @@ use super::{
 };
 use crate::helium::RunLoop;
 use crate::Keychain;
+use clarity::vm::costs::ExecutionCost;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";

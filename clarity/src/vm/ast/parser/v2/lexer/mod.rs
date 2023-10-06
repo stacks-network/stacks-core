@@ -42,10 +42,7 @@ fn is_separator(ch: char) -> bool {
 }
 
 fn is_string_terminator(ch: char) -> bool {
-    match ch {
-        '"' | '\n' | EOF => true,
-        _ => false,
-    }
+    matches!(ch, '"' | '\n' | EOF)
 }
 
 impl<'a> Lexer<'a> {
@@ -69,7 +66,7 @@ impl<'a> Lexer<'a> {
 
     fn add_diagnostic(&mut self, e: LexerError, span: Span) -> LexResult<()> {
         if self.fail_fast {
-            return Err(e);
+            Err(e)
         } else {
             if e.level() == Level::Error {
                 self.success = false;
@@ -86,7 +83,7 @@ impl<'a> Lexer<'a> {
         match self.input.next() {
             Some(ch) => {
                 if self.next == '\n' {
-                    self.line = self.line + 1;
+                    self.line += 1;
                     self.column = 0;
                 }
 
@@ -106,8 +103,8 @@ impl<'a> Lexer<'a> {
             }
             None => self.next = EOF,
         }
-        self.offset = self.offset + 1;
-        self.column = self.column + 1;
+        self.offset += 1;
+        self.column += 1;
 
         Ok(())
     }
@@ -498,7 +495,7 @@ impl<'a> Lexer<'a> {
             self.read_char()?;
             match self.next {
                 '}' => {
-                    if code.len() == 0 {
+                    if code.is_empty() {
                         self.add_diagnostic(
                             LexerError::EmptyUTF8Encoding,
                             Span {
@@ -885,19 +882,19 @@ mod tests {
     fn read_tokens() {
         let mut lexer = Lexer::new("", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Eof);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         let mut lexer = Lexer::new(" ", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Whitespace);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         let mut lexer = Lexer::new("\t", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Whitespace);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         let mut lexer = Lexer::new("\n", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Whitespace);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         let mut lexer = Lexer::new("\r", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Whitespace);
@@ -907,59 +904,59 @@ mod tests {
 
         lexer = Lexer::new("(", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Lparen);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(").unwrap()", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Rparen);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("{", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Lbrace);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("}", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Rbrace);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(":", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Colon);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(",", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Comma);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(".", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Dot);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("123", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Int("123".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("0123", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Int("0123".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("0", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Int("0".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("okay", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Ident("okay".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("0a", false).unwrap();
         assert_eq!(
@@ -1021,28 +1018,28 @@ mod tests {
             lexer.read_token().unwrap().token,
             Token::AsciiString("hello".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("\"new\\nline\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::AsciiString("new\nline".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("\"quote \\\"this\\\"\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::AsciiString("quote \"this\"".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("\"\\r\\t\\0\\\\ ok\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::AsciiString("\r\t\0\\ ok".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("\"\\x\"", false).unwrap();
         assert_eq!(
@@ -1092,7 +1089,7 @@ mod tests {
             _ => panic!("failed to parse utf8 string"),
         };
         assert_eq!(data, "hello");
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("u\"\\u{1F600}\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
@@ -1100,7 +1097,7 @@ mod tests {
             _ => panic!("failed to parse utf8 string"),
         };
         assert_eq!(data, "😀");
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("u\"quote \\\"this\\\"\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
@@ -1108,7 +1105,7 @@ mod tests {
             _ => panic!("failed to parse utf8 string"),
         };
         assert_eq!(data, "quote \"this\"");
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("u\"\\n\\r\\t\\0\\\\ ok\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
@@ -1116,7 +1113,7 @@ mod tests {
             _ => panic!("failed to parse utf8 string"),
         };
         assert_eq!(data, "\n\r\t\u{0}\\ ok");
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("u\"\\x\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
@@ -1233,15 +1230,15 @@ mod tests {
         if let Token::Bytes(s) = lexer.read_token().unwrap().token {
             assert_eq!(s, "123abc");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal");
         }
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("0xdefg", false).unwrap();
         if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
             assert_eq!(s, "0xdefg");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal");
         }
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharBuffer('g'));
@@ -1250,7 +1247,7 @@ mod tests {
         if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
             assert_eq!(s, "0xdef");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal");
         }
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidBufferLength(3));
@@ -1259,7 +1256,7 @@ mod tests {
         if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
             assert_eq!(s, "0x00p5");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal")
         }
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharBuffer('p'));
@@ -1268,23 +1265,23 @@ mod tests {
         if let Token::Bytes(s) = lexer.read_token().unwrap().token {
             assert_eq!(s, "def0");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal");
         }
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("foo", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Ident("foo".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("ubar", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Ident("ubar".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("baz👍buz", false).unwrap();
         assert_eq!(
@@ -1297,49 +1294,49 @@ mod tests {
 
         lexer = Lexer::new("+", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Plus);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("-", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Minus);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("*", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Multiply);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("/", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Divide);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("<", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Less);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("<=", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::LessEqual);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(">", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Greater);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(">=", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::GreaterEqual);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(";; this is a comment", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Comment("this is a comment".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(";; this is a comment\nthis is not", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Comment("this is a comment".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new(";; this is a comment\r\n", false).unwrap();
         assert_eq!(
@@ -1363,7 +1360,7 @@ mod tests {
             lexer.read_token().unwrap().token,
             Token::Principal("1234567890ABCDEFG".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("'1234567890aBCDEFG", false).unwrap();
         assert_eq!(
@@ -1404,7 +1401,7 @@ mod tests {
             lexer.read_token().unwrap().token,
             Token::Comment("comment".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
     }
 
     #[test]
@@ -1816,7 +1813,7 @@ mod tests {
         if let Token::Bytes(s) = token.token {
             assert_eq!(s, "0123456789abcdeffedcba9876543210");
         } else {
-            assert!(false);
+            panic!("failed to parse hex literal");
         }
         assert_eq!(
             token.span,
@@ -2143,7 +2140,7 @@ mod tests {
             lexer.read_token().unwrap().token,
             Token::Ident("silly-goose".to_string())
         );
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
     }
 
     #[test]
@@ -2154,7 +2151,7 @@ mod tests {
             Token::TraitIdent("fancy-dolphin".to_string())
         );
         assert_eq!(lexer.read_token().unwrap().token, Token::Eof);
-        assert_eq!(lexer.diagnostics.len(), 0);
+        assert!(lexer.diagnostics.is_empty());
 
         lexer = Lexer::new("<illegal*name>", false).unwrap();
         assert_eq!(

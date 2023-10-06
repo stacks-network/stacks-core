@@ -63,7 +63,6 @@ use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::codec::StacksMessageCodec;
 use crate::core::mempool::db_get_all_nonces;
 use crate::core::mempool::MemPoolWalkSettings;
 use crate::core::mempool::TxTag;
@@ -74,15 +73,17 @@ use crate::net::stream::StreamCursor;
 use crate::net::Error as NetError;
 use crate::net::HttpResponseType;
 use crate::net::MemPoolSyncData;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
 use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
 use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
 use crate::util_lib::strings::StacksString;
-use crate::{
-    chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
-};
+
+use crate::chainstate::stacks::db::StacksHeaderInfo;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
+use stacks_common::util::vrf::VRFProof;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";

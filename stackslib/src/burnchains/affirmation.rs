@@ -255,12 +255,13 @@ use crate::chainstate::burn::{
 };
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::core::StacksEpochId;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
-};
+
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as DBError;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
+};
 
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),

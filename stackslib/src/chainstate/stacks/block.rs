@@ -33,18 +33,19 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::*;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::core::*;
 use crate::net::Error as net_error;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use crate::types::StacksPublicKeyBuffer;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::types::StacksPublicKeyBuffer;
+
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -940,7 +941,10 @@ mod test {
     use crate::net::codec::test::*;
     use crate::net::codec::*;
     use crate::net::*;
-    use crate::types::chainstate::StacksAddress;
+    use stacks_common::address::*;
+    use stacks_common::util::hash::*;
+
+    use stacks_common::types::chainstate::StacksAddress;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {

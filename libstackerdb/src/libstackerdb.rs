@@ -89,7 +89,7 @@ pub struct StackerDBChunkData {
     pub slot_id: u32,
     /// slot version (a lamport clock)
     pub slot_version: u32,
-    /// signature from the stacker over (reward cycle consensus hash, slot id, slot version, chunk sha512/256)
+    /// signature from the stacker over (slot id, slot version, chunk sha512/256)
     pub sig: MessageSignature,
     /// the chunk data
     #[serde(
@@ -127,9 +127,9 @@ impl SlotMetadata {
     /// Get the digest to sign that authenticates this chunk data and metadata
     fn auth_digest(&self) -> Sha512Trunc256Sum {
         let mut hasher = Sha512_256::new();
-        hasher.update(&self.slot_id.to_be_bytes());
-        hasher.update(&self.slot_version.to_be_bytes());
-        hasher.update(&self.data_hash.0);
+        hasher.update(self.slot_id.to_be_bytes());
+        hasher.update(self.slot_version.to_be_bytes());
+        hasher.update(self.data_hash.0);
         Sha512Trunc256Sum::from_hasher(hasher)
     }
 
@@ -181,7 +181,7 @@ impl StackerDBChunkData {
             slot_id: self.slot_id,
             slot_version: self.slot_version,
             data_hash: self.data_hash(),
-            signature: self.sig.clone(),
+            signature: self.sig,
         }
     }
 
@@ -216,7 +216,7 @@ impl StacksMessageCodec for StackerDBChunkData {
         let slot_id: u32 = read_next(fd)?;
         let slot_version: u32 = read_next(fd)?;
         let sig: MessageSignature = read_next(fd)?;
-        let data: Vec<u8> = read_next_at_most(fd, STACKERDB_MAX_CHUNK_SIZE.into())?;
+        let data: Vec<u8> = read_next_at_most(fd, STACKERDB_MAX_CHUNK_SIZE)?;
         Ok(StackerDBChunkData {
             slot_id,
             slot_version,

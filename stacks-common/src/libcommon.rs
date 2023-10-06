@@ -12,6 +12,12 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
+#[cfg(unix)]
+extern crate nix;
+
+#[cfg(windows)]
+extern crate winapi;
+
 #[macro_use]
 pub mod util;
 

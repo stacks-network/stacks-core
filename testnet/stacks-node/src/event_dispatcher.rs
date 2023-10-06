@@ -7,6 +7,7 @@ use async_h1::client;
 use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 use serde_json::json;
+
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
@@ -23,20 +24,23 @@ use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
 };
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDropReason;
 use stacks::core::mempool::MemPoolEventDispatcher;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
+
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
+use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks::util::hash::bytes_to_hex;
-use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
-use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::util::hash::bytes_to_hex;
 
 use super::config::{EventKeyType, EventObserverConfig};
+
+pub use libsigner::StackerDBChunksEvent;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -85,13 +89,6 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
-}
-
-/// Event structure for newly-arrived StackerDB data
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct StackerDBChunksEvent {
-    pub contract_id: QualifiedContractIdentifier,
-    pub modified_slots: Vec<StackerDBChunkData>,
 }
 
 impl EventObserver {

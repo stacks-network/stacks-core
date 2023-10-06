@@ -4,6 +4,9 @@ use std::env;
 use std::sync::atomic::Ordering;
 use std::thread;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::ContractName;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
@@ -15,22 +18,19 @@ use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
-use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
 use stacks::core::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
-use stacks::types::chainstate::BlockHeaderHash;
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::chainstate::StacksAddress;
-use stacks::types::chainstate::VRFSeed;
-use stacks::util::hash::hex_bytes;
-use stacks::util::sleep_ms;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::ContractName;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::sleep_ms;
 
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;

@@ -66,10 +66,12 @@ use crate::net::StacksMessage;
 use crate::net::StacksP2P;
 use crate::net::GETPOXINV_MAX_BITLEN;
 use crate::net::*;
-use crate::types::chainstate::PoxId;
-use crate::types::StacksPublicKeyBuffer;
+
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
+
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::StacksPublicKeyBuffer;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -716,7 +718,7 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
     ) -> bool {
         let bhh = match chain_view.last_burn_block_hashes.get(&block_height) {
-            Some(ref bhh) => bhh.clone(),
+            Some(bhh) => bhh,
             None => {
                 // not present; can't prove disagreement (assume the remote peer is just stale)
                 return false;
@@ -2737,8 +2739,11 @@ mod test {
     use crate::net::p2p::*;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+
     use crate::util_lib::test::*;
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+
+    use super::*;
 
     const DEFAULT_SERVICES: u16 = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
     const STACKERDB_SERVICES: u16 = (ServiceFlags::RELAY as u16)

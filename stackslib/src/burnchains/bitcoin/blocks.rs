@@ -46,8 +46,7 @@ use crate::burnchains::{
     BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
 };
 use crate::core::StacksEpochId;
-use crate::deps;
-use crate::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
@@ -565,7 +564,8 @@ mod tests {
     };
     use crate::burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
     use crate::core::StacksEpochId;
-    use crate::types::chainstate::BurnchainHeaderHash;
+
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     struct TxFixture {
         txstr: String,

@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::{collections::HashMap, collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
+use clarity::vm::database::BurnStateDB;
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::chainstate::burn::ConsensusHash;
@@ -32,14 +33,7 @@ use stacks::net::{
     stackerdb::StackerDBs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::TrieHash;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha256Sum;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::UrlString;
-use stacks::vm::database::BurnStateDB;
 use stacks::{
     burnchains::db::BurnchainDB,
     burnchains::PoxConstants,
@@ -55,6 +49,12 @@ use stacks::{
         ChainstateBNSNamespace,
     },
 };
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Sha256Sum;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;

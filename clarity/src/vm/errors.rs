@@ -14,14 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::error::Error as ErrorTrait;
-use std::fmt;
-
-use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
-
-use crate::types::chainstate::BlockHeaderHash;
 pub use crate::vm::analysis::errors::CheckErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most,
@@ -30,6 +22,12 @@ use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::{TypeSignature, Value};
+use rusqlite::Error as SqliteError;
+use serde_json::Error as SerdeJSONErr;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use std::error;
+use std::error::Error as ErrorTrait;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -114,7 +112,7 @@ pub type InterpreterResult<R> = Result<R, Error>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
-        return false;
+        false
     }
 }
 
@@ -134,14 +132,12 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Runtime(ref err, ref stack) => {
-                match err {
-                    _ => write!(f, "{}", err),
-                }?;
+                write!(f, "{}", err)?;
 
                 if let Some(ref stack_trace) = stack {
                     write!(f, "\n Stack Trace: \n")?;
                     for item in stack_trace.iter() {
-                        write!(f, "{}\n", item)?;
+                        writeln!(f, "{}", item)?;
                     }
                 }
                 Ok(())
@@ -216,9 +212,9 @@ impl From<Error> for () {
     fn from(err: Error) -> Self {}
 }
 
-impl Into<Value> for ShortReturnType {
-    fn into(self) -> Value {
-        match self {
+impl From<ShortReturnType> for Value {
+    fn from(val: ShortReturnType) -> Self {
+        match val {
             ShortReturnType::ExpectedValue(v) => v,
             ShortReturnType::AssertionFailed(v) => v,
         }
@@ -231,6 +227,7 @@ mod test {
     use crate::vm::execute;
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero

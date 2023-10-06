@@ -19,7 +19,6 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
 
-use clarity::address::b58::{check_encode_slice, from_check};
 use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
 use serde::{Deserialize, Deserializer, Serializer};
@@ -47,11 +46,12 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 use crate::util_lib::boot::boot_code_addr;
+use stacks_common::address::b58::{check_encode_slice, from_check};
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 
 pub trait StacksAddressExtensions {
     fn to_b58(self) -> String;

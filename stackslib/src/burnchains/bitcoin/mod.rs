@@ -30,8 +30,9 @@ use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::deps;
-use crate::types::chainstate::BurnchainHeaderHash;
 use crate::util_lib::db::Error as db_error;
+
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub mod address;
 pub mod bits;

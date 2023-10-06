@@ -48,12 +48,12 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::net::Error as net_error;
 use crate::net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
-use crate::types::chainstate::StacksAddress;
-use crate::types::StacksPublicKeyBuffer;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksPublicKeyBuffer;
 
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

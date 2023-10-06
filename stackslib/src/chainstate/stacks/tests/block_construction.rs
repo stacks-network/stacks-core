@@ -61,6 +61,8 @@ use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
+use stacks_common::types::chainstate::SortitionId;
+
 use crate::core::mempool::MemPoolWalkSettings;
 use crate::core::tests::make_block;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -68,7 +70,6 @@ use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::net::test::*;
-use crate::types::chainstate::SortitionId;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
