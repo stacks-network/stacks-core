@@ -94,6 +94,8 @@ pub struct PutChunkArgs {
     pub slot_version: u32,
     /// The data to upload
     #[arg(required = false, value_parser = parse_data)]
+    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
+    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
     pub data: alloc::vec::Vec<u8>,
 }
 
@@ -105,6 +107,8 @@ pub struct SignArgs {
     pub config: PathBuf,
     /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
+    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
+    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
     pub data: alloc::vec::Vec<u8>,
 }
 
