@@ -2715,23 +2715,25 @@ impl SortitionDB {
                 first_burn_header_timestamp,
                 epochs,
             )?;
-        } else {
-            // validate -- must contain the given first block and first block hash
-            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial()
-                || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
-            {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
-                return Err(db_error::Corruption);
-            }
         }
 
         db.check_schema_version_and_update(epochs)?;
+
+        // validate -- must contain the given first block and first block hash
+        let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+        if !snapshot.is_initial()
+            || snapshot.block_height != first_block_height
+            || snapshot.burn_header_hash != *first_burn_hash
+        {
+            error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                   snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+            return Err(db_error::Corruption);
+        }
+
         if readwrite {
             db.add_indexes()?;
         }
+
         Ok(db)
     }
 
@@ -2972,7 +2974,45 @@ impl SortitionDB {
             db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
-        db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
+        // manually insert the first block snapshot in instantiate_v1 testing code, because
+        //  SCHEMA_9 adds a new column
+        let pox_payouts_json = serde_json::to_string(&pox_payout)
+            .expect("FATAL: could not encode `total_pox_payouts` as JSON");
+
+        let args = rusqlite::params![
+            &u64_to_sql(first_snapshot.block_height)?,
+            &first_snapshot.burn_header_hash,
+            &u64_to_sql(first_snapshot.burn_header_timestamp)?,
+            &first_snapshot.parent_burn_header_hash,
+            &first_snapshot.consensus_hash,
+            &first_snapshot.ops_hash,
+            &first_snapshot.total_burn.to_string(),
+            &first_snapshot.sortition,
+            &first_snapshot.sortition_hash,
+            &first_snapshot.winning_block_txid,
+            &first_snapshot.winning_stacks_block_hash,
+            &first_snapshot.index_root,
+            &u64_to_sql(first_snapshot.num_sortitions)?,
+            &first_snapshot.stacks_block_accepted,
+            &u64_to_sql(first_snapshot.stacks_block_height)?,
+            &u64_to_sql(first_snapshot.arrival_index)?,
+            &u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
+            &first_snapshot.canonical_stacks_tip_hash,
+            &first_snapshot.canonical_stacks_tip_consensus_hash,
+            &first_snapshot.sortition_id,
+            &first_snapshot.parent_sortition_id,
+            &first_snapshot.pox_valid,
+            &first_snapshot.accumulated_coinbase_ustx.to_string(),
+            &pox_payouts_json,
+        ];
+
+        db_tx.execute("INSERT INTO snapshots \
+                      (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
+                      pox_payouts) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)?;
+
+        // db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
         db_tx.store_transition_ops(
             &first_snapshot.sortition_id,
             &BurnchainStateTransition::noop(),
@@ -3319,6 +3359,10 @@ impl SortitionDB {
                     } else if version == "7" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_8(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "8" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_9(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
