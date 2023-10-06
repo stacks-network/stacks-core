@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::borrow::BorrowMut;
 use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
@@ -23,9 +24,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPrivateKey, StacksWorkScore,
     TrieHash,
 };
-use stacks_common::types::{StacksEpoch, StacksEpochId};
+use stacks_common::types::{PrivateKey, StacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
@@ -193,7 +194,151 @@ pub fn nakamoto_advance_tip_simple() {
 }
 
 #[test]
-pub fn staging_blocks() {}
+pub fn staging_blocks() {
+    let path = test_path(function_name!());
+    let _r = std::fs::remove_dir_all(&path);
+
+    let burnchain_conf = get_burnchain(&path, None);
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let miner_sks: Vec<_> = (0..10).map(|i| StacksPrivateKey::from_seed(&[i])).collect();
+
+    let transacter_sk = StacksPrivateKey::from_seed(&[1]);
+    let transacter = p2pkh_from(&transacter_sk);
+
+    let recipient_sk = StacksPrivateKey::from_seed(&[2]);
+    let recipient = p2pkh_from(&recipient_sk);
+
+    let initial_balances = vec![(transacter.clone().into(), 100000)];
+    let transacter_fee = 1000;
+    let transacter_send = 250;
+
+    let pox_constants = PoxConstants::mainnet_default();
+
+    setup_states_with_epochs(
+        &[&path],
+        &vrf_keys,
+        &committers,
+        None,
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+        Some(StacksEpoch::all(0, 0, 1000000)),
+    );
+
+    let mut sort_db = get_rw_sortdb(&path, None);
+
+    for i in 1..6u8 {
+        let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let miner_pk = Secp256k1PublicKey::from_private(&miner_sks[usize::from(i)]);
+        let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
+        eprintln!("Advance sortition: {i}. Miner PK = {miner_pk:?}");
+        let new_bhh = BurnchainHeaderHash([i; 32]);
+        let new_ch = ConsensusHash([i; 20]);
+        let new_sh = SortitionHash([1; 32]);
+
+        let new_snapshot = BlockSnapshot {
+            block_height: parent_snapshot.block_height + 1,
+            burn_header_timestamp: 100 * u64::from(i),
+            burn_header_hash: new_bhh.clone(),
+            parent_burn_header_hash: parent_snapshot.burn_header_hash.clone(),
+            consensus_hash: new_ch.clone(),
+            ops_hash: OpsHash([0; 32]),
+            total_burn: 10,
+            sortition: true,
+            sortition_hash: new_sh,
+            winning_block_txid: Txid([0; 32]),
+            winning_stacks_block_hash: BlockHeaderHash([0; 32]),
+            index_root: TrieHash([0; 32]),
+            num_sortitions: parent_snapshot.num_sortitions + 1,
+            stacks_block_accepted: true,
+            stacks_block_height: 1,
+            arrival_index: i.into(),
+            canonical_stacks_tip_height: i.into(),
+            canonical_stacks_tip_hash: BlockHeaderHash([0; 32]),
+            canonical_stacks_tip_consensus_hash: new_ch.clone(),
+            sortition_id: SortitionId::new(&new_bhh.clone(), &PoxId::new(vec![true])),
+            parent_sortition_id: parent_snapshot.sortition_id.clone(),
+            pox_valid: true,
+            accumulated_coinbase_ustx: 0,
+            miner_pk_hash: Some(miner_pk_hash),
+        };
+
+        let mut sortdb_tx = sort_db
+            .tx_handle_begin(&parent_snapshot.sortition_id)
+            .unwrap();
+
+        sortdb_tx
+            .append_chain_tip_snapshot(
+                &parent_snapshot,
+                &new_snapshot,
+                &vec![],
+                &vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        sortdb_tx.commit().unwrap();
+    }
+
+    let mut chainstate = get_chainstate(&path);
+
+    let mut block = NakamotoBlock {
+        header: NakamotoBlockHeader {
+            version: 100,
+            chain_length: 1,
+            burn_spent: 10,
+            parent: BlockHeaderHash([1; 32]),
+            burn_view: BurnchainHeaderHash([1; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            stacker_signature: MessageSignature([0; 65]),
+            miner_signature: MessageSignature([0; 65]),
+            consensus_hash: ConsensusHash([2; 20]),
+            parent_consensus_hash: ConsensusHash([1; 20]),
+        },
+        txs: vec![],
+    };
+
+    let miner_signature = miner_sks[4]
+        .sign(block.header.signature_hash().unwrap().as_bytes())
+        .unwrap();
+
+    block.header.miner_signature = miner_signature;
+
+    let (chainstate_tx, _clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+    let sortdb_conn = sort_db.index_handle_at_tip();
+
+    NakamotoChainState::accept_block(block.clone(), &sortdb_conn, &chainstate_tx).unwrap();
+
+    chainstate_tx.commit().unwrap();
+
+    let (chainstate_tx, _clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+    let sortdb_conn = sort_db.index_handle_at_tip();
+
+    assert!(
+        NakamotoChainState::next_ready_block(&chainstate_tx)
+            .unwrap()
+            .is_none(),
+        "No block should be ready yet",
+    );
+
+    let block_parent_id =
+        StacksBlockId::new(&block.header.parent_consensus_hash, &block.header.parent);
+    NakamotoChainState::set_block_processed(&chainstate_tx, &block_parent_id).unwrap();
+
+    // block should be ready -- the burn view was processed before the block was inserted.
+    let ready_block = NakamotoChainState::next_ready_block(&chainstate_tx)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(ready_block.header.block_hash(), block.header.block_hash());
+
+    chainstate_tx.commit().unwrap();
+}
 
 // Assemble 5 nakamoto blocks, invoking append_block. Check that miner rewards
 //  mature as expected.

@@ -425,18 +425,29 @@ impl NakamotoChainState {
 
     pub fn next_ready_block(
         staging_db_conn: &Connection,
-    ) -> Result<NakamotoBlock, ChainstateError> {
+    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
         let query = "SELECT data FROM nakamoto_staging_blocks
                      WHERE burn_attachable = 1
                        AND stacks_attachable = 1
                        AND orphaned = 0
                        AND processed = 0
                      ORDER BY height ASC";
-        staging_db_conn.query_row_and_then(query, NO_PARAMS, |row| {
-            let data: Vec<u8> = row.get("data")?;
-            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
-            Ok(block)
-        })
+        staging_db_conn
+            .query_row_and_then(query, NO_PARAMS, |row| {
+                let data: Vec<u8> = row.get("data")?;
+                let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+                Ok(Some(block))
+            })
+            .or_else(|e| {
+                if let ChainstateError::DBError(DBError::SqliteError(
+                    rusqlite::Error::QueryReturnedNoRows,
+                )) = e
+                {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            })
     }
 
     pub fn accept_block(
@@ -467,14 +478,17 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
 
+        let parent_block_id =
+            StacksBlockId::new(&block.header.parent_consensus_hash, &block.header.parent);
+
         // if the burnview of this block has been processed, then it
         // is ready to be processed from the perspective of the
         // burnchain
         let burn_attachable = sortdb.processed_block(&block.header.burn_view)?;
         // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
-        let stacks_attachable = staging_db_tx.query_row(
+        let stacks_attachable = block.is_first_mined() || staging_db_tx.query_row(
             "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ? AND processed = 1",
-            rusqlite::params![&block.header.parent],
+            rusqlite::params![&parent_block_id],
             |_row| Ok(())
         ).optional()?.is_some();
 
@@ -501,7 +515,7 @@ impl NakamotoChainState {
                 &block_hash,
                 &block.header.consensus_hash,
                 &block.header.burn_view,
-                &block.header.parent,
+                &parent_block_id,
                 if burn_attachable { 1 } else { 0 },
                 if stacks_attachable { 1 } else { 0 },
                 0,

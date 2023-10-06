@@ -1855,7 +1855,7 @@ impl<'a> SortitionHandleConn<'a> {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         let to_check = Hash160::from_node_public_key(miner_pk);
         let mut cur_tip = self.context.chain_tip.clone();
-        for _ in 1..NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD {
+        for _ in 0..NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD {
             let cur_snapshot = SortitionDB::get_block_snapshot(self.sqlite(), &cur_tip)?
                 .ok_or_else(|| db_error::NotFoundError)?;
             if cur_snapshot.miner_pk_hash == Some(to_check) {
@@ -5526,13 +5526,14 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.pox_valid,
             &snapshot.accumulated_coinbase_ustx.to_string(),
             &pox_payouts_json,
+            &snapshot.miner_pk_hash,
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
-                      pox_payouts) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)
+                      pox_payouts, miner_pk_hash) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
