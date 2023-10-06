@@ -12,6 +12,7 @@ use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::{
     codec,
     codec::StacksMessageCodec,
@@ -21,7 +22,7 @@ use stacks_common::{
 };
 use wsts::net::{Message, Packet};
 
-use crate::config::Config;
+use crate::config::{Config, Network};
 
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
@@ -83,7 +84,7 @@ pub struct StacksClient {
     stacks_address: StacksAddress,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
-    /// A map of a slot ID to last chunk version
+    /// A map of a slot ID to last chunk version   
     slot_versions: HashMap<u32, u32>,
     /// The RPC endpoint used to communicate HTTP endpoints with
     http_origin: String,
@@ -116,29 +117,26 @@ impl From<&Config> for StacksClient {
 /// Trait used to make interact with Clarity contracts for use in the signing process
 pub trait InteractWithStacksContracts {
     /// Submits a transaction to a node RPC server
-    fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String;
+    fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError>;
 
     /// Call read only tx
     fn read_only_contract_call(
-        http_origin: &str,
-        sender: &StacksAddress,
+        &self,
         contract_addr: &StacksAddress,
         contract_name: &str,
         function_name: &str,
         function_args: &[ClarityValue],
-    ) -> String;
+    ) -> Result<String, ClientError>;
 
     /// Creates a contract call transaction
     fn transaction_contract_call(
-        sender: &StacksPrivateKey,
+        &self,
         nonce: u64,
         contract_addr: &StacksAddress,
         contract_name: &str,
         function_name: &str,
         function_args: &[ClarityValue],
-        tx_version: TransactionVersion,
-        chain_id: u32,
-    ) -> Vec<u8>;
+    ) -> Result<Vec<u8>, ClientError>;
 }
 
 impl StacksClient {
