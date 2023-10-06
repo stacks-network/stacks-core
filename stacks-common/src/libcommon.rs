@@ -5,6 +5,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
+#![allow(clippy::assertions_on_constants)]
 
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;

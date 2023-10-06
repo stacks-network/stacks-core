@@ -426,7 +426,8 @@ mod test {
                             0
                         }
                         _ => {
-                            panic!("unwrapped err: {:?}", &e);
+                            assert!(false, "unwrapped err: {:?}", &e);
+                            unreachable!();
                         }
                     },
                 };
@@ -459,7 +460,8 @@ mod test {
                             0
                         }
                         _ => {
-                            panic!("unwrapped err: {:?}", &e);
+                            assert!(false, "unwrapped err: {:?}", &e);
+                            unreachable!();
                         }
                     },
                 };

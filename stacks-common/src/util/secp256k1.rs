@@ -549,7 +549,7 @@ mod tests {
                 (_, _) => {
                     // either got a key when we didn't expect one, or didn't get a key when we did
                     // expect one.
-                    panic!("Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
+                    assert!(false, "Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
                 }
             }
         }
@@ -619,13 +619,15 @@ mod tests {
                 (Err(e1), Err(e2)) => assert_eq!(e1, e2),
                 (Err(e1), _) => {
                     test_debug!("Failed to verify signature: {}", e1);
-                    panic!(
+                    assert!(
+                        false,
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );
                 }
                 (_, _) => {
-                    panic!(
+                    assert!(
+                        false,
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );
