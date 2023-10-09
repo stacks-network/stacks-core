@@ -1,6 +1,6 @@
 ;; Definitions
-(define-data-var current-cycle-signer-slots (list 10 {signer: principal, num-slots: uint}) (list {signer: tx-sender, num-slots: u10}))
-(define-data-var previous-cycle-signer-slots (list 10 {signer: principal, num-slots: uint}) (list ))
+(define-map signer-slots-by-reward-cycle uint (list 10 {signer: principal, num-slots: uint}))
+
 ;;(define-constant pox-info (unwrap-panic (contract-call? .pox-3 get-pox-info)))
 (define-constant pox-info {first-burnchain-block-height: u0, reward-cycle-length: u2100})
 
@@ -31,6 +31,14 @@
                 hint-replicas: (list )
             }))
 
+(define-read-only (get-current-signer-slots)
+    (map-get? signer-slots-by-reward-cycle (current-pox-reward-cycle))
+)
+
+(define-read-only (get-any-signer-slots (cycle uint))
+    (map-get? signer-slots-by-reward-cycle cycle)
+)
+
 ;; Write
 ;; Written to by PoX4 during prepare phase
 (define-public (stackerdb-set-next-cycle-signer-slots (slots (list 10 {signer: principal, num-slots: uint})))
@@ -41,6 +49,9 @@
         )
         ;; Assert currently in prepare phase (< 100 blocks until next cycle)
         (asserts! (> block-height (+ (- normal-cycle-len prepare-phase-len) (reward-cycle-to-burn-height current-cycle))) err-not-in-prepare-phase)
+
+        ;; Assert contract-caller is .pox-4?
+        (asserts! (is-eq contract-caller .pox-4) err-unauthorised)
 
         (ok true)
     )

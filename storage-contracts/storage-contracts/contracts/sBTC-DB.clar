@@ -5,6 +5,9 @@
 
 
 ;; Definitions
+;; Data Vars
+(define-data-var is-dkg-stale bool true)
+
 ;; Deposit/Peg-in requests (btc -> sbtc)
 (define-data-var deposit-requests-pending uint u0)
 (define-map deposit-requests uint
@@ -32,7 +35,6 @@
 
 
 ;; Handoff requests
-;; Is-DKG-stale
 
 
 
