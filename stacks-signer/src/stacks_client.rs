@@ -76,6 +76,9 @@ pub enum ClientError {
     /// Stacks node client request failed
     #[error("Stacks node client request failed: {0}")]
     RequestFailure(reqwest::StatusCode),
+    /// Unexpected response from the pox endpoint
+    #[error("Malformed pox response: {0}")]
+    MalformedPoxResponse(String),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -124,7 +127,7 @@ pub trait StacksContractCallable {
     /// Call read only tx
     fn read_only_contract_call(
         &self,
-        contract_addr: &StacksAddress,
+        contract_addr: &str,
         contract_name: &str,
         function_name: &str,
         function_args: &[&str],
@@ -179,9 +182,33 @@ impl StacksClient {
     }
 
     /// Retrieve the current DKG aggregate public key
-    pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, RPCError> {
-        let _burn_block_height = self.get_burn_block_height()?;
-        todo!("Make the read only contract call to retrieve the aggregate public key for the given block height")
+    pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
+        let _reward_cycle = self.get_current_reward_cycle()?;
+        let _function_name = "get-aggregate-public-key"; // TODO: this should be modified to match .pox-4
+        let (_contract_addr, _contract_name) = self.get_pox_contract()?;
+        todo!()
+        // let bitcoin_wallet_public_key_hex = self.read_only_contract_call(contract_addr, contract_name, function_name, &[&reward_cycle.to_string()])?;
+        // let bitcoin_wallet_public_key =
+        //     ClarityValue::try_deserialize_hex_untyped(&bitcoin_wallet_public_key_hex)?;
+        // if let ClarityValue::Optional(optional_data) = bitcoin_wallet_public_key.clone() {
+        //     if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
+        //         optional_data.data.map(|boxed| *boxed)
+        //     {
+        //         let xonly_pubkey = XOnlyPublicKey::from_slice(&public_key.data).map_err(|_| {
+        //             StacksNodeError::MalformedClarityValue(
+        //                 function_name.to_string(),
+        //                 bitcoin_wallet_public_key,
+        //             )
+        //         })?;
+        //         return Ok(Some(xonly_pubkey));
+        //     } else {
+        //         return Ok(None);
+        //     }
+        // }
+        // Err(StacksNodeError::MalformedClarityValue(
+        //     function_name.to_string(),
+        //     bitcoin_wallet_public_key,
+        // ))
     }
 
     /// Retreive the DKG aggregate public key vote cast by the signer
@@ -278,6 +305,38 @@ impl StacksClient {
 
         Ok(tx.serialize_to_vec())
     }
+
+    /// Helper function to retrieve the current reward cycle number from the stacks node
+    fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+        todo!("Get the current reward cycle from the stacks node")
+    }
+
+    /// Helper function to retrieve the pox contract address and name from the stacks node
+    fn get_pox_contract(&self) -> Result<(String, String), ClientError> {
+        let path = format!("{}/v2/pox", self.http_origin);
+        let json_response = self
+            .stacks_node_client
+            .get(path)
+            .send()?
+            .json::<serde_json::Value>()?;
+        let entry = "contract_id";
+        debug!("Response: {:?}", json_response);
+        let contract_id = json_response
+            .get(entry)
+            .map(|id: &serde_json::Value| id.to_string())
+            .ok_or_else(|| ClientError::InvalidJsonEntry(entry.to_string()))?;
+        let split: Vec<_> = contract_id.splitn(2, '.').collect();
+        let contract_name = split
+            .get(0)
+            .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
+            .to_string();
+        let contract_id = split
+            .get(1)
+            .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
+            .to_string();
+        Ok((contract_name, contract_id))
+    }
+}
 
     /// Creates a transaction for a contract call that can be submitted to a stacks node
     pub fn transaction_contract_call(
