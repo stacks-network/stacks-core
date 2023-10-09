@@ -622,10 +622,10 @@ fn test_simple_token_system(
     )
     .unwrap_err();
 
-    assert!(match err {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+    ));
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -656,7 +656,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
-        &vec![],
+        &[],
     )
     .unwrap();
 
@@ -673,7 +673,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
-        &vec![],
+        &[],
     )
     .unwrap();
 
@@ -689,7 +689,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id.clone(),
         "faucet",
-        &vec![],
+        &[],
     )
     .unwrap();
 
@@ -858,10 +858,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-    assert!(match err {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+    ));
 
     let err = owned_env
         .initialize_contract(
@@ -871,10 +871,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-    assert!(match err {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+    ));
 
     owned_env
         .initialize_contract(
@@ -1125,7 +1125,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers",
-        &vec![],
+        &[],
     )
     .unwrap();
     assert!(is_err_code(&result, 0));
@@ -1136,7 +1136,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers-but-ok",
-        &vec![],
+        &[],
     )
     .unwrap();
 

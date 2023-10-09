@@ -4,6 +4,8 @@ WORKDIR /src
 
 COPY . .
 
+RUN apt-get -y install libllvm16 libclang1-16
+
 RUN cargo test --no-run --workspace
 
 RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-25.0/bitcoin-25.0-x86_64-linux-gnu.tar.gz

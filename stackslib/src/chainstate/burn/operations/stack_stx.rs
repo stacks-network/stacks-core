@@ -16,11 +16,6 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
@@ -37,13 +32,18 @@ use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::core::StacksEpochId;
 use crate::core::POX_MAX_NUM_CYCLES;
 use crate::net::Error as net_error;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::VRFSeed;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 
 // return type from parse_data below
 struct ParsedData {
@@ -388,8 +388,9 @@ mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::StacksEpochId;
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
+
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
 
     struct OpFixture {
         txstr: String,

@@ -402,7 +402,8 @@ mod tests {
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
-    use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
 
     #[test]
     fn test_initial_block_reward() {

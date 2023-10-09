@@ -61,6 +61,7 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::core::StacksEpoch;
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::AtlasDB;
@@ -89,10 +90,10 @@ use crate::net::Neighbor;
 use crate::net::NeighborKey;
 use crate::net::PeerAddress;
 use crate::net::*;
-use crate::types::chainstate::{PoxId, SortitionId};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::chainstate::{PoxId, SortitionId};
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -5794,7 +5795,6 @@ mod test {
     use stacks_common::util::sleep_ms;
 
     use super::*;
-    use super::*;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;
     use crate::chainstate::stacks::test::*;
@@ -5806,8 +5806,8 @@ mod test {
     use crate::net::relay::test::make_contract_tx;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::BurnchainHeaderHash;
     use crate::util_lib::test::*;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     fn make_random_peer_address() -> PeerAddress {
         let mut rng = rand::thread_rng();

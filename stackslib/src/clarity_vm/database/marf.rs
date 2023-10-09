@@ -18,10 +18,10 @@ use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfT
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
 use crate::chainstate::stacks::index::{Error, MarfTrieId};
 use crate::clarity_vm::special::handle_contract_call_special_cases;
-use crate::codec::StacksMessageCodec;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::Error as DatabaseError;
 use crate::util_lib::db::IndexDBConn;
+use stacks_common::codec::StacksMessageCodec;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -86,7 +86,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(ref miner_tip) => *miner_tip.clone(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 
@@ -100,7 +100,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(ref miner_tip) => *miner_tip.clone(),
+            Some(miner_tip) => miner_tip.clone(),
             None => StacksBlockId::sentinel(),
         };
 

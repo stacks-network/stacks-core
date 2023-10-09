@@ -915,7 +915,10 @@ impl StacksChainState {
                 // parent gets its produced tx fees regardless of punishment.
 
                 match participant.tx_fees {
-                    MinerPaymentTxFees::Epoch2 { anchored, streamed } => {
+                    MinerPaymentTxFees::Epoch2 {
+                        anchored,
+                        streamed: _,
+                    } => {
                         // if the payment type is Epoch2, then reward fees according to old Epoch2 rules
                         let anchored_fees = if !punished { anchored } else { 0 };
                         let parent_streamed_fees = if parent_block_epoch < StacksEpochId::Epoch21 {

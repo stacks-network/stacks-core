@@ -47,17 +47,18 @@ use crate::chainstate::stacks::StacksMicroblock;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::chainstate::stacks::StacksTransaction;
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
-use crate::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
-    PREAMBLE_ENCODED_SIZE,
-};
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::LocalPeer;
 use crate::net::Error as net_error;
 use crate::net::*;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::StacksPublicKeyBuffer;
+
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
+    PREAMBLE_ENCODED_SIZE,
+};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::StacksPublicKeyBuffer;
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.

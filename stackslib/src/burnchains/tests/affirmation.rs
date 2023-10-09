@@ -31,7 +31,6 @@ use clarity::vm::{
 };
 use rusqlite::Connection;
 
-use crate::address;
 use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -49,16 +48,17 @@ use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{
+use stacks_common::address;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::vrf::*;
+
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use crate::util::hash::{hex_bytes, Hash160};
-use crate::util::vrf::*;
-use crate::{types, util};
+use stacks_common::{types, util};
 
 #[test]
 fn affirmation_map_encode_decode() {

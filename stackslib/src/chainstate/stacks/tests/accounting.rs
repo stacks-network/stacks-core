@@ -56,9 +56,9 @@ use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::net::test::*;
-use crate::types::chainstate::SortitionId;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::chainstate::SortitionId;
 
 // test that the bad (pre 2.1) microblock fee payment still works.  we have to support it for
 // eternity :(

@@ -37,7 +37,7 @@ use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::TrieMerkleProof;
 use crate::chainstate::stacks::BlockHeaderHash;
 use crate::chainstate::stacks::TrieHash;
-use crate::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 pub mod cache;
 pub mod file;

@@ -1,6 +1,6 @@
 use std::cmp;
 
-use crate::vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.

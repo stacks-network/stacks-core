@@ -24,8 +24,6 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
-use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
@@ -96,7 +94,9 @@ use crate::util_lib::db::{
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
 use crate::util_lib::strings::StacksString;
-use crate::{types, util};
+
+pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+use clarity::vm::analysis::run_analysis;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -7184,10 +7184,13 @@ pub mod test {
     use crate::core::mempool::*;
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
+
     use crate::net::test::*;
     use crate::net::ExtendedStacksHeader;
     use crate::util_lib::db::Error as db_error;
     use crate::util_lib::db::*;
+
+    use super::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(

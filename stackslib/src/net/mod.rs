@@ -33,14 +33,6 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use clarity::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
-use clarity::vm::{
-    analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
-    ContractName, Value,
-};
-use libstackerdb::{
-    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
-};
 use rand::thread_rng;
 use rand::RngCore;
 use regex::Regex;
@@ -51,11 +43,28 @@ use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use url;
+
+use clarity::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use clarity::vm::{
+    analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
+    ContractName, Value,
+};
+use libstackerdb::{
+    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
+};
+
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::codec::{read_next, write_next};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -63,7 +72,6 @@ use stacks_common::util::log;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use url;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
@@ -84,25 +92,19 @@ use crate::chainstate::stacks::{
     TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::core::mempool::*;
-use crate::core::StacksEpoch;
 use crate::core::POX_REWARD_CYCLE_LENGTH;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::HttpReservedHeader;
 pub use crate::net::http::StacksBlockAcceptedData;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use crate::types::StacksPublicKeyBuffer;
-use crate::util::hash::Sha256Sum;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::UrlString;
-use crate::vm::costs::ExecutionCost;
+
+use clarity::vm::costs::ExecutionCost;
 
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
@@ -2404,8 +2406,6 @@ pub mod test {
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
 
-    use super::*;
-    use crate::address::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::bitcoin::keys::*;
@@ -2434,6 +2434,7 @@ pub mod test {
     use crate::chainstate::stacks::*;
     use crate::chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
     use crate::chainstate::*;
+    use crate::core::StacksEpoch;
     use crate::core::StacksEpochExtension;
     use crate::core::NETWORK_P2P_PORT;
     use crate::net::asn::*;
@@ -2448,6 +2449,9 @@ pub mod test {
     use crate::net::relay::*;
     use crate::net::rpc::RPCHandlerArgs;
     use crate::net::Error as net_error;
+    use stacks_common::address::*;
+
+    use super::*;
     use crate::util_lib::boot::boot_code_test_addr;
     use crate::util_lib::strings::*;
 

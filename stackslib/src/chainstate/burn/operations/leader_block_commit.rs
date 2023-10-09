@@ -16,11 +16,6 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
@@ -42,15 +37,21 @@ use crate::chainstate::burn::SortitionId;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::core::STACKS_EPOCH_2_2_MARKER;
 use crate::core::STACKS_EPOCH_2_3_MARKER;
 use crate::core::STACKS_EPOCH_2_4_MARKER;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER};
 use crate::net::Error as net_error;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
+};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 // return type from parse_data below
 struct ParsedData {
@@ -1059,8 +1060,9 @@ mod tests {
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
         PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
     };
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
+
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
     struct OpFixture {
         txstr: String,

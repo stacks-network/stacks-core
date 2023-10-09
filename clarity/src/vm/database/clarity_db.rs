@@ -30,10 +30,6 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
-use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
@@ -56,6 +52,14 @@ use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
     QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value, NONE,
+};
+
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
+
+use stacks_common::types::{
+    StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -356,7 +360,7 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         Some(StacksEpoch {
-            epoch_id: self.epoch.clone(),
+            epoch_id: self.epoch,
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
@@ -458,13 +462,13 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) {
-        self.store.put(&key, &value.serialize());
+        self.store.put(key, &value.serialize());
     }
 
     /// Like `put()`, but returns the serialized byte size of the stored value
     pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> u64 {
         let serialized = value.serialize();
-        self.store.put(&key, &serialized);
+        self.store.put(key, &serialized);
         byte_len_of_serialization(&serialized)
     }
 
@@ -505,7 +509,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let size = serialized.len() as u64;
         let hex_serialized = to_hex(serialized.as_slice());
-        self.store.put(&key, &hex_serialized);
+        self.store.put(key, &hex_serialized);
 
         Ok(pre_sanitized_size.unwrap_or(size))
     }
@@ -844,10 +848,12 @@ impl<'a> ClarityDatabase<'a> {
         };
 
         self.get_burnchain_block_height(&last_mined_bhh)
-            .expect(&format!(
-                "Block header hash '{}' must return for provided stacks block height {}",
-                &last_mined_bhh, cur_stacks_height
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Block header hash '{}' must return for provided stacks block height {}",
+                    &last_mined_bhh, cur_stacks_height
+                )
+            })
     }
 
     pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
@@ -892,19 +898,23 @@ impl<'a> ClarityDatabase<'a> {
         let consensus_hash = self
             .headers_db
             .get_consensus_hash_for_block(&parent_id_bhh)
-            .expect(&format!(
-                "FATAL: no consensus hash found for StacksBlockId {}",
-                &parent_id_bhh
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no consensus hash found for StacksBlockId {}",
+                    &parent_id_bhh
+                )
+            });
 
         // infallible, since every sortition has a consensus hash
         let sortition_id = self
             .burn_state_db
             .get_sortition_id_from_consensus_hash(&consensus_hash)
-            .expect(&format!(
-                "FATAL: no SortitionID found for consensus hash {}",
-                &consensus_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no SortitionID found for consensus hash {}",
+                    &consensus_hash
+                )
+            });
 
         Some(sortition_id)
     }
@@ -964,7 +974,6 @@ impl<'a> ClarityDatabase<'a> {
         self.headers_db
             .get_burnchain_tokens_spent_for_winning_block(&id_bhh)
             .expect("FATAL: no winning burnchain token spend record for block")
-            .into()
     }
 
     pub fn get_miner_spend_total(&mut self, block_height: u32) -> u128 {
@@ -976,7 +985,6 @@ impl<'a> ClarityDatabase<'a> {
         self.headers_db
             .get_burnchain_tokens_spent_for_block(&id_bhh)
             .expect("FATAL: no total burnchain token spend record for block")
-            .into()
     }
 
     pub fn get_block_reward(&mut self, block_height: u32) -> Option<u128> {
@@ -993,10 +1001,9 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height);
-        let reward: u128 = self
+        let reward = self
             .headers_db
             .get_tokens_earned_for_block(&id_bhh)
-            .map(|x| x.into())
             .expect("FATAL: matured block has no recorded reward");
 
         Some(reward)
@@ -1488,6 +1495,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn inner_set_entry(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1599,7 +1607,7 @@ impl<'a> ClarityDatabase<'a> {
         total_supply: &Option<u128>,
     ) -> FungibleTokenMetadata {
         let data = FungibleTokenMetadata {
-            total_supply: total_supply.clone(),
+            total_supply: *total_supply,
         };
 
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
@@ -1611,7 +1619,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        self.put(&supply_key, &(0 as u128));
+        self.put(&supply_key, &(0_u128));
 
         data
     }
@@ -1935,11 +1943,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        let result = self.get(&key);
-        match result {
-            None => 0,
-            Some(nonce) => nonce,
-        }
+        self.get(&key).unwrap_or(0)
     }
 
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {

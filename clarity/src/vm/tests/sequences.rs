@@ -93,7 +93,7 @@ fn test_index_of() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", execute(&good_test).unwrap().unwrap())
+            &format!("{}", execute(good_test).unwrap().unwrap())
         );
     }
 
@@ -121,7 +121,7 @@ fn test_index_of() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        match execute(&bad_test).unwrap_err() {
+        match execute(bad_test).unwrap_err() {
             Error::Unchecked(check_error) => {
                 assert_eq!(&check_error, expected);
             }
@@ -159,7 +159,7 @@ fn test_element_at() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", execute(&good_test).unwrap().unwrap())
+            &format!("{}", execute(good_test).unwrap().unwrap())
         );
     }
 
@@ -171,7 +171,7 @@ fn test_element_at() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        match execute(&bad_test).unwrap_err() {
+        match execute(bad_test).unwrap_err() {
             Error::Unchecked(check_error) => {
                 assert_eq!(&check_error, expected);
             }
@@ -1102,7 +1102,7 @@ fn test_list_tuple_admission() {
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);
     assert!(result_type
-        .admits(&StacksEpochId::Epoch21, &testing_value)
+        .admits(&StacksEpochId::Epoch21, testing_value)
         .unwrap());
 }
 

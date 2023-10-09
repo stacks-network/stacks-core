@@ -57,8 +57,6 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 use crate::burnchains::Txid;
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::DBConn;
@@ -66,6 +64,8 @@ use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
 };
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksBlockId;
 
 pub const ATLASDB_VERSION: &'static str = "2";
 

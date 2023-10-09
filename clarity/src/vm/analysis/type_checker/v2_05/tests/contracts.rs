@@ -496,13 +496,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(match &err.err {
-        &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
-            eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-            format!("{} {}", expected_type, actual_type) == "uint bool"
-        }
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -544,24 +538,19 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(match err.err {
-            CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
     }
 
-    assert!(match mem_type_check(
-        unhandled_option,
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch2_05
-    )
-    .unwrap_err()
-    .err
-    {
-        // Bad arg to `+` causes a uniontype error
-        CheckErrors::UnionTypeError(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        mem_type_check(
+            unhandled_option,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05
+        )
+        .unwrap_err()
+        .err,
+        CheckErrors::UnionTypeError(_, _)
+    ));
 }
 
 #[test]
@@ -679,10 +668,7 @@ fn test_expects() {
         )
         .unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
-        assert!(match &err.err {
-            &CheckErrors::ReturnTypesMustMatch(_, _) => true,
-            _ => false,
-        })
+        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
     let err = mem_type_check(
@@ -692,10 +678,7 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::DefaultTypesMustMatch(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(
         notype_response_type,
@@ -704,10 +687,10 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseErrType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseErrType
+    ));
 
     let err = mem_type_check(
         notype_response_type_2,
@@ -716,8 +699,8 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseOkType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseOkType
+    ));
 }

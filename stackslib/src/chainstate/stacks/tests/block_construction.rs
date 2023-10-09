@@ -62,6 +62,7 @@ use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
+
 use crate::core::mempool::MemPoolWalkSettings;
 use crate::core::tests::make_block;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;

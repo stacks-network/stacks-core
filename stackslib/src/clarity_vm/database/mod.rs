@@ -25,15 +25,18 @@ use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
-use crate::core::StacksEpoch;
-use crate::core::StacksEpochId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::util::vrf::VRFProof;
+
 use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::{DBConn, FromRow};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
+use stacks_common::util::vrf::VRFProof;
+
+use crate::core::StacksEpoch;
+use crate::core::StacksEpochId;
+
+use crate::clarity_vm::special::handle_contract_call_special_cases;
 
 pub mod marf;
 

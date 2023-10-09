@@ -16,7 +16,6 @@
 
 use std::convert::{TryFrom, TryInto};
 
-use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
 use crate::vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
@@ -32,6 +31,8 @@ use crate::vm::types::{
     SequenceData, TypeSignature, Value,
 };
 use crate::vm::{eval, Environment, LocalContext};
+
+use stacks_common::types::StacksEpochId;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -154,7 +155,7 @@ pub fn stx_transfer_consolidated(
 
     sender_snapshot.transfer_to(to, amount)?;
 
-    env.global_context.log_stx_transfer(&from, amount)?;
+    env.global_context.log_stx_transfer(from, amount)?;
     env.register_stx_transfer_event(from.clone(), to.clone(), amount, memo.clone())?;
     Ok(Value::okay_true())
 }
@@ -250,7 +251,7 @@ pub fn special_stx_account(
             Value::UInt(stx_balance.effective_unlock_height(v1_unlock_ht, v2_unlock_ht) as u128),
         ),
     ])
-    .map(|t| Value::Tuple(t))
+    .map(Value::Tuple)
 }
 
 pub fn special_stx_burn(
@@ -277,7 +278,7 @@ pub fn special_stx_burn(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
+        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
         if !burner_snapshot.can_transfer(amount) {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }
@@ -289,7 +290,7 @@ pub fn special_stx_burn(
             .database
             .decrement_ustx_liquid_supply(amount)?;
 
-        env.global_context.log_stx_burn(&from, amount)?;
+        env.global_context.log_stx_burn(from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
 
         Ok(Value::okay_true())
@@ -405,7 +406,7 @@ pub fn special_mint_asset_v200(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(expected_asset_type.size() as u64)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
@@ -470,7 +471,7 @@ pub fn special_mint_asset_v205(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(asset_size)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
@@ -547,7 +548,7 @@ pub fn special_transfer_asset_v200(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(expected_asset_type.size() as u64)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
@@ -635,7 +636,7 @@ pub fn special_transfer_asset_v205(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(asset_size)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
@@ -1024,7 +1025,7 @@ pub fn special_burn_asset_v200(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(expected_asset_type.size() as u64)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,
             asset_name,
@@ -1103,7 +1104,7 @@ pub fn special_burn_asset_v205(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(asset_size)?;
 
-        let epoch = env.epoch().clone();
+        let epoch = *env.epoch();
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,
             asset_name,

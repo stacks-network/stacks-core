@@ -41,11 +41,12 @@ use crate::net::Error as net_error;
 use crate::net::NeighborKey;
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings;
 use crate::util_lib::strings::UrlString;
+use stacks_common::types::chainstate::StacksBlockId;
+
+use stacks_common::types::chainstate::BlockHeaderHash;
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {

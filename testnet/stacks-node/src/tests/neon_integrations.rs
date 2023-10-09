@@ -19,10 +19,13 @@ use rand::Rng;
 use rusqlite::types::ToSql;
 use serde_json::json;
 use stacks::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+
+use clarity::vm::costs::ExecutionCost;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::burnchains::{Address, Burnchain, PoxConstants};
+
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
     TransferStxOp,
@@ -34,7 +37,6 @@ use stacks::chainstate::stacks::miner::{
     TransactionSuccessEvent,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
@@ -49,29 +51,18 @@ use stacks::net::{
     PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
     UnconfirmedTransactionResponse,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
-use stacks::util::hash::Hash160;
-use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::types::QualifiedContractIdentifier;
-use stacks::vm::types::StandardPrincipalData;
-use stacks::vm::ClarityName;
-use stacks::vm::ClarityVersion;
-use stacks::vm::ContractName;
-use stacks::vm::Value;
+
+use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::ClarityName;
+use clarity::vm::ClarityVersion;
+use clarity::vm::ContractName;
+use clarity::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
     chainstate::{burn::ConsensusHash, stacks::StacksMicroblock},
-};
-use stacks::{
-    burnchains::{Address, Burnchain, PoxConstants},
-    vm::costs::ExecutionCost,
 };
 use stacks::{
     chainstate::stacks::{
@@ -84,6 +75,15 @@ use stacks::{
     util_lib::db::query_rows,
     util_lib::db::u64_to_sql,
 };
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
@@ -92,10 +92,7 @@ use super::{
     SK_2,
 };
 use crate::config::FeeEstimatorName;
-use crate::stacks_common::types::PrivateKey;
 use crate::tests::SK_3;
-use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
 use crate::{
     burnchains::bitcoin_regtest_controller::BitcoinRPCRequest,
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
@@ -103,6 +100,12 @@ use crate::{
     syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
     ConfigFile, Keychain,
 };
+
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::MessageSignature;
+
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks_common::types::PrivateKey;
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -158,6 +161,8 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
+    cfile.node.as_mut().map(|node| node.bootstrap_node.take());
+
     if let Some(burnchain) = cfile.burnchain.as_mut() {
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
@@ -250,11 +255,13 @@ pub mod test_observer {
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
         debug!(
-            "Got stackerdb chunks: {}",
+            "signer_runloop: got stackerdb chunks: {}",
             serde_json::to_string(&chunks).unwrap()
         );
+        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
         let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(serde_json::from_value(chunks).unwrap());
+        stackerdb_chunks.push(event.clone());
+
         Ok(warp::http::StatusCode::OK)
     }
 
