@@ -4,14 +4,14 @@ use blockstack_lib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
-use clarity::vm::Value as ClarityValue;
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::{
+    Value as ClarityValue, {ClarityName, ContractName},
+};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::{
     codec::StacksMessageCodec,
     debug,
@@ -42,12 +42,15 @@ pub enum ClientError {
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
-    /// A request sent to the Stacks Node sent an invalid response
-    #[error("Unable to parse JSON response from url {0}, error response was {1}")]
-    UnableToParseResponseJSON(String, String),
-    /// Failure to submit a read only contract call
-    #[error("Failure to submit read only contract call to {0} for function {1}")]
-    ReadOnlyContractCallFailure(StacksAddress, String),
+    /// Failed to find a given json entry
+    #[error("Invalid JSON entry: {0}")]
+    InvalidJsonEntry(String),
+    /// Failed to call a read only function
+    #[error("Failed to call read only function. {0}")]
+    ReadOnlyFailure(String),
+    /// Reqwest specific error occurred
+    #[error("{0}")]
+    ReqwestError(#[from] reqwest::Error),
     /// Failure to submit a read only contract call
     #[error("Failure to submit tx")]
     TransactionSubmissionFailure,
@@ -66,6 +69,8 @@ pub enum ClientError {
 pub struct StacksClient {
     /// The stacker-db session
     stackerdb_session: StackerDBSession,
+    /// The stacks address of the signer
+    stacks_address: StacksAddress,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
     /// A map of a slot ID to last chunk version   
@@ -88,8 +93,9 @@ impl From<&Config> for StacksClient {
                 config.stackerdb_contract_id.clone(),
             ),
             stacks_private_key: config.stacks_private_key,
+            stacks_address: config.stacks_address,
             slot_versions: HashMap::new(),
-            http_origin: "0.0.0.0:5001".to_string(),
+            http_origin: config.node_host.to_string(),
             tx_version: TransactionVersion::Testnet,
             chain_id: Network::Testnet.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
@@ -98,7 +104,7 @@ impl From<&Config> for StacksClient {
 }
 
 /// Trait used to make interact with Clarity contracts for use in the signing process
-pub trait InteractWithStacksContracts {
+pub trait StacksContractCallable {
     /// Submits a transaction to a node RPC server
     fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError>;
 
@@ -108,7 +114,7 @@ pub trait InteractWithStacksContracts {
         contract_addr: &StacksAddress,
         contract_name: &str,
         function_name: &str,
-        function_args: &[ClarityValue],
+        function_args: &[&str],
     ) -> Result<String, ClientError>;
 
     /// Creates a contract call transaction
@@ -230,16 +236,15 @@ impl StacksClient {
                 .map_err(|_| ClientError::SponsorSignatureGenerationFailure)?;
         }
 
-        let Some(tx )= tx_signer
-            .get_tx() else {
-                return Err(ClientError::SignatureGenerationFailure);
-            };
-        
+        let Some(tx) = tx_signer.get_tx() else {
+            return Err(ClientError::SignatureGenerationFailure);
+        };
+
         Ok(tx.serialize_to_vec())
     }
 }
 
-impl InteractWithStacksContracts for StacksClient {
+impl StacksContractCallable for StacksClient {
     fn transaction_contract_call(
         &self,
         nonce: u64,
@@ -297,43 +302,45 @@ impl InteractWithStacksContracts for StacksClient {
         contract_addr: &StacksAddress,
         contract_name: &str,
         function_name: &str,
-        function_args: &[ClarityValue],
+        function_args: &[&str],
     ) -> Result<String, ClientError> {
-        let sender_address = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(&self.stacks_private_key)],
-        )
-        .unwrap();
-        let body = json!({
-            "sender": sender_address.to_string(),
-            "arguments": function_args
-        })
-        .to_string();
-
+        debug!("Calling read-only function {}...", function_name);
+        let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
+            .to_string();
         let path = format!(
-            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
+            "http://{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
             self.http_origin
         );
-        let res = self
+        let response = self
             .stacks_node_client
             .post(path)
             .header("Content-Type", "application/json")
             .body(body)
-            .send()
-            .unwrap();
-        if res.status().is_success() {
-            let res: String = res.json().unwrap();
-            Ok(res)
-        } else {
-            Err(ClientError::ReadOnlyContractCallFailure(
-                *contract_addr,
-                function_name.to_string(),
-            ))
+            .send()?
+            .json::<serde_json::Value>()?;
+        if !response
+            .get("okay")
+            .map(|val| val.as_bool().unwrap_or(false))
+            .unwrap_or(false)
+        {
+            let cause = response
+                .get("cause")
+                .ok_or(ClientError::InvalidJsonEntry("cause".to_string()))?;
+            return Err(ClientError::ReadOnlyFailure(format!(
+                "{}: {}",
+                function_name, cause
+            )));
         }
+        let result = response
+            .get("result")
+            .ok_or(ClientError::InvalidJsonEntry("result".to_string()))?
+            .as_str()
+            .ok_or_else(|| ClientError::ReadOnlyFailure("Expected string result.".to_string()))?
+            .to_string();
+        Ok(result)
     }
 }
+
 /// Helper function to determine the slot ID for the provided stacker-db writer id and the message type
 fn slot_id(id: u32, message: &Message) -> u32 {
     let slot_id = match message {
@@ -348,4 +355,85 @@ fn slot_id(id: u32, message: &Message) -> u32 {
         Message::SignatureShareResponse(_) => 9,
     };
     SLOTS_PER_USER * id + slot_id
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::{SocketAddr, TcpListener},
+        thread::spawn,
+    };
+
+    use super::*;
+
+    struct TestConfig {
+        mock_server: TcpListener,
+        client: StacksClient,
+    }
+
+    impl TestConfig {
+        pub fn new() -> Self {
+            let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+            let mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 23333));
+            config.node_host = mock_server_addr.clone();
+
+            let mock_server = TcpListener::bind(mock_server_addr).unwrap();
+
+            let client = StacksClient::from(&config);
+            Self {
+                mock_server,
+                client,
+            }
+        }
+    }
+
+    fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
+        debug!("Writing a response...");
+        let mut request_bytes = [0u8; 1024];
+        {
+            let mut stream = mock_server.accept().unwrap().0;
+            stream.read(&mut request_bytes).unwrap();
+            stream.write_all(bytes).unwrap();
+        }
+        request_bytes
+    }
+
+    #[test]
+    fn call_read_only_contract_call_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || {
+            config.client.read_only_contract_call(
+                &config.client.stacks_address,
+                "contract-name",
+                "function-name",
+                &[],
+            )
+        });
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
+        );
+        let result = h.join().unwrap().unwrap();
+        assert_eq!(result, "0x070d0000000473425443");
+    }
+
+    #[test]
+    fn call_read_only_contract_call_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || {
+            config.client.read_only_contract_call(
+                &config.client.stacks_address,
+                "contract-name",
+                "function-name",
+                &[],
+            )
+        });
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"okay\":false,\"cause\":\"Some reason\"}",
+        );
+        let result = h.join().unwrap();
+        assert!(matches!(result, Err(ClientError::ReadOnlyFailure(_))));
+    }
 }
