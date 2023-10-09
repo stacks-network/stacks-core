@@ -100,10 +100,10 @@ rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 
 [features]
-default = ["developer-mode"]
+default = []
 profile-sqlite = []
 disable-costs = []
-developer-mode = []
+developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 testing = []

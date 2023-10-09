@@ -14,7 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::types::chainstate::StacksAddress;
+#[cfg(any(test, feature = "testing"))]
+use rstest::rstest;
+#[cfg(any(test, feature = "testing"))]
+use rstest_reuse::{self, *};
+
 use clarity::vm::ast;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
@@ -39,12 +43,9 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use clarity::vm::Value::Sequence;
-#[cfg(any(test, feature = "testing"))]
-use rstest::rstest;
-#[cfg(any(test, feature = "testing"))]
-use rstest_reuse::{self, *};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{ConsensusHash, SortitionId};
 use stacks_common::types::StacksEpoch;

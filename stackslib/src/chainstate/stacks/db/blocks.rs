@@ -24,9 +24,6 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use clarity::types::chainstate::SortitionId;
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
-use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
@@ -76,8 +73,6 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next};
 use crate::core::mempool::MemPoolDB;
 use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use crate::core::*;
@@ -96,7 +91,13 @@ use crate::util_lib::db::{
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
 use crate::util_lib::strings::StacksString;
-use crate::{types, util};
+
+pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+use clarity::vm::analysis::run_analysis;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next};
+
+use stacks_common::types::chainstate::SortitionId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -7167,11 +7168,15 @@ pub mod test {
     use crate::core::mempool::*;
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
+
     use crate::net::test::*;
     use crate::net::ExtendedStacksHeader;
-    use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
     use crate::util_lib::db::Error as db_error;
     use crate::util_lib::db::*;
+
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore};
+
+    use super::*;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(

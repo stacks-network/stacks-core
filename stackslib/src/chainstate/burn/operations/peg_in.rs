@@ -22,11 +22,12 @@ use crate::chainstate::burn::operations::PegInOp;
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
-use crate::vm::errors::RuntimeErrorType as ClarityRuntimeError;
-use crate::vm::types::PrincipalData;
-use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::types::StandardPrincipalData;
-use crate::vm::ContractName;
+
+use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::ContractName;
 
 /// Transaction structure:
 ///

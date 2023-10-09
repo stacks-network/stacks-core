@@ -74,12 +74,13 @@ use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };
 use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
-};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as DBError;
+
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
+};
 
 pub mod comm;
 #[cfg(test)]

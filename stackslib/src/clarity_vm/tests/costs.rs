@@ -39,7 +39,12 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
+
 use lazy_static::lazy_static;
+
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
@@ -48,9 +53,6 @@ use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
 
 lazy_static! {

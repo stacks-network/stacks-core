@@ -493,10 +493,10 @@ fn lists_system_2() {
                     (get-list 1))
         (map-insert lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
-    match execute(test) {
-        Err(Error::Unchecked(CheckErrors::TypeError(_, _))) => true,
-        _ => false,
-    };
+    matches!(
+        execute(test),
+        Err(Error::Unchecked(CheckErrors::TypeError(_, _)))
+    );
 }
 
 #[test]
@@ -558,12 +558,10 @@ fn lists_system() {
     {
         let test = execute(test);
         println!("{:#?}", test);
-        let expected_type_error = match test {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
-            _ => false,
-        };
-
-        assert!(expected_type_error);
+        assert!(matches!(
+            test,
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
+        ));
     }
 }
 

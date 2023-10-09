@@ -9,8 +9,8 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 
 struct ParsedData {
     delegated_ustx: u128,
@@ -261,10 +261,6 @@ impl StacksMessageCodec for DelegateStxOp {
 }
 
 mod tests {
-    use clarity::address::AddressHashMode;
-    use clarity::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::hash::*;
-
     use crate::burnchains::bitcoin::address::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
     };
@@ -279,7 +275,10 @@ mod tests {
     use crate::chainstate::burn::Opcodes;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::types::chainstate::StacksAddress;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::*;
 
     // Parse a DelegateStx op in which the height is set to None.
     #[test]

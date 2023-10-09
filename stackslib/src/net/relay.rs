@@ -64,8 +64,9 @@ use crate::net::stackerdb::{
 };
 use crate::net::Error as net_error;
 use crate::net::*;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{PoxId, SortitionId};
+use stacks_common::types::chainstate::StacksBlockId;
+
+use stacks_common::types::chainstate::{PoxId, SortitionId};
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 

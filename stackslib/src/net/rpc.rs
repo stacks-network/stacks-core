@@ -70,8 +70,6 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
@@ -130,10 +128,18 @@ use crate::net::{RPCNeighbor, RPCNeighborsInfo};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
+
+use stacks_common::codec::StacksMessageCodec;
+
+use crate::clarity_vm::database::marf::MarfedKV;
+use stacks_common::util::chunked_encoding::*;
+
 use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
-    util::hash::Sha256Sum, version_string,
+    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, version_string,
 };
+use stacks_common::types;
+use stacks_common::util;
+use stacks_common::util::hash::Sha256Sum;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -4090,14 +4096,12 @@ mod test {
     use std::iter::FromIterator;
 
     use clarity::vm::types::*;
-    use clarity::vm::types::*;
     use libstackerdb::SlotMetadata;
     use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
     use stacks_common::address::*;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
-    use stacks_common::util::pipe::*;
     use stacks_common::util::pipe::*;
 
     use super::*;
@@ -4119,8 +4123,8 @@ mod test {
     use crate::net::stream::*;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     const TEST_CONTRACT: &'static str = "
         (define-constant cst 123)

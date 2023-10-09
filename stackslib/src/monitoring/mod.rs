@@ -32,9 +32,10 @@ use crate::{
     burnchains::Txid,
     core::MemPoolDB,
     net::{Error as net_error, HttpRequestType},
-    util::get_epoch_time_secs,
     util_lib::db::{tx_busy_handler, DBConn},
 };
+
+use stacks_common::util::get_epoch_time_secs;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

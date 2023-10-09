@@ -18,6 +18,7 @@
 pub mod log;
 #[macro_use]
 pub mod macros;
+pub mod chunked_encoding;
 pub mod hash;
 pub mod pair;
 pub mod pipe;

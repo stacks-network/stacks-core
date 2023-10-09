@@ -71,11 +71,6 @@ use crate::chainstate::stacks::TransactionVersion;
 use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use crate::core::StacksEpoch;
 use crate::core::{FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::SortitionId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
 use crate::util_lib::strings::StacksString;
@@ -85,6 +80,12 @@ use crate::{
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
 use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
+
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.

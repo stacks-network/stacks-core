@@ -58,8 +58,6 @@ pub mod net;
 
 pub extern crate libstackerdb;
 
-pub use clarity::vm;
-
 #[macro_use]
 pub mod chainstate;
 

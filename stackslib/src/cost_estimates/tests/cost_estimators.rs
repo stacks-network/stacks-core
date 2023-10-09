@@ -27,8 +27,10 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::PessimisticEstimator;
 use crate::cost_estimates::{EstimatorError, FeeEstimator};
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
+
+use clarity::vm::types::PrincipalData;
+use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::Value;
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();

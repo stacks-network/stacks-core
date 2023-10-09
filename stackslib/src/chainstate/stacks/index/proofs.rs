@@ -51,7 +51,7 @@ use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
     TrieMerkleProofType,
 };
-use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(

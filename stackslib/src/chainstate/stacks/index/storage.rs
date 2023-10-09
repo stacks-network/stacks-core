@@ -37,6 +37,8 @@ use rusqlite::{
     Transaction, NO_PARAMS,
 };
 use sha2::Digest;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -60,8 +62,6 @@ use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieHasher;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;

@@ -26,7 +26,6 @@ use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
 
-use clarity::util::get_epoch_time_ms;
 use clarity::vm::coverage::CoverageReporter;
 use lazy_static::lazy_static;
 use rand::Rng;
@@ -47,6 +46,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::chainstate::*;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::log;
 

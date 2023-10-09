@@ -2,34 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use clarity::types::Address;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::CostOverflowingMath;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::*;
-use clarity::vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
-use clarity::vm::eval;
-use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use clarity::vm::types::Value::Response;
-use clarity::vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
-    Value, NONE,
-};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
 use super::{test::*, RawRewardSetEntry};
-use crate::address::AddressHashMode;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
@@ -54,10 +31,35 @@ use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
+
+use crate::util_lib::db::{DBConn, FromRow};
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::CostOverflowingMath;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::*;
+use clarity::vm::errors::{
+    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+};
+use clarity::vm::eval;
+use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
+use clarity::vm::types::Value::Response;
+use clarity::vm::types::{
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
+    StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
+    Value, NONE,
+};
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::Address;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+
 use crate::net::test::TestPeer;
 use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{DBConn, FromRow};
-use crate::vm::events::StacksTransactionEvent;
 use crate::{
     burnchains::Burnchain,
     chainstate::{
