@@ -12,7 +12,6 @@ use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::{
     codec,
     codec::StacksMessageCodec,
@@ -115,7 +114,7 @@ impl From<&Config> for StacksClient {
 }
 
 /// Trait used to make interact with Clarity contracts for use in the signing process
-pub trait InteractWithStacksContracts {
+pub trait StacksContractCallable {
     /// Submits a transaction to a node RPC server
     fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError>;
 
@@ -125,7 +124,7 @@ pub trait InteractWithStacksContracts {
         contract_addr: &StacksAddress,
         contract_name: &str,
         function_name: &str,
-        function_args: &[ClarityValue],
+        function_args: &[&str],
     ) -> Result<String, ClientError>;
 
     /// Creates a contract call transaction
@@ -312,7 +311,7 @@ impl StacksClient {
         let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
             .to_string();
         let path = format!(
-            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
+            "http://{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
             self.http_origin
         );
         let response = self
