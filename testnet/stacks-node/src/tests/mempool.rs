@@ -9,7 +9,6 @@ use clarity::vm::{
     types::StandardPrincipalData, Value,
 };
 use lazy_static::lazy_static;
-use stacks::address::AddressHashMode;
 use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
@@ -17,15 +16,16 @@ use stacks::chainstate::stacks::{
     StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::StacksEpochId;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
-use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
-use stacks::util::{hash::*, secp256k1::*};
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
+use stacks_common::util::{hash::*, secp256k1::*};
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,

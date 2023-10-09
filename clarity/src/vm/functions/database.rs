@@ -122,7 +122,7 @@ pub fn special_contract_call(
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
+                    if contract_context_to_check.is_explicitly_implementing_trait(trait_identifier)
                     {
                         (&trait_data.contract_identifier, None)
                     } else {
@@ -166,7 +166,7 @@ pub fn special_contract_call(
                         function_to_check.check_trait_expectations(
                             env.epoch(),
                             &contract_context_defining_trait,
-                            &trait_identifier,
+                            trait_identifier,
                         )?;
 
                         // Retrieve the expected method signature
@@ -192,15 +192,15 @@ pub fn special_contract_call(
 
     let mut nested_env = env.nest_with_caller(contract_principal);
     let result = if nested_env.short_circuit_contract_call(
-        &contract_identifier,
+        contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
         nested_env.run_free(|free_env| {
-            free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+            free_env.execute_contract(contract_identifier, function_name, &rest_args, false)
         })
     } else {
-        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
+        nested_env.execute_contract(contract_identifier, function_name, &rest_args, false)
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4
@@ -245,7 +245,7 @@ pub fn special_fetch_variable_v200(
         data_types.value_type.size(),
     )?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     env.global_context
         .database
         .lookup_variable(contract, var_name, data_types, &epoch)
@@ -270,7 +270,7 @@ pub fn special_fetch_variable_v205(
         .get(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -297,7 +297,7 @@ pub fn special_set_variable_v200(
 
     check_argument_count(2, args)?;
 
-    let value = eval(&args[1], env, &context)?;
+    let value = eval(&args[1], env, context)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -317,7 +317,7 @@ pub fn special_set_variable_v200(
 
     env.add_memory(value.get_memory_use())?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     env.global_context
         .database
         .set_variable(contract, var_name, value, data_types, &epoch)
@@ -337,7 +337,7 @@ pub fn special_set_variable_v205(
 
     check_argument_count(2, args)?;
 
-    let value = eval(&args[1], env, &context)?;
+    let value = eval(&args[1], env, context)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -349,7 +349,7 @@ pub fn special_set_variable_v205(
         .get(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -376,7 +376,7 @@ pub fn special_fetch_entry_v200(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -392,7 +392,7 @@ pub fn special_fetch_entry_v200(
         data_types.value_type.size() + data_types.key_type.size(),
     )?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     env.global_context
         .database
         .fetch_entry(contract, map_name, &key, data_types, &epoch)
@@ -409,7 +409,7 @@ pub fn special_fetch_entry_v205(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -419,7 +419,7 @@ pub fn special_fetch_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -444,7 +444,7 @@ pub fn special_at_block(
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
 
-    let bhh = match eval(&args[0], env, &context)? {
+    let bhh = match eval(&args[0], env, context)? {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
                 return Err(RuntimeErrorType::BadBlockHash(data).into());
@@ -473,9 +473,9 @@ pub fn special_set_entry_v200(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
-    let value = eval(&args[2], env, &context)?;
+    let value = eval(&args[2], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -496,7 +496,7 @@ pub fn special_set_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types, &epoch)
@@ -516,9 +516,9 @@ pub fn special_set_entry_v205(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
-    let value = eval(&args[2], env, &context)?;
+    let value = eval(&args[2], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -530,7 +530,7 @@ pub fn special_set_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -559,9 +559,9 @@ pub fn special_insert_entry_v200(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
-    let value = eval(&args[2], env, &context)?;
+    let value = eval(&args[2], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -582,7 +582,7 @@ pub fn special_insert_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
 
     env.global_context
         .database
@@ -603,9 +603,9 @@ pub fn special_insert_entry_v205(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
-    let value = eval(&args[2], env, &context)?;
+    let value = eval(&args[2], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -617,7 +617,7 @@ pub fn special_insert_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -646,7 +646,7 @@ pub fn special_delete_entry_v200(
 
     check_argument_count(2, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -666,7 +666,7 @@ pub fn special_delete_entry_v200(
 
     env.add_memory(key.get_memory_use())?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     env.global_context
         .database
         .delete_entry(contract, map_name, &key, data_types, &epoch)
@@ -686,7 +686,7 @@ pub fn special_delete_entry_v205(
 
     check_argument_count(2, args)?;
 
-    let key = eval(&args[1], env, &context)?;
+    let key = eval(&args[1], env, context)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -698,7 +698,7 @@ pub fn special_delete_entry_v205(
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    let epoch = env.epoch().clone();
+    let epoch = *env.epoch();
     let result = env
         .global_context
         .database
@@ -820,7 +820,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Ok(Value::some(result)?)
+    Value::some(result)
 }
 
 /// Interprets `args` as variables `[property_name, burn_block_height]`, and returns
@@ -894,10 +894,7 @@ pub fn special_get_burn_block_info(
                         (
                             "addrs".into(),
                             Value::cons_list(
-                                addrs
-                                    .into_iter()
-                                    .map(|addr_tuple| Value::Tuple(addr_tuple))
-                                    .collect(),
+                                addrs.into_iter().map(Value::Tuple).collect(),
                                 env.epoch(),
                             )
                             .expect("FATAL: could not convert address list to Value"),

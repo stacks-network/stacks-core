@@ -41,8 +41,8 @@ use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
-use crate::types::StacksEpochId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 
 fn setup_tracked_cost_test(
     use_mainnet: bool,

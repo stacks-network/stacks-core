@@ -13,13 +13,9 @@ use stacks::chainstate::stacks::miner::signal_mining_ready;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
-use stacks::types::chainstate::StacksAddress;
-use stacks::types::PrivateKey;
-use stacks::util::sleep_ms;
-use stacks::util_lib::boot::boot_code_id;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::types::PrivateKey;
 
 use super::neon_integrations::get_account;
 use crate::config::EventKeyType;
@@ -35,6 +31,12 @@ use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
+
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
+
+use stacks::util_lib::boot::boot_code_id;
 
 #[test]
 #[ignore]

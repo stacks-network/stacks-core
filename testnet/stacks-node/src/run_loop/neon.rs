@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
-use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -22,13 +21,12 @@ use stacks::chainstate::coordinator::{
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
-use stacks::deps::ctrlc as termination;
-use stacks::deps::ctrlc::SignalId;
-use stacks::net::atlas::{
-    AtlasConfig, AtlasDB, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE,
-};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util::hash::Hash160;
 use stacks::util_lib::db::Error as db_error;
+
+use stacks_common::deps_common::ctrlc as termination;
+use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::sleep_ms;
@@ -47,6 +45,8 @@ use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
+use libc;
+
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]

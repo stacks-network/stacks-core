@@ -25,14 +25,16 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use crate::vm::ast::ASTRules;
-use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::costs::ExecutionCost;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::events::*;
-use crate::vm::tests::execute;
-use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::*;
+use clarity::vm::tests::execute;
+use clarity::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+
+use clarity::vm::ast::ASTRules;
+use clarity::vm::database::MemoryBackingStore;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)

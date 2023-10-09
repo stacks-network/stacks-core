@@ -436,8 +436,9 @@ mod tests {
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-    use crate::types::chainstate::{SortitionId, VRFSeed};
+
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use stacks_common::types::chainstate::{SortitionId, VRFSeed};
 
     struct BurnDistFixture {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,

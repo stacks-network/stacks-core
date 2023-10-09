@@ -49,7 +49,9 @@ pub fn check_special_get_owner(
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
 
-    Ok(TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)).into())
+    Ok(TypeSignature::OptionalType(Box::new(
+        TypeSignature::PrincipalType,
+    )))
 }
 
 pub fn check_special_get_balance(
@@ -98,10 +100,10 @@ pub fn check_special_mint_asset(
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_mint_token(
@@ -125,10 +127,10 @@ pub fn check_special_mint_token(
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
     }
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_transfer_asset(
@@ -157,10 +159,10 @@ pub fn check_special_transfer_asset(
     checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner
     checker.type_check_expects(&args[3], context, &expected_owner_type)?; // recipient
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_transfer_token(
@@ -185,10 +187,10 @@ pub fn check_special_transfer_token(
         return Err(CheckErrors::NoSuchFT(token_name.to_string()).into());
     }
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_stx_transfer(
@@ -208,10 +210,10 @@ pub fn check_special_stx_transfer(
     checker.type_check_expects(&args[1], context, &from_type)?;
     checker.type_check_expects(&args[2], context, &to_type)?;
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_stx_transfer_memo(
@@ -235,10 +237,10 @@ pub fn check_special_stx_transfer_memo(
     checker.type_check_expects(&args[2], context, &to_type)?;
     checker.type_check_expects(&args[3], context, &memo_type)?;
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_get_token_supply(
@@ -284,10 +286,10 @@ pub fn check_special_burn_asset(
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }
 
 pub fn check_special_burn_token(
@@ -311,8 +313,8 @@ pub fn check_special_burn_token(
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
     }
 
-    Ok(
-        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
-            .into(),
-    )
+    Ok(TypeSignature::ResponseType(Box::new((
+        TypeSignature::BoolType,
+        TypeSignature::UIntType,
+    ))))
 }

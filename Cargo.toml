@@ -7,9 +7,10 @@ members = [
     "clarity",
     "stx-genesis",
     "libstackerdb",
-    "testnet/stacks-node",
     "contrib/tools/relay-server",
-]
+    "libsigner",
+    "stacks-signer",
+    "testnet/stacks-node"]
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution

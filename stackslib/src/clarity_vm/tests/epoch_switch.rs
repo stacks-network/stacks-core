@@ -34,12 +34,15 @@ use crate::chainstate::burn::db::sortdb::{
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
+
+use crate::util_lib::db::{DBConn, FromRow};
+
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
+
 use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::util_lib::db::{DBConn, FromRow};
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,

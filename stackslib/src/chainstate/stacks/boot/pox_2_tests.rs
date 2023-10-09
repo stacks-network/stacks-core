@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use crate::address::AddressHashMode;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
@@ -20,7 +19,6 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::util_lib::db::{DBConn, FromRow};
-use crate::vm::events::StacksTransactionEvent;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
@@ -31,6 +29,7 @@ use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::eval;
+use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
@@ -39,6 +38,7 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
@@ -52,6 +52,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::*;
+
 use crate::net::test::TestPeer;
 use crate::util_lib::boot::boot_code_id;
 use crate::{

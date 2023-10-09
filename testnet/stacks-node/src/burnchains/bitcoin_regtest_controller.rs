@@ -10,6 +10,7 @@ use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
+use clarity::vm::types::PrincipalData;
 use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::json;
@@ -42,20 +43,19 @@ use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
-use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::util::hash::{hex_bytes, Hash160};
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::sleep_ms;
-use stacks::vm::types::PrincipalData;
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
+
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
@@ -65,6 +65,10 @@ use stacks_common::types::chainstate::StacksAddress;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+
+use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before

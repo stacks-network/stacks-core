@@ -1351,7 +1351,7 @@ impl StacksChainState {
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
             }
-            TransactionPayload::TenureChange(ref payload) => {
+            TransactionPayload::TenureChange(ref _payload) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {

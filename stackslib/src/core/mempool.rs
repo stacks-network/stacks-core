@@ -54,12 +54,11 @@ use crate::chainstate::stacks::{
 };
 use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::codec::Error as codec_error;
-use crate::codec::StacksMessageCodec;
 use crate::core::ExecutionCost;
 use crate::core::StacksEpochId;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
+
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::metrics::UnitMetric;
@@ -67,10 +66,10 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
+
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::stream::TxStreamData;
 use crate::net::MemPoolSyncData;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::query_int;
 use crate::util_lib::db::query_row_columns;
@@ -84,6 +83,10 @@ use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::{query_row, Error};
 use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
+
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;

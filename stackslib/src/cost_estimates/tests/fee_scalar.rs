@@ -23,9 +23,11 @@ use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::tests::common::make_block_receipt;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::{EstimatorError, FeeEstimator};
-use crate::types::chainstate::StacksAddress;
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
+use stacks_common::types::chainstate::StacksAddress;
+
+use clarity::vm::types::PrincipalData;
+use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::Value;
 
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
     let mut path = env::temp_dir();

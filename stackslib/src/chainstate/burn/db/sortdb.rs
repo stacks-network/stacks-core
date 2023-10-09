@@ -5996,9 +5996,7 @@ impl<'a> SortitionHandleTx<'a> {
         hash_tied.sort();
         let winner = hash_tied
             .first()
-            .as_ref()
-            .expect("FATAL: zero-length list of tied block IDs")
-            .clone();
+            .expect("FATAL: zero-length list of tied block IDs");
         let winner_index = *mapping
             .get(&winner)
             .expect("FATAL: winning block ID not mapped");
@@ -6257,9 +6255,12 @@ pub mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::StacksEpochExtension;
     use crate::core::*;
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
     use crate::util_lib::db::Error as db_error;
+
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
+
+    use super::*;
 
     #[test]
     fn test_instantiate() {

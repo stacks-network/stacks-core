@@ -17,7 +17,6 @@
 use std::collections::BTreeMap;
 
 use rusqlite::Connection;
-use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::uint::BitArray;
@@ -42,10 +41,13 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::core::*;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
 use crate::util_lib::db::Error as db_error;
+
+use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks_common::consts::FIRST_STACKS_BLOCK_HASH;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
 
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
@@ -467,9 +469,9 @@ mod test {
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::stacks::*;
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::BurnchainHeaderHash;
-    use crate::types::chainstate::VRFSeed;
+    use stacks_common::types::chainstate::BlockHeaderHash;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::types::chainstate::VRFSeed;
 
     fn test_make_snapshot(
         sort_tx: &mut SortitionHandleTx,

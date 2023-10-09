@@ -57,9 +57,9 @@ use crate::{
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     core::StacksEpoch,
     core::StacksEpochId,
-    types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-    },
+};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 
 const USTX_PER_HOLDER: u128 = 1_000_000;

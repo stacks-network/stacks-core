@@ -23,6 +23,10 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use lazy_static::lazy_static;
+use regex::Regex;
+use url;
+
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, CONTRACT_MAX_NAME_LENGTH,
@@ -31,12 +35,9 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use lazy_static::lazy_static;
-use regex::Regex;
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::util::retry::BoundReader;
-use url;
 
 use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 
@@ -49,6 +50,7 @@ guarded_string!(
     UrlString,
     "UrlString",
     URL_STRING_REGEX,
+    CLARITY_MAX_STRING_LENGTH,
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );

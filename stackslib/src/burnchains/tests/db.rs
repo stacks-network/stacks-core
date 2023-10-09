@@ -38,8 +38,11 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::StacksEpochId;
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::types::chainstate::StacksAddress;
 use crate::util_lib::db::Error as DBError;
+
+use stacks_common::types::chainstate::StacksAddress;
+
+use super::*;
 
 impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     fn read_burnchain_headers(

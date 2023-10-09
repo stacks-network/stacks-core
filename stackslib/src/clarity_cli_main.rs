@@ -20,6 +20,9 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
+extern crate blockstack_lib;
+extern crate serde_json;
+
 use std::env;
 use std::process;
 

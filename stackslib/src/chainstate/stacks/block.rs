@@ -41,8 +41,6 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;

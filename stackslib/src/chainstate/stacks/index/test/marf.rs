@@ -36,7 +36,8 @@ use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::index::TrieLeaf;
-use crate::types::chainstate::StacksBlockId;
+
+use stacks_common::types::chainstate::StacksBlockId;
 
 #[test]
 fn marf_insert_different_leaf_same_block_100() {

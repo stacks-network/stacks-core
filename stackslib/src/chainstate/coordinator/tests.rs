@@ -51,7 +51,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
-use stacks_common::{types, util};
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -67,7 +66,6 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::boot::POX_3_NAME;
@@ -82,6 +80,9 @@ use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::strings::StacksString;
+
+use crate::chainstate::stacks::boot::COSTS_2_NAME;
+use stacks_common::{types, util};
 
 lazy_static! {
     pub static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -361,7 +362,7 @@ pub fn setup_states_with_epochs(
                 burnchain_blocks_db,
                 first_sortition.burn_header_hash,
                 registers,
-                path.clone(),
+                *path,
             ));
         } else {
             others.push(burnchain_blocks_db);

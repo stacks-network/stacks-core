@@ -211,7 +211,7 @@ pub fn special_principal_construct(
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
         return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
-    } else if verified_version.len() == 0 {
+    } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
         return Ok(create_principal_true_error_response(
@@ -256,7 +256,7 @@ pub fn special_principal_construct(
 
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
-    transfer_buffer.copy_from_slice(&verified_hash_bytes);
+    transfer_buffer.copy_from_slice(verified_hash_bytes);
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
 
     let principal = if let Some(name) = name_opt {
