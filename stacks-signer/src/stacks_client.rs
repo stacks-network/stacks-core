@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn call_read_only_contract_call_should_succeed() {
+    fn read_only_contract_call_should_succeed() {
         let config = TestConfig::new();
         let h = spawn(move || {
             config.client.read_only_contract_call(
@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn call_read_only_contract_call_should_fail() {
+    fn read_only_contract_call_should_fail() {
         let config = TestConfig::new();
         let h = spawn(move || {
             config.client.read_only_contract_call(
