@@ -30,8 +30,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use ed25519_dalek::Keypair as VRFKeypair;
-use ed25519_dalek::PublicKey as ed25519_PublicKey;
+use ed25519_dalek::SigningKey as VRFKeypair;
+use ed25519_dalek::VerifyingKey as ed25519_PublicKey;
 use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
@@ -46,7 +46,24 @@ use std::fmt;
 
 use crate::util::hash::hex_bytes;
 use rand;
+use rand::Rng;
+use rand::rngs::ThreadRng;
+use rand::rngs::OsRng;
+use rand_core::{CryptoRng, CryptoRngCore};
 
+struct ThreadRngWrapper;
+
+impl CryptoRngCore for ThreadRngWrapper {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        rand::thread_rng().try_fill_bytes(dest)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        rand::thread_rng().fill_bytes(dest);
+    }
+}
+
+impl CryptoRng for ThreadRngWrapper {}
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
 
@@ -145,13 +162,13 @@ impl Debug for VRFPrivateKey {
 #[cfg(test)]
 impl PartialEq for VRFPrivateKey {
     fn eq(&self, other: &VRFPrivateKey) -> bool {
-        self.as_bytes().to_vec() == other.as_bytes().to_vec()
+        self.to_vec() == other.to_vec()
     }
 }
 
 impl VRFPrivateKey {
     pub fn new() -> VRFPrivateKey {
-        let mut rng = rand::thread_rng();
+        let mut rng: Box<dyn MyCryptoRng> = Box::new(rand::thread_rng());
         let keypair: VRFKeypair = VRFKeypair::generate(&mut rng);
         VRFPrivateKey(keypair.secret)
     }

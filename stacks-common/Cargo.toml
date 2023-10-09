@@ -44,9 +44,12 @@ features = ["serde", "recovery"]
 version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
+[dependencies.rand_core]
+version = "0.6.4"
+
 [dependencies.ed25519-dalek]
-version = "=1.0.0-pre.3"
-features = ["serde"]
+version = "=2.0.0"
+features = ["serde", "rand_core"]
 
 [dependencies.curve25519-dalek]
 version = "=2.0.0"
