@@ -5,11 +5,14 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use clarity::vm::{
+    types::{serialization::SerializationError, SequenceData},
     Value as ClarityValue, {ClarityName, ContractName},
 };
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
+use p256k1::field::Element;
+use secp256k1::XOnlyPublicKey;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::{
@@ -79,6 +82,12 @@ pub enum ClientError {
     /// Unexpected response from the pox endpoint
     #[error("Malformed pox response: {0}")]
     MalformedPoxResponse(String),
+    /// Failed to serialize a Clarity value
+    #[error("Failed to serialize Clarity value: {0}")]
+    SerializationError(#[from] SerializationError),
+    /// Failed to parse a Clarity value
+    #[error("Recieved a malformed clarity value: {0}")]
+    MalformedClarityValue(ClarityValue),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -183,32 +192,16 @@ impl StacksClient {
 
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
-        let _reward_cycle = self.get_current_reward_cycle()?;
-        let _function_name = "get-aggregate-public-key"; // TODO: this should be modified to match .pox-4
-        let (_contract_addr, _contract_name) = self.get_pox_contract()?;
-        todo!()
-        // let bitcoin_wallet_public_key_hex = self.read_only_contract_call(contract_addr, contract_name, function_name, &[&reward_cycle.to_string()])?;
-        // let bitcoin_wallet_public_key =
-        //     ClarityValue::try_deserialize_hex_untyped(&bitcoin_wallet_public_key_hex)?;
-        // if let ClarityValue::Optional(optional_data) = bitcoin_wallet_public_key.clone() {
-        //     if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
-        //         optional_data.data.map(|boxed| *boxed)
-        //     {
-        //         let xonly_pubkey = XOnlyPublicKey::from_slice(&public_key.data).map_err(|_| {
-        //             StacksNodeError::MalformedClarityValue(
-        //                 function_name.to_string(),
-        //                 bitcoin_wallet_public_key,
-        //             )
-        //         })?;
-        //         return Ok(Some(xonly_pubkey));
-        //     } else {
-        //         return Ok(None);
-        //     }
-        // }
-        // Err(StacksNodeError::MalformedClarityValue(
-        //     function_name.to_string(),
-        //     bitcoin_wallet_public_key,
-        // ))
+        let reward_cycle = self.get_current_reward_cycle()?;
+        let function_name = "get-bitcoin-wallet-public-key"; // TODO: this should be modified to match .pox-4
+        let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let contract_response_hex = self.read_only_contract_call(
+            &contract_addr,
+            &contract_name,
+            function_name,
+            &[&reward_cycle.to_string()],
+        )?;
+        self.parse_aggregate_public_key(&contract_response_hex)
     }
 
     /// Retreive the DKG aggregate public key vote cast by the signer
@@ -335,6 +328,28 @@ impl StacksClient {
             .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
             .to_string();
         Ok((contract_name, contract_id))
+    }
+
+    /// Helper function for deserializing the aggregate public key clarity function response string
+    fn parse_aggregate_public_key(&self, hex: &str) -> Result<Option<Point>, ClientError> {
+        let public_key_clarity_value = ClarityValue::try_deserialize_hex_untyped(hex)?;
+        if let ClarityValue::Optional(optional_data) = public_key_clarity_value.clone() {
+            if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
+                optional_data.data.map(|boxed| *boxed)
+            {
+                let xonly_pubkey = XOnlyPublicKey::from_slice(&public_key.data).map_err(|_| {
+                    ClientError::MalformedClarityValue(public_key_clarity_value.clone())
+                })?;
+
+                let point = Point::lift_x(&Element::from(xonly_pubkey.serialize()))
+                    .map_err(|_| ClientError::MalformedClarityValue(public_key_clarity_value))?;
+                Ok(Some(point))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Err(ClientError::MalformedClarityValue(public_key_clarity_value))
+        }
     }
 }
 
@@ -571,5 +586,33 @@ mod tests {
             dbg!(result),
             Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
         ));
+    fn parse_valid_aggregate_public_key_should_succeed() {
+        let config = TestConfig::new();
+        let clarity_value_hex =
+            "0x0a0200000020b8c8b0652cb2851a52374c7acd47181eb031e8fa5c62883f636e0d4fe695d6ca";
+        let result = config
+            .client
+            .parse_aggregate_public_key(clarity_value_hex)
+            .unwrap();
+        assert_eq!(
+            result.map(|point| point.to_string()),
+            Some("otxFPSSaqypXuYvDZTgZBgGfK9CB7oGhgsMPCjGtKj7f".to_string())
+        );
+
+        let clarity_value_hex = "0x09";
+        let result = config
+            .client
+            .parse_aggregate_public_key(clarity_value_hex)
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_invalid_aggregate_public_key_should_fail() {
+        let config = TestConfig::new();
+        let clarity_value_hex = "0x00";
+        let result = config.client.parse_aggregate_public_key(clarity_value_hex);
+        assert!(matches!(result, Err(ClientError::SerializationError(..))));
+        // TODO: add further tests for malformed clarity values (an optional of any other type for example)
     }
 }
