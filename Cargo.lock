@@ -3392,7 +3392,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts 4.0.0 (git+https://github.com/Trust-Machines/wsts?tag=4.0.0rc2)",
+ "wsts",
 ]
 
 [[package]]
@@ -3420,7 +3420,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "wsts 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wsts",
 ]
 
 [[package]]
@@ -4501,27 +4501,6 @@ name = "wsts"
 version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a0c0ec44cbd35be82490c8c566ad4971f7b41ffe8508f1c9938140df7fe18b2"
-dependencies = [
- "aes-gcm 0.10.2",
- "bs58 0.5.0",
- "hashbrown 0.14.0",
- "hex",
- "num-traits",
- "p256k1",
- "polynomial",
- "primitive-types",
- "rand_core 0.6.4",
- "serde",
- "sha2 0.10.6",
- "thiserror",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "wsts"
-version = "4.0.0"
-source = "git+https://github.com/Trust-Machines/wsts?tag=4.0.0rc2#e87f997781c0e9d9b2951d75059d673296311eec"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

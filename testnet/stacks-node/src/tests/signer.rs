@@ -26,7 +26,7 @@ use stacks_signer::{
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use wsts::{
-    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
+    state_machine::{coordinator::frost::Coordinator as FrostCoordinator, OperationResult},
     v2,
 };
 
@@ -171,7 +171,7 @@ fn test_stackerdb_dkg() {
         .collect::<Vec<StacksPrivateKey>>();
     let signer_stacks_addresses = signer_stacks_private_keys
         .iter()
-        .map(|key| to_addr(key).into())
+        .map(to_addr)
         .collect::<Vec<StacksAddress>>();
 
     // Setup the neon node
