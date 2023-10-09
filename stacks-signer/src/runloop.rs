@@ -8,7 +8,7 @@ use wsts::{
     common::MerkleRoot,
     net::{Message, Packet, Signable},
     state_machine::{
-        coordinator::{Coordinatable, Coordinator as FrostCoordinator},
+        coordinator::{frost::Coordinator as FrostCoordinator, Coordinatable},
         signer::SigningRound,
         OperationResult, PublicKeys,
     },
@@ -161,12 +161,12 @@ impl<C: Coordinatable> RunLoop<C> {
         // First process all messages as a signer
         let mut outbound_messages = self
             .signing_round
-            .process_inbound_messages(inbound_messages.clone())
+            .process_inbound_messages(&inbound_messages)
             .unwrap_or_default();
         // If the signer is the coordinator, then next process the message as the coordinator
         let (messages, results) = if self.signing_round.signer_id == coordinator_id {
             self.coordinator
-                .process_inbound_messages(inbound_messages)
+                .process_inbound_messages(&inbound_messages)
                 .unwrap_or_default()
         } else {
             (vec![], vec![])

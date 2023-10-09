@@ -2230,9 +2230,9 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
-version = "5.4.1"
+version = "5.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79583032ab00c9e23e8afadf907e9cdc862c72c01fd57048fb07f1107a05c88a"
+checksum = "22e81c2cb5a1936d3f26278f9d698932239d03ddf0d5818392d91cd5f98ffc79"
 dependencies = [
  "bindgen",
  "bitvec",
@@ -3392,7 +3392,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts",
+ "wsts 4.0.0 (git+https://github.com/Trust-Machines/wsts?tag=4.0.0rc2)",
 ]
 
 [[package]]
@@ -3420,7 +3420,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "wsts 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4494,6 +4494,28 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "wsts"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0c0ec44cbd35be82490c8c566ad4971f7b41ffe8508f1c9938140df7fe18b2"
+dependencies = [
+ "aes-gcm 0.10.2",
+ "bs58 0.5.0",
+ "hashbrown 0.14.0",
+ "hex",
+ "num-traits",
+ "p256k1",
+ "polynomial",
+ "primitive-types",
+ "rand_core 0.6.4",
+ "serde",
+ "sha2 0.10.6",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
