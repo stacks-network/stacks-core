@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use p256k1::ecdsa;
@@ -82,6 +83,14 @@ impl Network {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             Self::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        }
+    }
+
+    /// Convert a Network enum variant to a Transaction Version
+    pub fn to_transaction_version(&self) -> TransactionVersion {
+        match self {
+            Self::Mainnet => TransactionVersion::Mainnet,
+            Self::Testnet => TransactionVersion::Testnet,
         }
     }
 }

@@ -21,7 +21,7 @@ use stacks_common::{
 };
 use wsts::net::{Message, Packet};
 
-use crate::config::{Config, Network};
+use crate::config::Config;
 
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
@@ -83,7 +83,7 @@ pub struct StacksClient {
     stacks_address: StacksAddress,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
-    /// A map of a slot ID to last chunk version   
+    /// A map of a slot ID to last chunk version
     slot_versions: HashMap<u32, u32>,
     /// The RPC endpoint used to communicate HTTP endpoints with
     http_origin: String,
@@ -106,8 +106,8 @@ impl From<&Config> for StacksClient {
             stacks_address: config.stacks_address,
             slot_versions: HashMap::new(),
             http_origin: format!("http://{}", config.node_host),
-            tx_version: TransactionVersion::Testnet,
-            chain_id: Network::Testnet.to_chain_id(),
+            tx_version: config.network.to_transaction_version(),
+            chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
         }
     }
