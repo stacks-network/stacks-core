@@ -381,7 +381,7 @@ mod test {
     fn old_c32_validation() {
         for n in 0..5000 {
             // random version
-            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+            let random_version: u8 = rand::thread_rng().gen_range(0..31);
 
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
