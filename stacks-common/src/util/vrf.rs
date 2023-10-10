@@ -30,9 +30,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 use ed25519_dalek::SigningKey as VRFKeypair;
 use ed25519_dalek::VerifyingKey as ed25519_PublicKey;
-use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
@@ -46,8 +46,8 @@ use std::fmt;
 
 use crate::util::hash::hex_bytes;
 use rand;
-use rand::Rng;
 use rand::rngs::ThreadRng;
+use rand::Rng;
 use rand::rngs::OsRng;
 use rand_core::{CryptoRng, CryptoRngCore};
 
@@ -172,7 +172,7 @@ impl VRFPrivateKey {
                 } else {
                     None
                 }
-            },
+            }
             Err(_) => None,
         }
     }
