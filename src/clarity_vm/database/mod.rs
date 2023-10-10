@@ -1,5 +1,5 @@
 use clarity::vm::types::PrincipalData;
-use rusqlite::{Connection, OptionalExtension, Row, ToSql};
+use rusqlite::{Connection, OptionalExtension, Row, ToSql, params};
 
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
@@ -323,7 +323,7 @@ fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<Min
     let parent_id_bhh = conn
         .query_row(
             "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?",
-            [child_id_bhh].iter(),
+            params![child_id_bhh],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))

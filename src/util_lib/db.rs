@@ -37,7 +37,7 @@ use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
-use rusqlite::NO_PARAMS;
+use rusqlite::params;
 use serde_json::Error as serde_error;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -339,7 +339,7 @@ macro_rules! impl_byte_array_from_column {
 fn get_db_path(conn: &Connection) -> Result<String, Error> {
     let sql = "PRAGMA database_list";
     let path: Result<Option<String>, sqlite_error> =
-        conn.query_row_and_then(sql, NO_PARAMS, |row| row.get(2));
+        conn.query_row_and_then(sql, params![], |row| row.get(2));
     match path {
         Ok(Some(path)) => Ok(path),
         Ok(None) => Ok("<unknown>".to_string()),
@@ -382,7 +382,7 @@ fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 /// boilerplate code for querying rows
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -397,7 +397,7 @@ where
 ///   if more than 1 row is returned, excess rows are ignored.
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -418,7 +418,7 @@ pub fn query_expect_row<T, P>(
     sql_args: P,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -444,7 +444,7 @@ pub fn query_row_panic<T, P, F>(
     panic_message: F,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
     F: FnOnce() -> String,
@@ -470,7 +470,7 @@ pub fn query_row_columns<T, P>(
     column_name: &str,
 ) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromColumn<T>,
 {
@@ -491,7 +491,7 @@ where
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
 {
     log_sql_eqp(conn, sql_query);
@@ -515,7 +515,7 @@ where
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
 {
     query_int(conn, sql_query, sql_args)
@@ -541,7 +541,7 @@ fn inner_sql_pragma(
 
 /// Run a VACUUM command
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    conn.execute("VACUUM", NO_PARAMS)
+    conn.execute("VACUUM", params![])
         .map_err(Error::SqliteError)
         .and_then(|_| Ok(()))
 }
@@ -830,7 +830,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             PRIMARY KEY(value_hash)
         );
         "#,
-                NO_PARAMS,
+                params![],
             )
             .map_err(Error::SqliteError)?;
         Ok(())

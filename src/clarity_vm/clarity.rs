@@ -1590,7 +1590,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 mod tests {
     use std::fs;
 
-    use rusqlite::NO_PARAMS;
+    use rusqlite::params;
 
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
@@ -1956,7 +1956,7 @@ mod tests {
         // sqlite only have entries
         assert_eq!(
             0,
-            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", params![], |row| row
                 .get(0))
                 .unwrap()
         );
@@ -1996,7 +1996,7 @@ mod tests {
             .sql_conn()
             .query_row::<u32, _, _>(
                 "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
+                params![],
                 |row| row.get(0),
             )
             .unwrap();
@@ -2105,7 +2105,7 @@ mod tests {
             genesis_metadata_entries,
             sql.query_row::<u32, _, _>(
                 "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
+                params![],
                 |row| row.get(0)
             )
             .unwrap()

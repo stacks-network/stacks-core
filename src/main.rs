@@ -1018,7 +1018,7 @@ simulating a miner.
             byte_prefix
         );
         let mut stmt = conn.prepare(&query).unwrap();
-        let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut rows = stmt.query(rusqlite::params![]).unwrap();
         while let Ok(Some(row)) = rows.next() {
             let val_string: String = row.get(0).unwrap();
             let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {

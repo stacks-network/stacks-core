@@ -33,7 +33,7 @@ use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Rows;
 use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
+use rusqlite::params;
 
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
@@ -914,7 +914,7 @@ pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
     let mut iter = stmt
-        .query(NO_PARAMS)
+        .query(params![])
         .map_err(|e| db_error::SqliteError(e))?;
     let mut ret = vec![];
     while let Ok(Some(row)) = iter.next() {
@@ -1047,7 +1047,7 @@ impl MemPoolDB {
         let version = conn
             .query_row(
                 "SELECT MAX(version) FROM schema_version",
-                rusqlite::NO_PARAMS,
+                rusqlite::params![],
                 |row| row.get(0),
             )
             .optional()?;
@@ -1242,7 +1242,7 @@ impl MemPoolDB {
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        self.db.execute(sql, rusqlite::params![])?;
         Ok(())
     }
 
@@ -1282,7 +1282,7 @@ impl MemPoolDB {
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            [max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {
@@ -1402,7 +1402,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut null_iterator = query_stmt_null
-            .query(NO_PARAMS)
+            .query(params![])
             .map_err(|err| Error::SqliteError(err))?;
 
         let sql = "
@@ -1416,7 +1416,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut fee_iterator = query_stmt_fee
-            .query(NO_PARAMS)
+            .query(params![])
             .map_err(|err| Error::SqliteError(err))?;
 
         loop {
@@ -1672,7 +1672,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, params![])?;
         Ok(rows)
     }
 
@@ -2244,7 +2244,7 @@ impl MemPoolDB {
 
         // if we get too big, then drop some txs at random
         let sql = "SELECT size FROM tx_blacklist_size";
-        let sz = query_int(tx, sql, NO_PARAMS)? as u64;
+        let sz = query_int(tx, sql, params![])? as u64;
         if sz > max_size {
             let to_delete = sz - max_size;
             let txids: Vec<Txid> = query_rows(
@@ -2341,7 +2341,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn dump_txs(&self) {
         let sql = "SELECT * FROM mempool";
-        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();
+        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, params![]).unwrap();
 
         eprintln!("{:#?}", txs);
     }
@@ -2370,12 +2370,12 @@ impl MemPoolDB {
     /// Find maximum height represented in the mempool
     pub fn get_max_height(conn: &DBConn) -> Result<Option<u64>, db_error> {
         let sql = "SELECT 1 FROM mempool WHERE height >= 0";
-        let count = query_rows::<i64, _>(conn, sql, NO_PARAMS)?.len();
+        let count = query_rows::<i64, _>(conn, sql, params![])?.len();
         if count == 0 {
             Ok(None)
         } else {
             let sql = "SELECT MAX(height) FROM mempool";
-            Ok(Some(query_int(conn, sql, NO_PARAMS)? as u64))
+            Ok(Some(query_int(conn, sql, params![])? as u64))
         }
     }
 
