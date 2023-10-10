@@ -465,6 +465,19 @@ impl<'a> ClarityDatabase<'a> {
         self.store.rollback();
     }
 
+    pub fn execute<F, T, E>(&mut self, f: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<T, E>,
+    {
+        self.begin();
+        let result = f(self).or_else(|e| {
+            self.roll_back();
+            Err(e)
+        })?;
+        self.commit();
+        Ok(result)
+    }
+
     pub fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
