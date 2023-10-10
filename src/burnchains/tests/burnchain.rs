@@ -874,7 +874,7 @@ fn test_burn_snapshot_sequence() {
         let keypair: VRFKeypair = VRFKeypair::generate(&mut rng);
 
         let privkey_hex = to_hex(&keypair.to_bytes());
-        let pubkey_hex = 
+        let pubkey_hex =
             to_hex(VRFPublicKey::from_private(&VRFPrivateKey(keypair.to_bytes())).as_bytes());
 
         leader_private_keys.push(privkey_hex);
