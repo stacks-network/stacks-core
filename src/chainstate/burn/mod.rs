@@ -19,9 +19,9 @@ use std::fmt;
 use std::io::Write;
 
 use rand::seq::index::sample;
+use rand::Rng;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use rand::Rng;
 use ripemd::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;

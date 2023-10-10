@@ -46,9 +46,9 @@ use std::fmt;
 
 use crate::util::hash::hex_bytes;
 use rand;
+use rand::rngs::OsRng;
 use rand::rngs::ThreadRng;
 use rand::Rng;
-use rand::rngs::OsRng;
 use rand_core::{CryptoRng, CryptoRngCore};
 
 #[derive(Clone)]

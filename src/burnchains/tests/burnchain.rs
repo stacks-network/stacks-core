@@ -874,10 +874,10 @@ fn test_burn_snapshot_sequence() {
         let keypair: VRFKeypair = VRFKeypair::generate(&mut rng);
 
         let privkey_hex = to_hex(&keypair.to_bytes());
-        leader_private_keys.push(privkey_hex);
-
         let pubkey_hex = 
             to_hex(VRFPublicKey::from_private(&VRFPrivateKey(keypair.to_bytes())).as_bytes());
+
+        leader_private_keys.push(privkey_hex);
         leader_public_keys.push(pubkey_hex);
 
         let bitcoin_privkey = Secp256k1PrivateKey::new();
@@ -1006,7 +1006,7 @@ fn test_burn_snapshot_sequence() {
 
         let next_leader_key = LeaderKeyRegisterOp {
             consensus_hash: ch.clone(),
-            public_key: VRFPublicKey::from_bytes(leader_public_keys[i as usize].as_bytes(),)
+            public_key: VRFPublicKey::from_bytes(leader_public_keys[i as usize].as_bytes())
                 .unwrap(),
             memo: vec![0, 0, 0, 0, i],
 
