@@ -13,6 +13,7 @@ use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChun
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::{
+    codec,
     codec::StacksMessageCodec,
     debug,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
@@ -61,8 +62,14 @@ pub enum ClientError {
     #[error("Failed to sign with the sponsor private key")]
     SponsorSignatureGenerationFailure,
     /// Failed to sign with the provided private key
-    #[error("Failed to ")]
-    FailureToSerializeTx,
+    #[error("Failed to serialize tx {0}")]
+    FailureToSerializeTx(String),
+    /// Failed to sign with the provided private key
+    #[error("{0}")]
+    FailureToDeserializeTx(#[from] codec::Error),
+    /// Failed to create a p2pkh spending condition
+    #[error("Failed to create p2pkh spending condition from public key {0}")]
+    FailureToCreateSpendingFromPublicKey(String),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -101,31 +108,6 @@ impl From<&Config> for StacksClient {
             stacks_node_client: reqwest::blocking::Client::new(),
         }
     }
-}
-
-/// Trait used to make interact with Clarity contracts for use in the signing process
-pub trait StacksContractCallable {
-    /// Submits a transaction to a node RPC server
-    fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError>;
-
-    /// Call read only tx
-    fn read_only_contract_call(
-        &self,
-        contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
-        function_args: &[&str],
-    ) -> Result<String, ClientError>;
-
-    /// Creates a contract call transaction
-    fn transaction_contract_call(
-        &self,
-        nonce: u64,
-        contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
-        function_args: &[ClarityValue],
-    ) -> Result<Vec<u8>, ClientError>;
 }
 
 impl StacksClient {
@@ -199,19 +181,20 @@ impl StacksClient {
         tx_fee: u64,
         anchor_mode: TransactionAnchorMode,
     ) -> Result<Vec<u8>, ClientError> {
-        let mut sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
-            StacksPublicKey::from_private(&self.stacks_private_key),
-        )
-        .expect("Failed to create p2pkh spending condition from public key.");
+        let pubkey = StacksPublicKey::from_private(&self.stacks_private_key);
+        let mut sender_spending_condition =
+            TransactionSpendingCondition::new_singlesig_p2pkh(pubkey).ok_or(
+                ClientError::FailureToCreateSpendingFromPublicKey(pubkey.to_hex()),
+            )?;
         sender_spending_condition.set_nonce(sender_nonce);
 
         let auth = match (payer, payer_nonce) {
             (Some(payer), Some(payer_nonce)) => {
+                let pubkey = StacksPublicKey::from_private(payer);
                 let mut payer_spending_condition =
-                    TransactionSpendingCondition::new_singlesig_p2pkh(
-                        StacksPublicKey::from_private(payer),
-                    )
-                    .expect("Failed to create p2pkh spending condition from public key.");
+                    TransactionSpendingCondition::new_singlesig_p2pkh(pubkey).ok_or(
+                        ClientError::FailureToCreateSpendingFromPublicKey(pubkey.to_hex()),
+                    )?;
                 payer_spending_condition.set_nonce(payer_nonce);
                 payer_spending_condition.set_tx_fee(tx_fee);
                 TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
@@ -242,20 +225,16 @@ impl StacksClient {
 
         Ok(tx.serialize_to_vec())
     }
-}
 
-impl StacksContractCallable for StacksClient {
-    fn transaction_contract_call(
+    /// Creates a transaction for a contract call that can be submitted to a stacks node
+    pub fn transaction_contract_call(
         &self,
         nonce: u64,
         contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
+        contract_name: ContractName,
+        function_name: ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<Vec<u8>, ClientError> {
-        let contract_name = ContractName::from(contract_name);
-        let function_name = ClarityName::from(function_name);
-
         let payload = TransactionContractCall {
             address: *contract_addr,
             contract_name,
@@ -273,36 +252,32 @@ impl StacksContractCallable for StacksClient {
         )
     }
 
-    fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError> {
+    /// Submits a transaction to the Stacks node
+    pub fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError> {
         let path = format!("{}/v2/transactions", self.http_origin);
         let res = self
             .stacks_node_client
             .post(path)
             .header("Content-Type", "application/octet-stream")
             .body(tx.clone())
-            .send()
-            .unwrap();
+            .send()?;
         if res.status().is_success() {
-            let res: String = res.json().unwrap();
-            assert_eq!(
-                res,
-                StacksTransaction::consensus_deserialize(&mut &tx[..])
-                    .unwrap()
-                    .txid()
-                    .to_string()
-            );
+            let res: String = res.json()?;
+            let tx_deserialized = StacksTransaction::consensus_deserialize(&mut &tx[..])?;
+            assert_eq!(res, tx_deserialized.txid().to_string());
             Ok(res)
         } else {
             Err(ClientError::TransactionSubmissionFailure)
         }
     }
 
-    fn read_only_contract_call(
+    /// Makes a read only contract call to a stacks contract
+    pub fn read_only_contract_call(
         &self,
         contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
-        function_args: &[&str],
+        contract_name: ContractName,
+        function_name: ClarityName,
+        function_args: &[ClarityValue],
     ) -> Result<String, ClientError> {
         debug!("Calling read-only function {}...", function_name);
         let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
@@ -409,8 +384,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                "contract-name",
-                "function-name",
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
@@ -423,13 +398,33 @@ mod tests {
     }
 
     #[test]
+    fn properly_handle_400_response() {
+        let config = TestConfig::new();
+        // Simulate a 400 Bad Request response
+        let h2 = spawn(move || {
+            config.client.read_only_contract_call(
+                &config.client.stacks_address,
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
+                &[],
+            )
+        });
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 400 Bad Request\n\n{\"error\":\"Invalid request\"}",
+        );
+        let result = h2.join().unwrap();
+        assert!(matches!(dbg!(result), Err(ClientError::ReqwestError(_))));
+    }
+
+    #[test]
     fn read_only_contract_call_should_fail() {
         let config = TestConfig::new();
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                "contract-name",
-                "function-name",
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
