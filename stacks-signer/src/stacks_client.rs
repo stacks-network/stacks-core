@@ -70,6 +70,9 @@ pub enum ClientError {
     /// Failed to create a p2pkh spending condition
     #[error("Failed to create p2pkh spending condition from public key {0}")]
     FailureToCreateSpendingFromPublicKey(String),
+    /// Stacks node client request failed
+    #[error("Stacks node client request failed: {0}")]
+    RequestFailure(reqwest::StatusCode),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -291,8 +294,11 @@ impl StacksClient {
             .post(path)
             .header("Content-Type", "application/json")
             .body(body)
-            .send()?
-            .json::<serde_json::Value>()?;
+            .send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let response = response.json::<serde_json::Value>()?;
         if !response
             .get("okay")
             .map(|val| val.as_bool().unwrap_or(false))
@@ -379,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn read_only_contract_call_should_succeed() {
+    fn read_only_contract_call_200_success() {
         let config = TestConfig::new();
         let h = spawn(move || {
             config.client.read_only_contract_call(
@@ -398,27 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn properly_handle_400_response() {
-        let config = TestConfig::new();
-        // Simulate a 400 Bad Request response
-        let h2 = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
-                &[],
-            )
-        });
-        write_response(
-            config.mock_server,
-            b"HTTP/1.1 400 Bad Request\n\n{\"error\":\"Invalid request\"}",
-        );
-        let result = h2.join().unwrap();
-        assert!(matches!(dbg!(result), Err(ClientError::ReqwestError(_))));
-    }
-
-    #[test]
-    fn read_only_contract_call_should_fail() {
+    fn read_only_contract_call_200_failure() {
         let config = TestConfig::new();
         let h = spawn(move || {
             config.client.read_only_contract_call(
@@ -434,5 +420,47 @@ mod tests {
         );
         let result = h.join().unwrap();
         assert!(matches!(result, Err(ClientError::ReadOnlyFailure(_))));
+    }
+
+    #[test]
+    fn read_only_contract_call_400_failure() {
+        let config = TestConfig::new();
+        // Simulate a 400 Bad Request response
+        let h = spawn(move || {
+            config.client.read_only_contract_call(
+                &config.client.stacks_address,
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
+                &[],
+            )
+        });
+        write_response(config.mock_server, b"HTTP/1.1 400 Bad Request\n\n");
+        let result = h.join().unwrap();
+        assert!(matches!(
+            dbg!(result),
+            Err(ClientError::RequestFailure(
+                reqwest::StatusCode::BAD_REQUEST
+            ))
+        ));
+    }
+
+    #[test]
+    fn read_only_contract_call_404_failure() {
+        let config = TestConfig::new();
+        // Simulate a 400 Bad Request response
+        let h = spawn(move || {
+            config.client.read_only_contract_call(
+                &config.client.stacks_address,
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
+                &[],
+            )
+        });
+        write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+        let result = h.join().unwrap();
+        assert!(matches!(
+            dbg!(result),
+            Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
+        ));
     }
 }
