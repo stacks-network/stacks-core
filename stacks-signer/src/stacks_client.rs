@@ -11,8 +11,6 @@ use clarity::vm::{
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
-use p256k1::field::Element;
-use secp256k1::XOnlyPublicKey;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::{
@@ -27,7 +25,7 @@ use stacks_common::{
 };
 use wsts::{
     net::{Message, Packet},
-    Point,
+    Point, Scalar,
 };
 
 use crate::config::Config;
@@ -112,7 +110,7 @@ pub struct StacksClient {
     stacks_private_key: StacksPrivateKey,
     /// A map of a slot ID to last chunk version   
     slot_versions: HashMap<u32, u32>,
-    /// The RPC endpoint used to communicate HTTP endpoints with
+    /// The stacks node HTTP base endpoint
     http_origin: String,
     /// The types of transactions
     tx_version: TransactionVersion,
@@ -332,13 +330,9 @@ impl StacksClient {
             if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
                 optional_data.data.map(|boxed| *boxed)
             {
-                let xonly_pubkey = XOnlyPublicKey::from_slice(&public_key.data).map_err(|_| {
-                    ClientError::MalformedClarityValue(public_key_clarity_value.clone())
-                })?;
-
-                let point = Point::lift_x(&Element::from(xonly_pubkey.serialize()))
-                    .map_err(|_| ClientError::MalformedClarityValue(public_key_clarity_value))?;
-                Ok(Some(point))
+                let mut bytes = [0_u8; 32];
+                bytes.copy_from_slice(&public_key.data);
+                Ok(Some(Point::from(Scalar::from(bytes))))
             } else {
                 Ok(None)
             }
@@ -593,7 +587,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result.map(|point| point.to_string()),
-            Some("otxFPSSaqypXuYvDZTgZBgGfK9CB7oGhgsMPCjGtKj7f".to_string())
+            Some("yzwdjwPz36Has1MSkg8JGwo38avvATkiTZvRiH1e5MLd".to_string())
         );
 
         let clarity_value_hex = "0x09";
