@@ -19,7 +19,10 @@ use stacks_common::{
     codec,
     codec::StacksMessageCodec,
     debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+    types::{
+        chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+        Address,
+    },
     warn,
 };
 use wsts::{
@@ -27,7 +30,7 @@ use wsts::{
     Point,
 };
 
-use crate::config::{Config, Network};
+use crate::config::Config;
 
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
@@ -39,7 +42,7 @@ pub const SLOTS_PER_USER: u32 = 10;
 pub enum ClientError {
     /// An error occurred serializing the message
     #[error("Unable to serialize stacker-db message: {0}")]
-    Serialize(#[from] BincodeError),
+    BincodeSerializationError(#[from] BincodeError),
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
@@ -84,10 +87,19 @@ pub enum ClientError {
     MalformedPoxResponse(String),
     /// Failed to serialize a Clarity value
     #[error("Failed to serialize Clarity value: {0}")]
-    SerializationError(#[from] SerializationError),
+    ClaritySerializationError(#[from] SerializationError),
     /// Failed to parse a Clarity value
     #[error("Recieved a malformed clarity value: {0}")]
     MalformedClarityValue(ClarityValue),
+    /// Invalid Contract Name
+    #[error("Invalid Contract Name: {0}")]
+    InvalidContractName(String),
+    /// Invalid Contract Address
+    #[error("Invalid Contract Address: {0}")]
+    InvalidContractAddress(String),
+    /// Invalid Clarity Name
+    #[error("Invalid Clarity Name: {0}")]
+    InvalidClarityName(String),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -126,31 +138,6 @@ impl From<&Config> for StacksClient {
             stacks_node_client: reqwest::blocking::Client::new(),
         }
     }
-}
-
-/// Trait used to make interact with Clarity contracts for use in the signing process
-pub trait StacksContractCallable {
-    /// Submits a transaction to a node RPC server
-    fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError>;
-
-    /// Call read only tx
-    fn read_only_contract_call(
-        &self,
-        contract_addr: &str,
-        contract_name: &str,
-        function_name: &str,
-        function_args: &[&str],
-    ) -> Result<String, ClientError>;
-
-    /// Creates a contract call transaction
-    fn transaction_contract_call(
-        &self,
-        nonce: u64,
-        contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
-        function_args: &[ClarityValue],
-    ) -> Result<Vec<u8>, ClientError>;
 }
 
 impl StacksClient {
@@ -193,13 +180,15 @@ impl StacksClient {
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name = "get-bitcoin-wallet-public-key"; // TODO: this should be modified to match .pox-4
+        let function_name_str = "get-bitcoin-wallet-public-key";
+        let function_name = ClarityName::try_from(function_name_str)
+            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?; // TODO: this should be modified to match .pox-4
         let (contract_addr, contract_name) = self.get_pox_contract()?;
         let contract_response_hex = self.read_only_contract_call(
             &contract_addr,
             &contract_name,
-            function_name,
-            &[&reward_cycle.to_string()],
+            &function_name,
+            &[ClarityValue::UInt(reward_cycle as u128)],
         )?;
         self.parse_aggregate_public_key(&contract_response_hex)
     }
@@ -305,7 +294,7 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the pox contract address and name from the stacks node
-    fn get_pox_contract(&self) -> Result<(String, String), ClientError> {
+    fn get_pox_contract(&self) -> Result<(StacksAddress, ContractName), ClientError> {
         let path = format!("{}/v2/pox", self.http_origin);
         let json_response = self
             .stacks_node_client
@@ -318,16 +307,22 @@ impl StacksClient {
             .get(entry)
             .map(|id: &serde_json::Value| id.to_string())
             .ok_or_else(|| ClientError::InvalidJsonEntry(entry.to_string()))?;
+
         let split: Vec<_> = contract_id.splitn(2, '.').collect();
-        let contract_name = split
-            .get(0)
+        let contract_address_string = split
+            .first()
             .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
             .to_string();
-        let contract_id = split
+        let contract_address = StacksAddress::from_string(&contract_address_string)
+            .ok_or_else(|| ClientError::InvalidContractAddress(contract_address_string))?;
+
+        let contract_name_string = split
             .get(1)
             .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
             .to_string();
-        Ok((contract_name, contract_id))
+        let contract_name = ContractName::try_from(contract_name_string.clone())
+            .map_err(|_| ClientError::InvalidContractName(contract_name_string))?;
+        Ok((contract_address, contract_name))
     }
 
     /// Helper function for deserializing the aggregate public key clarity function response string
@@ -351,7 +346,6 @@ impl StacksClient {
             Err(ClientError::MalformedClarityValue(public_key_clarity_value))
         }
     }
-}
 
     /// Creates a transaction for a contract call that can be submitted to a stacks node
     pub fn transaction_contract_call(
@@ -402,15 +396,15 @@ impl StacksClient {
     pub fn read_only_contract_call(
         &self,
         contract_addr: &StacksAddress,
-        contract_name: ContractName,
-        function_name: ClarityName,
+        contract_name: &ContractName,
+        function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<String, ClientError> {
         debug!("Calling read-only function {}...", function_name);
         let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
             .to_string();
         let path = format!(
-            "http://{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
+            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
             self.http_origin
         );
         let response = self
@@ -514,8 +508,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                &ContractName::try_from("contract-name").unwrap(),
+                &ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
@@ -533,8 +527,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                &ContractName::try_from("contract-name").unwrap(),
+                &ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
@@ -553,8 +547,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                &ContractName::try_from("contract-name").unwrap(),
+                &ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
@@ -575,8 +569,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                &ContractName::try_from("contract-name").unwrap(),
+                &ClarityName::try_from("function-name").unwrap(),
                 &[],
             )
         });
@@ -586,6 +580,9 @@ mod tests {
             dbg!(result),
             Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
         ));
+    }
+
+    #[test]
     fn parse_valid_aggregate_public_key_should_succeed() {
         let config = TestConfig::new();
         let clarity_value_hex =
@@ -612,7 +609,10 @@ mod tests {
         let config = TestConfig::new();
         let clarity_value_hex = "0x00";
         let result = config.client.parse_aggregate_public_key(clarity_value_hex);
-        assert!(matches!(result, Err(ClientError::SerializationError(..))));
+        assert!(matches!(
+            result,
+            Err(ClientError::ClaritySerializationError(..))
+        ));
         // TODO: add further tests for malformed clarity values (an optional of any other type for example)
     }
 }
