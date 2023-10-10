@@ -449,7 +449,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::{CheckedData, VarInt};
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize, Error};
 
     #[test]

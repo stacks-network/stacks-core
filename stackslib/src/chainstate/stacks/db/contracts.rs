@@ -15,43 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::prelude::*;
-
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
-
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{query_count, query_rows, DBConn};
-
-use crate::util_lib::strings::StacksString;
-
+pub use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::Error as clarity_vm_error;
+use clarity::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::burn::db::sortdb::*;
-
-use crate::net::Error as net_error;
-
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-
-use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
-
-use clarity::vm::analysis::run_analysis;
-use clarity::vm::types::{AssetIdentifier, Value};
-
-pub use clarity::vm::analysis::errors::CheckErrors;
-use clarity::vm::errors::Error as clarity_vm_error;
-
-use clarity::vm::database::ClarityDatabase;
-
-use clarity::vm::contracts::Contract;
-
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::{Error, *};
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::net::Error as net_error;
+use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
+use crate::util_lib::strings::StacksString;
 
 impl StacksChainState {
     pub fn get_contract<T: ClarityConnection>(

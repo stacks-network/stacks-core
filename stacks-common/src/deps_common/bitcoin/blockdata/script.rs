@@ -28,16 +28,13 @@ use std::default::Default;
 use std::{error, fmt};
 
 use serde;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::blockdata::opcodes;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
-
 // careful...
 use crate::deps_common::bitcoin::util::hash::Hash160;
-
-use sha2::Digest;
-use sha2::Sha256;
 
 #[derive(Clone, Default, PartialOrd, Ord, PartialEq, Eq, Hash)]
 /// A Bitcoin script
@@ -702,13 +699,10 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Script {
 
 #[cfg(test)]
 mod test {
-    use crate::util::hash::hex_bytes as hex_decode;
-
-    use super::build_scriptint;
-    use super::*;
-
+    use super::{build_scriptint, *};
     use crate::deps_common::bitcoin::blockdata::opcodes;
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn script() {

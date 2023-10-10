@@ -14,37 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::mem;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
-use std::net::SocketAddr;
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::RecvError;
-use std::sync::mpsc::SendError;
-use std::sync::mpsc::SyncSender;
-use std::sync::mpsc::TryRecvError;
-use std::sync::mpsc::TrySendError;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::mpsc::{
+    sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError, TrySendError,
+};
+use std::{cmp, mem};
 
-use mio;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::QualifiedContractIdentifier;
 use mio::net as mio_net;
 use rand::prelude::*;
 use rand::thread_rng;
+use stacks_common::types::chainstate::{PoxId, SortitionId};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use {mio, url};
 
-use url;
-
-use crate::burnchains::db::BurnchainDB;
-use crate::burnchains::db::BurnchainHeaderReader;
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::burnchains::PublicKey;
+use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{
@@ -52,50 +43,24 @@ use crate::chainstate::coordinator::{
     static_get_stacks_tip_affirmation_map,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
-use crate::net::atlas::AtlasDB;
-use crate::net::atlas::{AttachmentInstance, AttachmentsDownloader};
-use crate::net::chat::ConversationP2P;
-use crate::net::chat::NeighborStats;
-use crate::net::connection::ConnectionOptions;
-use crate::net::connection::NetworkReplyHandle;
-use crate::net::connection::ReplyHandleP2P;
-use crate::net::db::LocalPeer;
-use crate::net::db::PeerDB;
+use crate::net::atlas::{AtlasDB, AttachmentInstance, AttachmentsDownloader};
+use crate::net::chat::{ConversationP2P, NeighborStats};
+use crate::net::connection::{ConnectionOptions, NetworkReplyHandle, ReplyHandleP2P};
+use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
 use crate::net::inv::*;
 use crate::net::neighbors::*;
-use crate::net::poll::NetworkPollState;
-use crate::net::poll::NetworkState;
+use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
-use crate::net::relay::RelayerStats;
-use crate::net::relay::*;
-use crate::net::relay::*;
+use crate::net::relay::{RelayerStats, *, *};
 use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
-use crate::net::Error as net_error;
-use crate::net::Neighbor;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-use crate::net::*;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as db_error;
-use clarity::vm::database::BurnStateDB;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use crate::chainstate::stacks::StacksBlockHeader;
-use stacks_common::types::chainstate::{PoxId, SortitionId};
-
-use clarity::vm::ast::ASTRules;
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::net::{Error as net_error, Neighbor, NeighborKey, PeerAddress, *};
+use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -5784,12 +5749,18 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use std::thread;
-    use std::time;
+    use std::{thread, time};
 
+    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use clarity::vm::types::StacksAddressExtensions;
+    use clarity::vm::MAX_CALL_STACK_DEPTH;
     use rand;
     use rand::RngCore;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::{log, sleep_ms};
 
+    use super::*;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;
     use crate::chainstate::stacks::test::*;
@@ -5802,16 +5773,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-    use clarity::vm::types::StacksAddressExtensions;
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::log;
-    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-    use stacks_common::util::sleep_ms;
-
-    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-    use clarity::vm::MAX_CALL_STACK_DEPTH;
-
-    use super::*;
 
     fn make_random_peer_address() -> PeerAddress {
         let mut rng = rand::thread_rng();

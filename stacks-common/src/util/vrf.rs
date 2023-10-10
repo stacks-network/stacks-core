@@ -17,35 +17,26 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use crate::util::hash::to_hex;
 use std::clone::Clone;
-use std::cmp::Eq;
-use std::cmp::Ord;
-use std::cmp::Ordering;
-use std::cmp::PartialEq;
+use std::cmp::{Eq, Ord, Ordering, PartialEq};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 use std::ops::Deref;
 use std::ops::DerefMut;
-
-use ed25519_dalek::Keypair as VRFKeypair;
-use ed25519_dalek::PublicKey as ed25519_PublicKey;
-use ed25519_dalek::SecretKey as ed25519_PrivateKey;
+use std::{error, fmt};
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-
-use sha2::Digest;
-use sha2::Sha512;
-
-use std::error;
-use std::fmt;
-
-use crate::util::hash::hex_bytes;
+use ed25519_dalek::{
+    Keypair as VRFKeypair, PublicKey as ed25519_PublicKey, SecretKey as ed25519_PrivateKey,
+};
 use rand;
+use sha2::{Digest, Sha512};
+
+use crate::util::hash::{hex_bytes, to_hex};
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
@@ -588,16 +579,13 @@ impl VRF {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::util::hash::hex_bytes;
-
     use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-
-    use sha2::Sha512;
-
     use rand;
     use rand::RngCore;
+    use sha2::Sha512;
+
+    use super::*;
+    use crate::util::hash::hex_bytes;
 
     #[derive(Debug)]
     struct VRF_Proof_Fixture {

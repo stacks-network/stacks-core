@@ -2,33 +2,26 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{env, thread};
 
-use crate::{
-    config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance},
-    neon,
-    tests::{
-        bitcoin_regtest::BitcoinCoreController,
-        make_contract_publish,
-        neon_integrations::{
-            neon_integration_test_conf, next_block_and_wait, submit_tx, wait_for_runloop,
-        },
-        to_addr,
-    },
-    BitcoinRegtestController, BurnchainController,
-};
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_signer::{
-    config::Config as SignerConfig,
-    runloop::RunLoopCommand,
-    utils::{build_signer_config_tomls, build_stackerdb_contract},
+use stacks_signer::config::Config as SignerConfig;
+use stacks_signer::runloop::RunLoopCommand;
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, EnvFilter};
+use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::OperationResult;
+use wsts::v2;
+
+use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::neon_integrations::{
+    neon_integration_test_conf, next_block_and_wait, submit_tx, wait_for_runloop,
 };
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use wsts::{
-    state_machine::{coordinator::frost::Coordinator as FrostCoordinator, OperationResult},
-    v2,
-};
+use crate::tests::{make_contract_publish, to_addr};
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]

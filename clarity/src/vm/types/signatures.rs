@@ -21,20 +21,21 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
+use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash;
+
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
-use crate::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
+    CONTRACT_MAX_NAME_LENGTH,
 };
 use crate::vm::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, SequencedValue,
     StandardPrincipalData, TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
     WRAPPER_VALUE_SIZE,
 };
-use stacks_common::address::c32;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash;
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
@@ -1932,15 +1933,15 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use super::CheckErrors::*;
-    use super::*;
-    use crate::vm::{execute, ClarityVersion};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
     use rstest_reuse::{self, *};
 
+    use super::CheckErrors::*;
+    use super::*;
     use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{execute, ClarityVersion};
 
     fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrors {
         use crate::vm::ast::parse;

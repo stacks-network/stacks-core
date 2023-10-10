@@ -14,80 +14,61 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::fs;
 use std::marker::Send;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
-};
-use std::thread;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{fs, thread};
+
+use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, StacksAddress, TrieHash};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
-use crate::burnchains::bitcoin::address::to_c32_version_byte;
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::address::LegacyBitcoinAddressType;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::bitcoin::address::{
+    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddressType,
+};
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::{
+    BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
+};
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
 use crate::burnchains::{
-    BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
-    BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
-    Error as burnchain_error, PoxConstants,
+    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters,
+    BurnchainRecipient, BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps,
+    BurnchainTransaction, Error as burnchain_error, PoxConstants, PublicKey, Txid,
 };
-use crate::chainstate::burn::db::sortdb::SortitionHandle;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
-    UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::MINING_COMMITMENT_WINDOW;
-use crate::core::NETWORK_ID_MAINNET;
-use crate::core::NETWORK_ID_TESTNET;
-use crate::core::PEER_VERSION_MAINNET;
-use crate::core::PEER_VERSION_TESTNET;
-use crate::core::{StacksEpoch, StacksEpochId};
+use crate::core::{
+    StacksEpoch, StacksEpochId, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+};
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as db_error;
-use stacks_common::address::public_keys_to_address_hash;
-use stacks_common::address::AddressHashMode;
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, sleep_ms};
-
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
-use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId};
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -577,8 +558,7 @@ impl Burnchain {
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
         use rand::rngs::ThreadRng;
-        use rand::thread_rng;
-        use rand::RngCore;
+        use rand::{thread_rng, RngCore};
 
         let mut rng = thread_rng();
         let mut byte_tail = [0u8; 16];

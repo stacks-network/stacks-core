@@ -32,11 +32,10 @@ use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::burnchains::Address;
-use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::{
-    StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionSmartContract,
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -44,18 +43,13 @@ use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::util_lib::strings::StacksString;
-use clarity::vm::ClarityVersion;
-use clarity::vm::{
-    errors::{Error as ClarityError, RuntimeErrorType},
-    types::PrincipalData,
-    ClarityName, ContractName, Value,
-};
-use stacks_common::address::b58;
-use stacks_common::address::AddressHashMode;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]

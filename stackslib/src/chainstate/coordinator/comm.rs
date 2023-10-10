@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockResult,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockResult};
 use std::time::{Duration, Instant};
 use std::{process, thread};
 

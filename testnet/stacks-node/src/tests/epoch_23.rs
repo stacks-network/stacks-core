@@ -14,28 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::env;
-use std::thread;
+use std::{env, thread};
 
-use clarity::vm::types::QualifiedContractIdentifier;
-use stacks::burnchains::Burnchain;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::burnchains::{Burnchain, PoxConstants};
+use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks_common::util::sleep_ms;
 
-use crate::config::EventKeyType;
-use crate::config::EventObserverConfig;
-use crate::config::InitialBalance;
-use crate::neon;
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
-use crate::BitcoinRegtestController;
-use crate::BurnchainController;
-use stacks::core;
-
-use stacks::burnchains::PoxConstants;
-
-use clarity::vm::types::PrincipalData;
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[test]
 #[ignore]

@@ -3,7 +3,8 @@ use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
-use stacks_common::{debug, types::chainstate::StacksPrivateKey, warn};
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::{debug, warn};
 use wsts::net::{Message, Packet};
 
 use crate::config::Config;
