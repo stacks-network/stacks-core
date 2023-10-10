@@ -187,7 +187,7 @@ impl TestMiner {
             VRFPrivateKey::from_bytes(h.as_bytes()).unwrap()
         } else {
             // next key is just the hash of the last
-            let h = Sha256Sum::from_data(self.vrf_keys[self.vrf_keys.len() - 1].as_bytes());
+            let h = Sha256Sum::from_data(self.vrf_keys[self.vrf_keys.len() - 1].as_slice());
             VRFPrivateKey::from_bytes(h.as_bytes()).unwrap()
         };
 

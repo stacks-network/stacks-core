@@ -164,7 +164,7 @@ impl PeerNetwork {
             total += count;
         }
 
-        let sample = rng.gen_range(0, total);
+        let sample = rng.gen_range(0..total);
         let mut offset = 0;
         for (org, count) in org_weights.iter() {
             if *count == 0 {

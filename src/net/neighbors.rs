@@ -182,7 +182,7 @@ impl Neighbor {
         let mut rng = thread_rng();
         let min = cmp::min(self.in_degree, self.out_degree);
         let max = cmp::max(self.in_degree, self.out_degree);
-        let res = rng.gen_range(min, max + 1) as u64;
+        let res = rng.gen_range(min..max + 1) as u64;
         if res == 0 {
             1
         } else {
@@ -1289,7 +1289,7 @@ impl NeighborWalk {
     ) -> Option<Neighbor> {
         let mut rnd = thread_rng();
 
-        let sample = rnd.gen_range(0, frontier.len());
+        let sample = rnd.gen_range(0..frontier.len());
         let mut count = 0;
 
         for (nk, n) in frontier.iter() {

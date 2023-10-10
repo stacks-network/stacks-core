@@ -17,9 +17,10 @@
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::index::TrieHashExtension;
-use ed25519_dalek::Keypair as VRFKeypair;
+use ed25519_dalek::SigningKey as VRFKeypair;
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
+use rand_chacha::rand_core::OsRng;
 use serde::Serialize;
 use sha2::Sha512;
 
@@ -869,13 +870,13 @@ fn test_burn_snapshot_sequence() {
     let mut leader_bitcoin_addresses = vec![];
 
     for i in 0..32 {
-        let mut csprng: ThreadRng = thread_rng();
-        let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
+        let mut rng = rand::rngs::OsRng;
+        let keypair: VRFKeypair = VRFKeypair::generate(&mut rng);
 
-        let privkey_hex = to_hex(&keypair.secret.to_bytes());
+        let privkey_hex = to_hex(&keypair.to_bytes());
         leader_private_keys.push(privkey_hex);
 
-        let pubkey_hex = to_hex(&keypair.public.to_bytes());
+        let pubkey_hex = to_hex(VRFPublicKey::from_private(&VRFPrivateKey(keypair.to_bytes())).as_bytes());
         leader_public_keys.push(pubkey_hex);
 
         let bitcoin_privkey = Secp256k1PrivateKey::new();
@@ -1005,7 +1006,7 @@ fn test_burn_snapshot_sequence() {
         let next_leader_key = LeaderKeyRegisterOp {
             consensus_hash: ch.clone(),
             public_key: VRFPublicKey::from_bytes(
-                &hex_bytes(&leader_public_keys[i as usize]).unwrap(),
+                leader_public_keys[i as usize].as_bytes(),
             )
             .unwrap(),
             memo: vec![0, 0, 0, 0, i],

@@ -51,19 +51,6 @@ use rand::rngs::ThreadRng;
 use rand::rngs::OsRng;
 use rand_core::{CryptoRng, CryptoRngCore};
 
-struct ThreadRngWrapper;
-
-impl CryptoRngCore for ThreadRngWrapper {
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        rand::thread_rng().try_fill_bytes(dest)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        rand::thread_rng().fill_bytes(dest);
-    }
-}
-
-impl CryptoRng for ThreadRngWrapper {}
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
 
@@ -87,9 +74,12 @@ impl<'de> serde::Deserialize<'de> for VRFPublicKey {
 // have to do Clone separately since ed25519_PrivateKey doesn't implement Clone
 impl Clone for VRFPrivateKey {
     fn clone(&self) -> VRFPrivateKey {
-        let bytes = self.to_bytes();
-        let pk = ed25519_PrivateKey::from_bytes(&bytes)
-            .expect("FATAL: could not do VRFPrivateKey round-trip");
+        let bytes = self.as_slice();
+        // Ensure bytes is exactly 32 bytes long, converting it into an array
+        let pk: [u8; 32] = match bytes.try_into() {
+            Ok(array) => array,
+            Err(_) => panic!("Expected a length of 32, but got {}", bytes.len()), // you might handle this differently
+        };
         VRFPrivateKey(pk)
     }
 }
@@ -154,7 +144,7 @@ impl DerefMut for VRFPrivateKey {
 
 impl Debug for VRFPrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.to_hex())
+        write!(f, "{}", to_hex(self.as_slice()))
     }
 }
 
@@ -168,36 +158,37 @@ impl PartialEq for VRFPrivateKey {
 
 impl VRFPrivateKey {
     pub fn new() -> VRFPrivateKey {
-        let mut rng: Box<dyn MyCryptoRng> = Box::new(rand::thread_rng());
+        let mut rng = rand::rngs::OsRng;
         let keypair: VRFKeypair = VRFKeypair::generate(&mut rng);
-        VRFPrivateKey(keypair.secret)
+        VRFPrivateKey(keypair.to_bytes())
     }
 
     pub fn from_hex(h: &str) -> Option<VRFPrivateKey> {
         match hex_bytes(h) {
-            Ok(b) => match ed25519_PrivateKey::from_bytes(&b[..]) {
-                Ok(pk) => Some(VRFPrivateKey(pk)),
-                Err(_) => None,
+            Ok(b) => {
+                if b.len() == 32 {
+                    let pk: [u8; 32] = b.try_into().unwrap();
+                    Some(VRFPrivateKey(pk))
+                } else {
+                    None
+                }
             },
             Err(_) => None,
         }
     }
 
     pub fn from_bytes(b: &[u8]) -> Option<VRFPrivateKey> {
-        match ed25519_PrivateKey::from_bytes(b) {
-            Ok(pk) => Some(VRFPrivateKey(pk)),
-            Err(_) => None,
-        }
+        Self::from_hex(&to_hex(b))
     }
 
     pub fn to_hex(&self) -> String {
-        to_hex(self.as_bytes())
+        to_hex(self.as_slice())
     }
 }
 
 impl VRFPublicKey {
     pub fn from_private(pk: &VRFPrivateKey) -> VRFPublicKey {
-        VRFPublicKey(ed25519_PublicKey::from(&pk.0))
+        VRFPublicKey(ed25519_PublicKey::from_bytes(pk).unwrap())
     }
 
     pub fn from_bytes(pubkey_bytes: &[u8]) -> Option<VRFPublicKey> {
@@ -498,7 +489,7 @@ impl VRF {
         let mut h = [0u8; 64];
         let mut trunc_hash = [0u8; 32];
         let pubkey = VRFPublicKey::from_private(secret);
-        let privkey_buf = secret.to_bytes();
+        let privkey_buf = secret.as_slice();
 
         // hash secret key to produce nonce and intermediate private key
         hasher.update(&privkey_buf[0..32]);
