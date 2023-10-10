@@ -235,6 +235,7 @@ pub struct LocalContext<'a> {
     depth: u16,
 }
 
+#[derive(Debug, Clone)]
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
