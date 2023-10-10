@@ -95,7 +95,7 @@ impl From<&Config> for StacksClient {
             stacks_private_key: config.stacks_private_key,
             stacks_address: config.stacks_address,
             slot_versions: HashMap::new(),
-            http_origin: config.node_host.to_string(),
+            http_origin: format!("http://{}", config.node_host),
             tx_version: TransactionVersion::Testnet,
             chain_id: Network::Testnet.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
@@ -106,7 +106,7 @@ impl From<&Config> for StacksClient {
 /// Trait used to make interact with Clarity contracts for use in the signing process
 pub trait StacksContractCallable {
     /// Submits a transaction to a node RPC server
-    fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError>;
+    fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError>;
 
     /// Call read only tx
     fn read_only_contract_call(
@@ -273,7 +273,7 @@ impl StacksContractCallable for StacksClient {
         )
     }
 
-    fn submit_tx(&self, tx: &Vec<u8>) -> Result<String, ClientError> {
+    fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError> {
         let path = format!("{}/v2/transactions", self.http_origin);
         let res = self
             .stacks_node_client
@@ -308,7 +308,7 @@ impl StacksContractCallable for StacksClient {
         let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
             .to_string();
         let path = format!(
-            "http://{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
+            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
             self.http_origin
         );
         let response = self
@@ -375,10 +375,14 @@ mod tests {
     impl TestConfig {
         pub fn new() -> Self {
             let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-            let mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 23333));
-            config.node_host = mock_server_addr.clone();
 
+            let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+            // Ask the OS to assign a random port to listen on by passing 0
             let mock_server = TcpListener::bind(mock_server_addr).unwrap();
+
+            // Update the config to use this port
+            mock_server_addr.set_port(mock_server.local_addr().unwrap().port());
+            config.node_host = mock_server_addr;
 
             let client = StacksClient::from(&config);
             Self {
@@ -393,7 +397,7 @@ mod tests {
         let mut request_bytes = [0u8; 1024];
         {
             let mut stream = mock_server.accept().unwrap().0;
-            stream.read(&mut request_bytes).unwrap();
+            let _ = stream.read(&mut request_bytes).unwrap();
             stream.write_all(bytes).unwrap();
         }
         request_bytes
