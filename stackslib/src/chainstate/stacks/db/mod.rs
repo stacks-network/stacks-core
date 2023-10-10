@@ -333,17 +333,11 @@ impl StacksHeaderInfo {
     }
 
     pub fn is_epoch_2_block(&self) -> bool {
-        match self.anchored_header {
-            StacksBlockHeaderTypes::Epoch2(_) => true,
-            StacksBlockHeaderTypes::Nakamoto(_) => false,
-        }
+        matches!(self.anchored_header, StacksBlockHeaderTypes::Epoch2(_))
     }
 
     pub fn is_nakamoto_block(&self) -> bool {
-        match self.anchored_header {
-            StacksBlockHeaderTypes::Epoch2(_) => false,
-            StacksBlockHeaderTypes::Nakamoto(_) => true,
-        }
+        matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
     }
 }
 

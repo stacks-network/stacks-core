@@ -137,7 +137,6 @@ pub fn nakamoto_advance_tip_simple() {
     let block_size = 10;
     let burnchain_commit_burn = 1;
     let burnchain_sortition_burn = 5;
-    let affirmation_weight = 1;
     let parent_chain_tip = StacksHeaderInfo {
         anchored_header: StacksBlockHeader {
             version: 100,
@@ -175,7 +174,6 @@ pub fn nakamoto_advance_tip_simple() {
         block_size,
         burnchain_commit_burn,
         burnchain_sortition_burn,
-        affirmation_weight,
     )
     .unwrap();
 }
@@ -363,7 +361,6 @@ pub fn nakamoto_advance_tip_multiple() {
         let block_size = 10;
         let burnchain_commit_burn = 1;
         let burnchain_sortition_burn = 10;
-        let affirmation_weight = 1;
         let parent_chain_tip = StacksHeaderInfo {
             anchored_header: parent_header.clone(),
             microblock_tail: None,
@@ -390,7 +387,6 @@ pub fn nakamoto_advance_tip_multiple() {
             block_size,
             burnchain_commit_burn,
             burnchain_sortition_burn,
-            affirmation_weight,
         )
         .unwrap();
 

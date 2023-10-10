@@ -118,9 +118,8 @@ impl StacksChainState {
         anchored_block_cost: &ExecutionCost,
         affirmation_weight: u64,
     ) -> Result<(), Error> {
-        let header = match tip_info.anchored_header {
-            StacksBlockHeaderTypes::Epoch2(ref x) => x,
-            _ => return Err(Error::InvalidChildOfNakomotoBlock),
+        let StacksBlockHeaderTypes::Epoch2(header) = &tip_info.anchored_header else {
+            return Err(Error::InvalidChildOfNakomotoBlock);
         };
 
         assert_eq!(tip_info.stacks_block_height, header.total_work.work);
