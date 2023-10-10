@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [2.4.0.0.2]
+## [2.4.0.0.3]
 
 Libraries updated:
 
-- `ed25519-dalek` -> 2.0.0 (Critical bug in version 1.0.* RUSTSEC-2022-0093)
+- `ed25519-dalek` -> 2.0.0 (Security vulnerability in version 1.0.* RUSTSEC-2022-0093)
 - `rand` -> 0.8.5
 - `rand_chacha` -> 0.3.1
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
 
 ## [2.4.0.0.1]
 
