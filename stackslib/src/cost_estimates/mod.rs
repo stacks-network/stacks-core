@@ -1,17 +1,18 @@
 use std::cmp;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Display;
 use std::iter::FromIterator;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::path::Path;
-use std::{error::Error, fmt::Display};
 
-use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::{StacksBlock, TransactionPayload};
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::Error as SqliteError;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use crate::chainstate::stacks::{StacksBlock, TransactionPayload};
 
 pub mod fee_medians;
 pub mod fee_rate_fuzzer;
@@ -22,11 +23,10 @@ pub mod pessimistic;
 #[cfg(test)]
 pub mod tests;
 
-use crate::chainstate::stacks::StacksTransaction;
-use crate::core::StacksEpochId;
-
 use self::metrics::CostMetric;
 pub use self::pessimistic::PessimisticEstimator;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::core::StacksEpochId;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
 ///  track the actual paid fee rate for transactions in blocks, and use that to

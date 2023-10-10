@@ -3,10 +3,8 @@ use std::time::Duration;
 use p256k1::ecdsa;
 use rand_core::OsRng;
 use slog::slog_debug;
-use stacks_common::{
-    debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey},
-};
+use stacks_common::debug;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use wsts::Scalar;
 
 use crate::stacks_client::SLOTS_PER_USER;

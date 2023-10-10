@@ -14,10 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
-use std::io;
 use std::io::{Read, Write};
+use std::{error, fmt, io};
 
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::deps_common::httparse;
@@ -454,11 +452,12 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
 }
 
 mod test {
-    use super::*;
     use std::io;
     use std::io::{Read, Write};
 
     use rand::RngCore;
+
+    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {

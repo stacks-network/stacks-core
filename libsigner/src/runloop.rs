@@ -24,12 +24,11 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
-
-use crate::error::EventError;
-
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
+
+use crate::error::EventError;
+use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.

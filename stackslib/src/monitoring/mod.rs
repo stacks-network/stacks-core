@@ -14,26 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fmt, fs, path::PathBuf};
-
-use rusqlite::{OpenFlags, OptionalExtension};
-
-use crate::burnchains::BurnchainSigner;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::Error as DatabaseError;
-use crate::{
-    burnchains::Txid,
-    core::MemPoolDB,
-    net::{Error as net_error, HttpRequestType},
-    util_lib::db::{tx_busy_handler, DBConn},
-};
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::uint::{Uint256, Uint512};
 use std::convert::TryInto;
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::{fmt, fs};
+
+use clarity::vm::costs::ExecutionCost;
+use rusqlite::{OpenFlags, OptionalExtension};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::uint::{Uint256, Uint512};
+
+use crate::burnchains::{BurnchainSigner, Txid};
+use crate::core::MemPoolDB;
+use crate::net::{Error as net_error, HttpRequestType};
+use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as DatabaseError};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

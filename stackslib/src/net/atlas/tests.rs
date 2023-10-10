@@ -16,9 +16,17 @@
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
-use std::thread;
-use std::time;
+use std::{thread, time};
 
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::util::hash::Hash160;
+
+use super::download::{
+    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
+    BatchedRequestsResult, ReliabilityReport,
+};
+use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -30,16 +38,6 @@ use crate::net::{
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::strings::UrlString;
-use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::hash::Hash160;
-
-use super::download::{
-    AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
-    BatchedRequestsResult, ReliabilityReport,
-};
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
 
 fn new_attachment_from(content: &str) -> Attachment {
     Attachment {

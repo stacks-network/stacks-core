@@ -14,39 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::env;
-use std::thread;
-
-use super::bitcoin_regtest::BitcoinCoreController;
-use crate::{
-    burnchains::BurnchainController,
-    config::EventKeyType,
-    config::EventObserverConfig,
-    config::InitialBalance,
-    neon,
-    tests::{
-        make_contract_publish,
-        neon_integrations::{
-            neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer,
-            wait_for_runloop,
-        },
-        to_addr,
-    },
-    BitcoinRegtestController,
-};
-
-use stacks::chainstate::stacks::StacksPrivateKey;
+use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-
+use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use {reqwest, serde_json};
 
-use serde_json;
-
-use reqwest;
+use super::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::BurnchainController;
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::tests::neon_integrations::{
+    neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
+};
+use crate::tests::{make_contract_publish, to_addr};
+use crate::{neon, BitcoinRegtestController};
 
 fn post_stackerdb_chunk(
     http_origin: &str,

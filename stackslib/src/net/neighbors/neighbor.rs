@@ -14,25 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::net::{db::PeerDB, Error as net_error, Neighbor, NeighborAddress, NeighborKey};
+use std::cmp;
 
-use crate::util_lib::db::{DBConn, DBTx};
-
+use clarity::vm::types::QualifiedContractIdentifier;
+use rand::prelude::*;
+use rand::thread_rng;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::{get_epoch_time_secs, log};
 
-use std::cmp;
-
-use crate::burnchains::Address;
-use crate::burnchains::PublicKey;
-
-use rand::prelude::*;
-use rand::thread_rng;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::log;
-
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::burnchains::{Address, PublicKey};
+use crate::net::db::PeerDB;
+use crate::net::{Error as net_error, Neighbor, NeighborAddress, NeighborKey};
+use crate::util_lib::db::{DBConn, DBTx};
 
 /// Walk-specific helper functions for neighbors
 impl Neighbor {

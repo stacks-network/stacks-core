@@ -42,13 +42,10 @@ mod http;
 mod runloop;
 mod session;
 
-pub use crate::session::{SignerSession, StackerDBSession};
-
 pub use crate::error::{EventError, RPCError};
-
-pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
-
 pub use crate::events::{
     EventReceiver, EventStopSignaler, StackerDBChunksEvent, StackerDBEventReceiver,
     StackerDBStopSignaler,
 };
+pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
+pub use crate::session::{SignerSession, StackerDBSession};

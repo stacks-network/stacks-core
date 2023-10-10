@@ -14,18 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+use std::fs;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
+use std::time::Duration;
+
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
-use p256k1::{ecdsa, scalar::Scalar};
+use p256k1::ecdsa;
+use p256k1::scalar::Scalar;
 use serde::Deserialize;
 use stacks_common::types::chainstate::StacksPrivateKey;
-use std::{
-    convert::TryFrom,
-    fs,
-    net::{SocketAddr, ToSocketAddrs},
-    path::PathBuf,
-    time::Duration,
-};
 use wsts::state_machine::PublicKeys;
 
 /// List of key_ids for each signer_id

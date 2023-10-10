@@ -16,32 +16,28 @@
 
 use std::io::{Read, Write};
 
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainRecipient;
-use crate::burnchains::Txid;
-use crate::burnchains::{BurnchainTransaction, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use crate::chainstate::burn::operations::Error as op_error;
-use crate::chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, TransferStxOp,
-};
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::core::POX_MAX_NUM_CYCLES;
-use crate::net::Error as net_error;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
+};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use stacks_common::types::chainstate::VRFSeed;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
+use crate::burnchains::{
+    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainTransaction, PublicKey,
+    Txid,
+};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::operations::{
+    parse_u128_from_be, BlockstackOperationType, Error as op_error, TransferStxOp,
+};
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use crate::core::POX_MAX_NUM_CYCLES;
+use crate::net::Error as net_error;
 
 // return type from parse_data below
 struct ParsedData {
@@ -245,6 +241,15 @@ impl TransferStxOp {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::vrf::VRFPublicKey;
+
+    use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -253,21 +258,9 @@ mod tests {
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::db::*;
     use crate::chainstate::burn::operations::*;
-    use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::burn::*;
+    use crate::chainstate::burn::{ConsensusHash, *};
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::vrf::VRFPublicKey;
-
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
-
-    use super::*;
 
     #[test]
     fn test_parse_transfer_stx() {

@@ -14,14 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::clarity_vm::clarity::ClarityInstance;
-use crate::clarity_vm::tests::costs::get_simple_test;
-use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::Environment;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use clarity::vm::contexts::{
+    AssetMap, AssetMapEntry, Environment, GlobalContext, OwnedEnvironment,
+};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
@@ -29,20 +26,23 @@ use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::tests::{execute, symbols_from_values, UnitTestBurnStateDB};
+use clarity::vm::tests::{
+    execute, symbols_from_values, test_only_mainnet_to_chain_id, UnitTestBurnStateDB,
+};
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
-use clarity::vm::{execute as vm_execute, ContractName};
-use stacks_common::util::hash::hex_bytes;
-
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::ClarityConnection;
-use crate::clarity_vm::database::marf::MarfedKV;
-use clarity::vm::tests::test_only_mainnet_to_chain_id;
-use clarity::vm::ClarityVersion;
+use clarity::vm::{execute as vm_execute, ClarityVersion, ContractName};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
+
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 
 fn setup_tracked_cost_test(
     use_mainnet: bool,

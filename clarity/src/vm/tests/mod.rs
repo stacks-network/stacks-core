@@ -13,18 +13,16 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::Error;
-use crate::vm::types::Value;
-
-use stacks_common::types::StacksEpochId;
-
-pub use crate::vm::database::BurnStateDB;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::StacksEpochId;
 
 pub use super::test_util::*;
 use super::ClarityVersion;
+use crate::vm::contexts::OwnedEnvironment;
+pub use crate::vm::database::BurnStateDB;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::Error;
+use crate::vm::types::Value;
 
 mod assets;
 mod contracts;

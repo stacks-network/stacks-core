@@ -19,20 +19,17 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::slog_debug;
-use slog::slog_error;
+use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_2_or_3_event_info;
-use crate::LockingError;
-use crate::POX_3_NAME;
 // Note: PoX-3 uses the same contract-call result parsing routines as PoX-2
 use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacking_result};
+use crate::{LockingError, POX_3_NAME};
 
 /////////////////////// PoX-3 /////////////////////////////////
 

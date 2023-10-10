@@ -14,34 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use sha2::Digest;
-use sha2::Sha256;
-
-use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
-use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinTxInput, BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
-};
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
-use stacks_common::address::public_keys_to_address_hash;
-use stacks_common::address::AddressHashMode;
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::Class;
+use sha2::{Digest, Sha256};
+use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::{All as btc_opcodes, Class};
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
-use stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn as BtcTxIn;
-use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut as BtcTxOut;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::{
+    TxIn as BtcTxIn, TxOut as BtcTxOut,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::log;
 
+use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+use crate::burnchains::bitcoin::{
+    BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxInputRaw,
+    BitcoinTxInputStructured, BitcoinTxOutput, Error as btc_error,
+};
+use crate::burnchains::{PublicKey, Txid};
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
@@ -639,24 +634,22 @@ impl BitcoinTxOutput {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize as bitcoinlib_deserialize;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::log;
+
+    use super::{
+        parse_script, to_txid, BitcoinTxInput, BitcoinTxInputRaw, BitcoinTxInputStructured,
+        BitcoinTxOutput,
+    };
     use crate::burnchains::bitcoin::address::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
     };
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinInputType;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinNetworkType};
     use crate::burnchains::Txid;
-    use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::log;
-
-    use super::parse_script;
-    use super::to_txid;
-    use super::BitcoinTxOutput;
-    use super::{BitcoinTxInput, BitcoinTxInputRaw, BitcoinTxInputStructured};
-
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize as bitcoinlib_deserialize;
 
     struct ScriptFixture<T> {
         script: Script,

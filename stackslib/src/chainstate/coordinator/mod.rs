@@ -14,76 +14,70 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
-use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{cmp, fs};
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::Value;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
+};
+use stacks_common::util::get_epoch_time_secs;
+
+pub use self::comm::CoordinatorCommunication;
+use super::stacks::boot::RewardSet;
+use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::db::{
+    BlockCommitMetadata, BurnchainBlockData, BurnchainDB, BurnchainDBTransaction,
+    BurnchainHeaderReader,
+};
 use crate::burnchains::{
-    affirmation::{AffirmationMap, AffirmationMapEntry},
-    bitcoin::indexer::BitcoinIndexer,
-    db::{
-        BlockCommitMetadata, BurnchainBlockData, BurnchainDB, BurnchainDBTransaction,
-        BurnchainHeaderReader,
-    },
     Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
-use crate::chainstate::burn::{
-    db::sortdb::{SortitionDB, SortitionDBConn, SortitionDBTx, SortitionHandleTx},
-    operations::leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    operations::BlockstackOperationType,
-    operations::LeaderBlockCommitOp,
-    BlockSnapshot, ConsensusHash,
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionDBTx, SortitionHandleTx,
 };
+use crate::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
+use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::POX_3_NAME;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::{
+    ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState, StacksEpochReceipt,
+    StacksHeaderInfo,
+};
+use crate::chainstate::stacks::events::{
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::{
-    db::{
-        accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
-        StacksEpochReceipt, StacksHeaderInfo,
-    },
-    events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
-    miner::{signal_mining_blocked, signal_mining_ready, MinerStatus},
     Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
 };
-use crate::core::{StacksEpoch, StacksEpochId};
+use crate::core::{
+    StacksEpoch, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+};
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };
 use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
-use crate::util_lib::db::Error as DBError;
-use clarity::vm::{
-    costs::ExecutionCost,
-    types::{PrincipalData, QualifiedContractIdentifier},
-    Value,
-};
-
-use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
-use clarity::vm::database::BurnStateDB;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
-};
-
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-
-pub use self::comm::CoordinatorCommunication;
-
-use super::stacks::boot::RewardSet;
-use stacks_common::util::get_epoch_time_secs;
-
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::util_lib::db::{DBConn, DBTx, Error as DBError};
 
 pub mod comm;
 #[cfg(test)]

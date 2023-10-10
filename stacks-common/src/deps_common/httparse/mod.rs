@@ -31,11 +31,7 @@
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
-use std::error;
-use std::fmt;
-use std::mem;
-use std::result;
-use std::str;
+use std::{error, fmt, mem, result, str};
 
 macro_rules! next {
     ($bytes:ident) => {{
@@ -1288,8 +1284,9 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn test_std_error() {
-        use super::Error;
         use std::error::Error as StdError;
+
+        use super::Error;
         let err = Error::HeaderName;
         assert_eq!(err.to_string(), err.description_str());
     }

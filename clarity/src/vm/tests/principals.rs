@@ -1,19 +1,16 @@
-use crate::vm::ast::ASTRules;
-use crate::vm::execute_with_parameters;
-use crate::vm::types::TypeSignature::PrincipalType;
-use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
-use crate::vm::ClarityVersion;
-
-use crate::vm::errors::CheckErrors;
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TypeSignature, BUFF_1, BUFF_20,
-};
 use stacks_common::types::StacksEpochId;
-
-use crate::vm::functions::principals::PrincipalConstructErrorCode;
-
 use stacks_common::util::hash::hex_bytes;
+
+use crate::vm::ast::ASTRules;
+use crate::vm::errors::CheckErrors;
+use crate::vm::functions::principals::PrincipalConstructErrorCode;
+use crate::vm::types::TypeSignature::PrincipalType;
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value, BUFF_1,
+    BUFF_20,
+};
+use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
