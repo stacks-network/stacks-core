@@ -181,7 +181,7 @@ impl StacksClient {
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-bitcoin-wallet-public-key"; // TODO: this may need to be modified to match .pox-4
+        let function_name_str = "get-bitcoin-wallet-public-key"; // FIXME: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
@@ -197,7 +197,7 @@ impl StacksClient {
     /// Retreive the DKG aggregate public key vote of the signer
     pub fn get_aggregate_public_key_vote(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-bitcoin-wallet-public-key-vote"; // TODO: this may need to be modified to match .pox-4
+        let function_name_str = "get-bitcoin-wallet-public-key-vote"; // FIXME: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
@@ -214,8 +214,16 @@ impl StacksClient {
     }
 
     /// Cast the DKG aggregate public key vote
-    pub fn cast_aggregate_public_key_vote(&self, _vote: Point) -> Result<(), RPCError> {
-        todo!("Make the contract call to cast the aggregate public key vote. See mini contract vote-for-threshold-wallet-candidate function")
+    pub fn cast_aggregate_public_key_vote(&self, _vote: Point) -> Result<(), ClientError> {
+        todo!()
+        // let reward_cycle = self.get_current_reward_cycle()?;
+        // let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
+        // let function_name = ClarityName::try_from(function_name_str)
+        //     .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        // let (contract_addr, contract_name) = self.get_pox_contract()?;
+        // // TODO: is it possible to retrieve what nonces exist in the mempool? Add an endpoint
+        // let nonce = 
+        // todo!("Make the contract call to cast the aggregate public key vote. See mini contract vote-for-threshold-wallet-candidate function")
     }
 
     /// Retrieve the total number of slots allocated to a stacker-db writer
