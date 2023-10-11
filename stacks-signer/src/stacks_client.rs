@@ -114,7 +114,7 @@ pub struct StacksClient {
     stacks_address: StacksAddress,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
-    /// A map of a slot ID to last chunk version   
+    /// A map of a slot ID to last chunk version
     slot_versions: HashMap<u32, u32>,
     /// The stacks node HTTP base endpoint
     http_origin: String,
@@ -590,7 +590,19 @@ mod tests {
     }
 
     #[test]
-    fn invalid_reward_cycle_should_failure() {
+    fn invalid_reward_cycle_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_current_reward_cycle());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
+        );
+        let res = h.join().unwrap();
+        assert!(matches!(res, Err(ClientError::InvalidJsonEntry(_))));
+    }
+
+    #[test]
+    fn missing_reward_cycle_should_fail() {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_current_reward_cycle());
         write_response(
