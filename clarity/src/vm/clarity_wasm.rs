@@ -422,6 +422,11 @@ pub fn call_function<'a, 'b, 'c>(
         sponsor,
         None,
     );
+
+    let func_types = context
+        .contract_context()
+        .lookup_function(function_name)
+        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
     let engine = Engine::default();
     let module = context
         .contract_context()
@@ -457,13 +462,21 @@ pub fn call_function<'a, 'b, 'c>(
         .get_memory(store.as_context_mut(), "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+    // Determine how much space is needed for arguments
+    let mut arg_size = 0;
+    for arg in func_types.get_arg_types() {
+        arg_size += get_type_size(arg);
+    }
+    let mut in_mem_offset = offset + arg_size;
+
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
     for arg in args {
-        let (arg_vec, new_offset) =
-            pass_argument_to_wasm(memory, store.as_context_mut(), arg, offset)?;
+        let (arg_vec, new_offset, new_in_mem_offset) =
+            pass_argument_to_wasm(memory, store.as_context_mut(), arg, offset, in_mem_offset)?;
         wasm_args.extend(arg_vec);
         offset = new_offset;
+        in_mem_offset = new_in_mem_offset;
     }
 
     // Reserve stack space for the return value, if necessary.
@@ -525,10 +538,12 @@ const PRINCIPAL_BYTES: usize = PRINCIPAL_VERSION_BYTES + PRINCIPAL_HASH_BYTES;
 const CONTRACT_NAME_LENGTH_BYTES: usize = 4;
 // 1 byte for version, 20 bytes for hash, 4 bytes for contract name length (0)
 const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENGTH_BYTES;
+// Max length of a contract name
+const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
-const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + 128;
+const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
 
-pub fn get_type_size(ty: &TypeSignature) -> u32 {
+pub fn get_type_size(ty: &TypeSignature) -> i32 {
     match ty {
         TypeSignature::IntType | TypeSignature::UIntType => 16, // low: i64, high: i64
         TypeSignature::BoolType => 4,                           // i32
@@ -668,7 +683,7 @@ fn read_from_wasm_indirect<T>(
         .and_then(|export| export.into_memory())
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-    let mut length = get_type_size(ty) as i32;
+    let mut length = get_type_size(ty);
 
     // For in-memory types, first read the offset and length from the memory,
     // then read the actual value.
@@ -868,15 +883,20 @@ fn value_as_string_ascii(value: Value) -> Result<ASCIIData, Error> {
     }
 }
 
-/// Write a value to the Wasm memory at `offset` with `length` given the
-/// provided Clarity `TypeSignature`.'
+/// Write a value to the Wasm memory at `offset` given the provided Clarity
+/// `TypeSignature`. If the value is an in-memory type, then it will be written
+/// to the memory at `in_mem_offset`, and if `include_repr` is true, the offset
+/// and length of the value will be written to the memory at `offset`.
+/// Returns the number of bytes written at `offset` and at `in_mem_offset`.
 fn write_to_wasm(
     mut store: impl AsContextMut,
     memory: Memory,
     ty: &TypeSignature,
     offset: i32,
+    in_mem_offset: i32,
     value: &Value,
-) -> Result<i32, Error> {
+    include_repr: bool,
+) -> Result<(i32, i32), Error> {
     match ty {
         TypeSignature::IntType => {
             let mut buffer: [u8; 8] = [0; 8];
@@ -891,7 +911,7 @@ fn write_to_wasm(
             memory
                 .write(store.as_context_mut(), (offset + 8) as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            Ok(16)
+            Ok((16, 0))
         }
         TypeSignature::UIntType => {
             let mut buffer: [u8; 8] = [0; 8];
@@ -906,59 +926,84 @@ fn write_to_wasm(
             memory
                 .write(store.as_context_mut(), (offset + 8) as usize, &buffer)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            Ok(16)
+            Ok((16, 0))
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_length)) => {
             let buffdata = value_as_buffer(value.clone())?;
             let mut written = 0;
+            let mut in_mem_written = 0;
+
+            // Write the value to `in_mem_offset`
             memory
                 .write(
                     store.as_context_mut(),
-                    (offset + written) as usize,
+                    (in_mem_offset + in_mem_written) as usize,
                     &buffdata.data,
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            written += buffdata.data.len() as i32;
-            // if buffdata.data.len() < u32::from(*length) as usize {
-            //     let padding = vec![0u8; (u32::from(*length) as usize) - buffdata.data.len()];
-            //     memory
-            //         .write(
-            //             store.as_context_mut(),
-            //             (offset + written) as usize,
-            //             &padding,
-            //         )
-            //         .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            //     written += padding.len() as i32;
-            // }
-            Ok(written)
+            in_mem_written += buffdata.data.len() as i32;
+
+            if include_repr {
+                // Write the representation (offset and length) of the value to
+                // `offset`.
+                let offset_buffer = (in_mem_offset as i32).to_le_bytes();
+                memory
+                    .write(store.as_context_mut(), (offset) as usize, &offset_buffer)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+                let len_buffer = (in_mem_written as i32).to_le_bytes();
+                memory
+                    .write(
+                        store.as_context_mut(),
+                        (offset + written) as usize,
+                        &len_buffer,
+                    )
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+            }
+
+            Ok((written, in_mem_written))
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_length))) => {
             let string = value_as_string_ascii(value.clone())?;
             let mut written = 0;
+            let mut in_mem_written = 0;
+
+            // Write the value to `in_mem_offset`
             memory
                 .write(
                     store.as_context_mut(),
-                    (offset + written) as usize,
+                    (in_mem_offset + in_mem_written) as usize,
                     &string.data,
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            written += string.data.len() as i32;
-            // if string.data.len() < u32::from(*length) as usize {
-            //     let padding = vec![0u8; (u32::from(*length) as usize) - string.data.len()];
-            //     memory
-            //         .write(
-            //             store.as_context_mut(),
-            //             (offset + written) as usize,
-            //             &padding,
-            //         )
-            //         .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            //     written += padding.len() as i32;
-            // }
-            Ok(written)
+            in_mem_written += string.data.len() as i32;
+
+            if include_repr {
+                // Write the representation (offset and length) of the value to
+                // `offset`.
+                let offset_buffer = (in_mem_offset as i32).to_le_bytes();
+                memory
+                    .write(store.as_context_mut(), (offset) as usize, &offset_buffer)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+                let len_buffer = (in_mem_written as i32).to_le_bytes();
+                memory
+                    .write(
+                        store.as_context_mut(),
+                        (offset + written) as usize,
+                        &len_buffer,
+                    )
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+            }
+
+            Ok((written, in_mem_written))
         }
         TypeSignature::SequenceType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ResponseType(inner_types) => {
             let mut written = 0;
+            let mut in_mem_written = 0;
             let res = value_as_response(value)?;
             let indicator = if res.committed { 1i32 } else { 0i32 };
             let indicator_bytes = indicator.to_le_bytes();
@@ -967,17 +1012,37 @@ fn write_to_wasm(
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             written += 4;
             if res.committed {
-                written +=
-                    write_to_wasm(store, memory, &inner_types.0, offset + written, &res.data)?;
+                let (new_written, new_in_mem_written) = write_to_wasm(
+                    store,
+                    memory,
+                    &inner_types.0,
+                    offset + written,
+                    in_mem_offset,
+                    &res.data,
+                    true,
+                )?;
+                written += new_written;
+                in_mem_written += new_in_mem_written;
+
                 // Skip space for the err value
-                written += get_type_in_memory_size(&inner_types.1);
+                written += get_type_size(&inner_types.1);
             } else {
                 // Skip space for the ok value
-                written += get_type_in_memory_size(&inner_types.0);
-                written +=
-                    write_to_wasm(store, memory, &inner_types.1, offset + written, &res.data)?;
+                written += get_type_size(&inner_types.0);
+
+                let (new_written, new_in_mem_written) = write_to_wasm(
+                    store,
+                    memory,
+                    &inner_types.1,
+                    offset + written,
+                    in_mem_offset,
+                    &res.data,
+                    true,
+                )?;
+                written += new_written;
+                in_mem_written += new_in_mem_written;
             }
-            Ok(written)
+            Ok((written, in_mem_written))
         }
         TypeSignature::BoolType => {
             let bool_val = value_as_bool(&value)?;
@@ -986,13 +1051,18 @@ fn write_to_wasm(
             memory
                 .write(store.as_context_mut(), (offset) as usize, &val_bytes)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            Ok(4)
+            Ok((4, 0))
         }
-        TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::NoType => {
+            let val_bytes = [0u8; 4];
+            memory
+                .write(store.as_context_mut(), (offset) as usize, &val_bytes)
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            Ok((4, 0))
+        }
         TypeSignature::OptionalType(inner_ty) => {
             let mut written = 0;
+            let mut in_mem_written = 0;
             let opt_data = value_as_optional(value)?;
             let indicator = if opt_data.data.is_some() { 1i32 } else { 0i32 };
             let indicator_bytes = indicator.to_le_bytes();
@@ -1001,9 +1071,19 @@ fn write_to_wasm(
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             written += 4;
             if let Some(inner) = opt_data.data.as_ref() {
-                written += write_to_wasm(store, memory, inner_ty, offset + written, inner)?;
+                let (new_written, new_in_mem_written) = write_to_wasm(
+                    store,
+                    memory,
+                    inner_ty,
+                    offset + written,
+                    in_mem_offset,
+                    inner,
+                    true,
+                )?;
+                written += new_written;
+                in_mem_written += new_in_mem_written;
             }
-            Ok(written)
+            Ok((written, in_mem_written))
         }
         TypeSignature::PrincipalType => {
             let principal = value_as_principal(&value)?;
@@ -1015,24 +1095,65 @@ fn write_to_wasm(
                 ),
             };
             let mut written = 0;
+            let mut in_mem_written = 0;
+
+            // Write the value to in_mem_offset
             memory
                 .write(
                     store.as_context_mut(),
-                    (offset + written) as usize,
+                    (in_mem_offset + in_mem_written) as usize,
                     &[standard.0],
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            written += 1;
+            in_mem_written += 1;
             memory
                 .write(
                     store.as_context_mut(),
-                    (offset + written) as usize,
+                    (in_mem_offset + in_mem_written) as usize,
                     &standard.1,
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            written += standard.1.len() as i32;
+            in_mem_written += standard.1.len() as i32;
             if !contract_name.is_empty() {
                 let len_buffer = (contract_name.len() as i32).to_le_bytes();
+                memory
+                    .write(
+                        store.as_context_mut(),
+                        (in_mem_offset + in_mem_written) as usize,
+                        &len_buffer,
+                    )
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                in_mem_written += 4;
+                let bytes = contract_name.as_bytes();
+                memory
+                    .write(
+                        store.as_context_mut(),
+                        (in_mem_offset + in_mem_written) as usize,
+                        bytes,
+                    )
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                in_mem_written += bytes.len() as i32;
+            } else {
+                let len_buffer = (0i32).to_le_bytes();
+                memory
+                    .write(
+                        store.as_context_mut(),
+                        (in_mem_offset + in_mem_written) as usize,
+                        &len_buffer,
+                    )
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                in_mem_written += 4;
+            }
+
+            if include_repr {
+                // Write the representation (offset and length of the value) to the
+                // offset
+                let offset_buffer = (in_mem_offset as i32).to_le_bytes();
+                memory
+                    .write(store.as_context_mut(), (offset) as usize, &offset_buffer)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+                let len_buffer = (in_mem_written as i32).to_le_bytes();
                 memory
                     .write(
                         store.as_context_mut(),
@@ -1041,100 +1162,121 @@ fn write_to_wasm(
                     )
                     .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
-                memory
-                    .write(
-                        store.as_context_mut(),
-                        (offset + written) as usize,
-                        contract_name.as_bytes(),
-                    )
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-                written += contract_name.len() as i32;
             }
-            Ok(written)
+
+            Ok((written, in_mem_written))
         }
         TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::CallableType(_) | TypeSignature::ListUnionType(_) => {
+            unreachable!("not a value type")
+        }
     }
 }
 
 /// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
 /// requires writing into the Wasm memory, write it to the provided `offset`.
 /// Return a vector of `Val`s that can be passed to a Wasm function, and the
-/// offset, adjusted to the next available memory location.
+/// two offsets, adjusted to the next available memory location.
 fn pass_argument_to_wasm(
     memory: Memory,
     mut store: impl AsContextMut,
     value: &Value,
     offset: i32,
-) -> Result<(Vec<Val>, i32), Error> {
+    in_mem_offset: i32,
+) -> Result<(Vec<Val>, i32, i32), Error> {
     match value {
         Value::UInt(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
             let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset))
+            Ok((buffer, offset, in_mem_offset))
         }
         Value::Int(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
             let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset))
+            Ok((buffer, offset, in_mem_offset))
         }
-        Value::Bool(b) => Ok((vec![Val::I32(if *b { 1 } else { 0 })], offset)),
+        Value::Bool(b) => Ok((
+            vec![Val::I32(if *b { 1 } else { 0 })],
+            offset,
+            in_mem_offset,
+        )),
         Value::Optional(o) => {
             let mut buffer = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
-            let (inner, new_offset) = pass_argument_to_wasm(
+            let (inner, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
                 memory,
                 store,
                 o.data
                     .as_ref()
                     .map_or(&Value::none(), |boxed_value| &boxed_value),
-                offset + 1,
+                offset,
+                in_mem_offset,
             )?;
             buffer.extend(inner);
-            Ok((buffer, new_offset))
+            Ok((buffer, new_offset, new_in_mem_offset))
         }
         Value::Response(r) => {
             let mut buffer = vec![Val::I32(if r.committed { 1 } else { 0 })];
-            let (inner, new_offset) = if r.committed {
-                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
+            let (inner, new_offset, new_in_mem_offset) = if r.committed {
+                pass_argument_to_wasm(memory, store, &r.data, offset, in_mem_offset)?
             } else {
-                pass_argument_to_wasm(memory, store, &r.data, offset + 1)?
+                pass_argument_to_wasm(memory, store, &r.data, offset, in_mem_offset)?
             };
             buffer.extend(inner);
-            Ok((buffer, new_offset))
+            Ok((buffer, new_offset, new_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
             // For a string, write the bytes into the memory, then pass the
             // offset and length to the Wasm function.
-            let buffer = vec![Val::I32(offset), Val::I32(s.data.len() as i32)];
+            let buffer = vec![Val::I32(in_mem_offset), Val::I32(s.data.len() as i32)];
             memory
-                .write(store.borrow_mut(), offset as usize, s.data.as_slice())
+                .write(
+                    store.borrow_mut(),
+                    in_mem_offset as usize,
+                    s.data.as_slice(),
+                )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_offset = offset + s.data.len() as i32;
-            Ok((buffer, adjusted_offset))
+            let adjusted_in_mem_offset = in_mem_offset + s.data.len() as i32;
+            Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(_s))) => {
             todo!("Value type not yet implemented: {:?}", value)
         }
-        Value::Sequence(SequenceData::Buffer(_b)) => {
-            todo!("Value type not yet implemented: {:?}", value)
+        Value::Sequence(SequenceData::Buffer(b)) => {
+            // For a buffer, write the bytes into the memory, then pass the
+            // offset and length to the Wasm function.
+            let buffer = vec![Val::I32(in_mem_offset), Val::I32(b.data.len() as i32)];
+            memory
+                .write(
+                    store.borrow_mut(),
+                    in_mem_offset as usize,
+                    b.data.as_slice(),
+                )
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            let adjusted_in_mem_offset = in_mem_offset + b.data.len() as i32;
+            Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::List(l)) => {
             let mut buffer = vec![Val::I32(offset)];
-            let mut adjusted_offset = offset;
+            let mut written = 0;
+            let mut in_mem_written = 0;
             for item in &l.data {
-                let len = write_to_wasm(
+                let (len, in_mem_len) = write_to_wasm(
                     store.as_context_mut(),
                     memory,
                     l.type_signature.get_list_item_type(),
-                    adjusted_offset,
+                    offset + written,
+                    in_mem_offset + in_mem_written,
                     item,
+                    true,
                 )?;
-                adjusted_offset += len;
+                written += len;
+                in_mem_written += in_mem_len;
             }
-            buffer.push(Val::I32(adjusted_offset - offset));
-            Ok((buffer, adjusted_offset))
+            buffer.push(Val::I32(written));
+            Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
         Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
         Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
@@ -1200,7 +1342,7 @@ fn reserve_space_for_return<T>(
             // Standard principal is a 1 byte version and a 20 byte Hash160.
             // Then there is an int32 for the contract name length, followed by
             // the contract name, which has a max length of 128.
-            let length: u32 = 1 + 20 + 1 + 128;
+            let length = PRINCIPAL_BYTES_MAX;
             // Return values will be offset and length
             Ok((vec![Val::I32(0), Val::I32(0)], offset + length as i32))
         }
@@ -1910,7 +2052,9 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     memory,
                     &data_types.value_type,
                     return_offset,
+                    return_offset + get_type_size(&data_types.value_type),
                     &value,
+                    true,
                 )?;
 
                 Ok(())
@@ -1997,7 +2141,9 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
         .func_wrap(
             "clarity",
             "tx_sender",
-            |mut caller: Caller<'_, ClarityWasmContext>, return_offset: i32, return_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             return_offset: i32,
+             _return_length: i32| {
                 let sender = caller.data().sender.clone().ok_or(Error::Runtime(
                     RuntimeErrorType::NoSenderInContext.into(),
                     None,
@@ -2008,15 +2154,17 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                write_to_wasm(
+                let (_, bytes_written) = write_to_wasm(
                     &mut caller,
                     memory,
                     &TypeSignature::PrincipalType,
                     return_offset,
+                    return_offset,
                     &Value::Principal(sender),
+                    false,
                 )?;
 
-                Ok((return_offset, return_length))
+                Ok((return_offset, bytes_written))
             },
         )
         .map(|_| ())
@@ -2035,7 +2183,9 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         .func_wrap(
             "clarity",
             "contract_caller",
-            |mut caller: Caller<'_, ClarityWasmContext>, return_offset: i32, return_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             return_offset: i32,
+             _return_length: i32| {
                 let contract_caller = caller.data().caller.clone().ok_or(Error::Runtime(
                     RuntimeErrorType::NoCallerInContext.into(),
                     None,
@@ -2046,15 +2196,17 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                write_to_wasm(
+                let (_, bytes_written) = write_to_wasm(
                     &mut caller,
                     memory,
                     &TypeSignature::PrincipalType,
                     return_offset,
+                    return_offset,
                     &Value::Principal(contract_caller),
+                    false,
                 )?;
 
-                Ok((return_offset, return_length))
+                Ok((return_offset, bytes_written))
             },
         )
         .map(|_| ())
@@ -2073,7 +2225,9 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         .func_wrap(
             "clarity",
             "tx_sponsor",
-            |mut caller: Caller<'_, ClarityWasmContext>, return_offset: i32, return_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             return_offset: i32,
+             _return_length: i32| {
                 let opt_sponsor = caller.data().sponsor.clone();
                 if let Some(sponsor) = opt_sponsor {
                     let memory = caller
@@ -2081,17 +2235,19 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                         .and_then(|export| export.into_memory())
                         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                    write_to_wasm(
+                    let (_, bytes_written) = write_to_wasm(
                         &mut caller,
                         memory,
                         &TypeSignature::PrincipalType,
                         return_offset,
+                        return_offset,
                         &Value::Principal(sponsor),
+                        false,
                     )?;
 
-                    Ok((1i32, return_offset, return_length))
+                    Ok((1i32, return_offset, bytes_written))
                 } else {
-                    Ok((0i32, return_offset, return_length))
+                    Ok((0i32, return_offset, 0i32))
                 }
             },
         )
@@ -3165,12 +3321,14 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                             .and_then(|export| export.into_memory())
                             .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                        let bytes_written = write_to_wasm(
+                        let (_, bytes_written) = write_to_wasm(
                             caller,
                             memory,
                             &TypeSignature::PrincipalType,
                             return_offset,
+                            return_offset,
                             &Value::Principal(owner),
+                            false,
                         )?;
 
                         Ok((1i32, return_offset, bytes_written))
@@ -3614,12 +3772,15 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
                 write_to_wasm(
                     &mut caller,
                     memory,
-                    &TypeSignature::OptionalType(Box::new(data_types.value_type)),
+                    &ty,
                     return_offset,
+                    return_offset + get_type_size(&ty),
                     &value,
+                    true,
                 )?;
 
                 Ok(())
@@ -3917,7 +4078,9 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                             memory,
                             &TypeSignature::BoolType,
                             return_offset,
+                            return_offset + get_type_size(&TypeSignature::BoolType),
                             &Value::Bool(false),
+                            true,
                         )?;
                         return Ok(());
                     }
@@ -3935,7 +4098,9 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                         memory,
                         &TypeSignature::BoolType,
                         return_offset,
+                        return_offset + get_type_size(&TypeSignature::BoolType),
                         &Value::Bool(false),
+                        true,
                     )?;
                     return Ok(());
                 }
@@ -4050,7 +4215,9 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                                         memory,
                                         &TypeSignature::BoolType,
                                         return_offset,
+                                        return_offset + get_type_size(&TypeSignature::BoolType),
                                         &Value::Bool(false),
+                                        true,
                                     )?;
                                     return Ok(());
                                 }
@@ -4061,12 +4228,15 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                 };
 
                 // Write the result to the return buffer
+                let ty = TypeSignature::OptionalType(Box::new(result_ty));
                 write_to_wasm(
                     &mut caller,
                     memory,
-                    &TypeSignature::OptionalType(Box::new(result_ty)),
+                    &ty,
                     return_offset,
+                    return_offset + get_type_size(&ty),
                     &Value::some(result)?,
+                    true,
                 )?;
 
                 Ok(())
@@ -4144,7 +4314,7 @@ fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
                     let arg = read_from_wasm_indirect(&mut caller, arg_ty, arg_offset)?;
                     args.push(arg);
 
-                    arg_offset += get_type_size(arg_ty) as i32;
+                    arg_offset += get_type_size(arg_ty);
                 }
 
                 let caller_contract: PrincipalData = caller
@@ -4172,14 +4342,22 @@ fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
                     sponsor,
                 )?;
 
-                // Write the result to the return buffer (if there is one)
+                // Write the result (if there is one) to the return buffer
                 if let Some(return_ty) = function.get_return_type() {
                     let memory = caller
                         .get_export("memory")
                         .and_then(|export| export.into_memory())
                         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                    write_to_wasm(&mut caller, memory, return_ty, return_offset, &result)?;
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        return_ty,
+                        return_offset,
+                        return_offset + get_type_size(return_ty),
+                        &result,
+                        true,
+                    )?;
                 }
 
                 Ok(())
