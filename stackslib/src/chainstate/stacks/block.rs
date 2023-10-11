@@ -105,7 +105,7 @@ impl StacksBlockHeader {
 
     /// Is `to_check` equal to the `FIRST_STACKS_BLOCK_HASH`?
     pub fn is_first_block_hash(to_check: &BlockHeaderHash) -> bool {
-        to_check == &FIRST_STACKS_BLOCK_HASH
+        *to_check == FIRST_STACKS_BLOCK_HASH
     }
 
     /// Is this a first-mined block header?  i.e. builds off of the boot code?

@@ -166,7 +166,6 @@ lazy_static! {
                      total_tenure_cost TEXT NOT NULL,
                      -- the parent index_block_hash
                      parent_block_id TEXT NOT NULL,
-                     affirmation_weight INTEGER NOT NULL,
                      -- this field is the total number of *tenures* in the chain history (including this tenure)
                      tenure_height INTEGER NOT NULL,
                      -- this field is true if this is the first block of a new tenure
@@ -615,6 +614,8 @@ impl NakamotoChainState {
     }
 
     /// Return a Nakamoto StacksHeaderInfo at a given tenure height in the fork identified by `tip_index_hash`
+    /// Prior to Nakamoto, `tenure_height` is equivalent to stacks block height.
+    /// This returns the first Stacks block header in the tenure.
     pub fn get_header_by_tenure_height(
         tx: &mut StacksDBTx,
         tip_index_hash: &StacksBlockId,
@@ -697,18 +698,20 @@ impl NakamotoChainState {
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
         let result = query_row_panic(conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         if result.is_some() {
             return Ok(result);
         }
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        query_row_panic(conn, sql, &[&index_block_hash], || {
+
+        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
-        })
-        .map_err(ChainstateError::DBError)
+        })?;
+
+        Ok(result)
     }
 
     /// Insert a nakamoto block header that is paired with an
@@ -722,13 +725,12 @@ impl NakamotoChainState {
         header: &NakamotoBlockHeader,
         anchored_block_cost: &ExecutionCost,
         total_tenure_cost: &ExecutionCost,
-        affirmation_weight: u64,
         tenure_height: u64,
         tenure_changed: bool,
         tenure_tx_fees: u128,
     ) -> Result<(), ChainstateError> {
         assert_eq!(tip_info.stacks_block_height, header.chain_length,);
-        assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
+        assert!(tip_info.burn_header_timestamp < u64::try_from(i64::MAX).unwrap());
 
         let StacksHeaderInfo {
             index_root,
@@ -747,7 +749,7 @@ impl NakamotoChainState {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
-        assert!(*stacks_block_height < (i64::MAX as u64));
+        assert!(*stacks_block_height < u64::try_from(i64::MAX).unwrap());
 
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(*stacks_block_height)?,
@@ -774,7 +776,6 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             parent_id,
-            &u64_to_sql(affirmation_weight)?,
             &u64_to_sql(tenure_height)?,
             if tenure_changed { &1i64 } else { &0 },
         ];
@@ -795,10 +796,9 @@ impl NakamotoChainState {
                      total_tenure_cost,
                      tenure_tx_fees,
                      parent_block_id,
-                     affirmation_weight,
                      tenure_height,
                      tenure_changed)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             args
         )?;
 
@@ -824,7 +824,6 @@ impl NakamotoChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
-        affirmation_weight: u64,
         tenure_height: u64,
         tenure_changed: bool,
         block_fees: u128,
@@ -886,7 +885,6 @@ impl NakamotoChainState {
             &new_tip,
             anchor_block_cost,
             total_tenure_cost,
-            affirmation_weight,
             tenure_height,
             tenure_changed,
             tenure_fees,
@@ -1231,7 +1229,6 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-        affirmation_weight: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -1292,17 +1289,15 @@ impl NakamotoChainState {
         let parent_tenure_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_tenure_height(&chainstate_tx.deref().deref(), &parent_block_id)?.ok_or_else(
-                || {
-                    warn!(
-                        "Parent of Nakamoto block in block headers DB yet";
-                        "block_hash" => %block.header.block_hash(),
-                        "parent_block_hash" => %parent_block_hash,
-                        "parent_block_id" => %parent_block_id
-                    );
-                    ChainstateError::NoSuchBlockError
-                },
-            )?
+            Self::get_tenure_height(chainstate_tx.deref(), &parent_block_id)?.ok_or_else(|| {
+                warn!(
+                    "Parent of Nakamoto block in block headers DB yet";
+                    "block_hash" => %block.header.block_hash(),
+                    "parent_block_hash" => %parent_block_hash,
+                    "parent_block_id" => %parent_block_id
+                );
+                ChainstateError::NoSuchBlockError
+            })?
         };
 
         let tenure_height = if tenure_changed {
@@ -1461,7 +1456,7 @@ impl NakamotoChainState {
         .accumulated_coinbase_ustx;
 
         let coinbase_at_block = StacksChainState::get_coinbase_reward(
-            chain_tip_burn_header_height as u64,
+            u64::from(chain_tip_burn_header_height),
             burn_dbconn.context.first_block_height,
         );
 
@@ -1549,7 +1544,6 @@ impl NakamotoChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
-            affirmation_weight,
             tenure_height,
             tenure_changed,
             block_fees,
@@ -1559,7 +1553,7 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
-        monitoring::set_last_block_transaction_count(block.txs.len() as u64);
+        monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
         monitoring::set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         // get previous burn block stats
@@ -1570,7 +1564,11 @@ impl NakamotoChainState {
                 match SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)? {
                     Some(sn) => (
                         sn.burn_header_hash,
-                        sn.block_height as u32,
+                        u32::try_from(sn.block_height).map_err(|_| {
+                            ChainstateError::InvalidStacksBlock(
+                                "Burn block height exceeds u32".into(),
+                            )
+                        })?,
                         sn.burn_header_timestamp,
                     ),
                     None => {
@@ -1612,7 +1610,7 @@ impl StacksMessageCodec for NakamotoBlock {
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
         let (header, txs) = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
             let header: NakamotoBlockHeader = read_next(&mut bound_read)?;
             let txs: Vec<_> = read_next(&mut bound_read)?;
             (header, txs)
