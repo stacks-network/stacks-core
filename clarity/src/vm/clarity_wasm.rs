@@ -562,21 +562,34 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
 }
 
 /// Return the number of bytes required to store a value of the type `ty`.
-pub fn get_type_in_memory_size(ty: &TypeSignature) -> i32 {
+pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
     match ty {
         TypeSignature::IntType | TypeSignature::UIntType => 16, // i64_low + i64_high
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(length))) => {
-            u32::from(length) as i32
+            let mut size = u32::from(length) as i32;
+            if include_repr {
+                size += 8; // offset + length
+            }
+            size
         }
         TypeSignature::PrincipalType => {
             // Standard principal is a 1 byte version and a 20 byte Hash160.
             // Then there is an int32 for the contract name length, followed by
             // the contract name, which has a max length of 128.
-            PRINCIPAL_BYTES_MAX as i32
+            let mut size = PRINCIPAL_BYTES_MAX as i32;
+            if include_repr {
+                size += 8; // offset + length
+            }
+            size
         }
-        TypeSignature::OptionalType(inner) => 4 + get_type_in_memory_size(inner),
+        TypeSignature::OptionalType(inner) => 4 + get_type_in_memory_size(inner, true),
         TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) => {
-            list_data.get_max_len() as i32 * get_type_in_memory_size(list_data.get_list_item_type())
+            let mut size = list_data.get_max_len() as i32
+                * get_type_in_memory_size(list_data.get_list_item_type(), true);
+            if include_repr {
+                size += 8; // offset + length
+            }
+            size
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(length)) => {
             u32::from(length) as i32
@@ -587,7 +600,7 @@ pub fn get_type_in_memory_size(ty: &TypeSignature) -> i32 {
         TypeSignature::TupleType(_) => todo!(),
         TypeSignature::ResponseType(res_types) => {
             // indicator: i32, ok_val: inner_types.0, err_val: inner_types.1
-            4 + get_type_in_memory_size(&res_types.0) + get_type_in_memory_size(&res_types.1)
+            4 + get_type_in_memory_size(&res_types.0, true) + get_type_in_memory_size(&res_types.1, true)
         }
         TypeSignature::CallableType(_) => todo!(),
         TypeSignature::ListUnionType(_) => todo!(),
