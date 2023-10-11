@@ -1,8 +1,11 @@
 use bincode::Error as BincodeError;
-use blockstack_lib::chainstate::stacks::{
-    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSpendingCondition, TransactionVersion,
+use blockstack_lib::{
+    burnchains::Txid,
+    chainstate::stacks::{
+        StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+        TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+        TransactionSpendingCondition, TransactionVersion,
+    },
 };
 use clarity::vm::{
     errors::Error as ClarityError,
@@ -214,16 +217,25 @@ impl StacksClient {
     }
 
     /// Cast the DKG aggregate public key vote
-    pub fn cast_aggregate_public_key_vote(&self, _vote: Point) -> Result<(), ClientError> {
-        todo!()
-        // let reward_cycle = self.get_current_reward_cycle()?;
-        // let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
-        // let function_name = ClarityName::try_from(function_name_str)
-        //     .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
-        // let (contract_addr, contract_name) = self.get_pox_contract()?;
-        // // TODO: is it possible to retrieve what nonces exist in the mempool? Add an endpoint
-        // let nonce = 
-        // todo!("Make the contract call to cast the aggregate public key vote. See mini contract vote-for-threshold-wallet-candidate function")
+    pub fn cast_aggregate_public_key_vote(&self, vote: Point) -> Result<Txid, ClientError> {
+        let reward_cycle = self.get_current_reward_cycle()?;
+        let nonce = self.get_last_unconfirmed_nonce()? + 1;
+        let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
+        let function_name = ClarityName::try_from(function_name_str)
+            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let function_args = &[
+            ClarityValue::buff_from(vote.compress().as_bytes().to_vec())?,
+            ClarityValue::UInt(reward_cycle as u128),
+        ];
+        let transaction = self.transaction_contract_call(
+            nonce,
+            &contract_addr,
+            contract_name,
+            function_name,
+            function_args,
+        )?;
+        self.submit_tx(transaction)
     }
 
     /// Retrieve the total number of slots allocated to a stacker-db writer
@@ -307,13 +319,28 @@ impl StacksClient {
 
     /// Helper function to retrieve the current reward cycle number from the stacks node
     fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+        let response = self.stacks_node_client.get(self.pox_path()).send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let json_response = response.json::<serde_json::Value>()?;
+        let entry = "current_cycle";
+        json_response
+            .get(entry)
+            .and_then(|cycle: &serde_json::Value| cycle.get("id"))
+            .and_then(|id| id.as_u64())
+            .ok_or_else(|| ClientError::InvalidJsonEntry(format!("{}.id", entry)))
+    }
+
+    /// Helper function to retrieve the last unconfirmed nonce for the signer from the stacks node
+    fn get_last_unconfirmed_nonce(&self) -> Result<u64, ClientError> {
         todo!("Get the current reward cycle from the stacks node")
     }
 
     /// Helper function to retrieve the pox contract address and name from the stacks node
     fn get_pox_contract(&self) -> Result<(StacksAddress, ContractName), ClientError> {
-        let path = format!("{}/v2/pox", self.http_origin);
-        let response = self.stacks_node_client.get(path).send()?;
+        // TODO: we may want to cache the pox contract inside the client itself (calling this function once on init)
+        let response = self.stacks_node_client.get(self.pox_path()).send()?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -346,7 +373,7 @@ impl StacksClient {
     }
 
     /// Creates a transaction for a contract call that can be submitted to a stacks node
-    pub fn transaction_contract_call(
+    fn transaction_contract_call(
         &self,
         nonce: u64,
         contract_addr: &StacksAddress,
@@ -361,6 +388,7 @@ impl StacksClient {
             function_args: function_args.to_vec(),
         };
 
+        // Because signers are given priority, we can put down a tx fee of 0
         let tx_fee = 0;
 
         self.serialize_sign_sig_tx_anchor_mode_version(
@@ -371,20 +399,20 @@ impl StacksClient {
         )
     }
 
-    /// Submits a transaction to the Stacks node
-    pub fn submit_tx(&self, tx: Vec<u8>) -> Result<String, ClientError> {
-        let path = format!("{}/v2/transactions", self.http_origin);
+    /// Helper function to submit a transaction to the Stacks node
+    fn submit_tx(&self, tx: Vec<u8>) -> Result<Txid, ClientError> {
         let res = self
             .stacks_node_client
-            .post(path)
+            .post(self.transaction_path())
             .header("Content-Type", "application/octet-stream")
             .body(tx.clone())
             .send()?;
         if res.status().is_success() {
-            let res: String = res.json()?;
+            let txid_string: String = res.json()?;
             let tx_deserialized = StacksTransaction::consensus_deserialize(&mut &tx[..])?;
-            assert_eq!(res, tx_deserialized.txid().to_string());
-            Ok(res)
+            let txid = tx_deserialized.txid();
+            assert_eq!(txid_string, txid.to_string());
+            Ok(txid)
         } else {
             Err(ClientError::TransactionSubmissionFailure)
         }
@@ -401,10 +429,7 @@ impl StacksClient {
         debug!("Calling read-only function {}...", function_name);
         let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
             .to_string();
-        let path = format!(
-            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
-            self.http_origin
-        );
+        let path = self.read_only_path(contract_addr, contract_name, function_name);
         let response = self
             .stacks_node_client
             .post(path)
@@ -435,6 +460,26 @@ impl StacksClient {
             .ok_or_else(|| ClientError::ReadOnlyFailure("Expected string result.".to_string()))?
             .to_string();
         Ok(result)
+    }
+
+    fn pox_path(&self) -> String {
+        format!("{}/v2/pox", self.http_origin)
+    }
+
+    fn transaction_path(&self) -> String {
+        format!("{}/v2/transactions", self.http_origin)
+    }
+
+    fn read_only_path(
+        &self,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        function_name: &ClarityName,
+    ) -> String {
+        format!(
+            "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
+            self.http_origin
+        )
     }
 }
 
@@ -593,6 +638,30 @@ mod tests {
             (address.to_string().as_str(), name.to_string().as_str()),
             ("ST000000000000000000002AMW42H", "pox-3")
         );
+    }
+
+    #[test]
+    fn valid_reward_cycle_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_current_reward_cycle());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":506,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":5690000000000,\"is_pox_active\":false}}",
+        );
+        let current_cycle_id = h.join().unwrap().unwrap();
+        assert_eq!(506, current_cycle_id);
+    }
+
+    #[test]
+    fn invalid_reward_cycle_should_failure() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_current_reward_cycle());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"is_pox_active\":false}}",
+        );
+        let res = h.join().unwrap();
+        assert!(matches!(res, Err(ClientError::InvalidJsonEntry(_))));
     }
 
     #[test]
