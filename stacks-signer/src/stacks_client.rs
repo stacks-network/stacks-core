@@ -5,7 +5,10 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use clarity::vm::{
-    types::{serialization::SerializationError, SequenceData},
+    errors::Error as ClarityError,
+    types::{
+        serialization::SerializationError, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    },
     Value as ClarityValue, {ClarityName, ContractName},
 };
 use hashbrown::HashMap;
@@ -17,10 +20,7 @@ use stacks_common::{
     codec,
     codec::StacksMessageCodec,
     debug,
-    types::{
-        chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
-        Address,
-    },
+    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
     warn,
 };
 use wsts::{
@@ -85,7 +85,7 @@ pub enum ClientError {
     MalformedPoxResponse(String),
     /// Failed to serialize a Clarity value
     #[error("Failed to serialize Clarity value: {0}")]
-    ClaritySerializationError(#[from] SerializationError),
+    SerializationError(#[from] SerializationError),
     /// Failed to parse a Clarity value
     #[error("Recieved a malformed clarity value: {0}")]
     MalformedClarityValue(ClarityValue),
@@ -98,6 +98,9 @@ pub enum ClientError {
     /// Invalid Clarity Name
     #[error("Invalid Clarity Name: {0}")]
     InvalidClarityName(String),
+    /// Clarity error occurred
+    #[error("Clarity Error: {0}")]
+    ClarityError(#[from] ClarityError),
 }
 
 /// The Stacks signer client used to communicate with the stacker-db instance
@@ -178,9 +181,9 @@ impl StacksClient {
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-bitcoin-wallet-public-key";
+        let function_name_str = "get-bitcoin-wallet-public-key"; // TODO: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?; // TODO: this should be modified to match .pox-4
+            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
         let contract_response_hex = self.read_only_contract_call(
             &contract_addr,
@@ -191,15 +194,23 @@ impl StacksClient {
         self.parse_aggregate_public_key(&contract_response_hex)
     }
 
-    /// Retreive the DKG aggregate public key vote cast by the signer
-    pub fn get_aggregate_public_key_vote(&self) -> Result<Option<Point>, RPCError> {
-        let _burn_block_height = self.get_burn_block_height()?;
-        todo!("Make the read only contract call to retrieve the aggregate public key vote cast by the sender for a given block height")
-    }
-
-    /// Retreive the current burn block height
-    fn get_burn_block_height(&self) -> Result<u64, RPCError> {
-        todo!("Get the current burn block height from the stacks node")
+    /// Retreive the DKG aggregate public key vote of the signer
+    pub fn get_aggregate_public_key_vote(&self) -> Result<Option<Point>, ClientError> {
+        let reward_cycle = self.get_current_reward_cycle()?;
+        let function_name_str = "get-bitcoin-wallet-public-key-vote"; // TODO: this may need to be modified to match .pox-4
+        let function_name = ClarityName::try_from(function_name_str)
+            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let contract_response_hex = self.read_only_contract_call(
+            &contract_addr,
+            &contract_name,
+            &function_name,
+            &[
+                ClarityValue::from(PrincipalData::from(self.stacks_address)),
+                ClarityValue::UInt(reward_cycle as u128),
+            ],
+        )?;
+        self.parse_aggregate_public_key(&contract_response_hex)
     }
 
     /// Cast the DKG aggregate public key vote
@@ -294,36 +305,21 @@ impl StacksClient {
     /// Helper function to retrieve the pox contract address and name from the stacks node
     fn get_pox_contract(&self) -> Result<(StacksAddress, ContractName), ClientError> {
         let path = format!("{}/v2/pox", self.http_origin);
-        let json_response = self
-            .stacks_node_client
-            .get(path)
-            .send()?
-            .json::<serde_json::Value>()?;
+        let response = self.stacks_node_client.get(path).send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let json_response = response.json::<serde_json::Value>()?;
         let entry = "contract_id";
-        debug!("Response: {:?}", json_response);
-        let contract_id = json_response
+        let contract_id_string = json_response
             .get(entry)
             .map(|id: &serde_json::Value| id.to_string())
             .ok_or_else(|| ClientError::InvalidJsonEntry(entry.to_string()))?;
-
-        let split: Vec<_> = contract_id.splitn(2, '.').collect();
-        let contract_address_string = split
-            .first()
-            .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
-            .to_string();
-        let contract_address = StacksAddress::from_string(&contract_address_string)
-            .ok_or_else(|| ClientError::InvalidContractAddress(contract_address_string))?;
-
-        let contract_name_string = split
-            .get(1)
-            .ok_or_else(|| ClientError::MalformedPoxResponse(contract_id.clone()))?
-            .to_string();
-        let contract_name = ContractName::try_from(contract_name_string.clone())
-            .map_err(|_| ClientError::InvalidContractName(contract_name_string))?;
-        Ok((contract_address, contract_name))
+        let contract_id = QualifiedContractIdentifier::parse(&contract_id_string)?;
+        Ok((contract_id.issuer.into(), contract_id.name))
     }
 
-    /// Helper function for deserializing the aggregate public key clarity function response string
+    /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
     fn parse_aggregate_public_key(&self, hex: &str) -> Result<Option<Point>, ClientError> {
         let public_key_clarity_value = ClarityValue::try_deserialize_hex_untyped(hex)?;
         if let ClarityValue::Optional(optional_data) = public_key_clarity_value.clone() {
@@ -549,7 +545,7 @@ mod tests {
         write_response(config.mock_server, b"HTTP/1.1 400 Bad Request\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
-            dbg!(result),
+            result,
             Err(ClientError::RequestFailure(
                 reqwest::StatusCode::BAD_REQUEST
             ))
@@ -571,9 +567,24 @@ mod tests {
         write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
-            dbg!(result),
+            result,
             Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
         ));
+    }
+
+    #[test]
+    fn pox_contract_success() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_pox_contract());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\"}",
+        );
+        let (address, name) = h.join().unwrap().unwrap();
+        assert_eq!(
+            (address.to_string().as_str(), name.to_string().as_str()),
+            ("ST000000000000000000002AMW42H", "pox-3")
+        );
     }
 
     #[test]
@@ -603,10 +614,7 @@ mod tests {
         let config = TestConfig::new();
         let clarity_value_hex = "0x00";
         let result = config.client.parse_aggregate_public_key(clarity_value_hex);
-        assert!(matches!(
-            result,
-            Err(ClientError::ClaritySerializationError(..))
-        ));
+        assert!(matches!(result, Err(ClientError::SerializationError(..))));
         // TODO: add further tests for malformed clarity values (an optional of any other type for example)
     }
 }
