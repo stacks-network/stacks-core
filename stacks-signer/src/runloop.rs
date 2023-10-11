@@ -37,6 +37,8 @@ pub enum RunLoopCommand {
 #[derive(PartialEq, Debug)]
 pub enum State {
     // TODO: add a state for startup: such as Unitialized where it indicates we need to replay events/configure the signer
+    /// The runloop signer is unitialized
+    Unitialized,
     /// The runloop is idle
     Idle,
     /// The runloop is executing a DKG round
@@ -76,6 +78,7 @@ impl<C: Coordinatable> RunLoop<C> {
             // We have an aggregate public key. Check if we need to cast our vote
             // TODO: Add state to keep track of what contract calls we have made so we don't recast our vote needlessly and force blocks to include multiple of the same stx transactions
             // TODO: should I use ok() here or log some error?
+            debug!("Let us try to retrieve some shit");
             if self.stacks_client.get_aggregate_public_key().ok().is_none() {
                 // Note this is written under the assumption that if no conensus is reached in the contract, the pox contract will flush all votes and start over
                 match self.stacks_client.get_aggregate_public_key_vote() {
@@ -159,6 +162,31 @@ impl<C: Coordinatable> RunLoop<C> {
     /// Helper function to check the current state, process the next command in the queue, and update state accordingly
     fn process_next_command(&mut self) {
         match self.state {
+            State::Unitialized => {
+        // Load the aggregate public key from the stacks client if it is set
+        match self.stacks_client.get_aggregate_public_key() {
+            Ok(key) => {
+                if key.is_none() {
+                    // No aggregate public key. Check if we are the coordinator and trigger DKG accordingly
+                    // TODO: should replays messages in case we are in the middle of a DKG round and have already sent a DKG vote through...
+                    let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+                    if self.signing_round.signer_id == coordinator_id {
+                        self.commands.push_front(RunLoopCommand::Dkg);
+                    }
+                } else {
+                    self.coordinator.set_aggregate_public_key(key);
+                }
+                self.state = State::Idle;
+            }
+            Err(e) => {
+                // TODO: is this a fatal error? If we fail at startup to access the stacks client to see if DKG was set...this seems pretty fatal..
+                panic!(
+                    "Failed to load aggregate public key from stacks client: {:?}",
+                    e
+                );
+            }
+        }
+            }
             State::Idle => {
                 if let Some(command) = self.commands.pop_front() {
                     while !self.execute_command(&command) {
@@ -246,7 +274,7 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .iter()
             .map(|i| i - 1) // SigningRound::new (unlike SigningRound::from) doesn't do this
             .collect::<Vec<u32>>();
-        let mut coordinator = FrostCoordinator::new(
+        let coordinator = FrostCoordinator::new(
             total_signers,
             total_keys,
             threshold,
@@ -262,36 +290,13 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             config.signer_ids_public_keys.clone(),
         );
         let stacks_client = StacksClient::from(config);
-        let mut commands = VecDeque::new();
-        // Load the aggregate public key from the stacks client if it is set
-        match stacks_client.get_aggregate_public_key() {
-            Ok(key) => {
-                if key.is_none() {
-                    // No aggregate public key. Check if we are the coordinator and trigger DKG accordingly
-                    // TODO: should replays messages in case we are in the middle of a DKG round and have already sent a DKG vote through...
-                    let (coordinator_id, _) = calculate_coordinator(&signing_round.public_keys);
-                    if config.signer_id == coordinator_id {
-                        commands.push_front(RunLoopCommand::Dkg);
-                    }
-                } else {
-                    coordinator.set_aggregate_public_key(key);
-                }
-            }
-            Err(e) => {
-                // TODO: is this a fatal error? If we fail at startup to access the stacks client to see if DKG was set...this seems pretty fatal..
-                panic!(
-                    "Failed to load aggregate public key from stacks client: {:?}",
-                    e
-                );
-            }
-        }
         RunLoop {
             event_timeout: config.event_timeout,
             coordinator,
             signing_round,
             stacks_client,
-            commands,
-            state: State::Idle,
+            commands: VecDeque::new(),
+            state: State::Unitialized,
         }
     }
 }
