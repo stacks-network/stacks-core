@@ -219,7 +219,6 @@ impl StacksClient {
     /// Cast the DKG aggregate public key vote
     pub fn cast_aggregate_public_key_vote(&self, vote: Point) -> Result<Txid, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let nonce = self.get_last_unconfirmed_nonce()? + 1;
         let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
@@ -228,14 +227,7 @@ impl StacksClient {
             ClarityValue::buff_from(vote.compress().as_bytes().to_vec())?,
             ClarityValue::UInt(reward_cycle as u128),
         ];
-        let transaction = self.transaction_contract_call(
-            nonce,
-            &contract_addr,
-            contract_name,
-            function_name,
-            function_args,
-        )?;
-        self.submit_tx(transaction)
+        self.transaction_contract_call(&contract_addr, contract_name, function_name, function_args)
     }
 
     /// Retrieve the total number of slots allocated to a stacker-db writer
@@ -244,77 +236,6 @@ impl StacksClient {
         // TODO: retrieve this from the stackerdb instance and make it a function of a given signer public key
         // See: https://github.com/stacks-network/stacks-blockchain/issues/3921
         SLOTS_PER_USER
-    }
-
-    fn serialize_sign_sig_tx_anchor_mode_version(
-        &self,
-        payload: TransactionPayload,
-        sender_nonce: u64,
-        tx_fee: u64,
-        anchor_mode: TransactionAnchorMode,
-    ) -> Result<Vec<u8>, ClientError> {
-        self.seralize_sign_sponsored_tx_anchor_mode_version(
-            payload,
-            None,
-            sender_nonce,
-            None,
-            tx_fee,
-            anchor_mode,
-        )
-    }
-
-    fn seralize_sign_sponsored_tx_anchor_mode_version(
-        &self,
-        payload: TransactionPayload,
-        payer: Option<&StacksPrivateKey>,
-        sender_nonce: u64,
-        payer_nonce: Option<u64>,
-        tx_fee: u64,
-        anchor_mode: TransactionAnchorMode,
-    ) -> Result<Vec<u8>, ClientError> {
-        let pubkey = StacksPublicKey::from_private(&self.stacks_private_key);
-        let mut sender_spending_condition =
-            TransactionSpendingCondition::new_singlesig_p2pkh(pubkey).ok_or(
-                ClientError::FailureToCreateSpendingFromPublicKey(pubkey.to_hex()),
-            )?;
-        sender_spending_condition.set_nonce(sender_nonce);
-
-        let auth = match (payer, payer_nonce) {
-            (Some(payer), Some(payer_nonce)) => {
-                let pubkey = StacksPublicKey::from_private(payer);
-                let mut payer_spending_condition =
-                    TransactionSpendingCondition::new_singlesig_p2pkh(pubkey).ok_or(
-                        ClientError::FailureToCreateSpendingFromPublicKey(pubkey.to_hex()),
-                    )?;
-                payer_spending_condition.set_nonce(payer_nonce);
-                payer_spending_condition.set_tx_fee(tx_fee);
-                TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
-            }
-            _ => {
-                sender_spending_condition.set_tx_fee(tx_fee);
-                TransactionAuth::Standard(sender_spending_condition)
-            }
-        };
-        let mut unsigned_tx = StacksTransaction::new(self.tx_version, auth, payload);
-        unsigned_tx.anchor_mode = anchor_mode;
-        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-        unsigned_tx.chain_id = self.chain_id;
-
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        tx_signer
-            .sign_origin(&self.stacks_private_key)
-            .map_err(|_| ClientError::SignatureGenerationFailure)?;
-        if let (Some(payer), Some(_)) = (payer, payer_nonce) {
-            tx_signer
-                .sign_sponsor(payer)
-                .map_err(|_| ClientError::SponsorSignatureGenerationFailure)?;
-        }
-
-        let Some(tx) = tx_signer.get_tx() else {
-            return Err(ClientError::SignatureGenerationFailure);
-        };
-
-        Ok(tx.serialize_to_vec())
     }
 
     /// Helper function to retrieve the current reward cycle number from the stacks node
@@ -332,9 +253,9 @@ impl StacksClient {
             .ok_or_else(|| ClientError::InvalidJsonEntry(format!("{}.id", entry)))
     }
 
-    /// Helper function to retrieve the last unconfirmed nonce for the signer from the stacks node
-    fn get_last_unconfirmed_nonce(&self) -> Result<u64, ClientError> {
-        todo!("Get the current reward cycle from the stacks node")
+    /// Helper function to retrieve the next possible nonce for the signer from the stacks node
+    fn get_next_possible_nonce(&self) -> Result<u64, ClientError> {
+        todo!("Get the next possible nonce from the stacks node")
     }
 
     /// Helper function to retrieve the pox contract address and name from the stacks node
@@ -372,31 +293,47 @@ impl StacksClient {
         }
     }
 
-    /// Creates a transaction for a contract call that can be submitted to a stacks node
+    /// Sends a transaction to the stacks node for a modifying contract call
     fn transaction_contract_call(
         &self,
-        nonce: u64,
         contract_addr: &StacksAddress,
         contract_name: ContractName,
         function_name: ClarityName,
         function_args: &[ClarityValue],
-    ) -> Result<Vec<u8>, ClientError> {
-        let payload = TransactionContractCall {
+    ) -> Result<Txid, ClientError> {
+        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
             address: *contract_addr,
             contract_name,
             function_name,
             function_args: function_args.to_vec(),
-        };
+        });
+        let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
+        let tx_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
+                ClientError::FailureToCreateSpendingFromPublicKey(public_key.to_hex()),
+            )?,
+        );
+
+        let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
 
         // Because signers are given priority, we can put down a tx fee of 0
-        let tx_fee = 0;
+        unsigned_tx.set_tx_fee(0);
+        unsigned_tx.set_origin_nonce(self.get_next_possible_nonce()?);
 
-        self.serialize_sign_sig_tx_anchor_mode_version(
-            payload.into(),
-            nonce,
-            tx_fee,
-            TransactionAnchorMode::OnChainOnly,
-        )
+        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = self.chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer
+            .sign_origin(&self.stacks_private_key)
+            .map_err(|_| ClientError::SignatureGenerationFailure)?;
+
+        let signed_tx = tx_signer
+            .get_tx()
+            .ok_or(ClientError::SignatureGenerationFailure)?;
+
+        self.submit_tx(signed_tx.serialize_to_vec())
     }
 
     /// Helper function to submit a transaction to the Stacks node
