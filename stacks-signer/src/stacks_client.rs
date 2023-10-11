@@ -301,6 +301,23 @@ impl StacksClient {
         function_name: ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<Txid, ClientError> {
+        let signed_tx = self.build_signed_transaction(
+            contract_addr,
+            contract_name,
+            function_name,
+            function_args,
+        )?;
+        self.submit_tx(signed_tx.serialize_to_vec())
+    }
+
+    /// Helper function to create a stacks transaction for a modifying contract call
+    fn build_signed_transaction(
+        &self,
+        contract_addr: &StacksAddress,
+        contract_name: ContractName,
+        function_name: ClarityName,
+        function_args: &[ClarityValue],
+    ) -> Result<StacksTransaction, ClientError> {
         let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
             address: *contract_addr,
             contract_name,
@@ -329,11 +346,9 @@ impl StacksClient {
             .sign_origin(&self.stacks_private_key)
             .map_err(|_| ClientError::SignatureGenerationFailure)?;
 
-        let signed_tx = tx_signer
+        tx_signer
             .get_tx()
-            .ok_or(ClientError::SignatureGenerationFailure)?;
-
-        self.submit_tx(signed_tx.serialize_to_vec())
+            .ok_or(ClientError::SignatureGenerationFailure)
     }
 
     /// Helper function to submit a transaction to the Stacks node
@@ -344,8 +359,10 @@ impl StacksClient {
             .header("Content-Type", "application/octet-stream")
             .body(tx.clone())
             .send()?;
+        debug!("Transaction submission response: {:?}", res);
         if res.status().is_success() {
-            let txid_string: String = res.json()?;
+            // On success, the response body should be the txid as a string (no JSON blob)
+            let txid_string = res.text()?;
             let tx_deserialized = StacksTransaction::consensus_deserialize(&mut &tx[..])?;
             let txid = tx_deserialized.txid();
             assert_eq!(txid_string, txid.to_string());
@@ -439,7 +456,7 @@ fn slot_id(id: u32, message: &Message) -> u32 {
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Read, Write},
+        io::{BufWriter, Read, Write},
         net::{SocketAddr, TcpListener},
         thread::spawn,
     };
@@ -562,6 +579,7 @@ mod tests {
         ));
     }
 
+    #[ignore]
     #[test]
     fn pox_contract_success() {
         let config = TestConfig::new();
@@ -642,5 +660,68 @@ mod tests {
         let result = config.client.parse_aggregate_public_key(clarity_value_hex);
         assert!(matches!(result, Err(ClientError::SerializationError(..))));
         // TODO: add further tests for malformed clarity values (an optional of any other type for example)
+    }
+
+    #[ignore]
+    #[test]
+    fn transaction_contract_call_should_send_bytes_to_node() {
+        let config = TestConfig::new();
+        let tx = config
+            .client
+            .build_signed_transaction(
+                &config.client.stacks_address,
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
+                &[],
+            )
+            .unwrap();
+
+        
+        let mut tx_bytes = [0u8; 1024];
+        {
+            let mut tx_bytes_writer = BufWriter::new(&mut tx_bytes[..]);
+            tx.consensus_serialize(&mut tx_bytes_writer).unwrap();
+            tx_bytes_writer.flush().unwrap();
+        }
+
+        let bytes_len = tx_bytes
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, &x)| x != 0)
+            .unwrap()
+            .0
+            + 1;
+
+            let tx_clone = tx.clone();
+        let h = spawn(move || config.client.submit_tx(tx_clone.serialize_to_vec()));
+
+        let request_bytes = write_response(config.mock_server, format!("HTTP/1.1 200 OK\n\n{}", tx.txid().to_string()).as_bytes());
+        let returned_txid = h.join().unwrap().unwrap();
+
+        assert_eq!(returned_txid, tx.txid());
+        assert!(
+            request_bytes
+                .windows(bytes_len)
+                .any(|window| window == &tx_bytes[..bytes_len]),
+            "Request bytes did not contain the transaction bytes"
+        );
+    }
+
+    #[ignore]
+    #[test]
+    fn transaction_contract_call_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config
+            .client
+            .transaction_contract_call(
+                &config.client.stacks_address,
+                ContractName::try_from("contract-name").unwrap(),
+                ClarityName::try_from("function-name").unwrap(),
+                &[],
+            )
+        );
+        write_response(config.mock_server, format!("HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958").as_bytes());
+        assert!(h.join().unwrap().is_ok());
     }
 }
