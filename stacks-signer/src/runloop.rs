@@ -163,29 +163,30 @@ impl<C: Coordinatable> RunLoop<C> {
     fn process_next_command(&mut self) {
         match self.state {
             State::Unitialized => {
-        // Load the aggregate public key from the stacks client if it is set
-        match self.stacks_client.get_aggregate_public_key() {
-            Ok(key) => {
-                if key.is_none() {
-                    // No aggregate public key. Check if we are the coordinator and trigger DKG accordingly
-                    // TODO: should replays messages in case we are in the middle of a DKG round and have already sent a DKG vote through...
-                    let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
-                    if self.signing_round.signer_id == coordinator_id {
-                        self.commands.push_front(RunLoopCommand::Dkg);
+                // Load the aggregate public key from the stacks client if it is set
+                match self.stacks_client.get_aggregate_public_key() {
+                    Ok(key) => {
+                        if key.is_none() {
+                            // No aggregate public key. Check if we are the coordinator and trigger DKG accordingly
+                            // TODO: should replays messages in case we are in the middle of a DKG round and have already sent a DKG vote through...
+                            let (coordinator_id, _) =
+                                calculate_coordinator(&self.signing_round.public_keys);
+                            if self.signing_round.signer_id == coordinator_id {
+                                self.commands.push_front(RunLoopCommand::Dkg);
+                            }
+                        } else {
+                            self.coordinator.set_aggregate_public_key(key);
+                        }
+                        self.state = State::Idle;
                     }
-                } else {
-                    self.coordinator.set_aggregate_public_key(key);
+                    Err(e) => {
+                        // TODO: is this a fatal error? If we fail at startup to access the stacks client to see if DKG was set...this seems pretty fatal..
+                        panic!(
+                            "Failed to load aggregate public key from stacks client: {:?}",
+                            e
+                        );
+                    }
                 }
-                self.state = State::Idle;
-            }
-            Err(e) => {
-                // TODO: is this a fatal error? If we fail at startup to access the stacks client to see if DKG was set...this seems pretty fatal..
-                panic!(
-                    "Failed to load aggregate public key from stacks client: {:?}",
-                    e
-                );
-            }
-        }
             }
             State::Idle => {
                 if let Some(command) = self.commands.pop_front() {

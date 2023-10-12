@@ -94,12 +94,9 @@ pub enum ClientError {
     /// Failed to parse a Clarity value
     #[error("Recieved a malformed clarity value: {0}")]
     MalformedClarityValue(ClarityValue),
-    /// Invalid Contract Name
-    #[error("Invalid Contract Name: {0}")]
-    InvalidContractName(String),
-    /// Invalid Contract Address
-    #[error("Invalid Contract Address: {0}")]
-    InvalidContractAddress(String),
+    /// Invalid Contract ID
+    #[error("Invalid Contract ID: {0}")]
+    InvalidContractID(String),
     /// Invalid Clarity Name
     #[error("Invalid Clarity Name: {0}")]
     InvalidClarityName(String),
@@ -283,10 +280,10 @@ impl StacksClient {
         let entry = "contract_id";
         let contract_id_string = json_response
             .get(entry)
-            .map(|id: &serde_json::Value| id.to_string())
+            .and_then(|id: &serde_json::Value| id.as_str())
             .ok_or_else(|| ClientError::InvalidJsonEntry(entry.to_string()))?;
-        let contract_id = QualifiedContractIdentifier::parse(&contract_id_string)?;
-        Ok((contract_id.issuer.into(), contract_id.name))
+        let id = QualifiedContractIdentifier::parse(contract_id_string).unwrap();
+        Ok((id.issuer.into(), id.name))
     }
 
     /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
@@ -624,7 +621,6 @@ mod tests {
         ));
     }
 
-    #[ignore]
     #[test]
     fn pox_contract_success() {
         let config = TestConfig::new();
