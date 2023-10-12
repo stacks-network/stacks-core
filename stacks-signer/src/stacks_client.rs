@@ -126,6 +126,8 @@ pub struct StacksClient {
     chain_id: u32,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
+    /// The pox contract ID
+    pox_contract_id: Option<QualifiedContractIdentifier>,
 }
 
 impl From<&Config> for StacksClient {
@@ -142,6 +144,7 @@ impl From<&Config> for StacksClient {
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
+            pox_contract_id: config.pox_contract_id.clone(),
         }
     }
 }
@@ -267,6 +270,10 @@ impl StacksClient {
 
     /// Helper function to retrieve the pox contract address and name from the stacks node
     fn get_pox_contract(&self) -> Result<(StacksAddress, ContractName), ClientError> {
+        // Check if we have overwritten the pox contract ID in the config
+        if let Some(pox_contract) = self.pox_contract_id.clone() {
+            return Ok((pox_contract.issuer.into(), pox_contract.name));
+        }
         debug!("Retrieving pox contract ID...");
         // TODO: we may want to cache the pox contract inside the client itself (calling this function once on init)
         let send_request = || {

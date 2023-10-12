@@ -60,6 +60,7 @@ fn setup_stx_btc_node(
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     stackerdb_contract: &str,
+    pox_contract: &str,
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     for toml in signer_config_tomls {
@@ -133,7 +134,21 @@ fn setup_stx_btc_node(
     submit_tx(&http_origin, &tx);
 
     // mine it
-    info!("Mine it...");
+    info!("Mining stackerdb contract...");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tx = make_contract_publish(
+        &signer_stacks_private_keys[0],
+        1,
+        10_000,
+        "pox-4",
+        pox_contract,
+    );
+    submit_tx(&http_origin, &tx);
+
+    // mine it
+    info!("Mining pox contract...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -143,6 +158,52 @@ fn setup_stx_btc_node(
         join_handle,
         conf: conf.clone(),
     }
+}
+
+/// Helper function for building our fake pox contract
+pub fn build_pox_contract(num_signers: u32) -> String {
+    let mut pox_contract = String::new(); // "
+    pox_contract += r#"
+;; data vars
+;;
+(define-data-var bitcoin-wallet-public-key (optional (buff 33)) none)
+"#;
+    pox_contract += &format!("(define-data-var num-signers uint u{num_signers})\n");
+    pox_contract += r#"
+(define-data-var num-voted uint u0)
+
+;; data maps
+;;
+(define-map vote-per-signer {signer: (principal)} {candidate: (buff 33) })
+
+
+;; read only functions
+;;
+
+(define-read-only (get-bitcoin-wallet-public-key (reward-cycle uint))
+    (var-get bitcoin-wallet-public-key)
+)
+
+(define-read-only (get-bitcoin-wallet-public-key-vote (signer principal) (reward-cycle uint))
+    (map-get? vote-per-signer signer)
+)
+
+;; public functions
+;;
+(define-public (cast-bitcoin-wallet-public-key-vote (public-key (buff 33) (reward-cycle uint)))
+    (begin
+        (var-set num-voted (+ (var-get num-voted) 1))
+        (map-set vote-per-signer {public_key: tx-sender} {candidate: public-key})
+        (if (is-eq (var-get num-voted) num-signers)
+        (begin
+            (var-set bitcoin-wallet-public-key (some public-key))
+            (var-get bitcoin-wallet-public-key)
+        (ok none))
+        (ok none))
+    )
+)
+"#;
+    pox_contract
 }
 
 #[test]
@@ -170,9 +231,15 @@ fn test_stackerdb_dkg() {
     // Setup the neon node
     let (mut conf, _) = neon_integration_test_conf();
 
+    // Build our simulated pox-4 stacks contract TODO: replace this with the real deal?
+    let pox_contract = build_pox_contract(num_signers);
+    let pox_contract_id = QualifiedContractIdentifier::new(
+        to_addr(&signer_stacks_private_keys[0]).into(),
+        "pox-4".into(),
+    );
     // Build the stackerdb contract
     let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
-    let contract_id =
+    let stacker_db_contract_id =
         QualifiedContractIdentifier::new(signer_stacks_addresses[0].into(), "hello-world".into());
 
     // Setup the signer and coordinator configurations
@@ -180,7 +247,8 @@ fn test_stackerdb_dkg() {
         &signer_stacks_private_keys,
         num_keys,
         &conf.node.rpc_bind,
-        &contract_id.to_string(),
+        &stacker_db_contract_id.to_string(),
+        Some(&pox_contract_id.to_string()),
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
     );
 
@@ -216,6 +284,7 @@ fn test_stackerdb_dkg() {
             num_signers,
             &signer_stacks_private_keys,
             &stackerdb_contract,
+            &pox_contract,
             &signer_configs,
         );
 

@@ -36,7 +36,7 @@ pub enum RunLoopCommand {
 /// The RunLoop state
 #[derive(PartialEq, Debug)]
 pub enum State {
-    // TODO: add a state for startup: such as Unitialized where it indicates we need to replay events/configure the signer
+    // TODO: Unitialized should indicate we need to replay events/configure the signer
     /// The runloop signer is unitialized
     Unitialized,
     /// The runloop is idle
@@ -180,7 +180,7 @@ impl<C: Coordinatable> RunLoop<C> {
                         self.state = State::Idle;
                     }
                     Err(e) => {
-                        // TODO: is this a fatal error? If we fail at startup to access the stacks client to see if DKG was set...this seems pretty fatal..
+                        // TODO:do a backoff retry here. This could fail because of node spinning up.
                         panic!(
                             "Failed to load aggregate public key from stacks client: {:?}",
                             e
@@ -355,7 +355,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         if self.should_run_dkg() {
             // Add it to the front of the queue so it is set before any other commands get processed!
             debug!("DKG has not run and needs to be queued. Adding it to the front of the queue.");
-            self.commands.push_back(RunLoopCommand::Dkg);
+            self.commands.push_front(RunLoopCommand::Dkg);
         }
         // The process the next command
         // Must be called AFTER processing the event as the state may update to IDLE due to said event.
