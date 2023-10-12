@@ -14,18 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-use std::fs;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::path::PathBuf;
-use std::time::Duration;
-
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use p256k1::ecdsa;
 use p256k1::scalar::Scalar;
 use serde::Deserialize;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::{
+    address::{
+        AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    },
+    consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET},
+    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+};
+use std::{
+    convert::TryFrom,
+    fs,
+    net::{SocketAddr, ToSocketAddrs},
+    path::PathBuf,
+    time::Duration,
+};
 use wsts::state_machine::PublicKeys;
 
 /// List of key_ids for each signer_id
@@ -45,6 +54,9 @@ pub enum ConfigError {
     /// A field was malformed
     #[error("identifier={0}, value={1}")]
     BadField(String, String),
+    /// An unsupported address version
+    #[error("Failed to convert private key to address: unsupported address version.")]
+    UnsupportedAddressVersion,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -55,6 +67,32 @@ pub enum Network {
     Mainnet,
     /// The testnet network
     Testnet,
+}
+
+impl Network {
+    /// Converts a Network enum variant to a corresponding chain id
+    pub fn to_chain_id(&self) -> u32 {
+        match self {
+            Self::Mainnet => CHAIN_ID_MAINNET,
+            Self::Testnet => CHAIN_ID_TESTNET,
+        }
+    }
+
+    /// Convert a Network enum variant to a corresponding address version
+    pub fn to_address_version(&self) -> u8 {
+        match self {
+            Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Self::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        }
+    }
+
+    /// Convert a Network enum variant to a Transaction Version
+    pub fn to_transaction_version(&self) -> TransactionVersion {
+        match self {
+            Self::Mainnet => TransactionVersion::Mainnet,
+            Self::Testnet => TransactionVersion::Testnet,
+        }
+    }
 }
 
 /// The parsed configuration for the signer
@@ -69,9 +107,11 @@ pub struct Config {
     pub message_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
+    /// The signer's Stacks address
+    pub stacks_address: StacksAddress,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    /// The signer ID and key ids mapped to a pulbic key
+    /// The signer ID and key ids mapped to a public key
     pub signer_ids_public_keys: PublicKeys,
     /// The signer IDs mapped to their Key IDs
     pub signer_key_ids: SignerKeyIds,
@@ -191,6 +231,14 @@ impl TryFrom<RawConfigFile> for Config {
                     raw_data.stacks_private_key.clone(),
                 )
             })?;
+        let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
+        let stacks_address = StacksAddress::from_public_keys(
+            raw_data.network.to_address_version(),
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![stacks_public_key],
+        )
+        .ok_or(ConfigError::UnsupportedAddressVersion)?;
         let mut public_keys = PublicKeys::default();
         let mut signer_key_ids = SignerKeyIds::default();
         for (i, s) in raw_data.signers.iter().enumerate() {
@@ -221,6 +269,7 @@ impl TryFrom<RawConfigFile> for Config {
             stackerdb_contract_id,
             message_private_key,
             stacks_private_key,
+            stacks_address,
             network: raw_data.network,
             signer_ids_public_keys: public_keys,
             signer_id: raw_data.signer_id,
