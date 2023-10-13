@@ -543,6 +543,9 @@ const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
 const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
 
+/// Return the number of bytes required to representation of a value of the
+/// type `ty`. For in-memory types, this is just the size of the offset and
+/// length. For non-in-memory types, this is the size of the value itself.
 pub fn get_type_size(ty: &TypeSignature) -> i32 {
     match ty {
         TypeSignature::IntType | TypeSignature::UIntType => 16, // low: i64, high: i64
