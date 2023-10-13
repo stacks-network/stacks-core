@@ -21,17 +21,12 @@ pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
+#[derive(Default)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
 impl_byte_array_serde!(TrieHash);
-
-impl Default for TrieHash {
-    fn default() -> TrieHash {
-        TrieHash([0x00; 32])
-    }
-}
 
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
@@ -83,7 +78,7 @@ impl SortitionId {
 
     pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
         if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
+            SortitionId(bhh.0)
         } else {
             let mut hasher = Sha512_256::new();
             hasher.update(bhh);
@@ -130,6 +125,10 @@ impl PoxId {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
@@ -219,7 +218,7 @@ impl StacksMessageCodec for StacksAddress {
         let version: u8 = read_next(fd)?;
         let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {
-            version: version,
+            version,
             bytes: hash160,
         })
     }
