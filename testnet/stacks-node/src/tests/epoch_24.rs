@@ -13,12 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
-    submit_tx, test_observer, wait_for_runloop,
-};
-use crate::tests::{make_contract_call, to_addr};
+use std::collections::HashMap;
+use std::{env, thread};
+
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
@@ -28,22 +25,25 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
-use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use std::collections::HashMap;
-use std::{env, thread};
-
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::{neon, BitcoinRegtestController, BurnchainController};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
-
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::types::Address;
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::neon_integrations::{
+    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
+    submit_tx, test_observer, wait_for_runloop,
+};
+use crate::tests::{make_contract_call, to_addr};
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
 pub fn get_reward_set_entries_at_block(

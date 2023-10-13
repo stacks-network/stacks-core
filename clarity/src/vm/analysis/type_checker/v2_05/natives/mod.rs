@@ -14,12 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+
 use stacks_common::types::StacksEpochId;
 
 use super::{
     check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypeResult, TypingContext,
 };
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
+    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
+};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
@@ -28,12 +34,6 @@ use crate::vm::types::{
     MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
-use std::convert::TryFrom;
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
-};
 
 mod assets;
 mod maps;
@@ -301,15 +301,15 @@ fn check_special_set_var(
         &mut checker.cost_track,
         expected_value_type.type_size()?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
+    analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
-        return Err(CheckError::new(CheckErrors::TypeError(
+        Err(CheckError::new(CheckErrors::TypeError(
             expected_value_type.clone(),
             value_type,
-        )));
+        )))
     } else {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     }
 }
 
@@ -371,14 +371,14 @@ fn check_contract_call(
             // Static dispatch
             let contract_call_function = {
                 if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(
-                    &contract_identifier,
+                    contract_identifier,
                     func_name,
                     &StacksEpochId::Epoch2_05,
                 )? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
-                        &contract_identifier,
+                        contract_identifier,
                         func_name,
                         &StacksEpochId::Epoch2_05,
                     )?
@@ -524,7 +524,7 @@ fn check_get_block_info(
         block_info_prop_str.to_string(),
     )))?;
 
-    checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }

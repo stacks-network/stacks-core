@@ -117,7 +117,7 @@ impl<S: SimpleEncoder> ConsensusEncodable<S> for VarInt {
             }
             _ => {
                 s.emit_u8(0xFF)?;
-                (self.0 as u64).consensus_encode(s)
+                (self.0).consensus_encode(s)
             }
         }
     }
@@ -242,7 +242,7 @@ impl<S: SimpleEncoder, T: ConsensusEncodable<S>> ConsensusEncodable<S> for [T] {
 impl<S: SimpleEncoder, T: ConsensusEncodable<S>> ConsensusEncodable<S> for Vec<T> {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
-        (&self[..]).consensus_encode(s)
+        (self[..]).consensus_encode(s)
     }
 }
 
@@ -270,7 +270,7 @@ impl<D: SimpleDecoder, T: ConsensusDecodable<D>> ConsensusDecodable<D> for Vec<T
 impl<S: SimpleEncoder, T: ConsensusEncodable<S>> ConsensusEncodable<S> for Box<[T]> {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
-        (&self[..]).consensus_encode(s)
+        (self[..]).consensus_encode(s)
     }
 }
 
@@ -449,7 +449,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::{CheckedData, VarInt};
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize, Error};
 
     #[test]

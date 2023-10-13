@@ -49,46 +49,44 @@ pub mod tests;
 #[cfg(any(test, feature = "testing"))]
 pub mod test_util;
 
+#[allow(clippy::result_large_err)]
 pub mod clarity;
 
+use std::collections::BTreeMap;
+use std::convert::{TryFrom, TryInto};
+
 use serde_json;
+use stacks_common::types::StacksEpochId;
 
-// publish the non-generic StacksEpoch form for use throughout module
-use crate::types::StacksEpochId;
-pub use crate::vm::database::clarity_db::StacksEpoch;
-
+use self::analysis::ContractAnalysis;
+use self::ast::{ASTRules, ContractAST};
+use self::costs::ExecutionCost;
+use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
 use crate::vm::contexts::GlobalContext;
-pub use crate::vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
+pub use crate::vm::contexts::{
+    CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
+};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,
 };
+// publish the non-generic StacksEpoch form for use throughout module
+pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::functions::define::DefineResult;
+pub use crate::vm::functions::stx_transfer_consolidated;
+pub use crate::vm::representations::{
+    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
+};
 pub use crate::vm::types::Value;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
 };
-
-pub use crate::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
-};
-
-pub use crate::vm::contexts::MAX_CONTEXT_DEPTH;
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::version::ClarityVersion;
-use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
-
-use self::analysis::ContractAnalysis;
-use self::ast::ASTRules;
-use self::ast::ContractAST;
-use self::costs::ExecutionCost;
-use self::diagnostic::Diagnostic;
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -175,33 +173,31 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             name
         ))
         .into())
+    } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        Ok(value)
     } else {
-        if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        runtime_cost(
+            ClarityCostFunction::LookupVariableDepth,
+            env,
+            context.depth(),
+        )?;
+        if let Some(value) = context.lookup_variable(name) {
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
+            Ok(value.clone())
+        } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
+            let (value, _) =
+                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value), value)
+                    .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
             Ok(value)
-        } else {
-            runtime_cost(
-                ClarityCostFunction::LookupVariableDepth,
-                env,
-                context.depth(),
-            )?;
-            if let Some(value) = context.lookup_variable(name) {
-                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
-                Ok(value.clone())
-            } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
-                let (value, _) =
-                    Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value), value)
-                        .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
-                Ok(value)
-            } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-                if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-                    Ok(callable_data.contract_identifier.clone().into())
-                } else {
-                    Ok(Value::CallableContract(callable_data.clone()))
-                }
+        } else if let Some(callable_data) = context.lookup_callable_contract(name) {
+            if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+                Ok(callable_data.contract_identifier.clone().into())
             } else {
-                Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+                Ok(Value::CallableContract(callable_data.clone()))
             }
+        } else {
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -241,10 +237,7 @@ pub fn apply(
     //        only enough to do recursion detection.
 
     // do recursion check on user functions.
-    let track_recursion = match function {
-        CallableType::UserFunction(_) => true,
-        _ => false,
-    };
+    let track_recursion = matches!(function, CallableType::UserFunction(_));
 
     if track_recursion && env.call_stack.contains(&identifier) {
         return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into());
@@ -314,9 +307,9 @@ pub fn apply(
     }
 }
 
-pub fn eval<'a>(
+pub fn eval(
     exp: &SymbolicExpression,
-    env: &'a mut Environment,
+    env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
     use crate::vm::representations::SymbolicExpressionType::{
@@ -332,7 +325,7 @@ pub fn eval<'a>(
 
     let res = match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
-        Atom(ref value) => lookup_variable(&value, context, env),
+        Atom(ref value) => lookup_variable(value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children
                 .split_first()
@@ -341,8 +334,8 @@ pub fn eval<'a>(
             let function_name = function_variable
                 .match_atom()
                 .ok_or(CheckErrors::BadFunctionName)?;
-            let f = lookup_function(&function_name, env)?;
-            apply(&f, &rest, env, context)
+            let f = lookup_function(function_name, env)?;
+            apply(&f, rest, env, context)
         }
         TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
     };
@@ -360,10 +353,8 @@ pub fn eval<'a>(
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
-    } else if variables::is_reserved_name(name, version) {
-        true
     } else {
-        false
+        variables::is_reserved_name(name, version)
     }
 }
 
@@ -587,23 +578,21 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use crate::types::StacksEpochId;
+    use std::collections::HashMap;
+
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::RuntimeErrorType;
-    use crate::vm::eval;
-    use crate::vm::execute;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-        Value,
+        eval, execute, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
+        SymbolicExpression, Value,
     };
-    use std::collections::HashMap;
-
-    use super::ClarityVersion;
-
-    use stacks_common::consts::CHAIN_ID_TESTNET;
 
     #[test]
     fn test_simple_user_function() {
@@ -630,7 +619,7 @@ mod test {
             func_body,
             DefineType::Private,
             &"do_work".into(),
-            &"",
+            "",
         );
 
         let context = LocalContext::new();

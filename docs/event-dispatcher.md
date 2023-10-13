@@ -458,3 +458,29 @@ Example:
   ]
 }
 ```
+
+### `POST /stackerdb_chunks`
+
+This payload includes data related to a single mutation to a StackerDB replica
+that this node subscribes to.  The data will only get sent here if the
+corresponding chunk has already been successfully stored.  The data includes the
+chunk ID, chunk version, smart contract ID, signature, and data.
+
+This endpoint broadcasts events to `AnyEvent` observers, as well as to
+`StackerDBChunks` observers.
+
+Example:
+
+```json
+{
+   "contract_id": "STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW.hello-world",
+   "modified_slots": [
+      {
+         "slot_id": 4,
+         "slot_version": 1,
+         "signature": "0073feb0a3b8794c95042ac23734eb0db226049665a52a4f7402499256c83d43dd4edf6eb2cb039d7f204b4c4076afde96aca143ea285ff40f10ed68cc6e5fcbc2",
+         "data": "68656c6c6f20776f726c64"
+      }
+   ]
+}
+```

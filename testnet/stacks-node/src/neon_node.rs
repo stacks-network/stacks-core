@@ -138,92 +138,79 @@
 ///
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
-use std::mem;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{thread, thread::JoinHandle};
+use std::{mem, thread};
 
-use stacks::burnchains::{
-    db::BurnchainHeaderReader, Burnchain, BurnchainParameters, BurnchainSigner, Txid,
-};
+use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::burnchains::db::BurnchainHeaderReader;
+use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
-use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::StacksHeaderInfo;
-use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
-use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::{
-    miner::get_mining_spend_amount, miner::signal_mining_blocked, miner::signal_mining_ready,
-    miner::BlockBuilderSettings, miner::MinerStatus, miner::StacksMicroblockBuilder,
-    StacksBlockBuilder, StacksBlockHeader,
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
+use stacks::chainstate::stacks::miner::{
+    get_mining_spend_amount, signal_mining_blocked, signal_mining_ready, BlockBuilderSettings,
+    MinerStatus, StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
+    StacksMicroblock, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_4_MARKER;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
-use stacks::cost_estimates::{CostEstimator, FeeEstimator};
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER};
+use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
+use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
-use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB},
-    db::{LocalPeer, PeerDB},
-    dns::DNSClient,
-    dns::DNSResolver,
-    p2p::PeerNetwork,
-    relay::Relayer,
-    rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
-};
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
-};
-use stacks::types::StacksEpochId;
-use stacks::util::get_epoch_time_ms;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
+use stacks::net::atlas::{AtlasConfig, AtlasDB};
+use stacks::net::db::{LocalPeer, PeerDB};
+use stacks::net::dns::{DNSClient, DNSResolver};
+use stacks::net::p2p::PeerNetwork;
+use stacks::net::relay::Relayer;
+use stacks::net::rpc::RPCHandlerArgs;
+use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
+use stacks::net::{Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
-use stacks::vm::costs::ExecutionCost;
-
-use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
-use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
-use crate::burnchains::make_bitcoin_indexer;
-use crate::run_loop::neon::Counters;
-use crate::run_loop::neon::RunLoop;
-use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, VRFSeed,
+};
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::{
+    addr2str, BitcoinRegtestController, OngoingBlockCommit,
+};
+use crate::burnchains::make_bitcoin_indexer;
+use crate::run_loop::neon::{Counters, RunLoop};
+use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-use stacks::monitoring;
-
-use stacks_common::types::chainstate::{StacksBlockId, StacksPrivateKey};
-use stacks_common::util::vrf::VRFProof;
-
-use clarity::vm::ast::ASTRules;
-use clarity::vm::types::PrincipalData;
+use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -564,7 +551,7 @@ fn fault_injection_long_tenure() {
                     "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
                     tenure_time
                 );
-                stacks::util::sleep_ms(tenure_time);
+                stacks_common::util::sleep_ms(tenure_time);
             }
             Err(_) => {
                 error!("Parse error for STX_TEST_SLOW_TENURE");
@@ -3893,7 +3880,11 @@ impl StacksNode {
     /// * bootstrap nodes
     /// Returns the instantiated PeerDB
     /// Panics on failure.
-    fn setup_peer_db(config: &Config, burnchain: &Burnchain) -> PeerDB {
+    fn setup_peer_db(
+        config: &Config,
+        burnchain: &Burnchain,
+        stackerdb_contract_ids: &[QualifiedContractIdentifier],
+    ) -> PeerDB {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
@@ -3925,8 +3916,9 @@ impl StacksNode {
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
-            &vec![],
+            &[],
             Some(&initial_neighbors),
+            stackerdb_contract_ids,
         )
         .map_err(|e| {
             eprintln!(
@@ -4013,10 +4005,86 @@ impl StacksNode {
                 .unwrap()
         };
 
-        let peerdb = Self::setup_peer_db(config, &burnchain);
-
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+        let mut chainstate =
+            open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
+
+        let mut stackerdb_machines = HashMap::new();
+        for stackerdb_contract_id in config.node.stacker_dbs.iter() {
+            // attempt to load the config
+            let (instantiate, stacker_db_config) = match StackerDBConfig::from_smart_contract(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_contract_id,
+            ) {
+                Ok(c) => (true, c),
+                Err(e) => {
+                    warn!(
+                        "Failed to load StackerDB config for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    (false, StackerDBConfig::noop())
+                }
+            };
+            let mut stackerdbs =
+                StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+            if instantiate {
+                match stackerdbs.get_stackerdb_id(stackerdb_contract_id) {
+                    Ok(..) => {
+                        // reconfigure
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to reconfigure StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(NetError::NoSuchStackerDB(..)) => {
+                        // instantiate replica
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to instantiate StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(e) => {
+                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
+                    }
+                }
+            }
+            let stacker_db_sync = match StackerDBSync::new(
+                stackerdb_contract_id.clone(),
+                &stacker_db_config,
+                PeerNetworkComms::new(),
+                stackerdbs,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    continue;
+                }
+            };
+
+            stackerdb_machines.insert(
+                stackerdb_contract_id.clone(),
+                (stacker_db_config, stacker_db_sync),
+            );
+        }
+
+        let stackerdb_contract_ids: Vec<_> =
+            stackerdb_machines.keys().map(|sc| sc.clone()).collect();
+        let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -4026,11 +4094,13 @@ impl StacksNode {
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
+            stackerdbs,
             local_peer,
             config.burnchain.peer_version,
             burnchain,
             view,
             config.connection_options.clone(),
+            stackerdb_machines,
             epochs,
         );
 
@@ -4179,7 +4249,11 @@ impl StacksNode {
         let _ = Self::setup_mempool_db(&config);
 
         let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
-        let relayer = Relayer::from_p2p(&mut p2p_net);
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
+            .expect("FATAL: failed to connect to stacker DB");
+
+        let relayer = Relayer::from_p2p(&mut p2p_net, stackerdbs);
 
         let local_peer = p2p_net.local_peer.clone();
 

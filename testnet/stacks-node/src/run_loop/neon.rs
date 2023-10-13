@@ -1,19 +1,12 @@
-use std::cmp;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
-
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
-
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::{cmp, thread};
 
-use stacks::deps::ctrlc as termination;
-use stacks::deps::ctrlc::SignalId;
-
+use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -25,31 +18,29 @@ use stacks::chainstate::coordinator::{
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks::util_lib::db::Error as db_error;
+use stacks_common::deps_common::ctrlc as termination;
+use stacks_common::deps_common::ctrlc::SignalId;
+use stacks_common::types::PublicKey;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::monitoring::start_serving_monitoring_metrics;
-use crate::neon_node::Globals;
-use crate::neon_node::StacksNode;
-use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
-use crate::neon_node::RELAYER_MAX_BUFFER;
-use crate::node::use_test_genesis_chainstate;
+use crate::neon_node::{Globals, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::node::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
-    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
-use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::sleep_ms;
-
-use libc;
-use stacks::util::hash::Hash160;
-use stacks_common::types::PublicKey;
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]

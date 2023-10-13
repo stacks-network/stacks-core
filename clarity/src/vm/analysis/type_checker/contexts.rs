@@ -20,11 +20,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::{
-    types::{TraitIdentifier, TypeSignature},
-    ClarityName, SymbolicExpression,
-};
-use crate::vm::{ClarityVersion, MAX_CONTEXT_DEPTH};
+use crate::vm::types::{TraitIdentifier, TypeSignature};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TypeMap {
@@ -38,6 +35,12 @@ pub struct TypingContext<'a> {
     pub traits_references: HashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16,
+}
+
+impl Default for TypeMap {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TypeMap {
@@ -76,7 +79,7 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    pub fn extend<'b>(&'b self) -> CheckResult<TypingContext<'b>> {
+    pub fn extend(&self) -> CheckResult<TypingContext> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {
