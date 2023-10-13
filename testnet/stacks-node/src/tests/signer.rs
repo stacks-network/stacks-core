@@ -123,10 +123,21 @@ fn setup_stx_btc_node(
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    info!("Send contract-publish...");
+
+    info!("Send pox contract-publish...");
     let tx = make_contract_publish(
         &signer_stacks_private_keys[0],
         0,
+        10_000,
+        "pox-4",
+        pox_contract,
+    );
+    submit_tx(&http_origin, &tx);
+
+    info!("Send stacker-db contract-publish...");
+    let tx = make_contract_publish(
+        &signer_stacks_private_keys[0],
+        1,
         10_000,
         "hello-world",
         stackerdb_contract,
@@ -134,21 +145,7 @@ fn setup_stx_btc_node(
     submit_tx(&http_origin, &tx);
 
     // mine it
-    info!("Mining stackerdb contract...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let tx = make_contract_publish(
-        &signer_stacks_private_keys[0],
-        1,
-        10_000,
-        "pox-4",
-        pox_contract,
-    );
-    submit_tx(&http_origin, &tx);
-
-    // mine it
-    info!("Mining pox contract...");
+    info!("Mining the pox and stackerdb contract...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -174,7 +171,7 @@ pub fn build_pox_contract(num_signers: u32) -> String {
 
 ;; data maps
 ;;
-(define-map vote-per-signer {signer: (principal)} {candidate: (buff 33) })
+(define-map vote-per-signer principal (buff 33))
 
 
 ;; read only functions
@@ -190,11 +187,12 @@ pub fn build_pox_contract(num_signers: u32) -> String {
 
 ;; public functions
 ;;
-(define-public (cast-bitcoin-wallet-public-key-vote (public-key (buff 33) (reward-cycle uint)))
+
+(define-public (cast-bitcoin-wallet-public-key-vote (public-key (buff 33)) (reward-cycle uint))
     (begin
-        (var-set num-voted (+ (var-get num-voted) 1))
-        (map-set vote-per-signer {public_key: tx-sender} {candidate: public-key})
-        (if (is-eq (var-get num-voted) num-signers)
+        (var-set num-voted (+ (var-get num-voted) u1))
+        (map-set vote-per-signer tx-sender public-key)
+        (if (is-eq (var-get num-voted) (var-get num-signers))
         (begin
             (var-set bitcoin-wallet-public-key (some public-key))
             (var-get bitcoin-wallet-public-key)
@@ -233,10 +231,8 @@ fn test_stackerdb_dkg() {
 
     // Build our simulated pox-4 stacks contract TODO: replace this with the real deal?
     let pox_contract = build_pox_contract(num_signers);
-    let pox_contract_id = QualifiedContractIdentifier::new(
-        to_addr(&signer_stacks_private_keys[0]).into(),
-        "pox-4".into(),
-    );
+    let pox_contract_id =
+        QualifiedContractIdentifier::new(signer_stacks_addresses[0].into(), "pox-4".into());
     // Build the stackerdb contract
     let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
     let stacker_db_contract_id =

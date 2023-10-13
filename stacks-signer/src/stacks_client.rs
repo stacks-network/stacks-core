@@ -64,9 +64,6 @@ pub enum ClientError {
     /// Reqwest specific error occurred
     #[error("{0}")]
     ReqwestError(#[from] reqwest::Error),
-    /// Failure to submit a read only contract call
-    #[error("Failure to submit tx")]
-    TransactionSubmissionFailure,
     /// Failed to sign with the provided private key
     #[error("Failed to sign with the given private key")]
     SignatureGenerationFailure,
@@ -150,8 +147,8 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
-    /// Sends messages to the stacker-db
-    pub fn send_message(
+    /// Sends messages to the stacker-db with an exponential backoff retry
+    pub fn send_message_with_retry(
         &mut self,
         id: u32,
         message: Packet,
@@ -164,7 +161,10 @@ impl StacksClient {
             let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
             debug!("Sending a chunk to stackerdb!\n{:?}", chunk.clone());
-            let chunk_ack = self.stackerdb_session.put_chunk(chunk)?;
+            let send_request = || {
+                self.stackerdb_session.put_chunk(chunk.clone()).map_err(backoff::Error::transient)
+            };
+            let chunk_ack: StackerDBChunkAckData = retry_request(send_request)?;
             self.slot_versions.insert(slot_id, slot_version);
 
             if chunk_ack.accepted {
@@ -193,11 +193,12 @@ impl StacksClient {
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let contract_response_hex = self.read_only_contract_call_with_retry(
             &contract_addr,
             &contract_name,
             &function_name,
-            &[ClarityValue::UInt(reward_cycle as u128)],
+            function_args,
         )?;
         self.parse_aggregate_public_key(&contract_response_hex)
     }
@@ -209,14 +210,15 @@ impl StacksClient {
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let function_args = &[
+            ClarityValue::from(PrincipalData::from(self.stacks_address)),
+            ClarityValue::UInt(reward_cycle as u128),
+        ];
         let contract_response_hex = self.read_only_contract_call_with_retry(
             &contract_addr,
             &contract_name,
             &function_name,
-            &[
-                ClarityValue::from(PrincipalData::from(self.stacks_address)),
-                ClarityValue::UInt(reward_cycle as u128),
-            ],
+            function_args,
         )?;
         self.parse_aggregate_public_key(&contract_response_hex)
     }
@@ -252,7 +254,10 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_http_request(self.pox_path(), send_request)?;
+        let response = retry_request(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
         let json_response = response.json::<serde_json::Value>()?;
         let entry = "current_cycle";
         json_response
@@ -282,7 +287,10 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_http_request(self.pox_path(), send_request)?;
+        let response = retry_request(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
         let json_response = response.json::<serde_json::Value>()?;
         let entry = "contract_id";
         let contract_id_string = json_response
@@ -326,7 +334,7 @@ impl StacksClient {
             function_name,
             function_args,
         )?;
-        self.submit_tx(signed_tx.serialize_to_vec())
+        self.submit_tx(&signed_tx)
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
@@ -371,7 +379,9 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks node
-    fn submit_tx(&self, tx: Vec<u8>) -> Result<Txid, ClientError> {
+    fn submit_tx(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+        let txid = tx.txid();
+        let tx = tx.serialize_to_vec();
         let send_request = || {
             self.stacks_node_client
                 .post(self.transaction_path())
@@ -380,18 +390,11 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let res = retry_http_request(self.transaction_path(), send_request)?;
-        debug!("Transaction submission response: {:?}", res);
-        if res.status().is_success() {
-            // On success, the response body should be the txid as a string (no JSON blob)
-            let txid_string = res.text()?;
-            let tx_deserialized = StacksTransaction::consensus_deserialize(&mut &tx[..])?;
-            let txid = tx_deserialized.txid();
-            assert_eq!(txid_string, txid.to_string());
-            Ok(txid)
-        } else {
-            Err(ClientError::TransactionSubmissionFailure)
+        let response = retry_request(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
         }
+        Ok(txid)
     }
 
     /// Makes a read only contract call to a stacks contract
@@ -403,10 +406,13 @@ impl StacksClient {
         function_args: &[ClarityValue],
     ) -> Result<String, ClientError> {
         debug!("Calling read-only function {}...", function_name);
-        let body = json!({"sender": self.stacks_address.to_string(), "arguments": function_args})
-            .to_string();
+        let args = function_args
+            .iter()
+            .map(|arg| arg.serialize_to_hex())
+            .collect::<Vec<String>>();
+        let body =
+            json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let path_clone = path.clone();
         let send_request = || {
             self.stacks_node_client
                 .post(path.clone())
@@ -415,7 +421,10 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_http_request(path_clone, send_request)?;
+        let response = retry_request(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
         let response = response.json::<serde_json::Value>()?;
         if !response
             .get("okay")
@@ -461,15 +470,15 @@ impl StacksClient {
 }
 
 /// Helper function to retry a HTTP request with exponential backoff
-fn retry_http_request<F, E>(
-    path: String,
-    request_fn: F,
-) -> Result<reqwest::blocking::Response, ClientError>
+fn retry_request<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
-    F: FnMut() -> Result<reqwest::blocking::Response, backoff::Error<E>>,
+    F: FnMut() -> Result<T, backoff::Error<E>>,
 {
     let notify = |_err, dur| {
-        debug!("Failed to connect to {}. Next attempt in {:?}", path, dur);
+        debug!(
+            "Failed to connect to stacks-node. Next attempt in {:?}",
+            dur
+        );
     };
 
     let backoff_timer = backoff::ExponentialBackoffBuilder::new()
@@ -477,13 +486,7 @@ where
         .with_max_interval(Duration::from_millis(128))
         .build();
 
-    let response = backoff::retry_notify(backoff_timer, request_fn, notify)
-        .map_err(|_| ClientError::RetryTimeout)?;
-
-    if !response.status().is_success() {
-        return Err(ClientError::RequestFailure(response.status()));
-    }
-    Ok(response)
+    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
 }
 
 /// Helper function to determine the slot ID for the provided stacker-db writer id and the message type
@@ -557,6 +560,25 @@ mod tests {
                 &ContractName::try_from("contract-name").unwrap(),
                 &ClarityName::try_from("function-name").unwrap(),
                 &[],
+            )
+        });
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
+        );
+        let result = h.join().unwrap().unwrap();
+        assert_eq!(result, "0x070d0000000473425443");
+    }
+
+    #[test]
+    fn read_only_contract_call_with_function_args_200_success() {
+        let config = TestConfig::new();
+        let h = spawn(move || {
+            config.client.read_only_contract_call_with_retry(
+                &config.client.stacks_address,
+                &ContractName::try_from("contract-name").unwrap(),
+                &ClarityName::try_from("function-name").unwrap(),
+                &[ClarityValue::UInt(10_u128)],
             )
         });
         write_response(
@@ -741,7 +763,7 @@ mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || config.client.submit_tx(tx_clone.serialize_to_vec()));
+        let h = spawn(move || config.client.submit_tx(&tx_clone));
 
         let request_bytes = write_response(
             config.mock_server,
