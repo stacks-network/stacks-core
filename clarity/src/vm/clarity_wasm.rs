@@ -4402,26 +4402,25 @@ fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
 
 /// Link host interface function, `print`, into the Wasm module.
 /// This function is called for all contract print statements (`print`).
-fn link_print_fn<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
             "print",
-            |mut caller: Caller<'_, T>, value_offset: i32, value_length: i32| {
-                // TODO: Include this cost
+            |mut caller: Caller<'_, ClarityWasmContext>, value_offset: i32, value_length: i32| {
+                // runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
                 // Read in the bytes from the Wasm memory
                 let bytes = read_bytes_from_wasm(&mut caller, value_offset, value_length)?;
 
-                // TODO: the print function needs to generate code to return SIP-005 serialized data so it can be parsed here
-                // let clarity_val = Value::try_from(bytes.clone())?;
-                // let clarity_val_type = TypeSignature::type_of(clarity_val);
+                let clarity_val = Value::try_deserialize_bytes_untyped(&bytes)?;
 
-                // Print bytes as hex string
-                println!(
-                    "Contract print: {:?}",
-                    stacks_common::util::hash::to_hex(&bytes)
-                );
+                if cfg!(feature = "developer-mode") {
+                    debug!("{}", &clarity_val);
+                }
+
+                caller.data_mut().register_print_event(clarity_val)?;
+
                 Ok(())
             },
         )
