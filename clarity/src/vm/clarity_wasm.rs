@@ -529,19 +529,19 @@ pub fn call_function<'a, 'b, 'c>(
 }
 
 // Bytes for principal version
-const PRINCIPAL_VERSION_BYTES: usize = 1;
+pub const PRINCIPAL_VERSION_BYTES: usize = 1;
 // Number of bytes in principal hash
-const PRINCIPAL_HASH_BYTES: usize = 20;
+pub const PRINCIPAL_HASH_BYTES: usize = 20;
 // Standard principal version + hash
-const PRINCIPAL_BYTES: usize = PRINCIPAL_VERSION_BYTES + PRINCIPAL_HASH_BYTES;
+pub const PRINCIPAL_BYTES: usize = PRINCIPAL_VERSION_BYTES + PRINCIPAL_HASH_BYTES;
 // Number of bytes used to store the length of the contract name
-const CONTRACT_NAME_LENGTH_BYTES: usize = 4;
+pub const CONTRACT_NAME_LENGTH_BYTES: usize = 4;
 // 1 byte for version, 20 bytes for hash, 4 bytes for contract name length (0)
-const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENGTH_BYTES;
+pub const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENGTH_BYTES;
 // Max length of a contract name
-const CONTRACT_NAME_MAX_LENGTH: usize = 128;
+pub const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
-const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
+pub const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
 
 /// Return the number of bytes required to representation of a value of the
 /// type `ty`. For in-memory types, this is just the size of the offset and
@@ -646,7 +646,7 @@ fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
             ValType::I32, // length
         ],
         TypeSignature::BoolType => vec![ValType::I32],
-        TypeSignature::PrincipalType => vec![
+        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => vec![
             ValType::I32, // offset
             ValType::I32, // length
         ],
@@ -1359,13 +1359,10 @@ fn reserve_space_for_return<T>(
         TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::CallableType(_subtype) => {
-            todo!("Return type not yet implemented: {:?}", return_type)
-        }
         TypeSignature::ListUnionType(_subtypes) => {
             todo!("Return type not yet implemented: {:?}", return_type)
         }
-        TypeSignature::PrincipalType => {
+        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => {
             // Standard principal is a 1 byte version and a 20 byte Hash160.
             // Then there is an int32 for the contract name length, followed by
             // the contract name, which has a max length of 128.
@@ -1519,7 +1516,7 @@ fn wasm_to_clarity_value(
         TypeSignature::SequenceType(SequenceSubtype::ListType(_l)) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::PrincipalType => {
+        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => {
             let offset = buffer[value_index]
                 .i32()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
@@ -1583,7 +1580,6 @@ fn wasm_to_clarity_value(
         TypeSignature::ListUnionType(_lu) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
         }
-        TypeSignature::CallableType(_c) => todo!("Wasm value type not implemented: {:?}", type_sig),
     }
 }
 
