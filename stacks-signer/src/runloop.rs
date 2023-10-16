@@ -37,7 +37,7 @@ pub enum RunLoopCommand {
 #[derive(PartialEq, Debug)]
 pub enum State {
     // TODO: Uninitialized should indicate we need to replay events/configure the signer
-    /// The runloop signer is unitialized
+    /// The runloop signer is uninitialized
     Uninitialized,
     /// The runloop is idle
     Idle,
@@ -69,8 +69,8 @@ impl<C: Coordinatable> RunLoop<C> {
     /// Helper function to check if we need to run DKG
     #[allow(dead_code)]
     fn should_run_dkg(&mut self) -> bool {
-        if self.state != State::Uninitialized && self.state != State::Idle {
-            // We should only run DKG if we are in the uninitialized or idle state
+        if self.state != State::Uninitialized {
+            // We should currently only run DKG if we are in the uninitialized state
             return false;
         }
         // Determine if we are the coordinator
@@ -114,10 +114,10 @@ impl<C: Coordinatable> RunLoop<C> {
                         }
                     }
                 } else {
-                    // Nothing is set in the contract. Check if we are the coordinator and that no DKG command is queued.
-                    // If so, queue a DKG command at the FRONT so it is processed before any others.
+                    debug!("DKG is not set in the contract. Determine if we need to run DKG...");
                     // Update the state to IDLE so we don't needlessy requeue the DKG command.
                     self.state = State::Idle;
+                    // Nothing is set in the contract. Check if we are the coordinator and that no DKG command is queued.
                     return coordinator_id == self.signing_round.signer_id
                         && self.commands.front() != Some(&RunLoopCommand::Dkg);
                 }
@@ -318,6 +318,10 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {
+        info!(
+            "Running one pass for signer ID# {}. Current state: {:?}",
+            self.signing_round.signer_id, self.state
+        );
         if let Some(command) = cmd {
             self.commands.push_back(command);
         }
@@ -351,15 +355,15 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
                 }
             }
         }
-        // The process the next command
-        // Must be called AFTER processing the event as the state may update to IDLE due to said event.
-        self.process_next_command();
         // Determine if we need to run DKG round
         // if self.should_run_dkg() {
         //     // Add it to the front of the queue so it is set before any other commands get processed!
         //     debug!("DKG has not run and needs to be queued. Adding it to the front of the queue.");
         //     self.commands.push_front(RunLoopCommand::Dkg);
         // }
+        // The process the next command
+        // Must be called AFTER processing the event as the state may update to IDLE due to said event.
+        self.process_next_command();
         None
     }
 }

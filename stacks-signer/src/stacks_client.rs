@@ -162,7 +162,9 @@ impl StacksClient {
             chunk.sign(&self.stacks_private_key)?;
             debug!("Sending a chunk to stackerdb!\n{:?}", chunk.clone());
             let send_request = || {
-                self.stackerdb_session.put_chunk(chunk.clone()).map_err(backoff::Error::transient)
+                self.stackerdb_session
+                    .put_chunk(chunk.clone())
+                    .map_err(backoff::Error::transient)
             };
             let chunk_ack: StackerDBChunkAckData = retry_request(send_request)?;
             self.slot_versions.insert(slot_id, slot_version);
