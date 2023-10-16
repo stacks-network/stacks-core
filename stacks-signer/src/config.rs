@@ -67,6 +67,8 @@ pub enum Network {
     Mainnet,
     /// The testnet network
     Testnet,
+    /// The mocknet network
+    Mocknet,
 }
 
 impl Network {
@@ -74,7 +76,7 @@ impl Network {
     pub fn to_chain_id(&self) -> u32 {
         match self {
             Self::Mainnet => CHAIN_ID_MAINNET,
-            Self::Testnet => CHAIN_ID_TESTNET,
+            Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
         }
     }
 
@@ -82,7 +84,7 @@ impl Network {
     pub fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -90,7 +92,7 @@ impl Network {
     pub fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet => TransactionVersion::Testnet,
+            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
         }
     }
 }

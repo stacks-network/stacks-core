@@ -2,11 +2,12 @@ use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use crate::config::Network;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::{address::b58, types::chainstate::StacksPrivateKey};
 
-use crate::config::Network;
+extern crate alloc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -93,7 +94,9 @@ pub struct PutChunkArgs {
     pub slot_version: u32,
     /// The data to upload
     #[arg(required = false, value_parser = parse_data)]
-    pub data: Vec<u8>,
+    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
+    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
+    pub data: alloc::vec::Vec<u8>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -104,7 +107,9 @@ pub struct SignArgs {
     pub config: PathBuf,
     /// The data to sign
     #[arg(required = false, value_parser = parse_data)]
-    pub data: Vec<u8>,
+    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
+    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
+    pub data: alloc::vec::Vec<u8>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -135,7 +140,7 @@ pub struct GenerateFilesArgs {
     /// The total number of key ids to distribute among the signers
     pub num_keys: u32,
     #[arg(long, value_parser = parse_network)]
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network to use. One of "mainnet", "testnet", or "mocknet".
     pub network: Network,
     /// The directory to write the test data files to
     #[arg(long, default_value = ".")]
@@ -157,25 +162,28 @@ fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
 
 /// Parse the input data
 fn parse_data(data: &str) -> Result<Vec<u8>, String> {
-    let data = if data == "-" {
+    let encoded_data = if data == "-" {
         // Parse the data from stdin
-        let mut buf = vec![];
-        io::stdin().read_to_end(&mut buf).unwrap();
-        buf
+        let mut data = String::new();
+        io::stdin().read_to_string(&mut data).unwrap();
+        data
     } else {
-        data.as_bytes().to_vec()
+        data.to_string()
     };
+    let data =
+        b58::from(&encoded_data).map_err(|e| format!("Failed to decode provided data: {}", e))?;
     Ok(data)
 }
 
-/// Parse the network. Must be one of "mainnet" or "testnet".
+/// Parse the network. Must be one of "mainnet", "testnet", or "mocknet".
 fn parse_network(network: &str) -> Result<Network, String> {
     Ok(match network.to_lowercase().as_str() {
         "mainnet" => Network::Mainnet,
         "testnet" => Network::Testnet,
+        "mocknet" => Network::Mocknet,
         _ => {
             return Err(format!(
-                "Invalid network: {}. Must be one of \"mainnet\" or \"testnet\".",
+                "Invalid network: {}. Must be one of \"mainnet\", \"testnet\", or \"mocknet\".",
                 network
             ))
         }

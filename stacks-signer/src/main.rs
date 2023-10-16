@@ -95,7 +95,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
         RunLoop<FrostCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.node_host;
+    let endpoint = config.endpoint;
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
@@ -174,7 +174,7 @@ fn handle_list_chunks(args: StackerDBArgs) {
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
     let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
-    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data.clone());
+    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
@@ -186,7 +186,7 @@ fn handle_dkg(args: RunDkgArgs) {
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_sign(args: SignArgs) {
@@ -202,7 +202,7 @@ fn handle_sign(args: SignArgs) {
         .unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_dkg_sign(args: SignArgs) {
@@ -222,13 +222,15 @@ fn handle_dkg_sign(args: SignArgs) {
     process_dkg_result(&dkg_res);
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_run(args: RunDkgArgs) {
     debug!("Running signer...");
-    let _spawned_signer = spawn_running_signer(&args.config);
-    println!("Signer spawned successfully. Waiting for messages to process.");
+    let spawned_signer = spawn_running_signer(&args.config);
+    println!("Signer spawned successfully. Waiting for messages to process...");
+    // Wait for the spawned signer to stop (will only occur if an error occurs)
+    let _ = spawned_signer.running_signer.join();
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
@@ -333,7 +335,7 @@ fn main() {
 fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
     let version = match network {
         Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
     StacksAddress::from_public_keys(
         version,
