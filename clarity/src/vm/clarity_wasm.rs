@@ -344,8 +344,22 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
     }
 }
 
+/// Push a placeholder value for Wasm type `ty` onto the data stack.
+fn placeholder_for_type(ty: ValType) -> Val {
+    match ty {
+        ValType::I32 => Val::I32(0),
+        ValType::I64 => Val::I64(0),
+        ValType::F32 => Val::F32(0),
+        ValType::F64 => Val::F64(0),
+        ValType::V128 => Val::V128(0),
+        ValType::ExternRef => unimplemented!("ExternRef"),
+        ValType::FuncRef => unimplemented!("FuncRef"),
+    }
+}
+
 /// Initialize a contract, executing all of the top-level expressions and
-/// registering all of the definitions in the context.
+/// registering all of the definitions in the context. Returns the value
+/// returned from the last top-level expression.
 pub fn initialize_contract(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -381,15 +395,22 @@ pub fn initialize_contract(
         .instantiate(store.as_context_mut(), &module)
         .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
 
-    // Call the `.defines` function, which contains all define-* expressions
+    // Call the `.top-level` function, which contains all top-level expressions
     // from the contract.
-    let defines_func = instance
+    let top_level = instance
         .get_func(store.as_context_mut(), ".top-level")
         .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
-    let mut define_results = [];
 
-    defines_func
-        .call(store.as_context_mut(), &[], &mut define_results)
+    // Get the return type of the top-level expressions function
+    let ty = top_level.ty(store.as_context_mut());
+    let mut results_iter = ty.results();
+    let mut results = vec![];
+    while let Some(result_ty) = results_iter.next() {
+        results.push(placeholder_for_type(result_ty));
+    }
+
+    top_level
+        .call(store.as_context_mut(), &[], results.as_mut_slice())
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
     // Save the compiled Wasm module into the contract context
@@ -399,7 +420,28 @@ pub fn initialize_contract(
             .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
     );
 
-    Ok(None)
+    let return_type = contract_analysis.expressions.last().and_then(|last_expr| {
+        contract_analysis
+            .type_map
+            .as_ref()
+            .and_then(|type_map| type_map.get_type(last_expr))
+    });
+
+    if let Some(return_type) = return_type {
+        let memory = instance
+            .get_memory(store.as_context_mut(), "memory")
+            .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+        wasm_to_clarity_value(
+            return_type,
+            0,
+            &results,
+            memory,
+            &mut store.as_context_mut(),
+        )
+        .map(|(val, _offset)| val)
+    } else {
+        Ok(None)
+    }
 }
 
 /// Call a function in the contract.
