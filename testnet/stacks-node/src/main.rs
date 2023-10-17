@@ -20,6 +20,7 @@ pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod keychain;
+pub mod mockamoto;
 pub mod neon_node;
 pub mod node;
 pub mod operations;
@@ -34,6 +35,8 @@ use std::process;
 
 use backtrace::Backtrace;
 use pico_args::Arguments;
+
+use crate::mockamoto::MockamotoNode;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
@@ -100,6 +103,10 @@ fn main() {
         "mainnet" => {
             args.finish().unwrap();
             ConfigFile::mainnet()
+        }
+        "mockamoto" => {
+            args.finish().unwrap();
+            ConfigFile::mockamoto()
         }
         "check-config" => {
             let config_path: String = args.value_from_str("--config").unwrap();
@@ -202,6 +209,9 @@ fn main() {
     {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
+    } else if conf.burnchain.mode == "mockamoto" {
+        let mut mockamoto = MockamotoNode::new(&conf).unwrap();
+        mockamoto.run();
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }

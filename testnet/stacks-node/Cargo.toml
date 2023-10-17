@@ -43,7 +43,7 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = { git = "https://github.com/Trust-Machines/wsts", tag = "4.0.0rc2" }
 
-[dev-dependencies.rusqlite]
+[dependencies.rusqlite]
 version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 

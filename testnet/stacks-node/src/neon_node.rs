@@ -153,6 +153,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::types::QualifiedContractIdentifier;
+use stacks::burnchains::PoxConstants;
 use stacks::burnchains::{
     db::BurnchainHeaderReader, Burnchain, BurnchainParameters, BurnchainSigner, Txid,
 };
@@ -219,6 +220,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::bitcoin_regtest_controller::{addr2str, BitcoinRegtestController};
 use crate::burnchains::make_bitcoin_indexer;
+use crate::run_loop;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -3593,12 +3595,26 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(runloop: &RunLoop, mut net: PeerNetwork) -> PeerThread {
-        let config = runloop.config().clone();
+    pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
+        Self::new_all(
+            runloop.get_globals(),
+            runloop.config(),
+            runloop.get_burnchain().pox_constants,
+            net,
+        )
+    }
+
+    pub fn new_all(
+        globals: Globals,
+        config: &Config,
+        pox_constants: PoxConstants,
+        mut net: PeerNetwork,
+    ) -> Self {
+        let config = config.clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
 
-        let sortdb = SortitionDB::open(&burn_db_path, false, runloop.get_burnchain().pox_constants)
+        let sortdb = SortitionDB::open(&burn_db_path, false, pox_constants)
             .expect("FATAL: could not open sortition DB");
 
         let chainstate =
@@ -3621,7 +3637,7 @@ impl PeerThread {
         PeerThread {
             config,
             net: Some(net),
-            globals: runloop.get_globals(),
+            globals,
             poll_timeout,
             sortdb: Some(sortdb),
             chainstate: Some(chainstate),
@@ -4146,11 +4162,8 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(
-        mut p2p_thread: PeerThread,
-        event_dispatcher: EventDispatcher,
-        should_keep_running: Arc<AtomicBool>,
-    ) {
+    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+        let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
@@ -4298,7 +4311,6 @@ impl StacksNode {
             })
             .expect("FATAL: failed to start relayer thread");
 
-        let should_keep_running_clone = globals.should_keep_running.clone();
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
         let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
@@ -4309,7 +4321,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher, should_keep_running_clone);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
             })
             .expect("FATAL: failed to start p2p thread");
 
