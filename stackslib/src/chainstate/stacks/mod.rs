@@ -631,11 +631,11 @@ impl_byte_array_serde!(TokenTransferMemo);
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TenureChangeCause {
-    /// A valid winning block-commit, end current tenure
+    /// A valid winning block-commit
     BlockFound = 0,
-    /// No winning block-commits, extend current tenure
+    /// No winning block-commits
     NoBlockFound = 1,
-    /// A “null miner” won the block-commit (see the MEV solution below)
+    /// A “null miner” won the block-commit
     NullMiner = 2,
 }
 
@@ -660,9 +660,8 @@ pub struct SchnorrThresholdSignature {
 
 /// Reasons why a `TenureChange` transaction can be de
 pub enum TenureChangeError {
-    SignatureInvalid,
     /// Not signed by required threshold (>70%)
-    SignatureThresholdNotReached,
+    SignatureInvalid,
     /// `previous_tenure_end` does not match parent block
     PreviousTenureInvalid,
     /// Block is not a Nakamoto block
