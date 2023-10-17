@@ -226,7 +226,8 @@ impl StacksClient {
     }
 
     /// Cast the DKG aggregate public key vote
-    pub fn cast_aggregate_public_key_vote(&self, vote: Point) -> Result<Txid, ClientError> {
+    pub fn cast_aggregate_public_key_vote(&self, vote: &Point) -> Result<Txid, ClientError> {
+        debug!("Casting aggregate public key vote...");
         let reward_cycle = self.get_current_reward_cycle()?;
         let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
