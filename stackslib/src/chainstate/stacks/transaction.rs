@@ -151,13 +151,45 @@ impl StacksMessageCodec for TenureChangeCause {
     }
 }
 
-impl StacksMessageCodec for SchnorrThresholdSignature {
-    fn consensus_serialize<W: Write>(&self, _fd: &mut W) -> Result<(), codec_error> {
+impl StacksMessageCodec for ThresholdSignature {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        let compressed = self.R.compress();
+        let bytes = compressed.as_bytes();
+        fd.write_all(bytes)
+            .map_err(crate::codec::Error::WriteError)?;
+        write_next(fd, &self.z.to_bytes())?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<Self, codec_error> {
-        Ok(Self {})
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        use p256k1::point::Compressed;
+        use wsts::{Point, Scalar};
+
+        // Read curve point
+        let mut buf = [0u8; 33];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let R = Point::try_from(&Compressed::from(buf)).map_err(|_| {
+            crate::codec::Error::DeserializeError("Failed to read curve point".into())
+        })?;
+
+        // Read scalar
+        let mut buf = [0u8; 32];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let z = Scalar::from(buf);
+
+        Ok(Self { R, z })
+    }
+}
+
+impl ThresholdSignature {
+    /// Create mock data for testing. Not valid data
+    pub fn mock() -> Self {
+        Self {
+            R: wsts::Point::G(),
+            z: wsts::Scalar::new(),
+        }
     }
 }
 

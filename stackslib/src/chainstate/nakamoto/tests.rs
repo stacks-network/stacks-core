@@ -44,7 +44,7 @@ use crate::chainstate::stacks::db::{
     ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, SchnorrThresholdSignature, StacksBlockHeader, StacksTransaction,
+    CoinbasePayload, ThresholdSignature, StacksBlockHeader, StacksTransaction,
     StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
     TransactionAuth, TransactionPayload, TransactionVersion,
 };
@@ -114,7 +114,7 @@ pub fn nakamoto_advance_tip_simple() {
         previous_tenure_blocks: 0,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0; 20]),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     });
     let mut tenure_tx = StacksTransaction::new(
@@ -463,7 +463,7 @@ pub fn nakamoto_advance_tip_multiple() {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0; 20]),
-            signature: SchnorrThresholdSignature {},
+            signature: ThresholdSignature::mock(),
             signers: vec![],
         });
         let mut tenure_tx = StacksTransaction::new(

@@ -26,7 +26,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::CoinbasePayload;
 use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::SchnorrThresholdSignature;
+use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::StacksTransactionSigner;
 use stacks::chainstate::stacks::TenureChangeCause;
@@ -398,7 +398,7 @@ impl MockamotoNode {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0; 20]),
-            signature: SchnorrThresholdSignature {},
+            signature: ThresholdSignature::mock(),
             signers: vec![],
         });
         let mut tenure_tx = StacksTransaction::new(
