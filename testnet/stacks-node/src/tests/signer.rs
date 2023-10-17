@@ -287,9 +287,6 @@ fn test_stackerdb_dkg() {
         let now = std::time::Instant::now();
         info!("signer_runloop: spawn send commands to do dkg and then sign");
         coordinator_cmd_send
-            .send(RunLoopCommand::Dkg)
-            .expect("failed to send DKG command");
-        coordinator_cmd_send
             .send(RunLoopCommand::Sign {
                 message: vec![1, 2, 3, 4, 5],
                 is_taproot: false,

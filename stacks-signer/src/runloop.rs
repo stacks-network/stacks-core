@@ -69,62 +69,69 @@ impl<C: Coordinatable> RunLoop<C> {
     /// Helper function to check if we need to run DKG
     #[allow(dead_code)]
     fn should_run_dkg(&mut self) -> bool {
-        if self.state != State::Uninitialized {
-            // We should currently only run DKG if we are in the uninitialized state
-            return false;
-        }
         // Determine if we are the coordinator
         let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
-        // Check if the aggregate key is set in the pox contract
-        match self.stacks_client.get_aggregate_public_key() {
-            Ok(Some(key)) => {
-                // The aggregate key is already set for this round. Nothing to do.
-                self.coordinator.set_aggregate_public_key(Some(key));
-                self.state = State::Idle;
-            }
-            Ok(None) => {
-                // There is no public key set. Check if we need to cast our vote
-                // TODO: Add state to keep track of what contract calls we have made so we don't recast our vote needlessly and force blocks to include multiple of the same stx transactions
-                // TODO: should I use ok() here or log some error?
-                // Note this is written under the assumption that if no conensus is reached in the contract, the pox contract will flush all votes and start over
-                if let Some(aggregate_key) = self.coordinator.get_aggregate_public_key() {
-                    // We have a DKG result to vote on. Check if we need to cast our vote.
-                    match self.stacks_client.get_aggregate_public_key_vote() {
-                        Ok(Some(voted_key)) => {
-                            // We have already voted for an aggregate public key. Nothing to do.
-                            debug!("Already voted for aggregate public key: {:?}", voted_key);
-                            self.state = State::Idle;
-                        }
-                        Ok(None) => {
-                            // No aggregate public key has been set yet. We need to vote for it!
-                            debug!("Voting for aggregate public key: {:?}", aggregate_key);
-                            if let Err(e) = self
-                                .stacks_client
-                                .cast_aggregate_public_key_vote(aggregate_key)
-                            {
-                                error!("Failed to cast aggregate public key vote: {:?}", e);
-                            } else {
-                                // We successfully voted. Update state.
+        while self.state == State::Uninitialized {
+            // Check if the aggregate key is set in the pox contract
+            match self.stacks_client.get_aggregate_public_key() {
+                Ok(Some(key)) => {
+                    // The aggregate key is already set for this round. Nothing to do.
+                    // self.coordinator.set_aggregate_public_key(Some(key));
+                    self.state = State::Idle;
+                    break;
+                }
+                Ok(None) => {
+                    // There is no public key set. Check if we need to cast our vote
+                    // TODO: Add state to keep track of what contract calls we have made so we don't recast our vote needlessly and force blocks to include multiple of the same stx transactions
+                    // TODO: should I use ok() here or log some error?
+                    // Note this is written under the assumption that if no conensus is reached in the contract, the pox contract will flush all votes and start over
+                    if let Some(aggregate_key) = self.coordinator.get_aggregate_public_key() {
+                        // We have a DKG result to vote on. Check if we need to cast our vote.
+                        match self.stacks_client.get_aggregate_public_key_vote() {
+                            Ok(Some(voted_key)) => {
+                                // We have already voted for an aggregate public key. Nothing to do.
+                                debug!("Already voted for aggregate public key: {:?}", voted_key);
                                 self.state = State::Idle;
+                                break;
+                            }
+                            Ok(None) => {
+                                // No aggregate public key has been set yet. We need to vote for it!
+                                debug!("Voting for aggregate public key: {:?}", aggregate_key);
+                                if let Err(e) = self
+                                    .stacks_client
+                                    .cast_aggregate_public_key_vote(aggregate_key)
+                                {
+                                    error!("Failed to cast aggregate public key vote: {:?}", e);
+                                } else {
+                                    // We successfully voted. Update state.
+                                    self.state = State::Idle;
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                // Reattempt setting the aggregate key in subsequent rounds.
+                                error!("Failed to get aggregate public key vote: {:?}", e);
                             }
                         }
-                        Err(e) => {
-                            // Reattempt setting the aggregate key in subsequent rounds.
-                            error!("Failed to get aggregate public key vote: {:?}", e);
-                        }
+                    } else {
+                        debug!(
+                            "DKG is not set in the contract. Determine if we need to run DKG..."
+                        );
+                        // Update the state to IDLE so we don't needlessy requeue the DKG command.
+                        self.state = State::Idle;
+                        // Nothing is set in the contract. Check if we are the coordinator and that no DKG command is queued.
+                        let is_coordinator = coordinator_id == self.signing_round.signer_id;
+                        let is_dkg_not_queued = self.commands.front() != Some(&RunLoopCommand::Dkg);
+                        debug!("DKG is not queued: {}", is_dkg_not_queued);
+                        debug!("We are the coordinator: {}", is_coordinator);
+                        return is_coordinator && is_dkg_not_queued;
                     }
-                } else {
-                    debug!("DKG is not set in the contract. Determine if we need to run DKG...");
-                    // Update the state to IDLE so we don't needlessy requeue the DKG command.
-                    self.state = State::Idle;
-                    // Nothing is set in the contract. Check if we are the coordinator and that no DKG command is queued.
-                    return coordinator_id == self.signing_round.signer_id
-                        && self.commands.front() != Some(&RunLoopCommand::Dkg);
+                }
+                Err(e) => {
+                    error!("Failed to get aggregate public key: {:?}", e);
                 }
             }
-            Err(e) => {
-                error!("Failed to get aggregate public key: {:?}", e);
-            }
+            std::thread::sleep(Duration::from_secs(1));
         }
         false
     }
@@ -298,7 +305,7 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             signing_round,
             stacks_client,
             commands: VecDeque::new(),
-            state: State::Idle,
+            state: State::Uninitialized,
         }
     }
 }
@@ -324,6 +331,12 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         );
         if let Some(command) = cmd {
             self.commands.push_back(command);
+        }
+        // Determine if we need to run DKG round
+        if self.should_run_dkg() {
+            //Add it to the front of the queue so it is set before any other commands get processed!
+            debug!("DKG has not run and needs to be queued. Adding it to the front of the queue.");
+            self.commands.push_front(RunLoopCommand::Dkg);
         }
         // First process any arrived events
         if let Some(event) = event {
@@ -355,12 +368,6 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
                 }
             }
         }
-        // Determine if we need to run DKG round
-        // if self.should_run_dkg() {
-        //     // Add it to the front of the queue so it is set before any other commands get processed!
-        //     debug!("DKG has not run and needs to be queued. Adding it to the front of the queue.");
-        //     self.commands.push_front(RunLoopCommand::Dkg);
-        // }
         // The process the next command
         // Must be called AFTER processing the event as the state may update to IDLE due to said event.
         self.process_next_command();

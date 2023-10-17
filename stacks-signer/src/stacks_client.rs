@@ -484,8 +484,8 @@ where
     };
 
     let backoff_timer = backoff::ExponentialBackoffBuilder::new()
-        .with_initial_interval(Duration::from_millis(2))
-        .with_max_interval(Duration::from_millis(128))
+        .with_initial_interval(Duration::from_millis(128))
+        .with_max_interval(Duration::from_millis(16384))
         .build();
 
     backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
