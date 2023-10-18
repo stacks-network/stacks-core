@@ -55,6 +55,7 @@ fn spawn_signer(
     signer.spawn(endpoint).unwrap()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup_stx_btc_node(
     conf: &mut NeonConfig,
     num_signers: u32,
@@ -78,7 +79,7 @@ fn setup_stx_btc_node(
     let mut initial_balances = Vec::new();
 
     initial_balances.push(InitialBalance {
-        address: to_addr(&publisher_private_key).into(),
+        address: to_addr(publisher_private_key).into(),
         amount: 10_000_000_000_000,
     });
 
@@ -133,7 +134,7 @@ fn setup_stx_btc_node(
     info!("Send pox contract-publish...");
 
     let tx = make_contract_publish(
-        &publisher_private_key,
+        publisher_private_key,
         0,
         10_000,
         &pox_contract_id.name,
@@ -143,7 +144,7 @@ fn setup_stx_btc_node(
 
     info!("Send stacker-db contract-publish...");
     let tx = make_contract_publish(
-        &publisher_private_key,
+        publisher_private_key,
         1,
         10_000,
         &stackerdb_contract_id.name,
