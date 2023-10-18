@@ -59,8 +59,11 @@ fn setup_stx_btc_node(
     conf: &mut NeonConfig,
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
+    publisher_private_key: &StacksPrivateKey,
     stackerdb_contract: &str,
+    stackerdb_contract_id: &QualifiedContractIdentifier,
     pox_contract: &str,
+    pox_contract_id: &QualifiedContractIdentifier,
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     for toml in signer_config_tomls {
@@ -73,6 +76,12 @@ fn setup_stx_btc_node(
     }
 
     let mut initial_balances = Vec::new();
+
+    initial_balances.push(InitialBalance {
+        address: to_addr(&publisher_private_key).into(),
+        amount: 10_000_000_000_000,
+    });
+
     for i in 0..num_signers {
         initial_balances.push(InitialBalance {
             address: to_addr(&signer_stacks_private_keys[i as usize]).into(),
@@ -81,10 +90,7 @@ fn setup_stx_btc_node(
     }
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.node.stacker_dbs.push(QualifiedContractIdentifier::new(
-        to_addr(&signer_stacks_private_keys[0]).into(),
-        "hello-world".into(),
-    ));
+    conf.node.stacker_dbs.push(stackerdb_contract_id.clone());
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -125,21 +131,22 @@ fn setup_stx_btc_node(
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     info!("Send pox contract-publish...");
+
     let tx = make_contract_publish(
-        &signer_stacks_private_keys[0],
+        &publisher_private_key,
         0,
         10_000,
-        "pox-4",
+        &pox_contract_id.name,
         pox_contract,
     );
     submit_tx(&http_origin, &tx);
 
     info!("Send stacker-db contract-publish...");
     let tx = make_contract_publish(
-        &signer_stacks_private_keys[0],
+        &publisher_private_key,
         1,
         10_000,
-        "hello-world",
+        &stackerdb_contract_id.name,
         stackerdb_contract,
     );
     submit_tx(&http_origin, &tx);
@@ -163,43 +170,18 @@ pub fn build_pox_contract(num_signers: u32) -> String {
     pox_contract += r#"
 ;; data vars
 ;;
-(define-data-var bitcoin-wallet-public-key (optional (buff 33)) none)
+(define-data-var aggregate-public-key (optional (buff 33)) none)
 "#;
     pox_contract += &format!("(define-data-var num-signers uint u{num_signers})\n");
     pox_contract += r#"
-(define-data-var num-voted uint u0)
-
-;; data maps
-;;
-(define-map vote-per-signer principal (buff 33))
-
 
 ;; read only functions
 ;;
 
-(define-read-only (get-bitcoin-wallet-public-key (reward-cycle uint))
-    (var-get bitcoin-wallet-public-key)
+(define-read-only (get-aggregate-public-key (reward-cycle uint))
+    (var-get aggregate-public-key)
 )
 
-(define-read-only (get-bitcoin-wallet-public-key-vote (signer principal) (reward-cycle uint))
-    (map-get? vote-per-signer signer)
-)
-
-;; public functions
-;;
-
-(define-public (cast-bitcoin-wallet-public-key-vote (public-key (buff 33)) (reward-cycle uint))
-    (begin
-        (var-set num-voted (+ (var-get num-voted) u1))
-        (map-set vote-per-signer tx-sender public-key)
-        (if (is-eq (var-get num-voted) (var-get num-signers))
-        (begin
-            (var-set bitcoin-wallet-public-key (some public-key))
-            (var-get bitcoin-wallet-public-key)
-        (ok none))
-        (ok none))
-    )
-)
 "#;
     pox_contract
 }
@@ -218,6 +200,7 @@ fn test_stackerdb_dkg() {
     // Generate Signer Data
     let num_signers: u32 = 16;
     let num_keys: u32 = 40;
+    let publisher_private_key = StacksPrivateKey::new();
     let signer_stacks_private_keys = (0..num_signers)
         .map(|_| StacksPrivateKey::new())
         .collect::<Vec<StacksPrivateKey>>();
@@ -232,11 +215,13 @@ fn test_stackerdb_dkg() {
     // Build our simulated pox-4 stacks contract TODO: replace this with the real deal?
     let pox_contract = build_pox_contract(num_signers);
     let pox_contract_id =
-        QualifiedContractIdentifier::new(signer_stacks_addresses[0].into(), "pox-4".into());
+        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "pox-4".into());
     // Build the stackerdb contract
     let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
-    let stacker_db_contract_id =
-        QualifiedContractIdentifier::new(signer_stacks_addresses[0].into(), "hello-world".into());
+    let stacker_db_contract_id = QualifiedContractIdentifier::new(
+        to_addr(&publisher_private_key).into(),
+        "hello-world".into(),
+    );
 
     // Setup the signer and coordinator configurations
     let signer_configs = build_signer_config_tomls(
@@ -279,8 +264,11 @@ fn test_stackerdb_dkg() {
             &mut conf,
             num_signers,
             &signer_stacks_private_keys,
+            &publisher_private_key,
             &stackerdb_contract,
+            &stacker_db_contract_id,
             &pox_contract,
+            &pox_contract_id,
             &signer_configs,
         );
 

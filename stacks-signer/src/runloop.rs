@@ -12,7 +12,7 @@ use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
 use wsts::state_machine::coordinator::Coordinatable;
 use wsts::state_machine::signer::SigningRound;
 use wsts::state_machine::{OperationResult, PublicKeys};
-use wsts::{v2, Point};
+use wsts::v2;
 
 use crate::config::Config;
 use crate::stacks_client::{ClientError, StacksClient};
@@ -66,57 +66,27 @@ pub struct RunLoop<C> {
 }
 
 impl<C: Coordinatable> RunLoop<C> {
-    /// Helper function to check if we need to run DKG
-    #[allow(dead_code)]
-    fn should_run_dkg(&mut self) -> bool {
-        if self.state != State::Uninitialized {
-            // We should only check on initialization
-            return false;
-        }
-        // Determine if we are the coordinator
-        let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+    /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
+    fn initialize(&mut self) -> Result<(), ClientError> {
+        // TODO: update to read stacker db to get state.
         // Check if the aggregate key is set in the pox contract
-        match self.stacks_client.get_aggregate_public_key() {
-            Ok(Some(key)) => {
-                // The aggregate key is already set for this round. Nothing to do.
-                self.coordinator.set_aggregate_public_key(Some(key));
-                self.state = State::Idle;
-            }
-            Ok(None) => {
-                // There is no public key set. Check if we need to cast our vote
-                // TODO: Add state to keep track of what contract calls we have made so we don't recast our vote needlessly and force blocks to include multiple of the same stx transactions
-                // TODO: should I use ok() here or log some error?
-                // Note this is written under the assumption that if no conensus is reached in the contract, the pox contract will flush all votes and start over
-                if let Some(aggregate_key) = self.coordinator.get_aggregate_public_key() {
-                    // We have a DKG result to vote on. Check if we need to cast our vote.
-                    match self.cast_vote(&aggregate_key) {
-                        Ok(_) => {
-                            // We have voted. Update state.
-                            self.state = State::Idle;
-                        }
-                        Err(e) => {
-                            warn!("Failed to cast aggregate vote: {:?}", e);
-                        }
-                    }
-                } else {
-                    debug!("DKG is not set in the contract. Determine if we need to run DKG...");
-                    // Update the state to IDLE so we don't needlessy requeue the DKG command.
-                    self.state = State::Idle;
-                    // Nothing is set in the contract. Check if we are the coordinator and that no DKG command is queued.
-                    return coordinator_id == self.signing_round.signer_id
-                        && self.commands.front() != Some(&RunLoopCommand::Dkg);
-                }
-            }
-            Err(e) => {
-                error!("Failed to get aggregate public key: {:?}", e);
+        if let Some(key) = self.stacks_client.get_aggregate_public_key()? {
+            debug!("Aggregate public key is set: {:?}", key);
+            self.coordinator.set_aggregate_public_key(Some(key));
+        } else {
+            // Update the state to IDLE so we don't needlessy requeue the DKG command.
+            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            if coordinator_id == self.signing_round.signer_id
+                && self.commands.front() != Some(&RunLoopCommand::Dkg)
+            {
+                self.commands.push_front(RunLoopCommand::Dkg);
             }
         }
-
-        std::thread::sleep(Duration::from_secs(1));
-        false
+        self.state = State::Idle;
+        Ok(())
     }
 
-    /// Helper function to actually execute the command and update state accordingly
+    /// Execute the given command and update state accordingly
     /// Returns true when it is successfully executed, else false
     fn execute_command(&mut self, command: &RunLoopCommand) -> bool {
         match command {
@@ -168,7 +138,7 @@ impl<C: Coordinatable> RunLoop<C> {
         }
     }
 
-    /// Helper function to check the current state, process the next command in the queue, and update state accordingly
+    /// Attempt to process the next command in the queue, and update state accordingly
     fn process_next_command(&mut self) {
         match self.state {
             State::Uninitialized => {
@@ -233,23 +203,6 @@ impl<C: Coordinatable> RunLoop<C> {
         };
         outbound_messages.extend(messages);
         (outbound_messages, results)
-    }
-
-    /// Helper function to cast a vote for an aggregate public key if we have not voted yet
-    fn cast_vote(&mut self, point: &Point) -> Result<(), ClientError> {
-        if self
-            .stacks_client
-            .get_aggregate_public_key_vote()?
-            .is_some()
-        {
-            // We have already voted for an aggregate public key. Nothing to do.
-            debug!("Already voted for aggregate key. Nothing to do.");
-        } else {
-            // No aggregate public key has been set yet. We need to vote for it!
-            debug!("Voting for aggregate public key: {:?}", point);
-            self.stacks_client.cast_aggregate_public_key_vote(point)?;
-        }
-        Ok(())
     }
 }
 
@@ -329,7 +282,17 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         if let Some(command) = cmd {
             self.commands.push_back(command);
         }
-        // First process any arrived events
+        if self.state == State::Uninitialized {
+            let backoff_timer = backoff::ExponentialBackoffBuilder::new()
+                .with_initial_interval(Duration::from_millis(128))
+                .with_max_interval(Duration::from_millis(16384))
+                .build();
+            backoff::retry(backoff_timer, || {
+                self.initialize().map_err(backoff::Error::transient)
+            })
+            .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
+        }
+        // Process any arrived events
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
             debug!(
@@ -349,15 +312,6 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
 
             let nmb_results = operation_results.len();
             if nmb_results > 0 {
-                for result in &operation_results {
-                    if let OperationResult::Dkg(point) = result {
-                        debug!("DKG result: {:?}", point);
-                        // if let Err(e) = self.cast_vote(point) {
-                        //     error!("Failed to cast aggregate public key vote: {:?}", e);
-                        //     panic!();
-                        // }
-                    }
-                }
                 // We finished our command. Update the state
                 self.state = State::Idle;
                 match res.send(operation_results) {
@@ -367,12 +321,6 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
                     }
                 }
             }
-        }
-        // Determine if we need to run DKG round
-        if self.should_run_dkg() {
-            //Add it to the front of the queue so it is set before any other commands get processed!
-            debug!("DKG has not run and needs to be queued. Adding it to the front of the queue.");
-            self.commands.push_front(RunLoopCommand::Dkg);
         }
         // The process the next command
         // Must be called AFTER processing the event as the state may update to IDLE due to said event.

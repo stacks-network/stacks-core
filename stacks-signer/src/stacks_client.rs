@@ -10,10 +10,7 @@ use blockstack_lib::{
     },
 };
 use clarity::vm::{
-    errors::Error as ClarityError,
-    types::{
-        serialization::SerializationError, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    },
+    types::{serialization::SerializationError, QualifiedContractIdentifier, SequenceData},
     Value as ClarityValue, {ClarityName, ContractName},
 };
 use hashbrown::HashMap;
@@ -22,7 +19,6 @@ use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChun
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::{
-    codec,
     codec::StacksMessageCodec,
     debug,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
@@ -45,7 +41,7 @@ pub const SLOTS_PER_USER: u32 = 10;
 pub enum ClientError {
     /// An error occurred serializing the message
     #[error("Unable to serialize stacker-db message: {0}")]
-    BincodeSerializationError(#[from] BincodeError),
+    StackerDBSerializationError(#[from] BincodeError),
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
@@ -64,42 +60,21 @@ pub enum ClientError {
     /// Reqwest specific error occurred
     #[error("{0}")]
     ReqwestError(#[from] reqwest::Error),
-    /// Failed to sign with the provided private key
-    #[error("Failed to sign with the given private key")]
-    SignatureGenerationFailure,
-    /// Failed to sign with the provided private key
-    #[error("Failed to sign with the sponsor private key")]
-    SponsorSignatureGenerationFailure,
-    /// Failed to sign with the provided private key
-    #[error("Failed to serialize tx {0}")]
-    FailureToSerializeTx(String),
-    /// Failed to sign with the provided private key
-    #[error("{0}")]
-    FailureToDeserializeTx(#[from] codec::Error),
-    /// Failed to create a p2pkh spending condition
-    #[error("Failed to create p2pkh spending condition from public key {0}")]
-    FailureToCreateSpendingFromPublicKey(String),
+    /// Failed to build and sign a new Stacks transaction.
+    #[error("Failed to generate transaction from a transaction signer: {0}")]
+    TransactionGenerationFailure(String),
     /// Stacks node client request failed
     #[error("Stacks node client request failed: {0}")]
     RequestFailure(reqwest::StatusCode),
-    /// Unexpected response from the pox endpoint
-    #[error("Malformed pox response: {0}")]
-    MalformedPoxResponse(String),
     /// Failed to serialize a Clarity value
     #[error("Failed to serialize Clarity value: {0}")]
-    SerializationError(#[from] SerializationError),
+    ClaritySerializationError(#[from] SerializationError),
     /// Failed to parse a Clarity value
     #[error("Recieved a malformed clarity value: {0}")]
     MalformedClarityValue(ClarityValue),
-    /// Invalid Contract ID
-    #[error("Invalid Contract ID: {0}")]
-    InvalidContractID(String),
     /// Invalid Clarity Name
     #[error("Invalid Clarity Name: {0}")]
     InvalidClarityName(String),
-    /// Clarity error occurred
-    #[error("Clarity Error: {0}")]
-    ClarityError(#[from] ClarityError),
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
@@ -191,7 +166,7 @@ impl StacksClient {
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-bitcoin-wallet-public-key"; // FIXME: this may need to be modified to match .pox-4
+        let function_name_str = "get-aggregate-public-key"; // FIXME: this may need to be modified to match .pox-4
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
         let (contract_addr, contract_name) = self.get_pox_contract()?;
@@ -205,41 +180,6 @@ impl StacksClient {
         self.parse_aggregate_public_key(&contract_response_hex)
     }
 
-    /// Retreive the DKG aggregate public key vote of the signer
-    pub fn get_aggregate_public_key_vote(&self) -> Result<Option<Point>, ClientError> {
-        let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-bitcoin-wallet-public-key-vote"; // FIXME: this may need to be modified to match .pox-4
-        let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
-        let (contract_addr, contract_name) = self.get_pox_contract()?;
-        let function_args = &[
-            ClarityValue::from(PrincipalData::from(self.stacks_address)),
-            ClarityValue::UInt(reward_cycle as u128),
-        ];
-        let contract_response_hex = self.read_only_contract_call_with_retry(
-            &contract_addr,
-            &contract_name,
-            &function_name,
-            function_args,
-        )?;
-        self.parse_aggregate_public_key(&contract_response_hex)
-    }
-
-    /// Cast the DKG aggregate public key vote
-    pub fn cast_aggregate_public_key_vote(&self, vote: &Point) -> Result<Txid, ClientError> {
-        debug!("Casting aggregate public key vote...");
-        let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "vote-for-bitcoin-wallet-public-key-candidate"; // FIXME: this may need to be modified to match .pox-4
-        let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
-        let (contract_addr, contract_name) = self.get_pox_contract()?;
-        let function_args = &[
-            ClarityValue::buff_from(vote.compress().as_bytes().to_vec())?,
-            ClarityValue::UInt(reward_cycle as u128),
-        ];
-        self.transaction_contract_call(&contract_addr, contract_name, function_name, function_args)
-    }
-
     /// Retrieve the total number of slots allocated to a stacker-db writer
     #[allow(dead_code)]
     pub fn slots_per_user(&self) -> u32 {
@@ -250,7 +190,6 @@ impl StacksClient {
 
     /// Helper function to retrieve the current reward cycle number from the stacks node
     fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
-        debug!("Retrieving current reward cycle...");
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -271,9 +210,10 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the next possible nonce for the signer from the stacks node
+    #[allow(dead_code)]
     fn get_next_possible_nonce(&self) -> Result<u64, ClientError> {
-        debug!("Retrieving the next possible nonce...");
-        todo!("Get the next possible nonce from the stacks node")
+        //FIXME: use updated RPC call to get mempool nonces. Depends on https://github.com/stacks-network/stacks-blockchain/issues/4000
+        todo!("Get the next possible nonce from the stacks node");
     }
 
     /// Helper function to retrieve the pox contract address and name from the stacks node
@@ -282,7 +222,6 @@ impl StacksClient {
         if let Some(pox_contract) = self.pox_contract_id.clone() {
             return Ok((pox_contract.issuer.into(), pox_contract.name));
         }
-        debug!("Retrieving pox contract ID...");
         // TODO: we may want to cache the pox contract inside the client itself (calling this function once on init)
         let send_request = || {
             self.stacks_node_client
@@ -323,6 +262,7 @@ impl StacksClient {
     }
 
     /// Sends a transaction to the stacks node for a modifying contract call
+    #[allow(dead_code)]
     fn transaction_contract_call(
         &self,
         contract_addr: &StacksAddress,
@@ -330,7 +270,7 @@ impl StacksClient {
         function_name: ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<Txid, ClientError> {
-        debug!("Making a contract call...");
+        debug!("Making a contract call to {contract_addr}.{contract_name}...");
         let signed_tx = self.build_signed_transaction(
             contract_addr,
             contract_name,
@@ -357,14 +297,18 @@ impl StacksClient {
         let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
         let tx_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
-                ClientError::FailureToCreateSpendingFromPublicKey(public_key.to_hex()),
+                ClientError::TransactionGenerationFailure(format!(
+                    "Failed to create spending condition from public key: {}",
+                    public_key.to_hex()
+                )),
             )?,
         );
 
         let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
 
-        // Because signers are given priority, we can put down a tx fee of 0
-        unsigned_tx.set_tx_fee(0);
+        // FIXME: Because signers are given priority, we can put down a tx fee of 0
+        // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
+        unsigned_tx.set_tx_fee(10_000);
         unsigned_tx.set_origin_nonce(self.get_next_possible_nonce()?);
 
         unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
@@ -374,11 +318,13 @@ impl StacksClient {
         let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
         tx_signer
             .sign_origin(&self.stacks_private_key)
-            .map_err(|_| ClientError::SignatureGenerationFailure)?;
+            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
 
         tx_signer
             .get_tx()
-            .ok_or(ClientError::SignatureGenerationFailure)
+            .ok_or(ClientError::TransactionGenerationFailure(
+                "Failed to generate transaction from a transaction signer".to_string(),
+            ))
     }
 
     /// Helper function to submit a transaction to the Stacks node
@@ -731,7 +677,10 @@ mod tests {
         let config = TestConfig::new();
         let clarity_value_hex = "0x00";
         let result = config.client.parse_aggregate_public_key(clarity_value_hex);
-        assert!(matches!(result, Err(ClientError::SerializationError(..))));
+        assert!(matches!(
+            result,
+            Err(ClientError::ClaritySerializationError(..))
+        ));
         // TODO: add further tests for malformed clarity values (an optional of any other type for example)
     }
 
