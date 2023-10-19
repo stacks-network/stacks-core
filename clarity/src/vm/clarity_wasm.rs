@@ -868,8 +868,19 @@ fn read_from_wasm(
             }
             Value::list_from(buffer)
         }
+        TypeSignature::BoolType => {
+            debug_assert!(
+                length == 4,
+                "expected bool length to be 4 bytes, found {length}"
+            );
+            let mut buffer: [u8; 4] = [0; 4];
+            memory
+                .read(&mut store, offset as usize, &mut buffer)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            let bool_val = u32::from_le_bytes(buffer);
+            Ok(Value::Bool(bool_val != 0))
+        }
         TypeSignature::ResponseType(_r) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::BoolType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
