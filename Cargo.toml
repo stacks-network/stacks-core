@@ -25,6 +25,3 @@ opt-level = 3
 [profile.release]
 debug = true
 
-[patch.crates-io]
-p256k1 = { path = "/home/jude/pkg/p256k1/p256k1", version = "5.5.0" }
-wsts = { path = "/home/jude/pkg/wsts" }
