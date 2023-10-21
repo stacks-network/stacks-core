@@ -17,20 +17,17 @@
 mod http;
 
 use std::io::Write;
-use std::mem;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
 use std::time::Duration;
-
-use crate::{Signer, SignerRunLoop, StackerDBChunksEvent, StackerDBEventReceiver};
+use std::{mem, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-
+use libstackerdb::StackerDBChunkData;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
-use libstackerdb::StackerDBChunkData;
+use crate::{Signer, SignerRunLoop, StackerDBChunksEvent, StackerDBEventReceiver};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.

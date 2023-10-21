@@ -19,12 +19,7 @@
 
 use std::io;
 use std::io::{Read, Write};
-
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::SyncSender;
-use std::sync::mpsc::TryRecvError;
-use std::sync::mpsc::TrySendError;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 
 use crate::util::log;
 
@@ -50,6 +45,7 @@ pub struct PipeWrite {
 
 pub struct Pipe {}
 
+#[allow(clippy::new_ret_no_self)]
 impl Pipe {
     pub fn new() -> (PipeRead, PipeWrite) {
         let (send, recv) = sync_channel(1);
@@ -60,14 +56,14 @@ impl Pipe {
 impl PipeRead {
     fn new(input: Receiver<Vec<u8>>) -> PipeRead {
         PipeRead {
-            input: input,
+            input,
             buf: vec![],
             i: 0,
             block: true,
         }
     }
 
-    pub fn set_nonblocking(&mut self, flag: bool) -> () {
+    pub fn set_nonblocking(&mut self, flag: bool) {
         self.block = !flag;
     }
 
@@ -172,12 +168,12 @@ impl PipeRead {
             }
         }
 
-        if disconnected && copied == 0 && self.buf.len() == 0 {
+        if disconnected && copied == 0 && self.buf.is_empty() {
             // out of data, and will never get more
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
 
-        if blocked && copied == 0 && self.buf.len() == 0 {
+        if blocked && copied == 0 && self.buf.is_empty() {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
 
@@ -187,10 +183,7 @@ impl PipeRead {
 
 impl PipeWrite {
     fn new(output: SyncSender<Vec<u8>>) -> PipeWrite {
-        PipeWrite {
-            output: output,
-            buf: None,
-        }
+        PipeWrite { output, buf: None }
     }
 
     fn write_or_buffer(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -236,30 +229,25 @@ impl PipeWrite {
     /// Return True if we succeeded; False if not.
     pub fn try_flush(&mut self) -> io::Result<bool> {
         let data = self.buf.take();
-        match data {
-            Some(bytes) => {
-                match self.output.try_send(bytes) {
-                    Ok(_) => {
-                        // sent!
-                        Ok(true)
-                    }
-                    Err(send_err) => match send_err {
-                        TrySendError::Full(ret_bytes) => {
-                            // try again
-                            self.buf = Some(ret_bytes);
-                            Ok(false)
-                        }
-                        TrySendError::Disconnected(_) => {
-                            // broken
-                            Err(io::Error::from(io::ErrorKind::BrokenPipe))
-                        }
-                    },
+        if let Some(bytes) = data {
+            match self.output.try_send(bytes) {
+                Err(TrySendError::Full(ret_bytes)) => {
+                    // try again
+                    self.buf = Some(ret_bytes);
+                    Ok(false)
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    // broken
+                    Err(io::Error::from(io::ErrorKind::BrokenPipe))
+                }
+                Ok(_) => {
+                    // sent!
+                    Ok(true)
                 }
             }
-            None => {
-                // done!
-                Ok(true)
-            }
+        } else {
+            // done!
+            Ok(true)
         }
     }
 }
@@ -309,17 +297,13 @@ impl Write for PipeWrite {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let data = self.buf.take();
-        match data {
-            Some(bytes) => {
-                let _len = bytes.len();
-                self.output
-                    .send(bytes)
-                    .map_err(|_e| io::Error::from(io::ErrorKind::BrokenPipe))?;
+        if let Some(bytes) = self.buf.take() {
+            let _len = bytes.len();
+            self.output
+                .send(bytes)
+                .map_err(|_e| io::Error::from(io::ErrorKind::BrokenPipe))?;
 
-                trace!("Pipe wrote {} bytes on flush", _len);
-            }
-            None => {}
+            trace!("Pipe wrote {} bytes on flush", _len);
         }
         Ok(())
     }
@@ -327,14 +311,15 @@ impl Write for PipeWrite {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::util::*;
-    use rand;
-    use rand::RngCore;
-    use std::io;
     use std::io::prelude::*;
     use std::io::{Read, Write};
-    use std::thread;
+    use std::{io, thread};
+
+    use rand;
+    use rand::RngCore;
+
+    use super::*;
+    use crate::util::*;
 
     #[test]
     fn test_connection_pipe_oneshot() {
@@ -369,7 +354,7 @@ mod test {
             let expected_recv_buf = send_bytes.clone();
 
             pipe_read.set_nonblocking(true);
-            pipe_write.write(&send_bytes[..]).unwrap();
+            let _ = pipe_write.write(&send_bytes[..]).unwrap();
 
             for i in 0..recv_list.len() {
                 let mut buf = vec![0u8; recv_list[i]];
@@ -382,7 +367,7 @@ mod test {
                             num_bytes
                         );
 
-                        let num_bytes_expected = outputs[i].as_ref().ok().clone().unwrap();
+                        let num_bytes_expected = outputs[i].as_ref().ok().unwrap();
                         assert_eq!(
                             num_bytes, *num_bytes_expected,
                             "Expected {}, got {}",
@@ -421,7 +406,7 @@ mod test {
         buf.resize(1048576, 0);
 
         let mut rng = rand::thread_rng();
-        rng.fill_bytes(&mut *buf);
+        rng.fill_bytes(&mut buf);
 
         let buf_compare = buf.clone(); // for use in the consumer
 
@@ -533,7 +518,7 @@ mod test {
             let res = pipe_read.read(&mut bytes).unwrap_err();
             assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
 
-            pipe_write.write(segment).unwrap();
+            let _ = pipe_write.write(segment).unwrap();
 
             // should should succeed since the data is in the receiver's inbox
             let res = pipe_write.try_flush().unwrap();
@@ -575,8 +560,8 @@ mod test {
             assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
 
             // write each _byte_
-            for i in 0..segment.len() {
-                pipe_write.write(&[segment[i]]).unwrap();
+            for (i, byte) in segment.iter().enumerate() {
+                let _ = pipe_write.write(&[*byte]).unwrap();
                 let res = pipe_write.try_flush().unwrap();
 
                 // first write flushes; subsequent ones don't

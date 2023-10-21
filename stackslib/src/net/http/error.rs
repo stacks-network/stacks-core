@@ -17,13 +17,12 @@
 use std::io;
 use std::io::Read;
 
-use crate::net::http::response::HttpResponse;
-use crate::net::http::{Error, HttpContentType, HttpResponsePayload, HttpResponsePreamble};
-
+use serde_json;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::util::retry::BoundReader;
 
-use serde_json;
+use crate::net::http::response::HttpResponse;
+use crate::net::http::{Error, HttpContentType, HttpResponsePayload, HttpResponsePreamble};
 
 /// Default implementation of `try_parse_response()` for an HTTP error message that implements
 /// `HttpReqeust`.

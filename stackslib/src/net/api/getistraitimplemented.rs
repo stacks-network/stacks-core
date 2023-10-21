@@ -14,56 +14,42 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
 use std::io::{Read, Write};
 
-use crate::net::{
-    httpcore::{
-        request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-        StacksHttp, StacksHttpRequest, StacksHttpResponse,
-    },
-    p2p::PeerNetwork,
-    Error as NetError, StacksNodeState,
+use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::{ClarityDatabase, STXBalance, StoreType};
+use clarity::vm::representations::{
+    CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
 };
-
-use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
 };
+use clarity::vm::{ClarityName, ClarityVersion, ContractName};
+use regex::{Captures, Regex};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::types::Address;
+use stacks_common::util::hash::{to_hex, Sha256Sum};
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::mempool::MemPoolDB;
-use crate::net::TipRequest;
+use crate::net::http::{
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+};
+use crate::net::httpcore::{
+    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
+    StacksHttpRequest, StacksHttpResponse,
+};
+use crate::net::p2p::PeerNetwork;
+use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Sha256Sum;
-
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::database::STXBalance;
-use clarity::vm::database::StoreType;
-use clarity::vm::representations::CONTRACT_NAME_REGEX_STRING;
-use clarity::vm::representations::PRINCIPAL_DATA_REGEX_STRING;
-use clarity::vm::representations::STANDARD_PRINCIPAL_REGEX_STRING;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::types::TraitIdentifier;
-use clarity::vm::ClarityName;
-use clarity::vm::ClarityVersion;
-use clarity::vm::ContractName;
-
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::Address;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetIsTraitImplementedResponse {

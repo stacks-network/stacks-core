@@ -16,68 +16,38 @@
 
 use std::collections::HashSet;
 use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use stacks_common::codec::read_next;
-use stacks_common::codec::Error as CodecError;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-
-use crate::util_lib::db::DBConn;
-
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::chainstate_path;
-use crate::chainstate::stacks::db::test::instantiate_chainstate;
-use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
-use crate::chainstate::stacks::Error as chainstate_error;
-use crate::chainstate::stacks::{
-    StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::{ClarityName, ContractName, Value};
+use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
 };
-
-use crate::net::api::postmempoolquery::StacksMemPoolStream;
-
-use crate::net::http::HttpChunkGenerator;
-
-use crate::core::mempool::decode_tx_stream;
-use crate::core::mempool::MemPoolSyncData;
-use crate::core::mempool::TxTag;
-use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
-use crate::core::MemPoolDB;
-use crate::net::Error as NetError;
-
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
-
-use crate::net::httpcore::{HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest};
-
 use stacks_common::types::net::PeerHost;
-
 use stacks_common::types::Address;
-
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::ClarityName;
-use clarity::vm::ContractName;
-use clarity::vm::Value;
-
-use crate::net::api::*;
-use crate::net::ProtocolFamily;
-use crate::net::TipRequest;
-
-use crate::core::BLOCK_LIMIT_MAINNET_21;
-use crate::net::httpcore::RPCRequestHandler;
-
-use crate::net::connection::ConnectionOptions;
+use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::TestRPC;
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::db::blocks::test::*;
+use crate::chainstate::stacks::db::test::{chainstate_path, instantiate_chainstate};
+use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
+use crate::chainstate::stacks::{
+    Error as chainstate_error, StacksTransaction, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+};
+use crate::core::mempool::{decode_tx_stream, MemPoolSyncData, TxTag, MAX_BLOOM_COUNTER_TXS};
+use crate::core::{MemPoolDB, BLOCK_LIMIT_MAINNET_21};
+use crate::net::api::postmempoolquery::StacksMemPoolStream;
+use crate::net::api::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpChunkGenerator;
+use crate::net::httpcore::{
+    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+};
+use crate::net::{Error as NetError, ProtocolFamily, TipRequest};
+use crate::util_lib::db::DBConn;
 
 #[test]
 fn test_try_parse_request() {

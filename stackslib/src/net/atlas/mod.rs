@@ -18,24 +18,20 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use regex::Regex;
+use serde::de::{Deserialize, Error as de_Error};
+use serde::ser::Serialize;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc};
 
+pub use self::db::AtlasDB;
+pub use self::download::AttachmentsDownloader;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::util_lib::boot::boot_code_id;
-use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc};
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-
-pub use self::db::AtlasDB;
-pub use self::download::AttachmentsDownloader;
-
-use serde::de::{Deserialize, Error as de_Error};
-use serde::ser::Serialize;
 
 /// Implements AtlasDB and associated API. Stores information about attachments and attachment
 /// instances.

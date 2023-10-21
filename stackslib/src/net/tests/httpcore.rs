@@ -18,6 +18,14 @@ use std::io::Write;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::str;
 
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
+use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::util::chunked_encoding::{
+    HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
+};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
 use crate::chainstate::stacks::test::make_codec_test_block;
@@ -25,8 +33,7 @@ use crate::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAuth, TransactionPayload,
     TransactionPostConditionMode, TransactionVersion,
 };
-use crate::net::api::getneighbors::RPCNeighbor;
-use crate::net::api::getneighbors::RPCNeighborsInfo;
+use crate::net::api::getneighbors::{RPCNeighbor, RPCNeighborsInfo};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
     http_error_from_code_and_text, http_reason, HttpContentType, HttpErrorResponse,
@@ -34,21 +41,11 @@ use crate::net::http::{
     HttpVersion, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp, StacksHttpMessage,
+    StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::httpcore::{StacksHttp, StacksHttpMessage, StacksHttpPreamble};
 use crate::net::rpc::ConversationHttp;
-use crate::net::ProtocolFamily;
-use crate::net::TipRequest;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::util::chunked_encoding::HttpChunkedTransferWriter;
-use stacks_common::util::chunked_encoding::HttpChunkedTransferWriterState;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::{to_hex, Hash160};
+use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_parse_stacks_http_preamble_request_err() {

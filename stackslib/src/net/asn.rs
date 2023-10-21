@@ -15,15 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
+
+use regex::{Captures, Regex};
+use stacks_common::types::net::PeerAddress;
+use stacks_common::util::log;
 
 use crate::net::Error as net_error;
-
-use regex::Captures;
-use regex::Regex;
-
-use stacks_common::util::log;
 
 // IPv4 prefix to ASN/org map entry
 #[derive(Debug, Clone, PartialEq)]
@@ -226,10 +224,12 @@ impl ASEntry4 {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use stacks_common::util::log;
     use std::io;
     use std::io::BufRead;
+
+    use stacks_common::util::log;
+
+    use super::*;
 
     struct asn_fixture {
         text: String,

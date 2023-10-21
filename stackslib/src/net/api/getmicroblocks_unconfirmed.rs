@@ -14,48 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
-use std::fs;
 use std::fs::OpenOptions;
-use std::io;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::{fs, io};
 
+use regex::{Captures, Regex};
+use serde::de::Error as de_Error;
+use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::retry::BoundReader;
+use {serde, serde_json};
+
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    request, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
+    request, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
     StacksHttpResponse,
 };
-use crate::net::StacksNodeState;
-use crate::net::MAX_HEADERS;
-use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
-use crate::net::{httpcore::StacksHttp, Error as NetError, TipRequest};
-
-use crate::chainstate::stacks::Error as ChainError;
-
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblock;
-
-use stacks_common::codec::read_next;
-use stacks_common::codec::Error as CodecError;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::retry::BoundReader;
-
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as DBError;
-
-use serde;
-use serde::de::Error as de_Error;
-use serde_json;
+use crate::net::{
+    Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS, MAX_MICROBLOCKS_UNCONFIRMED,
+};
+use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Clone)]
 pub struct RPCMicroblocksUnconfirmedRequestHandler {

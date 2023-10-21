@@ -14,30 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::net::{
-    db::PeerDB,
-    httpcore::{
-        HttpPreambleExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-        StacksHttpResponse,
-    },
-    p2p::PeerNetwork,
-    Error as NetError, NeighborKey, PeerAddress, StacksNodeState,
-};
 use std::io::{Read, Write};
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
+use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::util::hash::Hash160;
 
+use crate::net::db::PeerDB;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpVersion,
 };
-
-use crate::net::MAX_NEIGHBORS_DATA_LEN;
-
-use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::Hash160;
-
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::net::httpcore::{
+    HttpPreambleExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest, StacksHttpResponse,
+};
+use crate::net::p2p::PeerNetwork;
+use crate::net::{Error as NetError, NeighborKey, StacksNodeState, MAX_NEIGHBORS_DATA_LEN};
 
 #[derive(Clone)]
 pub struct RPCNeighborsRequestHandler {}

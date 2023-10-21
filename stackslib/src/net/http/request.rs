@@ -18,27 +18,22 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
 use std::string::ToString;
 
-use crate::net::http::common::HttpReservedHeader;
-use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use crate::net::http::common::HTTP_PREAMBLE_MAX_NUM_HEADERS;
+use percent_encoding::percent_decode_str;
+use rand::{thread_rng, Rng};
+use regex::{Captures, Regex};
+use serde_json;
+use stacks_common::codec::{write_next, Error as CodecError, StacksMessageCodec};
+use stacks_common::deps_common::httparse;
+use stacks_common::types::net::PeerHost;
+use url::form_urlencoded;
+
+use crate::net::http::common::{
+    HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
+};
 use crate::net::http::{
     default_accept_header, write_headers, Error, HttpContentType, HttpResponseContents,
     HttpResponsePreamble, HttpVersion,
 };
-
-use stacks_common::codec::{write_next, Error as CodecError, StacksMessageCodec};
-use stacks_common::types::net::PeerHost;
-
-use stacks_common::deps_common::httparse;
-
-use percent_encoding::percent_decode_str;
-use regex::{Captures, Regex};
-use url::form_urlencoded;
-
-use rand::thread_rng;
-use rand::Rng;
-
-use serde_json;
 
 /// HTTP request preamble.  This captures "control plane" data for an HTTP request, and contains
 /// everything of use to us from the HTTP requests's headers.

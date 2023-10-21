@@ -14,34 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest,
-};
-
-use stacks_common::types::net::PeerHost;
-
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::{ClarityName, ContractName};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::ClarityName;
-use clarity::vm::ContractName;
-
-use crate::net::api::*;
-use crate::net::httpcore::RPCRequestHandler;
-use crate::net::ProtocolFamily;
-use crate::net::TipRequest;
-
-use crate::net::connection::ConnectionOptions;
-
 use super::test_rpc;
+use crate::net::api::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::httpcore::{
+    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
+    StacksHttpRequest,
+};
+use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {

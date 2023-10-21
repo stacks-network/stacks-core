@@ -1,7 +1,8 @@
+use clarity::vm::costs::ExecutionCost;
+
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::core::BLOCK_LIMIT_MAINNET_20;
 use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
-use clarity::vm::costs::ExecutionCost;
 
 #[test]
 // Test that when dimensions of the execution cost are near "zero",

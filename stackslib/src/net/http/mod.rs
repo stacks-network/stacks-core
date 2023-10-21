@@ -23,16 +23,14 @@ pub mod stream;
 #[cfg(test)]
 mod tests;
 
-use regex::{Captures, Regex};
 use std::collections::BTreeMap;
-use std::fmt;
-use std::io;
 use std::io::Write;
 use std::str::FromStr;
+use std::{fmt, io};
 
-use stacks_common::codec::Error as CodecError;
-
+use regex::{Captures, Regex};
 use serde_json;
+use stacks_common::codec::Error as CodecError;
 
 pub use crate::net::http::common::{
     parse_bytes, parse_bytestream, parse_json, HttpReservedHeader, HttpVersion,

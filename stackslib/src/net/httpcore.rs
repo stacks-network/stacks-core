@@ -14,59 +14,43 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/// This module binds the http library to Stacks as a `ProtocolFamily` implementation
+use std::collections::{BTreeMap, HashMap};
+use std::io::{Read, Write};
+use std::net::SocketAddr;
+use std::{fmt, io, mem};
+
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
+use clarity::vm::{ClarityName, ContractName};
+use percent_encoding::percent_decode_str;
+use regex::{Captures, Regex};
+use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
+};
+use stacks_common::types::net::PeerHost;
+use stacks_common::types::Address;
+use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::retry::{BoundReader, RetryReader};
+use url::Url;
+
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::blocks::StagingBlock;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::core::MemPoolDB;
-use crate::core::StacksEpoch;
+use crate::core::{MemPoolDB, StacksEpoch};
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use crate::net::http::{
-    common::HTTP_PREAMBLE_MAX_ENCODED_SIZE, http_reason, Error as HttpError, HttpBadRequest,
-    HttpContentType, HttpErrorResponse, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError, HttpVersion,
+    http_reason, Error as HttpError, HttpBadRequest, HttpContentType, HttpErrorResponse,
+    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::Error as NetError;
-use crate::net::MessageSequence;
-use crate::net::ProtocolFamily;
-use crate::net::StacksNodeState;
-use crate::net::UrlString;
-/// This module binds the http library to Stacks as a `ProtocolFamily` implementation
-use std::collections::{BTreeMap, HashMap};
-use std::fmt;
-use std::io;
-use std::io::{Read, Write};
-use std::mem;
-use std::net::SocketAddr;
-
-use regex::{Captures, Regex};
-
-use url::Url;
-
-use stacks_common::codec::read_next;
-use stacks_common::codec::Error as CodecError;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
-use stacks_common::util::chunked_encoding::*;
-use stacks_common::util::retry::{BoundReader, RetryReader};
-
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
-use clarity::vm::ClarityName;
-use clarity::vm::ContractName;
-
-use percent_encoding::percent_decode_str;
+use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString};
 
 const CHUNK_BUF_LEN: usize = 32768;
 

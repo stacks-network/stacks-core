@@ -14,16 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-use std::io;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::{fmt, io};
 
-use stacks_common::codec::read_next;
-use stacks_common::codec::Error as CodecError;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::chunked_encoding::*;
 use stacks_common::util::retry::BoundReader;

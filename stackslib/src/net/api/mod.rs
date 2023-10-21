@@ -16,34 +16,22 @@
 
 use std::convert::From;
 
-use crate::net::Error as NetError;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::codec::read_next;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
 use crate::core::mempool;
-
-use stacks_common::types::chainstate::StacksBlockId;
-
+use crate::cost_estimates::FeeRateEstimate;
+use crate::net::atlas::GetAttachmentResponse;
 use crate::net::http::{
     Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
-
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest, StacksHttpResponse};
-
-use crate::chainstate::stacks::StacksMicroblock;
-use crate::chainstate::stacks::StacksTransaction;
-
-use crate::burnchains::Txid;
-
-use stacks_common::codec::read_next;
-
-use crate::net::atlas::GetAttachmentResponse;
-
-use crate::cost_estimates::FeeRateEstimate;
-
-use clarity::vm::costs::ExecutionCost;
-
+use crate::net::Error as NetError;
 use crate::stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::BlockHeaderHash;
 
 pub mod callreadonly;
 pub mod getaccount;

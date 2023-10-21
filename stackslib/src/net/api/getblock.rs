@@ -14,41 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
-use std::fs;
 use std::fs::OpenOptions;
-use std::io;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::{fs, io};
 
+use regex::{Captures, Regex};
+use serde::de::Error as de_Error;
+use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::hash::to_hex;
+use {serde, serde_json};
+
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
 };
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+    StacksHttpResponse,
 };
-use crate::net::StacksNodeState;
-use crate::net::MAX_HEADERS;
-use crate::net::{httpcore::StacksHttp, Error as NetError, TipRequest};
-
-use crate::chainstate::stacks::Error as ChainError;
-
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::StacksBlock;
-
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
-
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as DBError;
-
-use serde;
-use serde::de::Error as de_Error;
-use serde_json;
+use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
+use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Clone)]
 pub struct RPCBlocksRequestHandler {

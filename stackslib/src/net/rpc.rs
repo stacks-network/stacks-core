@@ -14,128 +14,72 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::io;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::time::Instant;
-use std::{convert::TryFrom, fmt};
+use std::{fmt, io};
 
+use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, ClaritySerializable, STXBalance, StoreType,
+};
+use clarity::vm::errors::Error::Unchecked;
+use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, SymbolicExpression, Value};
+use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
-
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::burnchains::*;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::blocks::CheckError;
-use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
-use crate::chainstate::stacks::Error as chain_error;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::ClarityConnection;
-use crate::core::mempool::*;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
-use crate::cost_estimates::FeeEstimator;
-use crate::monitoring;
-use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use crate::net::connection::ConnectionHttp;
-use crate::net::connection::ConnectionOptions;
-use crate::net::connection::ReplyHandleHttp;
-use crate::net::db::PeerDB;
-
-use crate::net::http::{HttpRequestContents, HttpResponseContents};
-use crate::net::PeerHostExtensions;
-use crate::net::StacksNodeState;
-
-use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp, StacksHttpMessage,
-    StacksHttpRequest, StacksHttpResponse, TipRequest, HTTP_REQUEST_ID_RESERVED,
-};
-
-use crate::core::mempool::MemPoolSyncData;
-use crate::net::api::{
-    callreadonly::CallReadOnlyRequestBody, callreadonly::CallReadOnlyResponse,
-    getaccount::AccountEntryResponse, getconstantval::ConstantValResponse,
-    getcontractsrc::ContractSrcResponse, getdatavar::DataVarResponse, getinfo::RPCAffirmationData,
-    getinfo::RPCLastPoxAnchorData, getinfo::RPCPeerInfoData,
-    getistraitimplemented::GetIsTraitImplementedResponse, getmapentry::MapEntryResponse,
-    getpoxinfo::RPCPoxContractVersion, getpoxinfo::RPCPoxInfoData,
-    gettransaction_unconfirmed::UnconfirmedTransactionResponse,
-    gettransaction_unconfirmed::UnconfirmedTransactionStatus, postfeerate::RPCFeeEstimate,
-    postfeerate::RPCFeeEstimateResponse,
-};
-use crate::net::atlas::{AttachmentPage, GetAttachmentResponse, GetAttachmentsInvResponse};
-use crate::net::p2p::PeerMap;
-use crate::net::p2p::PeerNetwork;
-use crate::net::relay::Relayer;
-use crate::net::stackerdb::StackerDBTx;
-use crate::net::stackerdb::StackerDBs;
-use crate::net::BlocksData;
-use crate::net::BlocksDatum;
-use crate::net::Error as net_error;
-use crate::net::MicroblocksData;
-use crate::net::NeighborAddress;
-use crate::net::NeighborsData;
-use crate::net::ProtocolFamily;
-use crate::net::StackerDBPushChunkData;
-use crate::net::StacksMessageType;
-use crate::net::UrlString;
-use crate::net::MAX_HEADERS;
-use crate::net::MAX_NEIGHBORS_DATA_LEN;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use clarity::vm::database::clarity_store::make_contract_hash_key;
-use clarity::vm::types::TraitIdentifier;
-use clarity::vm::ClarityVersion;
-use clarity::vm::{
-    analysis::errors::CheckErrors,
-    ast::ASTRules,
-    costs::{ExecutionCost, LimitedCostTracker},
-    database::{
-        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
-        STXBalance, StoreType,
-    },
-    errors::Error as ClarityRuntimeError,
-    errors::Error::Unchecked,
-    errors::InterpreterError,
-    types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
-    ClarityName, ContractName, SymbolicExpression, Value,
-};
-use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::clarity_vm::database::marf::MarfedKV;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{types, util};
 
-use crate::clarity_vm::clarity::Error as clarity_error;
-
-use crate::{
-    chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, version_string,
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::{Burnchain, BurnchainView, *};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
+use crate::chainstate::stacks::db::blocks::{CheckError, MINIMUM_TX_FEE_RATE_PER_BYTE};
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
+use crate::clarity_vm::clarity::{ClarityConnection, Error as clarity_error};
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::core::mempool::*;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{CostEstimator, FeeEstimator};
+use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
+use crate::net::db::PeerDB;
+use crate::net::http::{HttpRequestContents, HttpResponseContents};
+use crate::net::httpcore::{
+    StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
-use stacks_common::types;
-use stacks_common::util;
-use stacks_common::util::hash::Sha256Sum;
-
+use crate::net::p2p::{PeerMap, PeerNetwork};
+use crate::net::relay::Relayer;
+use crate::net::stackerdb::{StackerDBTx, StackerDBs};
+use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
 use crate::util_lib::boot::boot_code_id;
-
-use crate::net::api::{getpoxinfo::RPCPoxCurrentCycleInfo, getpoxinfo::RPCPoxNextCycleInfo};
+use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::util_lib::strings::UrlString;
+use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 

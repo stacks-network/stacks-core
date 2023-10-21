@@ -23,8 +23,7 @@ use crate::vm::errors::{
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
-use crate::vm::{self, ClarityVersion};
-use crate::vm::{ClarityName, SymbolicExpression};
+use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {

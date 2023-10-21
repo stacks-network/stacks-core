@@ -17,26 +17,20 @@
 use std::io;
 use std::io::{Read, Write};
 
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::{StacksBlock, StacksBlockHeader, StacksMicroblock};
-
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainstateError;
-
-use crate::util_lib::db::Error as DBError;
-
-use crate::core::mempool::{MemPoolDB, MemPoolSyncData};
-
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::chunked_encoding::{
     HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
 };
 use stacks_common::util::pipe::PipeWrite;
 
-use rand::thread_rng;
-use rand::Rng;
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{
+    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock,
+};
+use crate::core::mempool::{MemPoolDB, MemPoolSyncData};
+use crate::util_lib::db::Error as DBError;
 
 pub trait HttpChunkGenerator: Send {
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String>;

@@ -16,65 +16,35 @@
 
 use std::net::SocketAddr;
 
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::Txid;
-
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::miner::BlockBuilderSettings;
-use crate::chainstate::stacks::miner::StacksMicroblockBuilder;
-use crate::chainstate::stacks::CoinbasePayload;
-use crate::chainstate::stacks::StacksBlock;
-use crate::chainstate::stacks::StacksBlockBuilder;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblock;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::StacksTransactionSigner;
-use crate::chainstate::stacks::TokenTransferMemo;
-use crate::chainstate::stacks::TransactionAnchorMode;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPostConditionMode;
-use crate::chainstate::stacks::TransactionVersion;
-
-use crate::core::MemPoolDB;
-
-use crate::net::relay::Relayer;
-use crate::net::rpc::ConversationHttp;
-use crate::net::Attachment;
-use crate::net::AttachmentInstance;
-use crate::net::RPCHandlerArgs;
-use crate::net::StackerDBConfig;
-use crate::net::StacksHttpRequest;
-use crate::net::StacksHttpResponse;
-use crate::net::StacksNodeState;
-use crate::net::UrlString;
-
-use crate::net::test::TestPeer;
-use crate::net::test::TestPeerConfig;
-
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use libstackerdb::SlotMetadata;
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
 
-use stacks_common::codec::StacksMessageCodec;
-
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StacksAddressExtensions;
-
-use libstackerdb::SlotMetadata;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
+use crate::chainstate::stacks::{
+    CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksBlockHeader, StacksMicroblock,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+};
+use crate::core::MemPoolDB;
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::relay::Relayer;
+use crate::net::rpc::ConversationHttp;
+use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::net::{
+    Attachment, AttachmentInstance, RPCHandlerArgs, StackerDBConfig, StacksNodeState, UrlString,
+};
 
 mod callreadonly;
 mod getaccount;

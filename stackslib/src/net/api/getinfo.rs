@@ -14,35 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
 use std::io::{Read, Write};
 
-use crate::net::{
-    httpcore::{HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse},
-    p2p::PeerNetwork,
-    Error as NetError, StacksNodeState,
+use regex::{Captures, Regex};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
 };
-
-use crate::net::http::{
-    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
-};
+use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::hash::{Hash160, Sha256Sum};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::mempool::MemPoolDB;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha256Sum;
-
+use crate::net::http::{
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
+};
+use crate::net::httpcore::{
+    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+};
+use crate::net::p2p::PeerNetwork;
+use crate::net::{Error as NetError, StacksNodeState};
 use crate::version_string;
 
 /// The request to GET /v2/info

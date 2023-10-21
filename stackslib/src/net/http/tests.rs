@@ -14,17 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::net::{PeerAddress, PeerHost};
+
+use crate::net::http::common::{HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS};
 use crate::net::http::{
     HttpContentType, HttpRequestPreamble, HttpReservedHeader, HttpResponsePreamble, HttpVersion,
 };
-
-use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use crate::net::http::common::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-
-use stacks_common::types::net::PeerAddress;
-use stacks_common::types::net::PeerHost;
-
-use stacks_common::codec::StacksMessageCodec;
 
 #[test]
 fn test_parse_reserved_header() {

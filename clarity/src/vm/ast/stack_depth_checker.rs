@@ -17,9 +17,7 @@
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::representations::PreSymbolicExpression;
-use crate::vm::representations::PreSymbolicExpressionType::List;
-use crate::vm::representations::PreSymbolicExpressionType::Tuple;
-
+use crate::vm::representations::PreSymbolicExpressionType::{List, Tuple};
 use crate::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
 
 // allow  the AST to get deeper than the max call stack depth,

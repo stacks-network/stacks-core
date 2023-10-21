@@ -49,9 +49,9 @@ pub enum LockingError {
     PoxInvalidIncrease,
 }
 
-pub const POX_1_NAME: &'static str = "pox";
-pub const POX_2_NAME: &'static str = "pox-2";
-pub const POX_3_NAME: &'static str = "pox-3";
+pub const POX_1_NAME: &str = "pox";
+pub const POX_2_NAME: &str = "pox-2";
+pub const POX_3_NAME: &str = "pox-3";
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(

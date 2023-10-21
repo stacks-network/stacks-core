@@ -1,11 +1,26 @@
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::SocketAddr;
-use std::{collections::HashMap, collections::HashSet, env};
-use std::{thread, thread::JoinHandle, time};
+use std::thread::JoinHandle;
+use std::{env, thread, time};
 
+use clarity::vm::database::BurnStateDB;
+use rand::RngCore;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::db::BurnchainDB;
+use stacks::burnchains::{PoxConstants, Txid};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+};
 use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::{
-    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
+    ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
+    ChainstateBNSNamespace, ClarityTx, StacksChainState, StacksEpochReceipt, StacksHeaderInfo,
 };
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
@@ -14,54 +29,28 @@ use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
-use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::STACKS_EPOCH_2_1_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
-use stacks::net::atlas::AttachmentInstance;
-use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB},
-    db::PeerDB,
-    p2p::PeerNetwork,
-    stackerdb::StackerDBs,
-    Error as NetError, RPCHandlerArgs,
-};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
+use stacks::net::db::PeerDB;
+use stacks::net::p2p::PeerNetwork;
+use stacks::net::stackerdb::StackerDBs;
+use stacks::net::{Error as NetError, RPCHandlerArgs};
 use stacks::util_lib::strings::UrlString;
-use stacks::{
-    burnchains::db::BurnchainDB,
-    burnchains::PoxConstants,
-    chainstate::burn::operations::{
-        leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    },
-};
-use stacks::{
-    burnchains::Txid,
-    chainstate::stacks::db::{
-        ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-        ChainstateBNSNamespace,
-    },
-};
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, TrieHash, VRFSeed};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::run_loop;
-use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
-
-use crate::burnchains::make_bitcoin_indexer;
-
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
-use clarity::vm::database::BurnStateDB;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-
-use rand::RngCore;
-use stacks::chainstate::stacks::address::PoxAddress;
+use crate::burnchains::make_bitcoin_indexer;
+use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
+use crate::run_loop;
+use crate::run_loop::RegisteredKey;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {

@@ -17,15 +17,13 @@
 use std::collections::HashMap;
 use std::io;
 use std::io::{Read, Write};
-
 use std::net::SocketAddr;
 
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::deps_common::httparse;
 use stacks_common::util::chunked_encoding::*;
 
-use crate::error::EventError;
-use crate::error::RPCError;
+use crate::error::{EventError, RPCError};
 
 pub const MAX_HTTP_HEADERS: usize = 32;
 pub const MAX_HTTP_HEADER_LEN: usize = 4096;

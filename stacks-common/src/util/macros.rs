@@ -141,6 +141,7 @@ macro_rules! define_versioned_named_enum {
     }
 }
 
+#[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! guarded_string {
     ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {

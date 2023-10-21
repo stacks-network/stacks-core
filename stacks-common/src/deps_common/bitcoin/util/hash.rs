@@ -15,19 +15,16 @@
 //!
 //! Utility functions related to hashing data, including merkleization
 
-#[cfg(feature = "serde")]
-use serde;
 use std::char::from_digit;
 use std::cmp::min;
 use std::default::Default;
-use std::error;
-use std::fmt;
 use std::io::{Cursor, Write};
-use std::mem;
+use std::{error, fmt, mem};
 
 use ripemd::Ripemd160;
-use sha2::Digest;
-use sha2::Sha256;
+#[cfg(feature = "serde")]
+use serde;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{
@@ -37,6 +34,9 @@ use crate::util::uint::Uint256;
 use crate::util::HexError;
 
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
+// This doesn't make much sense to me, but is implicit behaviour
+// in the C++ reference client, so we need it for consensus.
+#[derive(Default)]
 pub struct Sha256dHash(pub [u8; 32]);
 impl_array_newtype!(Sha256dHash, u8, 32);
 
@@ -51,6 +51,12 @@ impl_array_newtype!(Ripemd160Hash, u8, 20);
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
 
+impl Default for Sha256dEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Sha256dEncoder {
     /// Create a new encoder
     pub fn new() -> Sha256dEncoder {
@@ -62,7 +68,7 @@ impl Sha256dEncoder {
         let mut second_sha = Sha256::new();
         let mut tmp = [0; 32];
         tmp.copy_from_slice(self.0.finalize().as_slice());
-        second_sha.update(&tmp);
+        second_sha.update(tmp);
         tmp.copy_from_slice(second_sha.finalize().as_slice());
         Sha256dHash(tmp)
     }
@@ -72,57 +78,57 @@ impl SimpleEncoder for Sha256dEncoder {
     fn emit_u64(&mut self, v: u64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_u32(&mut self, v: u32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_u16(&mut self, v: u16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_i64(&mut self, v: i64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_i32(&mut self, v: i32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_i16(&mut self, v: i16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.update(&data);
+        self.0.update(data);
         Ok(())
     }
 
     fn emit_i8(&mut self, v: i8) -> Result<(), serialize::Error> {
-        self.0.update(&[v as u8]);
+        self.0.update([v as u8]);
         Ok(())
     }
 
     fn emit_u8(&mut self, v: u8) -> Result<(), serialize::Error> {
-        self.0.update(&[v]);
+        self.0.update([v]);
         Ok(())
     }
 
     fn emit_bool(&mut self, v: bool) -> Result<(), serialize::Error> {
-        self.0.update(&[if v { 1 } else { 0 }]);
+        self.0.update([if v { 1 } else { 0 }]);
         Ok(())
     }
 }
@@ -147,18 +153,9 @@ impl Hash160 {
         let mut rmd = Ripemd160::new();
         sha2.update(data);
         tmp.copy_from_slice(sha2.finalize().as_slice());
-        rmd.update(&tmp);
+        rmd.update(tmp);
         ret.copy_from_slice(rmd.finalize().as_slice());
         Hash160(ret)
-    }
-}
-
-// This doesn't make much sense to me, but is implicit behaviour
-// in the C++ reference client, so we need it for consensus.
-impl Default for Sha256dHash {
-    #[inline]
-    fn default() -> Sha256dHash {
-        Sha256dHash([0u8; 32])
     }
 }
 
@@ -172,7 +169,7 @@ impl Sha256dHash {
         let mut sha2_2 = Sha256::new();
         sha2.update(data);
         ret.copy_from_slice(sha2.finalize().as_slice());
-        sha2_2.update(&ret);
+        sha2_2.update(ret);
         ret.copy_from_slice(sha2_2.finalize().as_slice());
         Sha256dHash(ret)
     }
@@ -182,7 +179,7 @@ impl Sha256dHash {
     pub fn into_le(self) -> Uint256 {
         let Sha256dHash(data) = self;
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
+        for x in ret.iter_mut() {
             *x = x.to_le();
         }
         Uint256(ret)
@@ -194,7 +191,7 @@ impl Sha256dHash {
         let Sha256dHash(mut data) = self;
         data.reverse();
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
+        for x in ret.iter_mut() {
             *x = x.to_be();
         }
         Uint256(ret)
@@ -213,15 +210,15 @@ impl Sha256dHash {
         let mut ret = [0; 32];
         for i in 0..32 {
             let hi = match bytes[2 * i] {
-                b @ b'0'..=b'9' => (b - b'0') as u8,
-                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b @ b'0'..=b'9' => b - b'0',
+                b @ b'a'..=b'f' => b - b'a' + 10,
+                b @ b'A'..=b'F' => b - b'A' + 10,
                 b => return Err(HexError::BadCharacter(b as char)),
             };
             let lo = match bytes[2 * i + 1] {
-                b @ b'0'..=b'9' => (b - b'0') as u8,
-                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b @ b'0'..=b'9' => b - b'0',
+                b @ b'a'..=b'f' => b - b'a' + 10,
+                b @ b'A'..=b'F' => b - b'A' + 10,
                 b => return Err(HexError::BadCharacter(b as char)),
             };
             ret[31 - i] = hi * 0x10 + lo;
@@ -240,15 +237,15 @@ impl Sha256dHash {
         let mut ret = [0; 32];
         for i in 0..32 {
             let hi = match bytes[2 * i] {
-                b @ b'0'..=b'9' => (b - b'0') as u8,
-                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b @ b'0'..=b'9' => b - b'0',
+                b @ b'a'..=b'f' => b - b'a' + 10,
+                b @ b'A'..=b'F' => b - b'A' + 10,
                 b => return Err(HexError::BadCharacter(b as char)),
             };
             let lo = match bytes[2 * i + 1] {
-                b @ b'0'..=b'9' => (b - b'0') as u8,
-                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
-                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b @ b'0'..=b'9' => b - b'0',
+                b @ b'a'..=b'f' => b - b'a' + 10,
+                b @ b'A'..=b'F' => b - b'A' + 10,
                 b => return Err(HexError::BadCharacter(b as char)),
             };
             ret[i] = hi * 0x10 + lo;
@@ -415,10 +412,10 @@ pub trait MerkleRoot {
 /// Calculates the merkle root of a list of txids hashes directly
 pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
     // Base case
-    if data.len() < 1 {
+    if data.is_empty() {
         return Default::default();
     }
-    if data.len() < 2 {
+    if data.len() == 1 {
         return data[0];
     }
     // Recursion

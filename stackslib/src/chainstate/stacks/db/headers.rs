@@ -15,28 +15,23 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
-use rusqlite::{types::ToSql, OptionalExtension, Row};
+use clarity::vm::costs::ExecutionCost;
+use rusqlite::types::ToSql;
+use rusqlite::{OptionalExtension, Row};
+use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::util_lib::db::Error as db_error;
+use crate::chainstate::stacks::{Error, *};
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
-    FromColumn, FromRow,
+    Error as db_error, FromColumn, FromRow,
 };
-use clarity::vm::costs::ExecutionCost;
-
-use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {

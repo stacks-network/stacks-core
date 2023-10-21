@@ -1,19 +1,21 @@
-use crate::{config::Config, stacks_client::StacksClient};
+use std::collections::VecDeque;
+use std::sync::mpsc::Sender;
+use std::time::Duration;
+
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
-use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
-use wsts::{
-    common::MerkleRoot,
-    net::{Message, Packet, Signable},
-    state_machine::{
-        coordinator::{Coordinatable, Coordinator as FrostCoordinator},
-        signer::SigningRound,
-        OperationResult, PublicKeys,
-    },
-    v2,
-};
+use wsts::common::MerkleRoot;
+use wsts::net::{Message, Packet, Signable};
+use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::Coordinatable;
+use wsts::state_machine::signer::SigningRound;
+use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::v2;
+
+use crate::config::Config;
+use crate::stacks_client::StacksClient;
 
 /// Which operation to perform
 #[derive(PartialEq, Clone)]
@@ -161,12 +163,12 @@ impl<C: Coordinatable> RunLoop<C> {
         // First process all messages as a signer
         let mut outbound_messages = self
             .signing_round
-            .process_inbound_messages(inbound_messages.clone())
+            .process_inbound_messages(&inbound_messages)
             .unwrap_or_default();
         // If the signer is the coordinator, then next process the message as the coordinator
         let (messages, results) = if self.signing_round.signer_id == coordinator_id {
             self.coordinator
-                .process_inbound_messages(inbound_messages)
+                .process_inbound_messages(&inbound_messages)
                 .unwrap_or_default()
         } else {
             (vec![], vec![])

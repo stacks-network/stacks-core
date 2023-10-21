@@ -14,58 +14,46 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::mem;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::{cmp, mem};
 
-use rand::prelude::*;
-use rand::thread_rng;
-use rand::Rng;
-
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::core::mempool::MemPoolDB;
-use crate::core::mempool::*;
-use crate::net::chat::*;
-use crate::net::connection::*;
-use crate::net::db::*;
-use crate::net::p2p::*;
-use crate::net::poll::*;
-use crate::net::rpc::*;
-use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
-};
-use crate::net::Error as net_error;
-use crate::net::*;
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
-use stacks_common::types::chainstate::StacksBlockId;
+use rand::prelude::*;
+use rand::{thread_rng, Rng};
+use stacks_common::codec::MAX_PAYLOAD_LEN;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
+use crate::burnchains::{Burnchain, BurnchainView};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
+use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
-use stacks_common::codec::MAX_PAYLOAD_LEN;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::{PoxId, SortitionId};
-use stacks_common::types::StacksEpochId;
+use crate::net::chat::*;
+use crate::net::connection::*;
+use crate::net::db::*;
+use crate::net::httpcore::*;
+use crate::net::p2p::*;
+use crate::net::poll::*;
+use crate::net::rpc::*;
+use crate::net::stackerdb::{
+    StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
+};
+use crate::net::{Error as net_error, *};
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -2457,55 +2445,45 @@ pub mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
+    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use clarity::vm::ast::ASTRules;
+    use clarity::vm::costs::LimitedCostTracker;
+    use clarity::vm::database::ClarityDatabase;
+    use clarity::vm::types::QualifiedContractIdentifier;
+    use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash,
+    };
+    use stacks_common::types::Address;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
+
+    use super::*;
     use crate::burnchains::tests::TestMiner;
-    use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
-    use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-    use crate::chainstate::stacks::Error as ChainstateError;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
+    use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
+    use crate::chainstate::stacks::test::codec_all_transactions;
+    use crate::chainstate::stacks::tests::{
+        make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
+        make_user_stacks_transfer,
+    };
+    use crate::chainstate::stacks::{Error as ChainstateError, *};
+    use crate::clarity_vm::clarity::ClarityConnection;
+    use crate::core::*;
+    use crate::net::api::getinfo::RPCPeerInfoData;
     use crate::net::asn::*;
     use crate::net::chat::*;
     use crate::net::codec::*;
     use crate::net::download::test::run_get_blocks_and_microblocks;
     use crate::net::download::*;
     use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
+    use crate::net::httpcore::StacksHttpMessage;
     use crate::net::inv::*;
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-    use clarity::vm::costs::LimitedCostTracker;
-    use clarity::vm::database::ClarityDatabase;
-    use stacks_common::util::sleep_ms;
-    use stacks_common::util::vrf::VRFProof;
-
-    use super::*;
-    use crate::clarity_vm::clarity::ClarityConnection;
-    use crate::core::*;
-    use clarity::vm::types::QualifiedContractIdentifier;
-    use clarity::vm::ClarityVersion;
-    use stacks_common::types::chainstate::BlockHeaderHash;
-
-    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-    use clarity::vm::ast::ASTRules;
-    use clarity::vm::MAX_CALL_STACK_DEPTH;
-
-    use crate::chainstate::stacks::miner::BlockBuilderSettings;
-    use crate::chainstate::stacks::miner::StacksMicroblockBuilder;
-    use crate::chainstate::stacks::test::codec_all_transactions;
-    use crate::chainstate::stacks::tests::make_coinbase;
-    use crate::chainstate::stacks::tests::make_coinbase_with_nonce;
-    use crate::chainstate::stacks::tests::make_smart_contract_with_version;
-    use crate::chainstate::stacks::tests::make_user_stacks_transfer;
-    use crate::core::*;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::types::chainstate::StacksBlockId;
-    use stacks_common::types::chainstate::StacksWorkScore;
-    use stacks_common::types::chainstate::TrieHash;
-    use stacks_common::types::Address;
-    use stacks_common::util::hash::MerkleTree;
-
-    use crate::net::api::getinfo::RPCPeerInfoData;
-
-    use crate::net::httpcore::StacksHttpMessage;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {

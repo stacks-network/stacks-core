@@ -14,27 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::burnchains::Burnchain;
-use crate::burnchains::Error as burnchain_error;
-use crate::chainstate::burn::ConsensusHash;
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::log;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
-pub use self::mempool::MemPoolDB;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
+use stacks_common::util::log;
+
+pub use self::mempool::MemPoolDB;
+use crate::burnchains::{Burnchain, Error as burnchain_error};
+use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
 
 #[cfg(test)]
 pub mod tests;
 
-use std::cmp::Ord;
-use std::cmp::Ordering;
-use std::cmp::PartialOrd;
+use std::cmp::{Ord, Ordering, PartialOrd};
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 

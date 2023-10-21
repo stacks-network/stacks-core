@@ -15,21 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
-use std::net::SocketAddr;
-
-use serde::de::Deserialize;
+use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Serialize;
 
 use crate::util::hash::to_bin;
-
-use serde::de::Error as de_Error;
 
 #[derive(Debug)]
 pub enum Error {
