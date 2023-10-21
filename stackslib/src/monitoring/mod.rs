@@ -56,7 +56,7 @@ where
     increment_rpc_calls_counter();
 
     #[cfg(feature = "monitoring_prom")]
-    let timer = prometheus::new_rpc_call_timer(req.get_path());
+    let timer = prometheus::new_rpc_call_timer(req.request_path());
 
     let res = handler(req);
 
