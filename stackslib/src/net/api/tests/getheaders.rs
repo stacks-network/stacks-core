@@ -171,7 +171,7 @@ fn stream_headers_to_vec(stream: &mut StacksHeaderStream) -> Vec<u8> {
     let mut header_bytes = vec![];
     loop {
         let mut next_bytes = stream.generate_next_chunk().unwrap();
-        if next_bytes.len() == 0 {
+        if next_bytes.is_empty() {
             break;
         }
         header_bytes.append(&mut next_bytes);

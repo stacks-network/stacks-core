@@ -52,7 +52,7 @@ pub trait HttpChunkGenerator: Send {
 
         let mut encoder = HttpChunkedTransferWriter::from_writer_state(fd, encoder_state);
 
-        if chunk.len() == 0 {
+        if chunk.is_empty() {
             // no more chunks, but be sure to cork the stream
             if !encoder.corked() {
                 encoder.flush()?;

@@ -185,7 +185,7 @@ fn test_stream_unconfirmed_microblocks() {
                     .unwrap();
             loop {
                 let mut next_bytes = stream.generate_next_chunk().unwrap();
-                if next_bytes.len() == 0 {
+                if next_bytes.is_empty() {
                     break;
                 }
                 test_debug!(
@@ -218,7 +218,7 @@ fn test_stream_unconfirmed_microblocks() {
                     .unwrap();
             loop {
                 let mut next_bytes = stream.generate_next_chunk().unwrap();
-                if next_bytes.len() == 0 {
+                if next_bytes.is_empty() {
                     break;
                 }
                 test_debug!(

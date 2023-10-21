@@ -202,7 +202,7 @@ fn test_stream_mempool_txs() {
 
     loop {
         let chunk = tx_stream_data.generate_next_chunk().unwrap();
-        if chunk.len() == 0 {
+        if chunk.is_empty() {
             break;
         }
         buf.extend_from_slice(&chunk[..]);
@@ -260,7 +260,7 @@ fn test_stream_mempool_txs() {
         let mut buf = vec![];
         loop {
             let chunk = tx_stream_data.generate_next_chunk().unwrap();
-            if chunk.len() == 0 {
+            if chunk.is_empty() {
                 break;
             }
             buf.extend_from_slice(&chunk[..]);
@@ -327,7 +327,7 @@ fn test_stream_mempool_txs() {
         let mut buf = vec![];
         loop {
             let chunk = tx_stream_data.generate_next_chunk().unwrap();
-            if chunk.len() == 0 {
+            if chunk.is_empty() {
                 break;
             }
             buf.extend_from_slice(&chunk[..]);

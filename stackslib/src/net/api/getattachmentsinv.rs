@@ -167,7 +167,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
                 .try_into_contents()
                 .map_err(NetError::from);
         }
-        if page_indexes.len() == 0 {
+        if page_indexes.is_empty() {
             let msg = format!("Page indexes missing");
             warn!("{}", msg);
             return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
