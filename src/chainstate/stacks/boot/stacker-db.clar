@@ -1,10 +1,12 @@
 ;; Definitions
-(define-map signer-slots-by-reward-cycle uint (list 10 {signer: principal, num-slots: uint}))
+(define-map signer-slots-by-reward-cycle uint (list 4000 {signer: principal, num-slots: uint}))
 
 (define-constant pox-info {first-burnchain-block-height: u0, reward-cycle-length: u2100})
 
 (define-constant err-unauthorised (err u2000))
 (define-constant err-not-in-prepare-phase (err u2001))
+(define-constant err-already-set (err u2002))
+(define-constant err-empty-list (err u2003))
 
 
 ;; Cycle helpers
@@ -40,12 +42,19 @@
 
 ;; Write
 ;; Written to by PoX4 during prepare phase
-(define-public (stackerdb-set-next-cycle-signer-slots (slots (list 10 {signer: principal, num-slots: uint})))
+(define-public (stackerdb-set-next-cycle-signer-slots (slots (list 4000 {signer: principal, numslots: uint})))
     (let    
         (
             (current-cycle (burn-height-to-reward-cycle block-height))
 			(previous-cycle (- current-cycle u1))
         )
+
+        ;; Assert not already set
+        (asserts! (is-none (map-get? signer-slots-by-reward-cycle current-cycle)) err-already-set)
+
+        ;; Assert list not empty
+        (asserts! (> (len slots) u0) err-empty-list)
+
         ;; Assert currently in prepare phase (< 100 blocks until next cycle)
         (asserts! (> block-height (+ (- normal-cycle-len prepare-phase-len) (reward-cycle-to-burn-height current-cycle))) err-not-in-prepare-phase)
 
