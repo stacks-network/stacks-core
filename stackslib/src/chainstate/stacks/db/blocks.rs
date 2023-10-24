@@ -60,11 +60,13 @@ use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::StacksBlockHeader;
@@ -194,7 +196,7 @@ pub struct DummyEventDispatcher;
 impl BlockEventDispatcher for DummyEventDispatcher {
     fn announce_block(
         &self,
-        _block: &StacksBlock,
+        _block: StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
@@ -6528,7 +6530,7 @@ impl StacksChainState {
                 &next_staging_block.parent_anchored_block_hash,
             );
             dispatcher.announce_block(
-                &block,
+                block.into(),
                 &epoch_receipt.header.clone(),
                 &epoch_receipt.tx_receipts,
                 &parent_id,
@@ -6674,21 +6676,6 @@ impl StacksChainState {
             version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
                 || version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
         }
-    }
-
-    /// Get the highest processed block on the canonical burn chain.
-    /// Break ties on lexigraphical ordering of the block hash
-    /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
-    /// in.
-    pub fn get_stacks_chain_tip(
-        &self,
-        sortdb: &SortitionDB,
-    ) -> Result<Option<StagingBlock>, Error> {
-        let (consensus_hash, block_bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
-        query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
     /// Get the parent block of `staging_block`.
@@ -11414,12 +11401,11 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
-        let stacks_tip = peer
-            .chainstate()
-            .get_stacks_chain_tip(&sortdb)
-            .unwrap()
-            .unwrap();
-        assert_eq!(stacks_tip.height, 8);
+        let stacks_tip =
+            NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stacks_tip.anchored_header.height(), 8);
 
         // but we did process all burnchain operations
         let (consensus_hash, block_bhh) =
@@ -12085,12 +12071,11 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
-        let stacks_tip = peer
-            .chainstate()
-            .get_stacks_chain_tip(&sortdb)
-            .unwrap()
-            .unwrap();
-        assert_eq!(stacks_tip.height, 13);
+        let stacks_tip =
+            NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stacks_tip.anchored_header.height(), 13);
 
         // but we did process all burnchain operations
         let (consensus_hash, block_bhh) =
