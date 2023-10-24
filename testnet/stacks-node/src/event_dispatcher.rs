@@ -16,7 +16,7 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::TransactionPayload;
@@ -354,7 +354,7 @@ impl EventObserver {
     fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        block: &StacksBlock,
+        block: StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -385,17 +385,17 @@ impl EventObserver {
 
         // Wrap events
         json!({
-            "block_hash": format!("0x{}", block.block_hash()),
+            "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
             "burn_block_height": metadata.burn_header_height,
             "miner_txid": format!("0x{}", winner_txid),
             "burn_block_time": metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{}", metadata.index_block_hash()),
-            "parent_block_hash": format!("0x{}", block.header.parent_block),
+            "parent_block_hash": format!("0x{}", block.parent_block_hash),
             "parent_index_block_hash": format!("0x{}", parent_index_hash),
-            "parent_microblock": format!("0x{}", block.header.parent_microblock),
-            "parent_microblock_sequence": block.header.parent_microblock_sequence,
+            "parent_microblock": format!("0x{}", block.parent_microblock_hash),
+            "parent_microblock_sequence": block.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
@@ -481,7 +481,7 @@ impl StackerDBEventDispatcher for EventDispatcher {
 impl BlockEventDispatcher for EventDispatcher {
     fn announce_block(
         &self,
-        block: &StacksBlock,
+        block: StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
@@ -683,7 +683,7 @@ impl EventDispatcher {
 
     pub fn process_chain_tip(
         &self,
-        block: &StacksBlock,
+        block: StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -733,7 +733,7 @@ impl EventDispatcher {
                 let payload = self.registered_observers[observer_id]
                     .make_new_block_processed_payload(
                         filtered_events,
-                        block,
+                        block.clone(),
                         metadata,
                         receipts,
                         parent_index_hash,
@@ -1095,7 +1095,7 @@ mod test {
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
-            &block,
+            block.into(),
             &metadata,
             &receipts,
             &parent_index_hash,
