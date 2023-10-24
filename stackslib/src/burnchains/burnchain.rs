@@ -511,6 +511,12 @@ impl Burnchain {
             .is_reward_cycle_start(self.first_block_height, burn_height)
     }
 
+    /// Is this burnchain block height the start of the prepare phase?
+    pub fn is_prepare_phase_start(&self, burn_height: u64) -> bool {
+        self.pox_constants
+            .is_prepare_phase_start(self.first_block_height, burn_height)
+    }
+
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
         self.pox_constants
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
