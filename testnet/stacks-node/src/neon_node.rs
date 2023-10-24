@@ -165,6 +165,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
@@ -1362,9 +1363,9 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Option<ParentStacksBlockInfo> {
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let miner_address = self
                 .keychain
@@ -1376,7 +1377,7 @@ impl BlockMinerThread {
                 &self.burn_block,
                 miner_address,
                 &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &stacks_tip.anchored_header.block_hash(),
             ) {
                 Ok(parent_info) => Some(parent_info),
                 Err(Error::BurnchainTipChanged) => {
@@ -1766,16 +1767,16 @@ impl BlockMinerThread {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
 
-        if let Some(stacks_tip) = chainstate
-            .get_stacks_chain_tip(sortdb)
-            .expect("FATAL: could not query canonical Stacks chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                .expect("FATAL: could not query canonical Stacks chain tip")
         {
             // if a block hasn't been processed within some deadline seconds of receipt, don't block
             //  mining
             let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
             let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
                 chainstate.db(),
-                stacks_tip.height,
+                stacks_tip.anchored_header.height(),
                 process_deadline,
             )
             .expect("FATAL: failed to query staging blocks");
@@ -1797,7 +1798,9 @@ impl BlockMinerThread {
                     // NOTE: this could be None if it's not part of the canonical PoX fork any
                     // longer
                     if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
-                        if stacks_tip.height + (burnchain.pox_constants.prepare_length as u64) - 1
+                        if stacks_tip.anchored_header.height()
+                            + (burnchain.pox_constants.prepare_length as u64)
+                            - 1
                             >= highest_unprocessed.height
                             && highest_unprocessed_block_sn.block_height
                                 + (burnchain.pox_constants.prepare_length as u64)
@@ -2010,9 +2013,9 @@ impl BlockMinerThread {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(&burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), &burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let is_miner_blocked = self
                 .globals
@@ -2027,7 +2030,7 @@ impl BlockMinerThread {
                 &chain_state,
                 self.config.miner.unprocessed_block_deadline_secs,
             );
-            if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
+            if stacks_tip.anchored_header.block_hash() != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
                 || is_miner_blocked
@@ -2046,7 +2049,7 @@ impl BlockMinerThread {
                     "old_tip_burn_block_height" => self.burn_block.block_height,
                     "old_tip_burn_block_sortition_id" => %self.burn_block.sortition_id,
                     "attempt" => attempt,
-                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_block_hash,
+                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_header.block_hash(),
                     "new_stacks_tip_consensus_hash" => %stacks_tip.consensus_hash,
                     "new_tip_burn_block_height" => cur_burn_chain_tip.block_height,
                     "new_tip_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id,
