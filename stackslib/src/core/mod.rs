@@ -63,10 +63,6 @@ pub const PEER_VERSION_EPOCH_2_2: u8 = 0x07;
 pub const PEER_VERSION_EPOCH_2_3: u8 = 0x08;
 pub const PEER_VERSION_EPOCH_2_4: u8 = 0x09;
 
-/// How many tenures back from the chain tip does the node accept
-/// blocks from a miner.
-pub const NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD: usize = 3;
-
 // this should be updated to the latest network epoch version supported by
 //  this node. this will be checked by the `validate_epochs()` method.
 pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_4 as u32;
