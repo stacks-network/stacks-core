@@ -134,8 +134,6 @@ pub fn nakamoto_advance_tip_simple() {
             version: 100,
             chain_length: 1,
             burn_spent: 5,
-            parent: FIRST_STACKS_BLOCK_HASH,
-            burn_view: tip.burn_header_hash.clone(),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
             state_index_root: TrieHash::from_hex(
                 "9f283c59142dec747911897fc120f1d2af8c0384830a95e1847803ee31a70ab1",
@@ -143,8 +141,8 @@ pub fn nakamoto_advance_tip_simple() {
             .unwrap(),
             stacker_signature: MessageSignature([0; 65]),
             miner_signature: MessageSignature([0; 65]),
-            consensus_hash: ConsensusHash([0; 20]),
-            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            consensus_hash: tip.consensus_hash.clone(),
+            parent_block_id: parent_block_id.clone(),
         },
         txs: vec![coinbase_tx, tenure_tx],
     };
@@ -289,14 +287,12 @@ pub fn staging_blocks() {
             version: 100,
             chain_length: 1,
             burn_spent: 10,
-            parent: BlockHeaderHash([1; 32]),
-            burn_view: BurnchainHeaderHash([1; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
             state_index_root: TrieHash([0; 32]),
             stacker_signature: MessageSignature([0; 65]),
             miner_signature: MessageSignature([0; 65]),
             consensus_hash: ConsensusHash([2; 20]),
-            parent_consensus_hash: ConsensusHash([1; 20]),
+            parent_block_id: StacksBlockId([1; 32]),
         },
         txs: vec![],
     };
@@ -318,20 +314,20 @@ pub fn staging_blocks() {
     let sortdb_conn = sort_db.index_handle_at_tip();
 
     assert!(
-        NakamotoChainState::next_ready_block(&chainstate_tx)
+        NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)
             .unwrap()
             .is_none(),
         "No block should be ready yet",
     );
 
-    let block_parent_id =
-        StacksBlockId::new(&block.header.parent_consensus_hash, &block.header.parent);
+    let block_parent_id = block.header.parent_block_id.clone();
     NakamotoChainState::set_block_processed(&chainstate_tx, &block_parent_id).unwrap();
 
     // block should be ready -- the burn view was processed before the block was inserted.
-    let ready_block = NakamotoChainState::next_ready_block(&chainstate_tx)
+    let ready_block = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)
         .unwrap()
-        .unwrap();
+        .unwrap()
+        .0;
 
     assert_eq!(ready_block.header.block_hash(), block.header.block_hash());
 
@@ -388,10 +384,10 @@ pub fn nakamoto_advance_tip_multiple() {
     let mut last_block: Option<NakamotoBlock> = None;
     let index_roots = [
         "c76d48e971b2ea3c78c476486455090da37df260a41eef355d4e9330faf166c0",
-        "443403486d617e96e44aa6ff6056e575a7d29fd02a987452502e20c98929fe20",
-        "1c078414b996a42eabd7fc0b731d8ac49a74141313bdfbe4166349c3d1d27946",
-        "69cafb50ad1debcd0dee83d58b1a06060a5dd9597ec153e6129edd80c4368226",
-        "449f086937fda06db5859ce69c2c6bdd7d4d104bf4a6d2745bc81a17391daf36",
+        "20185974f1ab02d25c6920d755594ff9c104f70ae185aa8c112245eaef0078fd",
+        "a079309c45f5cb70be6f67cd442d50ba6c2154d77b819321a63e4ed077e46e59",
+        "1679af6d97e102a5762e88a876e74c0083ffb492f98bde249a36a6f53b81a2ad",
+        "5c989f8cbdfe054b3b8c1c2a4667e97d4f43b2eef6caffe569a61598e1492b04",
     ];
 
     for i in 1..6 {
@@ -483,14 +479,12 @@ pub fn nakamoto_advance_tip_multiple() {
                 version: 100,
                 chain_length: i.into(),
                 burn_spent: 10,
-                parent,
-                burn_view: parent_snapshot.burn_header_hash.clone(),
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash::from_hex(&index_roots[usize::from(i) - 1]).unwrap(),
                 stacker_signature: MessageSignature([0; 65]),
                 miner_signature: MessageSignature([0; 65]),
                 consensus_hash: new_ch,
-                parent_consensus_hash: parent_snapshot.consensus_hash.clone(),
+                parent_block_id: StacksBlockId::new(&parent_snapshot.consensus_hash, &parent),
             },
             txs: vec![coinbase_tx, transacter_tx, tenure_tx],
         };
