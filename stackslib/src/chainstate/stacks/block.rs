@@ -108,6 +108,15 @@ impl StacksBlockHeader {
         *to_check == FIRST_STACKS_BLOCK_HASH
     }
 
+    /// Is this the first-ever index block hash?
+    pub fn is_first_index_block_hash(to_check: &StacksBlockId) -> bool {
+        to_check
+            == &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+    }
+
     /// Is this a first-mined block header?  i.e. builds off of the boot code?
     pub fn is_first_mined(&self) -> bool {
         Self::is_first_block_hash(&self.parent_block)
