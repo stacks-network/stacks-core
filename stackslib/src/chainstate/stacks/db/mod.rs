@@ -188,14 +188,23 @@ impl From<NakamotoBlockHeader> for StacksBlockHeaderTypes {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHeaderInfo {
+    /// Stacks block header
     pub anchored_header: StacksBlockHeaderTypes,
+    /// Last microblock header (Stacks 2.x only; this is None in Stacks 3.x)
     pub microblock_tail: Option<StacksMicroblockHeader>,
+    /// Height of this Stacks block
     pub stacks_block_height: u64,
+    /// MARF root hash of the headers DB (not consensus critical)
     pub index_root: TrieHash,
+    /// consensus hash of the burnchain block in which this miner was selected to produce this block
     pub consensus_hash: ConsensusHash,
+    /// Hash of the burnchain block in which this miner was selected to produce this block
     pub burn_header_hash: BurnchainHeaderHash,
+    /// Height of the burnchain block
     pub burn_header_height: u32,
+    /// Timestamp of the burnchain block
     pub burn_header_timestamp: u64,
+    /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
 }
 
@@ -264,13 +273,9 @@ impl StacksBlockHeaderTypes {
     }
 
     pub fn is_first_mined(&self) -> bool {
-        StacksBlockHeader::is_first_block_hash(self.parent())
-    }
-
-    pub fn parent(&self) -> &BlockHeaderHash {
         match self {
-            StacksBlockHeaderTypes::Epoch2(x) => &x.parent_block,
-            StacksBlockHeaderTypes::Nakamoto(x) => &x.parent,
+            StacksBlockHeaderTypes::Epoch2(x) => x.is_first_mined(),
+            StacksBlockHeaderTypes::Nakamoto(x) => x.is_first_mined(),
         }
     }
 
@@ -284,6 +289,13 @@ impl StacksBlockHeaderTypes {
     pub fn as_stacks_epoch2(&self) -> Option<&StacksBlockHeader> {
         match &self {
             StacksBlockHeaderTypes::Epoch2(ref x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_stacks_nakamoto(&self) -> Option<&NakamotoBlockHeader> {
+        match &self {
+            StacksBlockHeaderTypes::Nakamoto(ref x) => Some(x),
             _ => None,
         }
     }
