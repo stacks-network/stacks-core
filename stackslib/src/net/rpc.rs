@@ -62,6 +62,7 @@ use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
@@ -2047,10 +2048,10 @@ impl ConversationHttp {
                 if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
                     Ok(Some(unconfirmed_chain_tip))
                 } else {
-                    match chainstate.get_stacks_chain_tip(sortdb)? {
+                    match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
                         Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
                             &tip.consensus_hash,
-                            &tip.anchored_block_hash,
+                            &tip.anchored_header.block_hash(),
                         ))),
                         None => {
                             let response_metadata = HttpResponseMetadata::from_http_request_type(
@@ -2068,24 +2069,26 @@ impl ConversationHttp {
                 }
             }
             TipRequest::SpecificTip(tip) => Ok(Some(*tip).clone()),
-            TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
-                    &tip.consensus_hash,
-                    &tip.anchored_block_hash,
-                ))),
-                None => {
-                    let response_metadata = HttpResponseMetadata::from_http_request_type(
-                        req,
-                        Some(canonical_stacks_tip_height),
-                    );
-                    warn!("Failed to load Stacks chain tip");
-                    let response = HttpResponseType::ServerError(
-                        response_metadata,
-                        format!("Failed to load Stacks chain tip"),
-                    );
-                    response.send(http, fd).and_then(|_| Ok(None))
+            TipRequest::UseLatestAnchoredTip => {
+                match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                        &tip.consensus_hash,
+                        &tip.anchored_header.block_hash(),
+                    ))),
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from_http_request_type(
+                            req,
+                            Some(canonical_stacks_tip_height),
+                        );
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load Stacks chain tip"),
+                        );
+                        response.send(http, fd).and_then(|_| Ok(None))
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -2532,9 +2535,8 @@ impl ConversationHttp {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
-        let height = chainstate
-            .get_stacks_chain_tip(sortdb)?
-            .map(|blk| blk.height)
+        let height = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
+            .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
 
         debug!(
@@ -3103,7 +3105,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::PostTransaction(ref _md, ref tx, ref attachment) => {
-                match chainstate.get_stacks_chain_tip(sortdb)? {
+                match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
                     Some(tip) => {
                         let accepted = ConversationHttp::handle_post_transaction(
                             &mut self.connection.protocol,
@@ -3112,7 +3114,7 @@ impl ConversationHttp {
                             chainstate,
                             sortdb,
                             tip.consensus_hash,
-                            tip.anchored_block_hash,
+                            tip.anchored_header.block_hash(),
                             mempool,
                             tx.clone(),
                             &mut network.atlasdb,
@@ -4865,10 +4867,13 @@ mod test {
                 let mut sortdb = peer_server.sortdb.as_mut().unwrap();
                 let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
                 let stacks_block_id = {
-                    let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
+                    let tip =
+                        NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                            .unwrap()
+                            .unwrap();
                     StacksBlockHeader::make_index_block_hash(
                         &tip.consensus_hash,
-                        &tip.anchored_block_hash,
+                        &tip.anchored_header.block_hash(),
                     )
                 };
                 let pox_info = RPCPoxInfoData::from_db(
