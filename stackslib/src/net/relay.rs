@@ -43,6 +43,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -1576,21 +1577,22 @@ impl Relayer {
         mempool: &mut MemPoolDB,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let chain_tip = match chainstate.get_stacks_chain_tip(sortdb)? {
-            Some(tip) => tip,
-            None => {
-                debug!(
-                    "No Stacks chain tip; dropping {} transaction(s)",
-                    network_result.pushed_transactions.len()
-                );
-                return Ok(vec![]);
-            }
-        };
+        let chain_tip =
+            match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
+                Some(tip) => tip,
+                None => {
+                    debug!(
+                        "No Stacks chain tip; dropping {} transaction(s)",
+                        network_result.pushed_transactions.len()
+                    );
+                    return Ok(vec![]);
+                }
+            };
         let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
 
-        let chain_height = chain_tip.height;
+        let chain_height = chain_tip.anchored_header.height();
         Relayer::filter_problematic_transactions(network_result, chainstate.mainnet, epoch_id);
 
         if let Err(e) = PeerNetwork::store_transactions(
@@ -4753,7 +4755,11 @@ pub mod test {
 
                     let tip_opt = peers[1]
                         .with_db_state(|sortdb, chainstate, _, _| {
-                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            let tip_opt = NakamotoChainState::get_canonical_block_header(
+                                chainstate.db(),
+                                sortdb,
+                            )
+                            .unwrap();
                             Ok(tip_opt)
                         })
                         .unwrap();
@@ -4883,7 +4889,11 @@ pub mod test {
 
                     let tip_opt = peers[1]
                         .with_db_state(|sortdb, chainstate, _, _| {
-                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            let tip_opt = NakamotoChainState::get_canonical_block_header(
+                                chainstate.db(),
+                                sortdb,
+                            )
+                            .unwrap();
                             Ok(tip_opt)
                         })
                         .unwrap();
@@ -4896,10 +4906,14 @@ pub mod test {
                     if let Some(tip) = tip_opt {
                         debug!(
                             "Push at {}, need {}",
-                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            tip.anchored_header.height()
+                                - peers[1].config.burnchain.first_block_height
+                                - 1,
                             *pushed_i
                         );
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                        if tip.anchored_header.height()
+                            - peers[1].config.burnchain.first_block_height
+                            - 1
                             == *pushed_i as u64
                         {
                             // next block
@@ -4922,10 +4936,14 @@ pub mod test {
                         }
                         debug!(
                             "Sortition at {}, need {}",
-                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            tip.anchored_header.height()
+                                - peers[1].config.burnchain.first_block_height
+                                - 1,
                             *i
                         );
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                        if tip.anchored_header.height()
+                            - peers[1].config.burnchain.first_block_height
+                            - 1
                             == *i as u64
                         {
                             let event_id = {
@@ -5548,15 +5566,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
@@ -5717,15 +5737,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
@@ -5896,15 +5918,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
