@@ -27,8 +27,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use url;
 
-use stacks_common::codec::Error as codec_error;
-
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, CONTRACT_MAX_NAME_LENGTH,
@@ -37,9 +35,11 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 use stacks_common::util::retry::BoundReader;
+
+use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 
 lazy_static! {
     static ref URL_STRING_REGEX: Regex =

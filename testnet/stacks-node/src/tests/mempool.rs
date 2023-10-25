@@ -2,8 +2,14 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::sync::Mutex;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::NULL_BURN_STATE_DB;
+use clarity::vm::{
+    representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
+    types::StandardPrincipalData, Value,
+};
 use lazy_static::lazy_static;
-
+use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
     StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
@@ -16,14 +22,6 @@ use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
-
-use clarity::vm::database::NULL_BURN_STATE_DB;
-use clarity::vm::{
-    representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
-    types::StandardPrincipalData, Value,
-};
-use stacks::chainstate::stacks::TransactionAnchorMode;
-
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
@@ -35,7 +33,6 @@ use super::{
 };
 use crate::helium::RunLoop;
 use crate::Keychain;
-use clarity::vm::costs::ExecutionCost;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -232,7 +229,11 @@ fn mempool_setup_chainstate() {
                 let consensus_hash = &block_header.consensus_hash;
                 let block_hash = &block_header.anchored_header.block_hash();
 
-                let micro_pubkh = &block_header.anchored_header.microblock_pubkey_hash;
+                let micro_pubkh = &block_header
+                    .anchored_header
+                    .as_stacks_epoch2()
+                    .unwrap()
+                    .microblock_pubkey_hash;
 
                 // let's throw some transactions at it.
                 // first a couple valid ones:

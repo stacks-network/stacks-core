@@ -38,6 +38,7 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
@@ -47,10 +48,11 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
 use super::{test::*, RawRewardSetEntry};
-use crate::address::AddressHashMode;
 use crate::chainstate::burn::operations::*;
+use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::*;
+
 use crate::net::test::TestPeer;
 use crate::util_lib::boot::boot_code_id;
 use crate::{

@@ -260,6 +260,7 @@ impl StacksMessageCodec for DelegateStxOp {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::burnchains::bitcoin::address::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,

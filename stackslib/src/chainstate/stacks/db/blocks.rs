@@ -43,7 +43,10 @@ use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 use serde::Serialize;
 use serde_json::json;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
@@ -94,10 +97,6 @@ use crate::util_lib::strings::StacksString;
 
 pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
 use clarity::vm::analysis::run_analysis;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::codec::{read_next, write_next};
-
-use stacks_common::types::chainstate::SortitionId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4152,24 +4151,22 @@ impl StacksChainState {
     /// Create the block reward.
     /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
     ///    accumulated rewards from missed sortitions or initial mining rewards.
-    fn make_scheduled_miner_reward(
+    pub fn make_scheduled_miner_reward(
         mainnet: bool,
         epoch_id: StacksEpochId,
         parent_block_hash: &BlockHeaderHash,
         parent_consensus_hash: &ConsensusHash,
-        block: &StacksBlock,
+        block_hash: &BlockHeaderHash,
+        coinbase_tx: &StacksTransaction,
         block_consensus_hash: &ConsensusHash,
         block_height: u64,
         anchored_fees: u128,
         streamed_fees: u128,
-        stx_burns: u128,
+        _stx_burns: u128,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         coinbase_reward_ustx: u128,
     ) -> Result<MinerPaymentSchedule, Error> {
-        let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock(
-            "No coinbase transaction".to_string(),
-        ))?;
         let miner_auth = coinbase_tx.get_origin();
         let miner_addr = miner_auth.get_address(mainnet);
 
@@ -4191,17 +4188,18 @@ impl StacksChainState {
         // not become valid until after 2.1 activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
-            recipient: recipient,
-            block_hash: block.block_hash(),
+            recipient,
+            block_hash: block_hash.clone(),
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
             coinbase: coinbase_reward_ustx,
-            tx_fees_anchored: anchored_fees,
-            tx_fees_streamed: streamed_fees,
-            stx_burns: stx_burns,
-            burnchain_commit_burn: burnchain_commit_burn,
-            burnchain_sortition_burn: burnchain_sortition_burn,
+            tx_fees: MinerPaymentTxFees::Epoch2 {
+                anchored: anchored_fees,
+                streamed: streamed_fees,
+            },
+            burnchain_commit_burn,
+            burnchain_sortition_burn,
             miner: true,
             stacks_block_height: block_height,
             vtxindex: 0,
@@ -4961,16 +4959,16 @@ impl StacksChainState {
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    fn process_block_transactions(
+    pub fn process_block_transactions(
         clarity_tx: &mut ClarityTx,
-        block: &StacksBlock,
+        block_txs: &[StacksTransaction],
         mut tx_index: u32,
         ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
-        for tx in block.txs.iter() {
+        for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
@@ -5256,7 +5254,7 @@ impl StacksChainState {
     /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
     /// the first time -- the choice of K is significantly bigger than the length of short-lived
     /// forks or periods of time with no sortition than have been observed in practice.
-    fn get_stacking_and_transfer_and_delegate_burn_ops(
+    pub fn get_stacking_and_transfer_and_delegate_burn_ops(
         chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
@@ -5299,7 +5297,7 @@ impl StacksChainState {
     ///  Clarity VM work necessary at the start of the cycle (i.e., processing of accelerated unlocks
     ///  for failed stackers).
     /// If it has not yet been handled, then perform that work now.
-    fn check_and_handle_reward_start(
+    pub fn check_and_handle_reward_start(
         burn_tip_height: u64,
         burn_dbconn: &dyn BurnStateDB,
         sortition_dbconn: &dyn SortitionDBRef,
@@ -5939,7 +5937,7 @@ impl StacksChainState {
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
-                    &block,
+                    &block.txs,
                     microblock_txs_receipts.len() as u32,
                     ast_rules,
                 ) {
@@ -6065,7 +6063,11 @@ impl StacksChainState {
                 evaluated_epoch,
                 &parent_block_hash,
                 &parent_consensus_hash,
-                &block,
+                &block.block_hash(),
+                block
+                    .get_coinbase_tx()
+                    .as_ref()
+                    .ok_or(Error::InvalidStacksBlock("No coinbase transaction".into()))?,
                 chain_tip_consensus_hash,
                 next_block_height,
                 block_fees,
@@ -6100,9 +6102,13 @@ impl StacksChainState {
             .as_ref()
             .map(|(_, _, _, info)| info.clone());
 
+        let parent_block_header = parent_chain_tip
+            .anchored_header
+            .as_stacks_epoch2()
+            .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?;
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
-            &parent_chain_tip.anchored_header,
+            parent_block_header,
             &parent_chain_tip.consensus_hash,
             &block.header,
             chain_tip_consensus_hash,
@@ -6248,7 +6254,10 @@ impl StacksChainState {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
         let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
-            &parent_block_header_info.anchored_header,
+            parent_block_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
             &block.header,
             &next_microblocks,
             false,
@@ -6385,7 +6394,10 @@ impl StacksChainState {
 
         // validation check -- the block must attach to its accepted parent
         if !StacksChainState::check_block_attachment(
-            &parent_header_info.anchored_header,
+            parent_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
             &block.header,
         ) {
             let msg = format!(
@@ -6541,6 +6553,12 @@ impl StacksChainState {
             }
         };
 
+        let receipt_anchored_header = epoch_receipt
+            .header
+            .anchored_header
+            .as_stacks_epoch2()
+            .expect("FATAL: received nakamoto block header from epoch-2 append_block()");
+
         assert_eq!(
             epoch_receipt.header.anchored_header.block_hash(),
             block.block_hash()
@@ -6550,14 +6568,11 @@ impl StacksChainState {
             next_staging_block.consensus_hash
         );
         assert_eq!(
-            epoch_receipt.header.anchored_header.parent_microblock,
+            receipt_anchored_header.parent_microblock,
             last_microblock_hash
         );
         assert_eq!(
-            epoch_receipt
-                .header
-                .anchored_header
-                .parent_microblock_sequence,
+            receipt_anchored_header.parent_microblock_sequence,
             last_microblock_seq
         );
 
@@ -7150,6 +7165,7 @@ pub mod test {
     use rand::thread_rng;
     use rand::Rng;
     use serde_json;
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore};
     use stacks_common::util::hash::*;
     use stacks_common::util::retry::*;
 
@@ -7173,8 +7189,6 @@ pub mod test {
     use crate::net::ExtendedStacksHeader;
     use crate::util_lib::db::Error as db_error;
     use crate::util_lib::db::*;
-
-    use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
 

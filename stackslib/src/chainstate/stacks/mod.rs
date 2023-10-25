@@ -37,6 +37,11 @@ use rusqlite::Error as RusqliteError;
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
+};
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -58,12 +63,6 @@ use crate::net::Error as net_error;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
-};
 
 pub mod address;
 pub mod auth;
@@ -130,6 +129,8 @@ pub enum Error {
     ProblematicTransaction(Txid),
     MinerAborted,
     ChannelClosed(String),
+    /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
+    InvalidChildOfNakomotoBlock,
 }
 
 impl From<marf_error> for Error {
@@ -215,6 +216,10 @@ impl fmt::Display for Error {
             Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
             Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
             Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
+            Error::InvalidChildOfNakomotoBlock => write!(
+                f,
+                "Stacks Epoch 2-style block building off of Nakamoto block"
+            ),
         }
     }
 }
@@ -255,6 +260,7 @@ impl error::Error for Error {
             Error::PoxInvalidIncrease => None,
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
+            Error::InvalidChildOfNakomotoBlock => None,
         }
     }
 }
@@ -295,6 +301,7 @@ impl Error {
             Error::PoxInvalidIncrease => "PoxInvalidIncrease",
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
+            Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
         }
     }
 

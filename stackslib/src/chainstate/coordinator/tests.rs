@@ -26,6 +26,7 @@ use std::sync::{
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::ClarityVersion;
 use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
@@ -79,7 +80,6 @@ use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::strings::StacksString;
-use clarity::vm::errors::Error as InterpreterError;
 
 use crate::chainstate::stacks::boot::COSTS_2_NAME;
 use stacks_common::{types, util};
@@ -243,7 +243,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
     block_hash
 }
 
-fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     let pk = StacksPublicKey::from_private(sk);
     StacksAddress::from_public_keys(
         chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -254,7 +254,7 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     .unwrap()
 }
 
-fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
+pub fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
     let stacks_addr = p2pkh_from(sk);
     PoxAddress::Standard(stacks_addr, Some(AddressHashMode::SerializeP2PKH))
 }

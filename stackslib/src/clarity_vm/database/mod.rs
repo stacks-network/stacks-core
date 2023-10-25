@@ -277,12 +277,30 @@ fn get_stacks_header_column<F, R>(
     loader: F,
 ) -> Option<R>
 where
-    F: FnOnce(&Row) -> R,
+    F: Fn(&Row) -> R,
 {
     let args: &[&dyn ToSql] = &[id_bhh];
+    if let Some(result) = conn
+        .query_row(
+            &format!(
+                "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+                column_name
+            ),
+            args,
+            |x| Ok(loader(x)),
+        )
+        .optional()
+        .expect(&format!(
+            "Unexpected SQL failure querying block header table for '{}'",
+            column_name
+        ))
+    {
+        return Some(result);
+    }
+    // if nothing was found in `block_headers`, try `nakamoto_block_headers`
     conn.query_row(
         &format!(
-            "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+            "SELECT {} FROM nakamoto_block_headers WHERE index_block_hash = ?",
             column_name
         ),
         args,
@@ -352,6 +370,13 @@ pub trait SortitionDBRef: BurnStateDB {
         parent_stacks_block_burn_ht: u64,
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
+
+    /// Return an upcasted dynamic reference for the sortition DB
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB;
+
+    /// Return a pointer to the underlying sqlite connection or transaction for
+    /// this DB reference
+    fn sqlite_conn(&self) -> &Connection;
 }
 
 fn get_pox_start_cycle_info(
@@ -393,6 +418,14 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.tx()
+    }
 }
 
 impl SortitionDBRef for SortitionDBConn<'_> {
@@ -404,6 +437,14 @@ impl SortitionDBRef for SortitionDBConn<'_> {
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
         let mut handle = self.as_handle(sortition_id);
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
+    }
+
+    fn as_burn_state_db(&self) -> &dyn BurnStateDB {
+        self
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.conn()
     }
 }
 

@@ -35,7 +35,6 @@ use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
 
 use serde::Deserialize;
-
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -1453,7 +1452,7 @@ impl StacksBlockBuilder {
         pubkh: Hash160,
     ) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),

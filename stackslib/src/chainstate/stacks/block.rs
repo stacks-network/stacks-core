@@ -21,12 +21,20 @@ use std::io::{Read, Write};
 
 use sha2::Digest;
 use sha2::Sha512_256;
+use stacks_common::codec::MAX_MESSAGE_LEN;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
+use super::db::StacksBlockHeaderTypes;
 use crate::burnchains::PrivateKey;
 use crate::burnchains::PublicKey;
 use crate::chainstate::burn::operations::*;
@@ -36,16 +44,6 @@ use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::types::StacksPublicKeyBuffer;
-
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -105,9 +103,14 @@ impl StacksBlockHeader {
         }
     }
 
+    /// Is `to_check` equal to the `FIRST_STACKS_BLOCK_HASH`?
+    pub fn is_first_block_hash(to_check: &BlockHeaderHash) -> bool {
+        *to_check == FIRST_STACKS_BLOCK_HASH
+    }
+
     /// Is this a first-mined block header?  i.e. builds off of the boot code?
     pub fn is_first_mined(&self) -> bool {
-        self.parent_block == FIRST_STACKS_BLOCK_HASH.clone()
+        Self::is_first_block_hash(&self.parent_block)
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
@@ -139,7 +142,7 @@ impl StacksBlockHeader {
     }
 
     pub fn from_parent(
-        parent_header: &StacksBlockHeader,
+        parent_header_hash: BlockHeaderHash,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
         total_work: &StacksWorkScore,
         proof: &VRFProof,
@@ -156,7 +159,7 @@ impl StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
             total_work: total_work.clone(),
             proof: proof.clone(),
-            parent_block: parent_header.block_hash(),
+            parent_block: parent_header_hash,
             parent_microblock: parent_microblock,
             parent_microblock_sequence: parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
@@ -166,14 +169,14 @@ impl StacksBlockHeader {
     }
 
     pub fn from_parent_empty(
-        parent_header: &StacksBlockHeader,
+        parent_header: &StacksBlockHeaderTypes,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
         work_delta: &StacksWorkScore,
         proof: &VRFProof,
         microblock_pubkey_hash: &Hash160,
     ) -> StacksBlockHeader {
         StacksBlockHeader::from_parent(
-            parent_header,
+            parent_header.block_hash(),
             parent_microblock_header,
             work_delta,
             proof,
@@ -396,7 +399,7 @@ impl StacksBlock {
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(
-            parent_header,
+            parent_header.block_hash(),
             Some(parent_microblock_header),
             work_delta,
             proof,
@@ -923,6 +926,7 @@ mod test {
     use std::error::Error;
 
     use stacks_common::address::*;
+    use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
 
     use super::*;
@@ -941,10 +945,6 @@ mod test {
     use crate::net::codec::test::*;
     use crate::net::codec::*;
     use crate::net::*;
-    use stacks_common::address::*;
-    use stacks_common::util::hash::*;
-
-    use stacks_common::types::chainstate::StacksAddress;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {

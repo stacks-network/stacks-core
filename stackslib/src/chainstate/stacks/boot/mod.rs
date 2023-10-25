@@ -62,15 +62,13 @@ use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::clarity_vm::database::HeadersDBConn;
-
+use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use crate::core::CHAIN_ID_MAINNET;
 use crate::util_lib::boot;
 use clarity::vm::{costs::LimitedCostTracker, SymbolicExpression};
 use stacks_common::types;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
-
-use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::core::CHAIN_ID_MAINNET;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");

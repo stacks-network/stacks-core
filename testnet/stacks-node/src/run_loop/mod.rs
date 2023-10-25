@@ -2,6 +2,7 @@ pub mod helium;
 pub mod neon;
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -11,8 +12,6 @@ use stacks::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionSpendingCondition,
 };
 use stacks_common::util::vrf::VRFPublicKey;
-
-use clarity::vm::database::BurnStateDB;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
 use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
@@ -172,7 +171,11 @@ pub fn announce_boot_receipts(
     let block_header_0 = StacksChainState::get_genesis_header_info(chainstate.db())
         .expect("FATAL: genesis block header not stored");
     let block_0 = StacksBlock {
-        header: block_header_0.anchored_header.clone(),
+        header: block_header_0
+            .anchored_header
+            .as_stacks_epoch2()
+            .expect("FATAL: Expected a Stacks 2.0 Genesis block")
+            .clone(),
         txs: vec![],
     };
 

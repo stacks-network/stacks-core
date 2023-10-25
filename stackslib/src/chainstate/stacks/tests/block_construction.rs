@@ -37,6 +37,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use stacks_common::address::*;
+use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
@@ -61,7 +62,6 @@ use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
-use stacks_common::types::chainstate::SortitionId;
 
 use crate::core::mempool::MemPoolWalkSettings;
 use crate::core::tests::make_block;
@@ -3063,7 +3063,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &sortdb.index_conn(),
                     &mut mempool,
                     &parent_tip,
-                    parent_tip.anchored_header.total_work.burn + 1000,
+                    parent_tip.anchored_header.as_stacks_epoch2().unwrap().total_work.burn + 1000,
                     vrf_proof,
                     mblock_pubkey_hash,
                     &coinbase_tx,

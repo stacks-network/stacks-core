@@ -34,6 +34,8 @@ use std::sync::mpsc::TrySendError;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::RngCore;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
@@ -74,8 +76,6 @@ use crate::net::StacksP2P;
 use crate::net::*;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -4013,7 +4013,13 @@ pub mod test {
                                             &sortdb.index_conn(),
                                             &mut mempool,
                                             &parent_tip,
-                                            parent_tip.anchored_header.total_work.burn + 1000,
+                                            parent_tip
+                                                .anchored_header
+                                                .as_stacks_epoch2()
+                                                .unwrap()
+                                                .total_work
+                                                .burn
+                                                + 1000,
                                             vrf_proof,
                                             Hash160([i as u8; 20]),
                                             &coinbase_tx,

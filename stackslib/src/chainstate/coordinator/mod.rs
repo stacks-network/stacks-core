@@ -30,6 +30,9 @@ use clarity::vm::{
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
+};
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
@@ -77,10 +80,6 @@ use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as DBError;
-
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
-};
 
 pub mod comm;
 #[cfg(test)]
@@ -2335,13 +2334,13 @@ impl<
                                 "Will re-accept Stacks block {}/{} height {}",
                                 &sortition.consensus_hash,
                                 &sortition.winning_stacks_block_hash,
-                                stacks_block_header.anchored_header.total_work.work
+                                stacks_block_header.anchored_header.height(),
                             );
                             stacks_blocks_to_reaccept.push((
                                 sortition.consensus_hash.clone(),
-                                stacks_block_header.anchored_header.parent_block.clone(),
+                                stacks_block_header.anchored_header.parent().clone(),
                                 sortition.winning_stacks_block_hash.clone(),
-                                stacks_block_header.anchored_header.total_work.work,
+                                stacks_block_header.anchored_header.height(),
                             ));
                         } else {
                             debug!(
