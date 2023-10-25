@@ -1410,7 +1410,10 @@ fn wasm_to_clarity_value(
             let upper = buffer[value_index + 1]
                 .i64()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
-            Ok((Some(Value::Int(((upper as i128) << 64) | lower as i128)), 2))
+            Ok((
+                Some(Value::Int(((upper as i128) << 64) | (lower as u64) as i128)),
+                2,
+            ))
         }
         TypeSignature::UIntType => {
             let lower = buffer[value_index]
@@ -1420,7 +1423,9 @@ fn wasm_to_clarity_value(
                 .i64()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
             Ok((
-                Some(Value::UInt(((upper as u128) << 64) | lower as u128)),
+                Some(Value::UInt(
+                    ((upper as u128) << 64) | (lower as u64) as u128,
+                )),
                 2,
             ))
         }
