@@ -48,7 +48,9 @@ use crate::net::httpcore::{
     request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
     StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::{Error as NetError, StacksNodeState, TipRequest};
+use crate::net::{
+    Error as NetError, StackerDBPushChunkData, StacksMessageType, StacksNodeState, TipRequest,
+};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Clone)]
@@ -266,6 +268,17 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                 return response.try_into_contents().map_err(NetError::from);
             }
         };
+
+        if ack_resp.accepted {
+            let push_chunk_data = StackerDBPushChunkData {
+                contract_id: contract_identifier,
+                rc_consensus_hash: node.with_node_state(|network, _, _, _, _| {
+                    network.get_chain_view().rc_consensus_hash.clone()
+                }),
+                chunk_data: stackerdb_chunk,
+            };
+            node.set_relay_message(StacksMessageType::StackerDBPushChunk(push_chunk_data));
+        }
 
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);
         preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
