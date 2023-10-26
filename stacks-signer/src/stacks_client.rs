@@ -31,6 +31,11 @@ use wsts::{
 
 use crate::config::Config;
 
+/// Backoff timer initial interval in milliseconds
+const BACKOFF_INITIAL_INTERVAL: u64 = 128;
+/// Backoff timer max interval in milliseconds
+const BACKOFF_MAX_INTERVAL: u64 = 16384;
+
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
 /// Is equal to the number of message types
@@ -141,7 +146,7 @@ impl StacksClient {
                     .put_chunk(chunk.clone())
                     .map_err(backoff::Error::transient)
             };
-            let chunk_ack: StackerDBChunkAckData = retry_request(send_request)?;
+            let chunk_ack: StackerDBChunkAckData = retry_with_exponential_backoff(send_request)?;
             self.slot_versions.insert(slot_id, slot_version);
 
             if chunk_ack.accepted {
@@ -196,7 +201,7 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_request(send_request)?;
+        let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -223,13 +228,14 @@ impl StacksClient {
             return Ok((pox_contract.issuer.into(), pox_contract.name));
         }
         // TODO: we may want to cache the pox contract inside the client itself (calling this function once on init)
+        // https://github.com/stacks-network/stacks-blockchain/issues/4005
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_request(send_request)?;
+        let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -307,6 +313,7 @@ impl StacksClient {
         let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
 
         // FIXME: Because signers are given priority, we can put down a tx fee of 0
+        // https://github.com/stacks-network/stacks-blockchain/issues/4006
         // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
         unsigned_tx.set_tx_fee(10_000);
         unsigned_tx.set_origin_nonce(self.get_next_possible_nonce()?);
@@ -339,7 +346,7 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_request(send_request)?;
+        let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -370,7 +377,7 @@ impl StacksClient {
                 .send()
                 .map_err(backoff::Error::transient)
         };
-        let response = retry_request(send_request)?;
+        let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -418,8 +425,8 @@ impl StacksClient {
     }
 }
 
-/// Helper function to retry a HTTP request with exponential backoff
-fn retry_request<F, E, T>(request_fn: F) -> Result<T, ClientError>
+/// Retry a function F with an exponential backoff and notification on transient failure
+pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
 {
@@ -431,8 +438,8 @@ where
     };
 
     let backoff_timer = backoff::ExponentialBackoffBuilder::new()
-        .with_initial_interval(Duration::from_millis(128))
-        .with_max_interval(Duration::from_millis(16384))
+        .with_initial_interval(Duration::from_millis(BACKOFF_INITIAL_INTERVAL))
+        .with_max_interval(Duration::from_millis(BACKOFF_MAX_INTERVAL))
         .build();
 
     backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)

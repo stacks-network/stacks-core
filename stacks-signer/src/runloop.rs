@@ -15,7 +15,7 @@ use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
 use crate::config::Config;
-use crate::stacks_client::{ClientError, StacksClient};
+use crate::stacks_client::{retry_with_exponential_backoff, ClientError, StacksClient};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone)]
@@ -283,14 +283,9 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
             self.commands.push_back(command);
         }
         if self.state == State::Uninitialized {
-            let backoff_timer = backoff::ExponentialBackoffBuilder::new()
-                .with_initial_interval(Duration::from_millis(128))
-                .with_max_interval(Duration::from_millis(16384))
-                .build();
-            backoff::retry(backoff_timer, || {
-                self.initialize().map_err(backoff::Error::transient)
-            })
-            .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
+            let request_fn = || self.initialize().map_err(backoff::Error::transient);
+            retry_with_exponential_backoff(request_fn)
+                .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
         }
         // Process any arrived events
         if let Some(event) = event {
