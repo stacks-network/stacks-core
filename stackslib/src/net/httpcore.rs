@@ -776,16 +776,16 @@ impl StacksHttpRecvStream {
                     (0, num_consumed)
                 }
                 Ok((num_read, num_consumed)) => (num_read, num_consumed),
-                Err(e) => match e.kind() {
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
+                    {
                         trace!("consume_data blocked on read error");
                         blocked = true;
                         (0, 0)
-                    }
-                    _ => {
+                    } else {
                         return Err(NetError::ReadError(e));
                     }
-                },
+                }
             };
 
             consumed += consumed_pass;
@@ -1105,11 +1105,7 @@ impl StacksHttp {
 
     #[cfg(test)]
     pub fn num_pending(&self) -> usize {
-        if self.reply.is_some() {
-            1
-        } else {
-            0
-        }
+        self.reply.as_ref().map(|_| 1).unwrap_or(0)
     }
 
     /// Set up the pending response
@@ -1169,31 +1165,37 @@ impl StacksHttp {
         preamble: &HttpResponsePreamble,
         fd: &mut R,
     ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
-        assert!(preamble.is_chunked());
-        assert!(self.reply.is_some());
-
+        if !preamble.is_chunked() {
+            return Err(NetError::InvalidState);
+        }
         if let Some(reply) = self.reply.as_mut() {
-            match reply.stream.consume_data(fd) {
-                Ok(res) => match res {
-                    (None, sz) => Ok((None, sz)),
-                    (Some((byte_vec, bytes_total)), sz) => {
-                        // done receiving
-                        self.reply = None;
-                        Ok((Some((byte_vec, bytes_total)), sz))
-                    }
-                },
-                Err(e) => {
-                    // broken stream
-                    self.reset();
-                    Err(e)
+            match reply.stream.consume_data(fd).map_err(|e| {
+                self.reset();
+                e
+            })? {
+                (Some((byte_vec, bytes_total)), sz) => {
+                    // done receiving
+                    self.reply = None;
+                    Ok((Some((byte_vec, bytes_total)), sz))
                 }
+                res => Ok(res),
             }
         } else {
-            unreachable!();
+            return Err(NetError::InvalidState);
         }
     }
 
-    /// Calculate the search window for \r\n\r\n
+    /// Calculate the search window for \r\n\r\n in the preamble stream.
+    ///
+    /// As we are streaming the preamble, we're looking for the pattern `\r\n\r\n`.  The last four
+    /// bytes of the encoded preamble are always stored in `self.last_four_preamble_bytes`; this
+    /// gets updated as the preamble data is streamed in.  So, given these last four bytes, and the
+    /// next chunk of data streamed in from the request (in `buf`), determine the 4-byte sequence
+    /// to check for `\r\n\r\n`.
+    ///
+    /// `i` is the offset into the chunk `buf` being searched.  If `i < 4`, then we must check the
+    /// last `4 - i` bytes of `self.last_four_preamble_bytes` as well as the first `i` bytes of
+    /// `buf`.  Otherwise, we just check `buf[i-4..i]`.
     fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
         let window = match i {
             0 => [
@@ -1253,12 +1255,11 @@ impl StacksHttp {
         let mut message_bytes = &response_buf[message_offset..];
 
         if is_chunked {
-            match http.stream_payload(&preamble, &mut message_bytes) {
-                Ok((Some((message, _)), _)) => Ok(message),
-                Ok((None, _)) => Err(NetError::UnderflowError(
+            match http.stream_payload(&preamble, &mut message_bytes)? {
+                (Some((message, _)), _) => Ok(message),
+                (None, _) => Err(NetError::UnderflowError(
                     "Not enough bytes to form a streamed HTTP response".to_string(),
                 )),
-                Err(e) => Err(e),
             }
         } else {
             let (message, _) = http.read_payload(&preamble, &mut message_bytes)?;
@@ -1282,12 +1283,9 @@ impl ProtocolFamily for StacksHttp {
             StacksHttpPreamble::Request(ref http_request_preamble) => {
                 Some(http_request_preamble.get_content_length() as usize)
             }
-            StacksHttpPreamble::Response(ref http_response_preamble) => {
-                match http_response_preamble.content_length {
-                    Some(len) => Some(len as usize),
-                    None => None,
-                }
-            }
+            StacksHttpPreamble::Response(ref http_response_preamble) => http_response_preamble
+                .content_length
+                .map(|len| len as usize),
         }
     }
 
@@ -1299,7 +1297,7 @@ impl ProtocolFamily for StacksHttp {
         if self.body_start.is_none() {
             for i in 0..=buf.len() {
                 let window = self.body_start_search_window(i, buf);
-                if window == [13, 10, 13, 10] {
+                if window == [b'\r', b'\n', b'\r', b'\n'] {
                     self.body_start = Some(self.num_preamble_bytes + i);
                 }
             }
@@ -1346,14 +1344,18 @@ impl ProtocolFamily for StacksHttp {
         preamble: &StacksHttpPreamble,
         fd: &mut R,
     ) -> Result<(Option<(StacksHttpMessage, usize)>, usize), NetError> {
-        assert!(self.payload_len(preamble).is_none());
+        if self.payload_len(preamble).is_some() {
+            return Err(NetError::InvalidState);
+        }
         match preamble {
             StacksHttpPreamble::Request(_) => {
                 // HTTP requests can't be chunk-encoded, so this should never be reached
-                unreachable!()
+                return Err(NetError::InvalidState);
             }
             StacksHttpPreamble::Response(ref http_response_preamble) => {
-                assert!(http_response_preamble.is_chunked());
+                if !http_response_preamble.is_chunked() {
+                    return Err(NetError::InvalidState);
+                }
 
                 // sanity check -- if we're receiving a response, then we must have earlier issued
                 // a request. Thus, we must already know which response handler to use.
@@ -1439,40 +1441,40 @@ impl ProtocolFamily for StacksHttp {
             StacksHttpPreamble::Request(ref http_request_preamble) => {
                 // all requests have a known length
                 let len = http_request_preamble.get_content_length() as usize;
-                assert!(len <= buf.len(), "{} > {}", len, buf.len());
+                if len > buf.len() {
+                    return Err(NetError::InvalidState);
+                }
 
                 trace!("read http request payload of {} bytes", len);
 
                 match self.try_parse_request(http_request_preamble, &buf[0..len]) {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), len)),
+                    Err(NetError::Http(http_error)) => {
+                        // convert into a response
+                        let resp = StacksHttpResponse::new_error(
+                            http_request_preamble,
+                            &*http_error.into_http_error(),
+                        );
+                        self.reset();
+                        return Ok((
+                            StacksHttpMessage::Error(
+                                http_request_preamble.path_and_query_str.clone(),
+                                resp,
+                            ),
+                            len,
+                        ));
+                    }
                     Err(e) => {
-                        match e {
-                            NetError::Http(http_error) => {
-                                // convert into a response
-                                let resp = StacksHttpResponse::new_error(
-                                    http_request_preamble,
-                                    &*http_error.into_http_error(),
-                                );
-                                self.reset();
-                                return Ok((
-                                    StacksHttpMessage::Error(
-                                        http_request_preamble.path_and_query_str.clone(),
-                                        resp,
-                                    ),
-                                    len,
-                                ));
-                            }
-                            _ => {
-                                info!("Failed to parse HTTP request: {:?}", &e);
-                                self.reset();
-                                Err(e)
-                            }
-                        }
+                        info!("Failed to parse HTTP request: {:?}", &e);
+                        self.reset();
+                        Err(e)
                     }
                 }
             }
             StacksHttpPreamble::Response(ref http_response_preamble) => {
-                assert!(!http_response_preamble.is_chunked());
+                if http_response_preamble.is_chunked() {
+                    return Err(NetError::InvalidState);
+                }
 
                 // message of known length
                 test_debug!("read http response payload of {} bytes", buf.len(),);
@@ -1480,14 +1482,10 @@ impl ProtocolFamily for StacksHttp {
                 // sanity check -- if we're receiving a response, then we must have earlier issued
                 // a request. Thus, we must already know which response handler to use.
                 // Otherwise, someone sent us malformed data.
-                let handler_index = if let Some(i) = self.request_handler_index.as_ref() {
-                    *i
-                } else {
+                let handler_index = self.request_handler_index.ok_or_else(|| {
                     self.reset();
-                    return Err(NetError::DeserializeError(
-                        "Unsolicited HTTP response".to_string(),
-                    ));
-                };
+                    NetError::DeserializeError("Unsolicited HTTP response".to_string())
+                })?;
 
                 let res = self.try_parse_response(handler_index, http_response_preamble, buf);
                 self.reset();
@@ -1568,16 +1566,15 @@ impl PeerNetwork {
                 ) {
                     Ok(event_id) => Ok(event_id),
                     Err(NetError::AlreadyConnected(event_id, _)) => {
-                        match http.get_conversation_and_socket(event_id) {
-                            (Some(ref mut convo), Some(ref mut socket)) => {
-                                convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo)?;
-                                Ok(event_id)
-                            }
-                            (_, _) => {
-                                debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                                Err(NetError::PeerNotConnected)
-                            }
+                        if let (Some(ref mut convo), Some(ref mut socket)) =
+                            http.get_conversation_and_socket(event_id)
+                        {
+                            convo.send_request(request)?;
+                            HttpPeer::saturate_http_socket(socket, convo)?;
+                            Ok(event_id)
+                        } else {
+                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
+                            Err(NetError::PeerNotConnected)
                         }
                     }
                     Err(e) => {
