@@ -275,6 +275,8 @@ pub enum Error {
     StackerDBChunkTooBig(usize),
     /// HTTP error
     Http(HttpErr),
+    /// Invalid state machine state reached
+    InvalidState,
 }
 
 impl From<libstackerdb_error> for Error {
@@ -421,6 +423,7 @@ impl fmt::Display for Error {
                 write!(f, "StackerDB chunk size is too big ({})", sz)
             }
             Error::Http(e) => fmt::Display::fmt(&e, f),
+            Error::InvalidState => write!(f, "Invalid state-machine state reached"),
         }
     }
 }
@@ -492,6 +495,7 @@ impl error::Error for Error {
             Error::StepTimeout => None,
             Error::StackerDBChunkTooBig(..) => None,
             Error::Http(ref e) => Some(e),
+            Error::InvalidState => None,
         }
     }
 }
