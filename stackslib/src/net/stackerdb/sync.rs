@@ -17,34 +17,26 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 
-use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
-};
-
-use crate::net::db::PeerDB;
-
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
+use clarity::vm::types::QualifiedContractIdentifier;
+use rand::prelude::SliceRandom;
+use rand::{thread_rng, Rng, RngCore};
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ReplyHandleP2P;
-use crate::net::p2p::PeerNetwork;
-use crate::net::Error as net_error;
-use crate::net::{
-    NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData, StackerDBChunkInvData,
-    StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData, StacksMessageType,
-};
-
+use crate::net::db::PeerDB;
 use crate::net::neighbors::NeighborComms;
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use rand::prelude::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
+use crate::net::p2p::PeerNetwork;
+use crate::net::stackerdb::{
+    StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
+};
+use crate::net::{
+    Error as net_error, NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData,
+    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData,
+    StacksMessageType,
+};
 
 const MAX_CHUNKS_IN_FLIGHT: usize = 6;
 const MAX_DB_NEIGHBORS: usize = 32;
@@ -436,7 +428,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns false otherwise
     pub fn add_pushed_chunk(
         &mut self,
-        network: &PeerNetwork,
+        _network: &PeerNetwork,
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
@@ -453,7 +445,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     // remote peer indicated that it has a newer version of this chunk.
                     test_debug!(
                         "{:?}: peer {:?} has a newer version of slot {} ({} < {})",
-                        network.get_local_peer(),
+                        _network.get_local_peer(),
                         &naddr,
                         old_slot_id,
                         old_version,

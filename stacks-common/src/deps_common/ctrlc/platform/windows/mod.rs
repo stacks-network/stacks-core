@@ -7,8 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::io;
-use std::ptr;
+use std::{io, ptr};
+
 use winapi::ctypes::c_long;
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, TRUE};
 use winapi::shared::ntdef::HANDLE;
@@ -17,7 +17,7 @@ use winapi::um::handleapi::CloseHandle;
 use winapi::um::synchapi::{ReleaseSemaphore, WaitForSingleObject};
 use winapi::um::winbase::{CreateSemaphoreA, INFINITE, WAIT_FAILED, WAIT_OBJECT_0};
 
-use crate::deps::ctrlc::SignalId;
+use crate::deps_common::ctrlc::SignalId;
 
 /// Platform specific error type
 pub type Error = io::Error;

@@ -19,6 +19,7 @@
 
 use std::io::Cursor;
 
+use super::*;
 use crate::chainstate::stacks::index::bits::*;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
@@ -26,10 +27,7 @@ use crate::chainstate::stacks::index::proofs::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::test::*;
 use crate::chainstate::stacks::index::trie::*;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::index::*;
-
-use super::*;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, *};
 
 fn walk_to_insertion_point(
     f: &mut TrieStorageConnection<BlockHeaderHash>,

@@ -15,48 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryInto;
-use std::error;
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::Error as IOError;
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::path::Path;
-use std::path::PathBuf;
+use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::Connection;
-use rusqlite::Error as sqlite_error;
-use rusqlite::OpenFlags;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::TransactionBehavior;
-use rusqlite::NO_PARAMS;
-use serde_json::Error as serde_error;
+use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
+use rand::{thread_rng, Rng, RngCore};
+use rusqlite::types::{FromSql, ToSql};
+use rusqlite::{
+    Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
+    TransactionBehavior, NO_PARAMS,
+};
+use serde_json::Error as serde_error;
+use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::Address;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::index::marf::MarfTransaction;
-use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::Error as MARFError;
-use crate::chainstate::stacks::index::MARFValue;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::types::chainstate::TrieHash;
+use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;

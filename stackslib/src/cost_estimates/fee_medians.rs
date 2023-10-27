@@ -1,32 +1,26 @@
 use std::cmp;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::{iter::FromIterator, path::Path};
+use std::iter::FromIterator;
+use std::path::Path;
 
-use rusqlite::AndThenRows;
-use rusqlite::Transaction as SqlTransaction;
+use clarity::vm::costs::ExecutionCost;
+use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{
-    types::{FromSql, FromSqlError},
-    Connection, Error as SqliteError, OptionalExtension, ToSql,
+    AndThenRows, Connection, Error as SqliteError, OptionalExtension, ToSql,
+    Transaction as SqlTransaction,
 };
 use serde_json::Value as JsonValue;
 
+use super::metrics::{CostMetric, PROPORTION_RESOLUTION};
+use super::{EstimatorError, FeeEstimator, FeeRateEstimate};
+use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::TransactionPayload;
+use crate::cost_estimates::StacksTransactionReceipt;
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
 };
-
-use clarity::vm::costs::ExecutionCost;
-
-use crate::chainstate::stacks::db::StacksEpochReceipt;
-use crate::chainstate::stacks::events::TransactionOrigin;
-
-use super::metrics::CostMetric;
-use super::FeeRateEstimate;
-use super::{EstimatorError, FeeEstimator};
-
-use super::metrics::PROPORTION_RESOLUTION;
-use crate::cost_estimates::StacksTransactionReceipt;
 
 const CREATE_TABLE: &'static str = "
 CREATE TABLE median_fee_estimator (

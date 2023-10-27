@@ -143,14 +143,12 @@ fn read_next_vec<T: StacksMessageCodec + Sized, R: Read>(
                 len, max_items
             )));
         }
-    } else {
-        if len != num_items {
-            // inexact item count
-            return Err(Error::DeserializeError(format!(
-                "Array has incorrect number of items ({} != {})",
-                len, num_items
-            )));
-        }
+    } else if len != num_items {
+        // inexact item count
+        return Err(Error::DeserializeError(format!(
+            "Array has incorrect number of items ({} != {})",
+            len, num_items
+        )));
     }
 
     if (mem::size_of::<T>() as u128) * (len as u128) > MAX_MESSAGE_LEN as u128 {
@@ -192,8 +190,8 @@ where
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
         let len = self.len() as u32;
         write_next(fd, &len)?;
-        for i in 0..self.len() {
-            write_next(fd, &self[i])?;
+        for item in self {
+            write_next(fd, item)?;
         }
         Ok(())
     }

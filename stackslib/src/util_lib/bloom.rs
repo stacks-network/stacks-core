@@ -19,28 +19,15 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use stacks_common::util::hash::Sha512Trunc256Sum;
-
-use siphasher::sip::SipHasher; // this is SipHash-2-4
-
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::{read_next, write_next};
-
-use crate::util_lib::db::query_expect_row;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{DBConn, DBTx};
-
-use stacks_common::util::hash::to_hex;
-
-use rusqlite::blob::Blob;
-use rusqlite::Error as sqlite_error;
-use rusqlite::Row;
-use rusqlite::ToSql;
-use rusqlite::NO_PARAMS;
-
 use rand::prelude::*;
 use rand::thread_rng;
+use rusqlite::blob::Blob;
+use rusqlite::{Error as sqlite_error, Row, ToSql, NO_PARAMS};
+use siphasher::sip::SipHasher; // this is SipHash-2-4
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
+
+use crate::util_lib::db::{query_expect_row, DBConn, DBTx, Error as db_error};
 
 /// A field of bits of known length!
 #[derive(Debug, Clone, PartialEq)]
@@ -605,15 +592,13 @@ impl BloomHash for BloomNodeHasher {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-
     use std::fs;
 
     use rand::prelude::*;
     use rand::thread_rng;
-
     use rusqlite::OpenFlags;
 
+    use super::*;
     use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
 
     pub fn setup_bloom_counter(db_name: &str) -> DBConn {

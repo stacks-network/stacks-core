@@ -15,8 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::bitcoin::PeerMessage;
+use crate::burnchains::bitcoin::{Error as btc_error, PeerMessage};
 
 pub trait BitcoinMessageHandler {
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error>;

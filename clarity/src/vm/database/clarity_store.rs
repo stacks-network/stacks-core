@@ -18,8 +18,11 @@ use std::convert::TryInto;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -29,12 +32,7 @@ use crate::vm::errors::{
     InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::types::QualifiedContractIdentifier;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
-use crate::vm::contexts::GlobalContext;
-use crate::vm::types::PrincipalData;
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 
 pub struct NullBackingStore {}
@@ -201,16 +199,22 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
     }
 }
 
+impl Default for NullBackingStore {
+    fn default() -> Self {
+        NullBackingStore::new()
+    }
+}
+
 impl NullBackingStore {
     pub fn new() -> Self {
         NullBackingStore {}
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
         AnalysisDatabase::new(self)
     }
 }
@@ -257,6 +261,12 @@ pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
+impl Default for MemoryBackingStore {
+    fn default() -> Self {
+        MemoryBackingStore::new()
+    }
+}
+
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
         let side_store = SqliteConnection::memory().unwrap();
@@ -268,11 +278,11 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
         AnalysisDatabase::new(self)
     }
 }

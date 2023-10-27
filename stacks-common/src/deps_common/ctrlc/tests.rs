@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use crate::deps::ctrlc;
+use crate::deps_common::ctrlc;
 
 #[cfg(unix)]
 mod platform {
@@ -34,8 +34,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use std::io;
-    use std::ptr;
+    use std::{io, ptr};
 
     use winapi::shared::minwindef::DWORD;
     use winapi::shared::ntdef::{CHAR, HANDLE};

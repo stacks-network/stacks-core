@@ -1,20 +1,18 @@
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
-use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
-use crate::vm::types::{FunctionType, Value};
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use crate::types::StacksEpochId;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
 
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
@@ -112,7 +110,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .expect(&format!("BUG: no description for {}", func_name.as_str()));
+                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();
@@ -124,7 +122,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .expect(&format!("BUG: no description for {}", func_name.as_str()));
+                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();

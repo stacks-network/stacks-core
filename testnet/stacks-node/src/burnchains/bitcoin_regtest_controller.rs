@@ -1,24 +1,19 @@
+use std::cmp;
+use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
 use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
 use http_types::{Method, Request, Url};
-use std::io::Cursor;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::time::Instant;
-
 use serde::Serialize;
 use serde_json::value::RawValue;
-
-use std::cmp;
-
-use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+};
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
@@ -26,48 +21,41 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::BurnchainStateTransitionOps;
-use stacks::burnchains::Error as burnchain_error;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::PublicKey;
 use stacks::burnchains::{
-    bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-    },
-    Txid,
+    Burnchain, BurnchainParameters, BurnchainStateTransitionOps, Error as burnchain_error,
+    PoxConstants, PublicKey, Txid,
 };
-use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
+#[cfg(test)]
+use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
-use stacks::util::hash::{hex_bytes, Hash160};
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::sleep_ms;
+use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
-
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
-use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
-
-#[cfg(test)]
-use stacks::chainstate::burn::Opcodes;
-use stacks::types::chainstate::BurnchainHeaderHash;
+use super::super::operations::BurnchainOpSigner;
+use super::super::Config;
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before

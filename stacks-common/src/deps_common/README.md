@@ -7,6 +7,8 @@ snapshots of important libraries this codebase depends on.
 
 # Credits
 
+* The `bech32` package was produced by Clark Moody
+  (https://github.com/rust-bitcoin/rust-bech32).  License is MIT.
 * The `bitcoin` package was produced by Andrew Poelstra (https://github.com/rust-bitcoin/rust-bitcoin).  License is CC0.
 * The `httparse` package was produced by Sean McArthur
   (https://github.com/seanmonstar/httparse).  License is MIT.

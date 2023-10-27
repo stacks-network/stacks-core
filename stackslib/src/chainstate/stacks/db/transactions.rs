@@ -15,50 +15,40 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
+
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::analysis::types::ContractAnalysis;
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::{
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
+};
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
     Error as clarity_error,
 };
 use crate::net::Error as net_error;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{query_count, query_rows, DBConn};
-use clarity::vm::ast::ASTRules;
-use stacks_common::util::hash::to_hex;
-
-use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::{StacksString, VecDisplay};
-use clarity::vm::analysis::run_analysis;
-use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::cost_functions;
-use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::runtime_cost;
-use clarity::vm::costs::CostTracker;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
-use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
-use clarity::vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
-};
-
-use clarity::vm::ast::errors::ParseErrors;
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -1157,6 +1147,7 @@ impl StacksChainState {
                                 warn!(
                                     "Runtime error in contract analysis for {}: {:?}",
                                     &contract_id, &other_error;
+                                    "txid" => %tx.txid(),
                                     "AST rules" => %format!("{:?}", &ast_rules)
                                 );
                                 let receipt = StacksTransactionReceipt::from_analysis_failure(
@@ -1212,6 +1203,7 @@ impl StacksChainState {
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
                             info!("Smart-contract processed with {}", err_type;
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => ?error);
@@ -1256,6 +1248,7 @@ impl StacksChainState {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
                                 warn!("Smart-contract encountered an analysis error at runtime";
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => %check_error);
@@ -1271,6 +1264,7 @@ impl StacksChainState {
                             } else {
                                 // prior to 2.1, this is not permitted in a block.
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                      "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => %check_error);
@@ -1281,6 +1275,7 @@ impl StacksChainState {
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
+                                       "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
                                        "code" => %contract_code_str,
                                        "error" => ?e);
@@ -1453,28 +1448,24 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    use clarity::vm::clarity::TransactionConnection;
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
+    use clarity::vm::types::*;
     use rand::Rng;
+    use stacks_common::types::chainstate::SortitionId;
+    use stacks_common::util::hash::*;
 
+    use super::*;
     use crate::burnchains::Address;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::Error;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{Error, *};
     use crate::chainstate::*;
-    use clarity::vm::clarity::TransactionConnection;
-    use clarity::vm::contracts::Contract;
-    use clarity::vm::representations::ClarityName;
-    use clarity::vm::representations::ContractName;
-    use clarity::vm::test_util::UnitTestBurnStateDB;
-    use clarity::vm::test_util::TEST_BURN_STATE_DB;
-    use clarity::vm::types::*;
-    use stacks_common::types::chainstate::SortitionId;
-    use stacks_common::util::hash::*;
-
-    use super::*;
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,
@@ -2195,11 +2186,16 @@ pub mod test {
              (define-data-var bar Int 0)",
         ];
         let contract_names = ["hello-world-0", "hello-world-1"];
+        let expected_line_num_error = if cfg!(feature = "developer-mode") {
+            ":2:14: invalid variable definition"
+        } else {
+            ":0:0: invalid variable definition"
+        };
         let expected_errors = [
             "Tried to close list which isn't open.",
-            ":2:14: invalid variable definition",
+            expected_line_num_error,
         ];
-        let expected_errors_2_1 = ["unexpected ')'", ":2:14: invalid variable definition"];
+        let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
 

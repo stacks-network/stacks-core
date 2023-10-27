@@ -14,12 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use stacks_common::types::StacksEpochId;
 
+pub use super::errors::{
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+};
+use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::functions::define::DefineFunctionsParsed;
-use crate::vm::functions::tuples;
-use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::{tuples, NativeFunctions};
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
@@ -27,16 +32,8 @@ use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpres
 use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
 };
-
 use crate::vm::variables::NativeVariables;
-use std::collections::HashMap;
-
 use crate::vm::ClarityVersion;
-
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
-use super::AnalysisDatabase;
 
 #[cfg(test)]
 mod tests;
@@ -76,8 +73,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
-            epoch: epoch.clone(),
-            clarity_version: version.clone(),
+            epoch: *epoch,
+            clarity_version: *version,
         }
     }
 
@@ -91,10 +88,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
-            let mut result = self.check_top_level_expression(&exp);
+            let mut result = self.check_top_level_expression(exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
-                    error.set_expression(&exp);
+                    error.set_expression(exp);
                 }
             }
             result?
@@ -397,7 +394,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     )) => self
                         .db
                         .get_read_only_function_type(
-                            &contract_identifier,
+                            contract_identifier,
                             function_name,
                             &self.epoch,
                         )?
@@ -445,11 +442,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             result
         } else {
-            let is_function_read_only = self
+            let is_function_read_only = *self
                 .defined_functions
                 .get(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
-                .clone();
+                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?;
             self.check_each_expression_is_read_only(args)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }

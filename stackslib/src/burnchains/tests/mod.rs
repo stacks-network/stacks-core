@@ -20,31 +20,27 @@ pub mod db;
 
 use std::collections::HashMap;
 
+use stacks_common::address::*;
+use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::secp256k1::*;
+use stacks_common::util::vrf::*;
+
+use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
-use crate::burnchains::Burnchain;
-use crate::burnchains::*;
+use crate::burnchains::{Burnchain, *};
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::operations::{BlockstackOperationType, *};
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
 use crate::core::STACKS_EPOCH_2_1_MARKER;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
-use crate::util_lib::db::*;
-use stacks_common::address::*;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::*;
-use stacks_common::util::secp256k1::*;
-use stacks_common::util::vrf::*;
-
-use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
-
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-
-use super::*;
+use crate::util_lib::db::*;
 
 // all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the
 // same SPV header timestamps regardless of when they are instantiated.

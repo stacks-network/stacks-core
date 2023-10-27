@@ -1,23 +1,20 @@
-use crate::vm::ast::ASTRules;
-use crate::vm::costs::ExecutionCost;
-use crate::vm::database::{BurnStateDB, HeadersDB};
-use crate::vm::execute as vm_execute;
-use crate::vm::execute_on_network as vm_execute_on_network;
-use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::StandardPrincipalData;
-use crate::vm::types::{PrincipalData, ResponseData, TupleData, Value};
-use crate::vm::StacksEpoch;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
-use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
-use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+
+use crate::vm::ast::ASTRules;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::database::{BurnStateDB, HeadersDB};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{PrincipalData, ResponseData, StandardPrincipalData, TupleData, Value};
+use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_network, StacksEpoch};
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
@@ -67,7 +64,7 @@ pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.into_iter()
-        .map(|value| SymbolicExpression::atom_value(value))
+        .map(SymbolicExpression::atom_value)
         .collect()
 }
 

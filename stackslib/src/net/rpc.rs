@@ -40,15 +40,17 @@ use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::chunked_encoding::*;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{types, util};
 
-use super::connection::AsyncRequests;
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Burnchain, BurnchainView, *};
@@ -62,12 +64,11 @@ use crate::chainstate::stacks::miner::BlockProposal;
 use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::{ClarityConnection, Error as clarity_error};
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
+use crate::net::connection::{AsyncRequests, ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::db::PeerDB;
 use crate::net::http::*;
 use crate::net::p2p::{PeerMap, PeerNetwork};
@@ -85,10 +86,9 @@ use crate::net::{
     StreamCursor, TipRequest, UnconfirmedTransactionResponse, UnconfirmedTransactionStatus,
     UrlString, HTTP_REQUEST_ID_RESERVED, MAX_HEADERS, MAX_NEIGHBORS_DATA_LEN,
 };
-use crate::util::hash::Sha256Sum;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, Error as db_error};
-use crate::{monitoring, types, util, version_string};
+use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -4008,6 +4008,7 @@ mod test {
     use clarity::vm::types::*;
     use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
     use stacks_common::address::*;
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
     use stacks_common::util::pipe::*;
@@ -4029,7 +4030,6 @@ mod test {
     use crate::net::stream::*;
     use crate::net::test::*;
     use crate::net::*;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
     const TEST_CONTRACT: &'static str = "
         (define-constant cst 123)

@@ -7,10 +7,12 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use crate::deps::ctrlc::error::Error as CtrlcError;
-use crate::deps::ctrlc::SignalId;
-use nix::unistd;
 use std::os::unix::io::RawFd;
+
+use nix::unistd;
+
+use crate::deps_common::ctrlc::error::Error as CtrlcError;
+use crate::deps_common::ctrlc::SignalId;
 
 static mut PIPE: (RawFd, RawFd) = (-1, -1);
 

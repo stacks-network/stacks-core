@@ -17,97 +17,72 @@
 use std::borrow::Borrow;
 use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
-use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::io;
+use std::convert::{From, TryFrom};
+use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ops::Deref;
 use std::str::FromStr;
+use std::{error, fmt, io};
 
-use rand::thread_rng;
-use rand::RngCore;
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+};
+use clarity::vm::{ClarityName, ContractName, Value};
+use libstackerdb::{
+    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
+};
+use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ToSql;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use url;
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec,
+    BURNCHAIN_HEADER_HASH_ENCODED_SIZE,
+};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
+};
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::hash::{
+    hex_bytes, to_hex, Hash160, Sha256Sum, DOUBLE_SHA256_ENCODED_SIZE, HASH160_ENCODED_SIZE,
+};
+use stacks_common::util::secp256k1::{
+    MessageSignature, Secp256k1PublicKey, MESSAGE_SIGNATURE_ENCODED_SIZE,
+};
+use stacks_common::util::{get_epoch_time_secs, log};
+use {rusqlite, serde_json, url};
 
+use self::dns::*;
+pub use self::http::StacksHttp;
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Error as burnchain_error;
-use crate::burnchains::Txid;
+use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::miner::BlockProposal;
-use crate::chainstate::stacks::Error as chainstate_error;
 use crate::chainstate::stacks::{
-    Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
-    TransactionPayload,
+    Error as chainstate_error, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPublicKey,
+    StacksTransaction, TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::*;
-use crate::core::POX_REWARD_CYCLE_LENGTH;
+use crate::core::{StacksEpoch, POX_REWARD_CYCLE_LENGTH};
+use crate::cost_estimates::FeeRateEstimate;
 use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::HttpReservedHeader;
 pub use crate::net::http::StacksBlockAcceptedData;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::types::TraitIdentifier;
-use clarity::vm::{
-    analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
-    ContractName, Value,
-};
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::{read_next, write_next};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
-use stacks_common::util::hash::HASH160_ENCODED_SIZE;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-
-use crate::chainstate::stacks::StacksBlockHeader;
-
-use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
-use crate::cost_estimates::FeeRateEstimate;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use crate::types::StacksPublicKeyBuffer;
-use crate::util::hash::Sha256Sum;
-use crate::vm::costs::ExecutionCost;
-
-use self::dns::*;
-pub use self::http::StacksHttp;
-
-use crate::core::StacksEpoch;
-
-use libstackerdb::{
-    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
-};
 
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
@@ -147,12 +122,8 @@ pub mod server;
 pub mod stackerdb;
 pub mod stream;
 
-use crate::net::stackerdb::StackerDBConfig;
-use crate::net::stackerdb::StackerDBSync;
-use crate::net::stackerdb::StackerDBSyncResult;
-use crate::net::stackerdb::StackerDBs;
-
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
+use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
 pub use crate::net::stream::StreamCursor;
 
 #[cfg(test)]
@@ -525,28 +496,28 @@ impl error::Error for Error {
     }
 }
 
-impl From<chain_error> for Error {
-    fn from(e: chain_error) -> Error {
+impl From<chainstate_error> for Error {
+    fn from(e: chainstate_error) -> Error {
         match e {
-            chain_error::InvalidStacksBlock(s) => {
-                Error::ChainstateError(format!("Invalid stacks block: {}", s))
+            chainstate_error::InvalidStacksBlock(s) => {
+                Error::ChainstateError(format!("Invalid stacks block: {s}"))
             }
-            chain_error::InvalidStacksMicroblock(msg, hash) => {
-                Error::ChainstateError(format!("Invalid stacks microblock {:?}: {}", hash, msg))
+            chainstate_error::InvalidStacksMicroblock(msg, hash) => {
+                Error::ChainstateError(format!("Invalid stacks microblock {hash:?}: {msg}"))
             }
-            chain_error::InvalidStacksTransaction(s, _) => {
-                Error::ChainstateError(format!("Invalid stacks transaction: {}", s))
+            chainstate_error::InvalidStacksTransaction(s, _) => {
+                Error::ChainstateError(format!("Invalid stacks transaction: {s}"))
             }
-            chain_error::PostConditionFailed(s) => {
-                Error::ChainstateError(format!("Postcondition failed: {}", s))
+            chainstate_error::PostConditionFailed(s) => {
+                Error::ChainstateError(format!("Postcondition failed: {s}"))
             }
-            chain_error::ClarityError(e) => Error::ClarityError(e),
-            chain_error::DBError(e) => Error::DBError(e),
-            chain_error::NetError(e) => e,
-            chain_error::MARFError(e) => Error::MARFError(e),
-            chain_error::ReadError(e) => Error::ReadError(e),
-            chain_error::WriteError(e) => Error::WriteError(e),
-            _ => Error::ChainstateError(format!("Stacks chainstate error: {:?}", &e)),
+            chainstate_error::ClarityError(e) => Error::ClarityError(e),
+            chainstate_error::DBError(e) => Error::DBError(e),
+            chainstate_error::NetError(e) => e,
+            chainstate_error::MARFError(e) => Error::MARFError(e),
+            chainstate_error::ReadError(e) => Error::ReadError(e),
+            chainstate_error::WriteError(e) => Error::WriteError(e),
+            _ => Error::ChainstateError(format!("Stacks chainstate error: {e:?}")),
         }
     }
 }
@@ -2239,9 +2210,9 @@ impl NetworkResult {
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             burn_height,
             rc_consensus_hash,
             stacker_db_configs,
@@ -2376,31 +2347,40 @@ pub trait Requestable: std::fmt::Display {
 
 #[cfg(test)]
 pub mod test {
-    use std::fs;
-    use std::io;
-    use std::io::Cursor;
-    use std::io::ErrorKind;
-    use std::io::Read;
-    use std::io::Write;
+    use std::collections::HashMap;
+    use std::io::{Cursor, ErrorKind, Read, Write};
     use std::net::*;
-    use std::ops::Deref;
-    use std::ops::DerefMut;
+    use std::ops::{Deref, DerefMut};
     use std::sync::mpsc::sync_channel;
-    use std::thread;
-    use std::{collections::HashMap, sync::Mutex};
+    use std::sync::Mutex;
+    use std::{fs, io, thread};
 
     use clarity::vm::ast::ASTRules;
-    use mio;
-    use rand;
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::database::STXBalance;
+    use clarity::vm::types::*;
+    use clarity::vm::ClarityVersion;
     use rand::RngCore;
+    use stacks_common::address::*;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::StacksEpochId;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::uint::*;
+    use stacks_common::util::vrf::*;
+    use {mio, rand};
 
-    use crate::address::*;
+    use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::bitcoin::keys::*;
+    use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::burnchain::*;
-    use crate::burnchains::db::BurnchainDB;
+    use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
     use crate::burnchains::tests::*;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb;
@@ -2410,15 +2390,17 @@ pub mod test {
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
     use crate::chainstate::stacks::address::PoxAddress;
+    use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
-    use crate::chainstate::stacks::db::StacksChainState;
-    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::db::accounts::MinerReward;
+    use crate::chainstate::stacks::db::{StacksChainState, *};
+    use crate::chainstate::stacks::events::StacksTransactionReceipt;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
-    use crate::core::NETWORK_P2P_PORT;
+    use crate::core::{StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2431,33 +2413,8 @@ pub mod test {
     use crate::net::relay::*;
     use crate::net::rpc::RPCHandlerArgs;
     use crate::net::Error as net_error;
-    use crate::util_lib::strings::*;
-    use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::database::STXBalance;
-    use clarity::vm::types::*;
-    use clarity::vm::ClarityVersion;
-    use stacks_common::address::*;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::*;
-    use stacks_common::util::secp256k1::*;
-    use stacks_common::util::uint::*;
-    use stacks_common::util::vrf::*;
-
-    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-
-    use super::*;
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::chainstate::stacks::StacksMicroblockHeader;
-    use crate::chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
-    use crate::core::StacksEpochExtension;
     use crate::util_lib::boot::boot_code_test_addr;
-    use stacks_common::codec::StacksMessageCodec;
-    use stacks_common::types::chainstate::TrieHash;
-    use stacks_common::types::StacksEpochId;
-
-    use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
-
-    use crate::burnchains::db::BurnchainHeaderReader;
+    use crate::util_lib::strings::*;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

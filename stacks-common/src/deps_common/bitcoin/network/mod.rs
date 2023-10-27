@@ -18,9 +18,7 @@
 //! of Bitcoin data and network messages.
 //!
 
-use std::error;
-use std::fmt;
-use std::io;
+use std::{error, fmt, io};
 
 pub mod address;
 pub mod constants;

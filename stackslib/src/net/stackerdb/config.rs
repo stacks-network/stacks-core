@@ -37,33 +37,27 @@
 use std::collections::{HashMap, HashSet};
 use std::mem;
 
-use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
+use clarity::vm::analysis::ContractAnalysis;
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::{
+    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
+    QualifiedContractIdentifier, SequenceSubtype, StandardPrincipalData, TupleTypeSignature,
+    TypeSignature,
 };
-
-use crate::net::Error as net_error;
-use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
+use clarity::vm::ClarityName;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
-
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
-use clarity::vm::analysis::ContractAnalysis;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData, SequenceSubtype,
-    TupleTypeSignature, TypeSignature,
+use crate::net::stackerdb::{
+    StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
-use clarity::vm::ClarityName;
-
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::Hash160;
+use crate::net::{Error as net_error, NeighborAddress, PeerAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
