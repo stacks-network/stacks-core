@@ -256,6 +256,9 @@ impl StacksClient {
             if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
                 optional_data.data.map(|boxed| *boxed)
             {
+                if public_key.data.len() != 32 {
+                    return Err(ClientError::MalformedClarityValue(public_key_clarity_value));
+                }
                 let mut bytes = [0_u8; 32];
                 bytes.copy_from_slice(&public_key.data);
                 Ok(Some(Point::from(Scalar::from(bytes))))
