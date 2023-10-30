@@ -15,7 +15,7 @@ use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
 use crate::config::Config;
-use crate::stacks_client::StacksClient;
+use crate::stacks_client::{retry_with_exponential_backoff, ClientError, StacksClient};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone)]
@@ -36,6 +36,9 @@ pub enum RunLoopCommand {
 /// The RunLoop state
 #[derive(PartialEq, Debug)]
 pub enum State {
+    // TODO: Uninitialized should indicate we need to replay events/configure the signer
+    /// The runloop signer is uninitialized
+    Uninitialized,
     /// The runloop is idle
     Idle,
     /// The runloop is executing a DKG round
@@ -48,7 +51,7 @@ pub enum State {
 pub struct RunLoop<C> {
     /// The timeout for events
     pub event_timeout: Duration,
-    /// the coordinator for inbound messages
+    /// The coordinator for inbound messages
     pub coordinator: C,
     /// The signing round used to sign messages
     // TODO: update this to use frost_signer directly instead of the frost signing round
@@ -63,7 +66,27 @@ pub struct RunLoop<C> {
 }
 
 impl<C: Coordinatable> RunLoop<C> {
-    /// Helper function to actually execute the command and update state accordingly
+    /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
+    fn initialize(&mut self) -> Result<(), ClientError> {
+        // TODO: update to read stacker db to get state.
+        // Check if the aggregate key is set in the pox contract
+        if let Some(key) = self.stacks_client.get_aggregate_public_key()? {
+            debug!("Aggregate public key is set: {:?}", key);
+            self.coordinator.set_aggregate_public_key(Some(key));
+        } else {
+            // Update the state to IDLE so we don't needlessy requeue the DKG command.
+            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            if coordinator_id == self.signing_round.signer_id
+                && self.commands.front() != Some(&RunLoopCommand::Dkg)
+            {
+                self.commands.push_front(RunLoopCommand::Dkg);
+            }
+        }
+        self.state = State::Idle;
+        Ok(())
+    }
+
+    /// Execute the given command and update state accordingly
     /// Returns true when it is successfully executed, else false
     fn execute_command(&mut self, command: &RunLoopCommand) -> bool {
         match command {
@@ -73,7 +96,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
-                            .send_message(self.signing_round.signer_id, msg);
+                            .send_message_with_retry(self.signing_round.signer_id, msg);
                         debug!("ACK: {:?}", ack);
                         self.state = State::Dkg;
                         true
@@ -99,7 +122,7 @@ impl<C: Coordinatable> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stacks_client
-                            .send_message(self.signing_round.signer_id, msg);
+                            .send_message_with_retry(self.signing_round.signer_id, msg);
                         debug!("ACK: {:?}", ack);
                         self.state = State::Sign;
                         true
@@ -115,9 +138,14 @@ impl<C: Coordinatable> RunLoop<C> {
         }
     }
 
-    /// Helper function to check the current state, process the next command in the queue, and update state accordingly
+    /// Attempt to process the next command in the queue, and update state accordingly
     fn process_next_command(&mut self) {
         match self.state {
+            State::Uninitialized => {
+                debug!(
+                    "Signer is uninitialized. Waiting for aggregate public key from stacks node..."
+                );
+            }
             State::Idle => {
                 if let Some(command) = self.commands.pop_front() {
                     while !self.execute_command(&command) {
@@ -205,26 +233,29 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .iter()
             .map(|i| i - 1) // SigningRound::new (unlike SigningRound::from) doesn't do this
             .collect::<Vec<u32>>();
+        let coordinator = FrostCoordinator::new(
+            total_signers,
+            total_keys,
+            threshold,
+            config.message_private_key,
+        );
+        let signing_round = SigningRound::new(
+            threshold,
+            total_signers,
+            total_keys,
+            config.signer_id,
+            key_ids,
+            config.message_private_key,
+            config.signer_ids_public_keys.clone(),
+        );
+        let stacks_client = StacksClient::from(config);
         RunLoop {
             event_timeout: config.event_timeout,
-            coordinator: FrostCoordinator::new(
-                total_signers,
-                total_keys,
-                threshold,
-                config.message_private_key,
-            ),
-            signing_round: SigningRound::new(
-                threshold,
-                total_signers,
-                total_keys,
-                config.signer_id,
-                key_ids,
-                config.message_private_key,
-                config.signer_ids_public_keys.clone(),
-            ),
-            stacks_client: StacksClient::from(config),
+            coordinator,
+            signing_round,
+            stacks_client,
             commands: VecDeque::new(),
-            state: State::Idle,
+            state: State::Uninitialized,
         }
     }
 }
@@ -244,10 +275,19 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {
+        info!(
+            "Running one pass for signer ID# {}. Current state: {:?}",
+            self.signing_round.signer_id, self.state
+        );
         if let Some(command) = cmd {
             self.commands.push_back(command);
         }
-        // First process any arrived events
+        if self.state == State::Uninitialized {
+            let request_fn = || self.initialize().map_err(backoff::Error::transient);
+            retry_with_exponential_backoff(request_fn)
+                .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
+        }
+        // Process any arrived events
         if let Some(event) = event {
             let (outbound_messages, operation_results) = self.process_event(&event);
             debug!(
@@ -257,7 +297,7 @@ impl<C: Coordinatable> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for R
             for msg in outbound_messages {
                 let ack = self
                     .stacks_client
-                    .send_message(self.signing_round.signer_id, msg);
+                    .send_message_with_retry(self.signing_round.signer_id, msg);
                 if let Ok(ack) = ack {
                     debug!("ACK: {:?}", ack);
                 } else {

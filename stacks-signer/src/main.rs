@@ -269,6 +269,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         args.num_keys,
         &args.db_args.host.to_string(),
         &args.db_args.contract.to_string(),
+        None,
         args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
