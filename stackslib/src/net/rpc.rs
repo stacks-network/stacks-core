@@ -1231,14 +1231,11 @@ impl ConversationHttp {
         options: &ConnectionOptions,
     ) -> HttpResponseType {
         // TODO: Reject if proposal is from invalid sender (allow localhost only?)
-        let async_rpc_channel = match options.async_rpc_channel.as_ref() {
-            Some(x) => x,
-            None => {
-                return HttpResponseType::BadRequestJSON(
-                    metadata,
-                    json!("stacks-node is not configured to receive block proposals"),
-                )
-            }
+        let Some(async_rpc_channel) = options.async_rpc_channel.as_ref() else {
+            return HttpResponseType::BadRequestJSON(
+                metadata,
+                json!("stacks-node is not configured to receive block proposals"),
+            );
         };
 
         if let Err(channel_error) =

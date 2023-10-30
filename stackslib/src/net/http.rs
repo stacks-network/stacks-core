@@ -158,7 +158,7 @@ lazy_static! {
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
         )).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
-    static ref PATH_POST_BLOCK_PROPOSAL: Regex = Regex::new(&format!("^{PATH_STR_POST_BLOCK_PROPOSAL}$")).unwrap();
+    static ref PATH_POST_BLOCK_PROPOSAL: Regex = Regex::new(&format!("^/v2/block_proposal$")).unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -4043,50 +4043,50 @@ impl HttpResponseType {
     }
 
     pub fn metadata(&self) -> &HttpResponseMetadata {
-        match self {
-            HttpResponseType::PeerInfo(md, _) => md,
-            HttpResponseType::PoxInfo(md, _) => md,
-            HttpResponseType::Neighbors(md, _) => md,
-            HttpResponseType::HeaderStream(md) => md,
-            HttpResponseType::Headers(md, _) => md,
-            HttpResponseType::Block(md, _) => md,
-            HttpResponseType::BlockStream(md) => md,
-            HttpResponseType::Microblocks(md, _) => md,
-            HttpResponseType::MicroblockStream(md) => md,
-            HttpResponseType::TransactionID(md, _) => md,
-            HttpResponseType::StacksBlockAccepted(md, ..) => md,
-            HttpResponseType::MicroblockHash(md, _) => md,
-            HttpResponseType::TokenTransferCost(md, _) => md,
-            HttpResponseType::GetDataVar(md, _) => md,
-            HttpResponseType::GetConstantVal(md, _) => md,
-            HttpResponseType::GetMapEntry(md, _) => md,
-            HttpResponseType::GetAccount(md, _) => md,
-            HttpResponseType::GetContractABI(md, _) => md,
-            HttpResponseType::GetContractSrc(md, _) => md,
-            HttpResponseType::GetIsTraitImplemented(md, _) => md,
-            HttpResponseType::CallReadOnlyFunction(md, _) => md,
-            HttpResponseType::UnconfirmedTransaction(md, _) => md,
-            HttpResponseType::GetAttachment(md, _) => md,
-            HttpResponseType::GetAttachmentsInv(md, _) => md,
-            HttpResponseType::MemPoolTxStream(md) => md,
-            HttpResponseType::MemPoolTxs(md, ..) => md,
-            HttpResponseType::OptionsPreflight(md) => md,
-            HttpResponseType::TransactionFeeEstimation(md, _) => md,
-            HttpResponseType::BlockProposalOk { metadata, .. } => metadata,
-            HttpResponseType::StackerDBMetadata(md, ..) => md,
-            HttpResponseType::StackerDBChunk(md, ..) => md,
-            HttpResponseType::StackerDBChunkAck(md, ..) => md,
+        match *self {
+            HttpResponseType::PeerInfo(ref md, _) => md,
+            HttpResponseType::PoxInfo(ref md, _) => md,
+            HttpResponseType::Neighbors(ref md, _) => md,
+            HttpResponseType::HeaderStream(ref md) => md,
+            HttpResponseType::Headers(ref md, _) => md,
+            HttpResponseType::Block(ref md, _) => md,
+            HttpResponseType::BlockStream(ref md) => md,
+            HttpResponseType::Microblocks(ref md, _) => md,
+            HttpResponseType::MicroblockStream(ref md) => md,
+            HttpResponseType::TransactionID(ref md, _) => md,
+            HttpResponseType::StacksBlockAccepted(ref md, ..) => md,
+            HttpResponseType::MicroblockHash(ref md, _) => md,
+            HttpResponseType::TokenTransferCost(ref md, _) => md,
+            HttpResponseType::GetDataVar(ref md, _) => md,
+            HttpResponseType::GetConstantVal(ref md, _) => md,
+            HttpResponseType::GetMapEntry(ref md, _) => md,
+            HttpResponseType::GetAccount(ref md, _) => md,
+            HttpResponseType::GetContractABI(ref md, _) => md,
+            HttpResponseType::GetContractSrc(ref md, _) => md,
+            HttpResponseType::GetIsTraitImplemented(ref md, _) => md,
+            HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
+            HttpResponseType::UnconfirmedTransaction(ref md, _) => md,
+            HttpResponseType::GetAttachment(ref md, _) => md,
+            HttpResponseType::GetAttachmentsInv(ref md, _) => md,
+            HttpResponseType::MemPoolTxStream(ref md) => md,
+            HttpResponseType::MemPoolTxs(ref md, ..) => md,
+            HttpResponseType::OptionsPreflight(ref md) => md,
+            HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::BlockProposalOk { ref metadata, .. } => metadata,
+            HttpResponseType::StackerDBMetadata(ref md, ..) => md,
+            HttpResponseType::StackerDBChunk(ref md, ..) => md,
+            HttpResponseType::StackerDBChunkAck(ref md, ..) => md,
             // errors
-            HttpResponseType::BadRequestJSON(md, _) => md,
-            HttpResponseType::BadRequest(md, _) => md,
-            HttpResponseType::Unauthorized(md, _) => md,
-            HttpResponseType::PaymentRequired(md, _) => md,
-            HttpResponseType::Forbidden(md, _) => md,
-            HttpResponseType::NotFound(md, _) => md,
-            HttpResponseType::ServerError(md, _) => md,
-            HttpResponseType::ServiceUnavailable(md, _) => md,
-            HttpResponseType::Error(md, ..) => md,
-            HttpResponseType::AsyncRpcNotReady { metadata, .. } => metadata,
+            HttpResponseType::BadRequestJSON(ref md, _) => md,
+            HttpResponseType::BadRequest(ref md, _) => md,
+            HttpResponseType::Unauthorized(ref md, _) => md,
+            HttpResponseType::PaymentRequired(ref md, _) => md,
+            HttpResponseType::Forbidden(ref md, _) => md,
+            HttpResponseType::NotFound(ref md, _) => md,
+            HttpResponseType::ServerError(ref md, _) => md,
+            HttpResponseType::ServiceUnavailable(ref md, _) => md,
+            HttpResponseType::Error(ref md, ..) => md,
+            HttpResponseType::AsyncRpcNotReady { ref metadata, .. } => metadata,
         }
     }
 
@@ -4151,68 +4151,68 @@ impl HttpResponseType {
     }
 
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
-        match self {
-            HttpResponseType::GetAccount(md, account_data) => {
+        match *self {
+            HttpResponseType::GetAccount(ref md, ref account_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, account_data)?;
             }
-            HttpResponseType::TransactionFeeEstimation(md, data) => {
+            HttpResponseType::TransactionFeeEstimation(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetContractABI(md, data) => {
+            HttpResponseType::GetContractABI(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetContractSrc(md, data) => {
+            HttpResponseType::GetContractSrc(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetIsTraitImplemented(md, data) => {
+            HttpResponseType::GetIsTraitImplemented(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::TokenTransferCost(md, cost) => {
+            HttpResponseType::TokenTransferCost(ref md, ref cost) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, cost)?;
             }
-            HttpResponseType::CallReadOnlyFunction(md, data) => {
+            HttpResponseType::CallReadOnlyFunction(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::GetDataVar(md, var_data) => {
+            HttpResponseType::GetDataVar(ref md, ref var_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, var_data)?;
             }
-            HttpResponseType::GetConstantVal(md, constant_val) => {
+            HttpResponseType::GetConstantVal(ref md, ref constant_val) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, constant_val)?;
             }
-            HttpResponseType::GetMapEntry(md, map_data) => {
+            HttpResponseType::GetMapEntry(ref md, ref map_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, map_data)?;
             }
-            HttpResponseType::PeerInfo(md, peer_info) => {
+            HttpResponseType::PeerInfo(ref md, ref peer_info) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, peer_info)?;
             }
-            HttpResponseType::PoxInfo(md, pox_info) => {
+            HttpResponseType::PoxInfo(ref md, ref pox_info) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, pox_info)?;
             }
-            HttpResponseType::Neighbors(md, neighbor_data) => {
+            HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
             }
-            HttpResponseType::GetAttachment(md, zonefile_data) => {
+            HttpResponseType::GetAttachment(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
-            HttpResponseType::GetAttachmentsInv(md, zonefile_data) => {
+            HttpResponseType::GetAttachmentsInv(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
             }
-            HttpResponseType::Headers(md, headers) => {
+            HttpResponseType::Headers(ref md, ref headers) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4224,7 +4224,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, headers)?;
             }
-            HttpResponseType::HeaderStream(md) => {
+            HttpResponseType::HeaderStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the headers data itself.
                 HttpResponsePreamble::new_serialized(
@@ -4237,7 +4237,7 @@ impl HttpResponseType {
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
             }
-            HttpResponseType::Block(md, block) => {
+            HttpResponseType::Block(ref md, ref block) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4249,7 +4249,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_bytestream(protocol, md, fd, block)?;
             }
-            HttpResponseType::BlockStream(md) => {
+            HttpResponseType::BlockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the block data itself.
                 HttpResponsePreamble::new_serialized(
@@ -4262,7 +4262,7 @@ impl HttpResponseType {
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
             }
-            HttpResponseType::Microblocks(md, microblocks) => {
+            HttpResponseType::Microblocks(ref md, ref microblocks) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4274,7 +4274,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_bytestream(protocol, md, fd, microblocks)?;
             }
-            HttpResponseType::MicroblockStream(md) => {
+            HttpResponseType::MicroblockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the microblock data itself.
                 HttpResponsePreamble::new_serialized(
@@ -4287,7 +4287,7 @@ impl HttpResponseType {
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
             }
-            HttpResponseType::TransactionID(md, txid) => {
+            HttpResponseType::TransactionID(ref md, ref txid) => {
                 let txid_bytes = txid.to_hex();
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4300,7 +4300,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, &txid_bytes)?;
             }
-            HttpResponseType::StacksBlockAccepted(md, stacks_block_id, accepted) => {
+            HttpResponseType::StacksBlockAccepted(ref md, ref stacks_block_id, ref accepted) => {
                 let accepted_data = StacksBlockAcceptedData {
                     stacks_block_id: stacks_block_id.clone(),
                     accepted: *accepted,
@@ -4316,7 +4316,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, &accepted_data)?;
             }
-            HttpResponseType::MicroblockHash(md, mblock_hash) => {
+            HttpResponseType::MicroblockHash(ref md, ref mblock_hash) => {
                 let mblock_bytes = mblock_hash.to_hex();
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4329,11 +4329,11 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, &mblock_bytes)?;
             }
-            HttpResponseType::UnconfirmedTransaction(md, unconfirmed_status) => {
+            HttpResponseType::UnconfirmedTransaction(ref md, ref unconfirmed_status) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, unconfirmed_status)?;
             }
-            HttpResponseType::MemPoolTxStream(md) => {
+            HttpResponseType::MemPoolTxStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the tx data itself.
                 HttpResponsePreamble::new_serialized(
@@ -4346,7 +4346,7 @@ impl HttpResponseType {
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
             }
-            HttpResponseType::MemPoolTxs(md, page_id, txs) => {
+            HttpResponseType::MemPoolTxs(ref md, ref page_id, ref txs) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4378,7 +4378,7 @@ impl HttpResponseType {
                     None => HttpResponseType::send_bytestream(protocol, md, fd, txs),
                 }?;
             }
-            HttpResponseType::StackerDBMetadata(md, slot_metadata) => {
+            HttpResponseType::StackerDBMetadata(ref md, ref slot_metadata) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4390,7 +4390,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, slot_metadata)?;
             }
-            HttpResponseType::StackerDBChunk(md, chunk, ..) => {
+            HttpResponseType::StackerDBChunk(ref md, ref chunk, ..) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4402,7 +4402,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_text(protocol, md, fd, chunk)?;
             }
-            HttpResponseType::StackerDBChunkAck(md, ack_data) => {
+            HttpResponseType::StackerDBChunkAck(ref md, ref ack_data) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4414,7 +4414,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, ack_data)?;
             }
-            HttpResponseType::OptionsPreflight(md) => {
+            HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4426,7 +4426,7 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
             }
-            HttpResponseType::BadRequestJSON(md, data) => {
+            HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     400,
@@ -4438,17 +4438,19 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
             }
-            HttpResponseType::BadRequest(_, msg) => self.error_response(fd, 400, msg)?,
-            HttpResponseType::Unauthorized(_, msg) => self.error_response(fd, 401, msg)?,
-            HttpResponseType::PaymentRequired(_, msg) => self.error_response(fd, 402, msg)?,
-            HttpResponseType::Forbidden(_, msg) => self.error_response(fd, 403, msg)?,
-            HttpResponseType::NotFound(_, msg) => self.error_response(fd, 404, msg)?,
-            HttpResponseType::ServerError(_, msg) => self.error_response(fd, 500, msg)?,
-            HttpResponseType::ServiceUnavailable(_, msg) => self.error_response(fd, 503, msg)?,
-            HttpResponseType::Error(_, error_code, msg) => {
+            HttpResponseType::BadRequest(_, ref msg) => self.error_response(fd, 400, msg)?,
+            HttpResponseType::Unauthorized(_, ref msg) => self.error_response(fd, 401, msg)?,
+            HttpResponseType::PaymentRequired(_, ref msg) => self.error_response(fd, 402, msg)?,
+            HttpResponseType::Forbidden(_, ref msg) => self.error_response(fd, 403, msg)?,
+            HttpResponseType::NotFound(_, ref msg) => self.error_response(fd, 404, msg)?,
+            HttpResponseType::ServerError(_, ref msg) => self.error_response(fd, 500, msg)?,
+            HttpResponseType::ServiceUnavailable(_, ref msg) => {
+                self.error_response(fd, 503, msg)?
+            }
+            HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
-            HttpResponseType::BlockProposalOk { metadata } => {
+            HttpResponseType::BlockProposalOk { ref metadata } => {
                 // 202 Accepted
                 HttpResponsePreamble::ok_JSON_with_status(fd, metadata, 202)?;
                 HttpResponseType::send_json(
@@ -4459,8 +4461,8 @@ impl HttpResponseType {
                 )?;
             }
             HttpResponseType::AsyncRpcNotReady {
-                metadata,
-                error_message,
+                ref metadata,
+                ref error_message,
             } => {
                 // 429 Too Many Requests
                 let e_code = 429;
@@ -4527,8 +4529,8 @@ impl MessageSequence for StacksHttpMessage {
     }
 
     fn get_message_name(&self) -> &'static str {
-        match self {
-            StacksHttpMessage::Request(req) => match req {
+        match *self {
+            StacksHttpMessage::Request(ref req) => match req {
                 HttpRequestType::GetInfo(..) => "HTTP(GetInfo)",
                 HttpRequestType::GetPoxInfo(..) => "HTTP(GetPoxInfo)",
                 HttpRequestType::GetNeighbors(..) => "HTTP(GetNeighbors)",
@@ -4561,7 +4563,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::FeeRateEstimate(..) => "HTTP(FeeRateEstimate)",
                 HttpRequestType::BlockProposal(..) => "HTTP(BlockProposal)",
             },
-            StacksHttpMessage::Response(res) => match res {
+            StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(..) => "HTTP(TokenTransferCost)",
                 HttpResponseType::GetDataVar(..) => "HTTP(GetDataVar)",
                 HttpResponseType::GetConstantVal(..) => "HTTP(GetConstantVal)",
