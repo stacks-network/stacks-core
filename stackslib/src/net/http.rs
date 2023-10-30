@@ -730,10 +730,14 @@ impl HttpResponsePreamble {
     }
 
     fn ok_JSON_from_md<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
-        Self::ok_JSON_with_status(fd, md, 200)
+        Self::JSON_with_status(fd, md, 200)
     }
 
-    fn ok_JSON_with_status<W: Write>(
+    fn accepted_JSON_from_md<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
+        Self::JSON_with_status(fd, md, 202)
+    }
+
+    fn JSON_with_status<W: Write>(
         fd: &mut W,
         md: &HttpResponseMetadata,
         status_code: u16,
@@ -4452,7 +4456,7 @@ impl HttpResponseType {
             }
             HttpResponseType::BlockProposalOk { ref metadata } => {
                 // 202 Accepted
-                HttpResponsePreamble::ok_JSON_with_status(fd, metadata, 202)?;
+                HttpResponsePreamble::accepted_JSON_from_md(fd, metadata)?;
                 HttpResponseType::send_json(
                     protocol,
                     metadata,
