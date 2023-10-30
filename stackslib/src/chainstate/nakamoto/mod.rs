@@ -150,7 +150,7 @@ lazy_static! {
                      state_index_root TEXT NOT NULL,
                      -- the consensus hash of the burnchain block that selected this block's tenure
                      consensus_hash TEXT NOT NULL,
-                     -- the consensus hash of the burnchain block that selected this block's tenure
+                     -- the consensus hash of the burnchain block that selected **parent**'s tenure
                      parent_consensus_hash TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
