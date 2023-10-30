@@ -1230,7 +1230,6 @@ impl ConversationHttp {
         block_proposal: BlockProposal,
         options: &ConnectionOptions,
     ) -> HttpResponseType {
-        // TODO: Reject if proposal is from invalid sender (allow localhost only?)
         let Some(async_rpc_channel) = options.async_rpc_channel.as_ref() else {
             return HttpResponseType::BadRequestJSON(
                 metadata,
