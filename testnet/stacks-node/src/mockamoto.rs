@@ -184,6 +184,21 @@ fn make_snapshot(
     Ok(new_snapshot)
 }
 
+/// This struct wraps all the state required for operating a
+/// stacks-node in `mockamoto` mode.
+///
+/// This mode of operation is a single-node network in which bitcoin
+/// blocks are simulated: no `bitcoind` is communicated with (either
+/// operating as regtest, testnet or mainnet). This operation mode
+/// is useful for testing the stacks-only operation of Nakamoto.
+///
+/// The current implementation of the mockamoto node simply produces
+/// Nakamoto blocks containing *only* coinbase and tenure-change
+/// transactions. As the implementation of Nakamoto progresses, and
+/// the mockamoto mode merges with changes to the chains coordinator,
+/// the mockamoto node will support mining of transactions and event
+/// emission.
+///
 pub struct MockamotoNode {
     sortdb: SortitionDB,
     chainstate: StacksChainState,
@@ -374,6 +389,10 @@ impl MockamotoNode {
         let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
 
         let parent_block_id = StacksBlockId::new(&chain_tip_ch, &chain_tip_bh);
+        // Add a tenure change transaction to the block:
+        //  as of now every mockamoto block is a tenure-change.
+        // If mockamoto mode changes to support non-tenure-changing blocks, this will have
+        //  to be gated.
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: 1,
