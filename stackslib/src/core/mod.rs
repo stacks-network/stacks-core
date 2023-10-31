@@ -432,9 +432,9 @@ pub static STACKS_EPOCH_2_3_MARKER: u8 = 0x08;
 /// *or greater*.
 pub static STACKS_EPOCH_2_4_MARKER: u8 = 0x09;
 
-/// Stacks 3.0 epoch marker.  All block-commits in 2.4 must have a memo bitfield with this value
+/// Stacks 3.0 epoch marker.  All block-commits in 3.0 must have a memo bitfield with this value
 /// *or greater*.
-pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x09;
+pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x0a;
 
 #[test]
 fn test_ord_for_stacks_epoch() {

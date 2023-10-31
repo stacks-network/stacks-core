@@ -615,7 +615,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "9";
+pub const SORTITION_DB_VERSION: &'static str = "8";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -876,10 +876,8 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
 
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
+    r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
 ];
-
-const SORTITION_DB_SCHEMA_9: &'static [&'static str] =
-    &[r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -1866,7 +1864,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(None)
     }
 
-    /// Does the sortition db expect to receive blocks from
+    /// Does the sortition db expect to receive blocks
     /// signed by this stacker set?
     pub fn expects_stacker_signature(
         &self,
@@ -2884,7 +2882,6 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8(&db_tx)?;
-        SortitionDB::apply_schema_9(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -3012,7 +3009,6 @@ impl SortitionDB {
                       pox_payouts) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)?;
 
-        // db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
         db_tx.store_transition_ops(
             &first_snapshot.sortition_id,
             &BurnchainStateTransition::noop(),
@@ -3118,6 +3114,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -3126,6 +3123,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch21 => {
                 version == "3"
@@ -3133,6 +3131,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch22 => {
                 version == "3"
@@ -3140,6 +3139,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch23 => {
                 version == "3"
@@ -3147,6 +3147,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch24 => {
                 version == "3"
@@ -3154,7 +3155,6 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
-                    // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
             }
             StacksEpochId::Epoch30 => {
@@ -3163,7 +3163,6 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
-                    // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
             }
         }
@@ -3294,18 +3293,6 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_9(tx: &DBTx) -> Result<(), db_error> {
-        for sql_exec in SORTITION_DB_SCHEMA_9 {
-            tx.execute_batch(sql_exec)?;
-        }
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["9"],
-        )?;
-        Ok(())
-    }
-
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3359,10 +3346,6 @@ impl SortitionDB {
                     } else if version == "7" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_8(&tx.deref())?;
-                        tx.commit()?;
-                    } else if version == "8" {
-                        let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_9(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
