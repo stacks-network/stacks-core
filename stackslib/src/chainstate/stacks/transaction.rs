@@ -137,20 +137,72 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
     }
 }
 
+impl StacksMessageCodec for TenureChangeCause {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        let byte = (*self) as u8;
+        write_next(fd, &byte)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TenureChangeCause, codec_error> {
+        let byte: u8 = read_next(fd)?;
+        TenureChangeCause::try_from(byte).map_err(|_| {
+            codec_error::DeserializeError(format!("Unrecognized TenureChangeCause byte {byte}"))
+        })
+    }
+}
+
+impl StacksMessageCodec for SchnorrThresholdSignature {
+    fn consensus_serialize<W: Write>(&self, _fd: &mut W) -> Result<(), codec_error> {
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<Self, codec_error> {
+        Ok(Self {})
+    }
+}
+
+impl TenureChangePayload {
+    pub fn validate(&self) -> Result<(), TenureChangeError> {
+        Ok(())
+    }
+}
+
+impl StacksMessageCodec for TenureChangePayload {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.previous_tenure_end)?;
+        write_next(fd, &self.previous_tenure_blocks)?;
+        write_next(fd, &self.cause)?;
+        write_next(fd, &self.pubkey_hash)?;
+        write_next(fd, &self.signature)?;
+        write_next(fd, &self.signers)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        Ok(Self {
+            previous_tenure_end: read_next(fd)?,
+            previous_tenure_blocks: read_next(fd)?,
+            cause: read_next(fd)?,
+            pubkey_hash: read_next(fd)?,
+            signature: read_next(fd)?,
+            signers: read_next(fd)?,
+        })
+    }
+}
+
 impl StacksMessageCodec for TransactionPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        match *self {
-            TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
+        match self {
+            TransactionPayload::TokenTransfer(address, amount, memo) => {
                 write_next(fd, &(TransactionPayloadID::TokenTransfer as u8))?;
                 write_next(fd, address)?;
                 write_next(fd, amount)?;
                 write_next(fd, memo)?;
             }
-            TransactionPayload::ContractCall(ref cc) => {
+            TransactionPayload::ContractCall(cc) => {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
                 cc.consensus_serialize(fd)?;
             }
-            TransactionPayload::SmartContract(ref sc, ref version_opt) => {
+            TransactionPayload::SmartContract(sc, version_opt) => {
                 if let Some(version) = version_opt {
                     // caller requests a specific Clarity version
                     write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
@@ -162,12 +214,12 @@ impl StacksMessageCodec for TransactionPayload {
                     sc.consensus_serialize(fd)?;
                 }
             }
-            TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
+            TransactionPayload::PoisonMicroblock(h1, h2) => {
                 write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
+            TransactionPayload::Coinbase(buf, recipient_opt) => {
                 match recipient_opt {
                     None => {
                         // stacks 2.05 and earlier only use this path
@@ -180,6 +232,10 @@ impl StacksMessageCodec for TransactionPayload {
                         write_next(fd, &Value::Principal(recipient.clone()))?;
                     }
                 }
+            }
+            TransactionPayload::TenureChange(tc) => {
+                write_next(fd, &(TransactionPayloadID::TenureChange as u8))?;
+                tc.consensus_serialize(fd)?;
             }
         }
         Ok(())
@@ -1541,6 +1597,7 @@ mod test {
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
                 TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
+            TransactionPayload::TenureChange(_) => todo!(),
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
 

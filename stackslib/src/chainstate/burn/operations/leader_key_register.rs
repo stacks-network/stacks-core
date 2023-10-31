@@ -38,7 +38,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::hash::{DoubleSha256, Hash160};
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
@@ -75,6 +75,12 @@ impl LeaderKeyRegisterOp {
     ) -> Option<LeaderKeyRegisterOp> {
         let prover_pubk = VRFPublicKey::from_private(prover_key);
         Some(LeaderKeyRegisterOp::new(&prover_pubk))
+    }
+
+    /// Interpret the first 20 bytes of the key registration's memo field as the Hash160 of
+    ///  of the public key that will sign this miner's nakamoto blocks.
+    pub fn interpret_nakamoto_signing_key(&self) -> Option<Hash160> {
+        self.memo.get(0..20).map(Hash160::from_bytes).flatten()
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {

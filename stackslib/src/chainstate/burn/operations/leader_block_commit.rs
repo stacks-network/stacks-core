@@ -41,7 +41,7 @@ use crate::core::STACKS_EPOCH_2_2_MARKER;
 use crate::core::STACKS_EPOCH_2_3_MARKER;
 use crate::core::STACKS_EPOCH_2_4_MARKER;
 use crate::core::{StacksEpoch, StacksEpochId};
-use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER};
+use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::net::Error as net_error;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
@@ -761,6 +761,7 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch22 => self.check_epoch_commit_marker(STACKS_EPOCH_2_2_MARKER),
             StacksEpochId::Epoch23 => self.check_epoch_commit_marker(STACKS_EPOCH_2_3_MARKER),
             StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
+            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
         }
     }
 
@@ -778,7 +779,8 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch30 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height
@@ -1970,6 +1972,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();

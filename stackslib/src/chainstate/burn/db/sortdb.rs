@@ -35,6 +35,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
+use secp256k1::Secp256k1;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksAddress;
@@ -46,6 +47,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
@@ -85,7 +87,10 @@ use crate::chainstate::ChainstateDB;
 use crate::core::AST_RULES_PRECHECK_SIZE;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::core::{
+    StacksEpoch, StacksEpochExtension, StacksEpochId, NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD,
+    STACKS_EPOCH_MAX,
+};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::tx_begin_immediate;
@@ -183,33 +188,37 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             .parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
+        let miner_pk_hash = row.get("miner_pk_hash")?;
+
         let snapshot = BlockSnapshot {
-            block_height: block_height,
-            burn_header_timestamp: burn_header_timestamp,
-            burn_header_hash: burn_header_hash,
-            parent_burn_header_hash: parent_burn_header_hash,
-            consensus_hash: consensus_hash,
-            ops_hash: ops_hash,
-            total_burn: total_burn,
-            sortition: sortition,
-            sortition_hash: sortition_hash,
-            winning_block_txid: winning_block_txid,
-            winning_stacks_block_hash: winning_stacks_block_hash,
-            index_root: index_root,
-            num_sortitions: num_sortitions,
+            block_height,
+            burn_header_timestamp,
+            burn_header_hash,
+            parent_burn_header_hash,
+            consensus_hash,
+            ops_hash,
+            total_burn,
+            sortition,
+            sortition_hash,
+            winning_block_txid,
+            winning_stacks_block_hash,
+            index_root,
+            num_sortitions,
 
-            stacks_block_accepted: stacks_block_accepted,
-            stacks_block_height: stacks_block_height,
-            arrival_index: arrival_index,
+            stacks_block_accepted,
+            stacks_block_height,
+            arrival_index,
 
-            canonical_stacks_tip_height: canonical_stacks_tip_height,
-            canonical_stacks_tip_hash: canonical_stacks_tip_hash,
-            canonical_stacks_tip_consensus_hash: canonical_stacks_tip_consensus_hash,
+            canonical_stacks_tip_height,
+            canonical_stacks_tip_hash,
+            canonical_stacks_tip_consensus_hash,
 
             sortition_id,
             parent_sortition_id,
             pox_valid,
             accumulated_coinbase_ustx,
+
+            miner_pk_hash,
         };
         Ok(snapshot)
     }
@@ -867,6 +876,7 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
 
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
+    r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
 ];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
@@ -1830,6 +1840,39 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
+    /// Does the sortition db expect to receive unknown blocks from
+    /// this tenure?
+    ///
+    /// This is used by nakamoto nodes while they are at or near the
+    /// current chain tip: only recent tenures can receive blocks this
+    /// way. Otherwise, the `BlockHeaderHash` must have been
+    /// explicitly confirmed by a block commit.
+    pub fn expects_blocks_from_tenure(
+        &self,
+        miner_pk: &Secp256k1PublicKey,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        let to_check = Hash160::from_node_public_key(miner_pk);
+        let mut cur_tip = self.context.chain_tip.clone();
+        for _ in 0..NAKAMOTO_TENURE_BLOCK_ACCEPTANCE_PERIOD {
+            let cur_snapshot = SortitionDB::get_block_snapshot(self.sqlite(), &cur_tip)?
+                .ok_or_else(|| db_error::NotFoundError)?;
+            if cur_snapshot.miner_pk_hash == Some(to_check) {
+                return Ok(Some(cur_snapshot));
+            }
+            cur_tip = cur_snapshot.parent_sortition_id.clone();
+        }
+        Ok(None)
+    }
+
+    /// Does the sortition db expect to receive blocks
+    /// signed by this stacker set?
+    pub fn expects_stacker_signature(
+        &self,
+        _stacker_signature: &MessageSignature,
+    ) -> Result<bool, db_error> {
+        Ok(true)
+    }
+
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
@@ -1944,6 +1987,15 @@ impl<'a> SortitionHandleConn<'a> {
             Some(x) => x,
         };
         SortitionDB::get_block_snapshot(self.conn(), &sortition_id)
+    }
+
+    /// Has `burn_header_hash` been processed in the current fork?
+    pub fn processed_block(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<bool, db_error> {
+        self.get_sortition_id_for_bhh(burn_header_hash)
+            .map(|result| result.is_some())
     }
 
     pub fn get_tip_snapshot(&self) -> Result<Option<BlockSnapshot>, db_error> {
@@ -2661,23 +2713,25 @@ impl SortitionDB {
                 first_burn_header_timestamp,
                 epochs,
             )?;
-        } else {
-            // validate -- must contain the given first block and first block hash
-            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial()
-                || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
-            {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
-                return Err(db_error::Corruption);
-            }
         }
 
         db.check_schema_version_and_update(epochs)?;
+
+        // validate -- must contain the given first block and first block hash
+        let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+        if !snapshot.is_initial()
+            || snapshot.block_height != first_block_height
+            || snapshot.burn_header_hash != *first_burn_hash
+        {
+            error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                   snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+            return Err(db_error::Corruption);
+        }
+
         if readwrite {
             db.add_indexes()?;
         }
+
         Ok(db)
     }
 
@@ -2917,7 +2971,44 @@ impl SortitionDB {
             db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
-        db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
+        // manually insert the first block snapshot in instantiate_v1 testing code, because
+        //  SCHEMA_9 adds a new column
+        let pox_payouts_json = serde_json::to_string(&pox_payout)
+            .expect("FATAL: could not encode `total_pox_payouts` as JSON");
+
+        let args = rusqlite::params![
+            &u64_to_sql(first_snapshot.block_height)?,
+            &first_snapshot.burn_header_hash,
+            &u64_to_sql(first_snapshot.burn_header_timestamp)?,
+            &first_snapshot.parent_burn_header_hash,
+            &first_snapshot.consensus_hash,
+            &first_snapshot.ops_hash,
+            &first_snapshot.total_burn.to_string(),
+            &first_snapshot.sortition,
+            &first_snapshot.sortition_hash,
+            &first_snapshot.winning_block_txid,
+            &first_snapshot.winning_stacks_block_hash,
+            &first_snapshot.index_root,
+            &u64_to_sql(first_snapshot.num_sortitions)?,
+            &first_snapshot.stacks_block_accepted,
+            &u64_to_sql(first_snapshot.stacks_block_height)?,
+            &u64_to_sql(first_snapshot.arrival_index)?,
+            &u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
+            &first_snapshot.canonical_stacks_tip_hash,
+            &first_snapshot.canonical_stacks_tip_consensus_hash,
+            &first_snapshot.sortition_id,
+            &first_snapshot.parent_sortition_id,
+            &first_snapshot.pox_valid,
+            &first_snapshot.accumulated_coinbase_ustx.to_string(),
+            &pox_payouts_json,
+        ];
+
+        db_tx.execute("INSERT INTO snapshots \
+                      (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
+                      pox_payouts) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)?;
+
         db_tx.store_transition_ops(
             &first_snapshot.sortition_id,
             &BurnchainStateTransition::noop(),
@@ -3023,6 +3114,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -3031,6 +3123,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch21 => {
                 version == "3"
@@ -3038,6 +3131,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch22 => {
                 version == "3"
@@ -3045,6 +3139,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch23 => {
                 version == "3"
@@ -3052,6 +3147,7 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
+                    || version == "8"
             }
             StacksEpochId::Epoch24 => {
                 version == "3"
@@ -3059,7 +3155,14 @@ impl SortitionDB {
                     || version == "5"
                     || version == "6"
                     || version == "7"
-                    // TODO: This should move to Epoch 30 once it is added
+                    || version == "8"
+            }
+            StacksEpochId::Epoch30 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
                     || version == "8"
             }
         }
@@ -5450,13 +5553,14 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.pox_valid,
             &snapshot.accumulated_coinbase_ustx.to_string(),
             &pox_payouts_json,
+            &snapshot.miner_pk_hash,
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
-                      pox_payouts) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)
+                      pox_payouts, miner_pk_hash) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -7077,6 +7181,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -7326,6 +7431,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    miner_pk_hash: None,
                 };
                 let index_root = tx
                     .append_chain_tip_snapshot(
@@ -7535,6 +7641,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
@@ -7588,6 +7695,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let snapshot_without_sortition = BlockSnapshot {
@@ -7641,6 +7749,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
@@ -8275,6 +8384,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 } else {
                     total_burn += 1;
@@ -8351,6 +8461,7 @@ pub mod tests {
                         canonical_stacks_tip_height: 0,
                         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                        miner_pk_hash: None,
                     }
                 };
 
@@ -8603,6 +8714,7 @@ pub mod tests {
                 canonical_stacks_tip_height: 0,
                 canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                 canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                miner_pk_hash: None,
             };
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
@@ -9207,6 +9319,7 @@ pub mod tests {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0x09; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0x0a; 20]),
+            miner_pk_hash: None,
         };
 
         let best_height = 123;

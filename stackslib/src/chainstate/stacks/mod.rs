@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::io;
@@ -93,6 +91,7 @@ pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
+    ExpectedTenureChange,
     InvalidStacksMicroblock(String, BlockHeaderHash),
     // The bool is true if the invalid transaction was quietly ignored.
     InvalidStacksTransaction(String, bool),
@@ -220,6 +219,10 @@ impl fmt::Display for Error {
                 f,
                 "Stacks Epoch 2-style block building off of Nakamoto block"
             ),
+            Error::ExpectedTenureChange => write!(
+                f,
+                "Block has a different tenure than parent, but no tenure change transaction"
+            ),
         }
     }
 }
@@ -261,6 +264,7 @@ impl error::Error for Error {
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
             Error::InvalidChildOfNakomotoBlock => None,
+            Error::ExpectedTenureChange => None,
         }
     }
 }
@@ -302,6 +306,7 @@ impl Error {
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
+            Error::ExpectedTenureChange => "ExpectedTenureChange",
         }
     }
 
@@ -621,6 +626,66 @@ impl_array_hexstring_fmt!(TokenTransferMemo);
 impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
 impl_byte_array_serde!(TokenTransferMemo);
 
+/// Cause of change in mining tenure
+/// Depending on cause, tenure can be ended or extended
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TenureChangeCause {
+    /// A valid winning block-commit, end current tenure
+    BlockFound = 0,
+    /// No winning block-commits, extend current tenure
+    NoBlockFound = 1,
+    /// A “null miner” won the block-commit (see the MEV solution below)
+    NullMiner = 2,
+}
+
+impl TryFrom<u8> for TenureChangeCause {
+    type Error = ();
+
+    fn try_from(num: u8) -> Result<Self, Self::Error> {
+        match num {
+            0 => Ok(Self::BlockFound),
+            1 => Ok(Self::NoBlockFound),
+            2 => Ok(Self::NullMiner),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SchnorrThresholdSignature {
+    //pub point: wsts::Point,
+    //pub scalar: wsts::Scalar,
+}
+
+/// Reasons why a `TenureChange` transaction can be de
+pub enum TenureChangeError {
+    SignatureInvalid,
+    /// Not signed by required threshold (>70%)
+    SignatureThresholdNotReached,
+    /// `previous_tenure_end` does not match parent block
+    PreviousTenureInvalid,
+    /// Block is not a Nakamoto block
+    NotNakamoto,
+}
+
+/// A transaction from Stackers to signal new mining tenure
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TenureChangePayload {
+    /// The StacksBlockId of the last block from the previous tenure
+    pub previous_tenure_end: StacksBlockId,
+    /// The number of blocks produced in the previous tenure
+    pub previous_tenure_blocks: u16,
+    /// A flag to indicate which of the following triggered the tenure change
+    pub cause: TenureChangeCause,
+    /// The ECDSA public key hash of the current tenure
+    pub pubkey_hash: Hash160,
+    /// A Schnorr signature from at least 70% of the Stackers
+    pub signature: SchnorrThresholdSignature,
+    /// A bitmap of which Stackers signed
+    pub signers: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
@@ -628,6 +693,7 @@ pub enum TransactionPayload {
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload, Option<PrincipalData>),
+    TenureChange(TenureChangePayload),
 }
 
 impl TransactionPayload {
@@ -638,6 +704,7 @@ impl TransactionPayload {
             TransactionPayload::SmartContract(..) => "SmartContract",
             TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
             TransactionPayload::Coinbase(..) => "Coinbase",
+            TransactionPayload::TenureChange(..) => "TenureChange",
         }
     }
 }
@@ -652,6 +719,7 @@ pub enum TransactionPayloadID {
     Coinbase = 4,
     CoinbaseToAltRecipient = 5,
     VersionedSmartContract = 6,
+    TenureChange = 7,
 }
 
 /// Encoding of an asset type identifier

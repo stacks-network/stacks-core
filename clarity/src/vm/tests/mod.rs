@@ -50,6 +50,7 @@ macro_rules! epochs_template {
             match epoch {
                 // don't test Epoch-1.0
                 StacksEpochId::Epoch10 => (),
+                StacksEpochId::Epoch30 => (),
                 // this will lead to a compile time failure if an epoch is left out
                 //  of the epochs_template! macro list
                 $(StacksEpochId::$epoch)|* => (),
@@ -75,6 +76,7 @@ macro_rules! clarity_template {
             match (epoch, clarity) {
                 // don't test Epoch-1.0
                 (StacksEpochId::Epoch10, _) => (),
+                (StacksEpochId::Epoch30, _) => (),
                 // don't test these pairs, because they aren't supported:
                 (StacksEpochId::Epoch20, ClarityVersion::Clarity2) => (),
                 (StacksEpochId::Epoch2_05, ClarityVersion::Clarity2) => (),
