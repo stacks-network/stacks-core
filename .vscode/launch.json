@@ -6,13 +6,12 @@
       "request": "launch",
       "name": "executable 'blockstack-core'",
       "cargo": {
-        "args": ["build", "--bin=stacks-inspect", "--package=blockstack-core"],
+        "args": ["build", "--bin=stacks-node"],
         "filter": {
-          "name": "stacks-inspect",
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": ["mockamoto"],
       "cwd": "${workspaceFolder}"
     },
     {
