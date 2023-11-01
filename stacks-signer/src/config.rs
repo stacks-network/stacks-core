@@ -101,6 +101,8 @@ pub struct Config {
     pub endpoint: SocketAddr,
     /// smart contract that controls the target stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
+    /// smart contract that controls the target stackerdb
+    pub pox_contract_id: Option<QualifiedContractIdentifier>,
     /// The Scalar representation of the private key for signer communication
     pub message_private_key: Scalar,
     /// The signer's Stacks private key
@@ -133,8 +135,11 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to stackerdb receiver
     pub endpoint: String,
-    /// contract identifier
+    // FIXME: these contract's should go away in non testing scenarios. Make them both optionals.
+    /// Stacker db contract identifier
     pub stackerdb_contract_id: String,
+    /// pox contract identifier
+    pub pox_contract_id: Option<String>,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
     pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
@@ -214,6 +219,17 @@ impl TryFrom<RawConfigFile> for Config {
                 )
             })?;
 
+        let pox_contract_id = if let Some(id) = raw_data.pox_contract_id.as_ref() {
+            Some(QualifiedContractIdentifier::parse(id).map_err(|_| {
+                ConfigError::BadField(
+                    "pox_contract_id".to_string(),
+                    raw_data.pox_contract_id.unwrap_or("".to_string()),
+                )
+            })?)
+        } else {
+            None
+        };
+
         let message_private_key =
             Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
                 ConfigError::BadField(
@@ -265,6 +281,7 @@ impl TryFrom<RawConfigFile> for Config {
             node_host,
             endpoint,
             stackerdb_contract_id,
+            pox_contract_id,
             message_private_key,
             stacks_private_key,
             stacks_address,

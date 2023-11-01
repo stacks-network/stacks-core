@@ -20,6 +20,7 @@ name = "stacks-signer"
 path = "src/main.rs"
 
 [dependencies]
+backoff = "0.4"
 bincode = "1.3.3"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
