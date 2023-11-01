@@ -42,6 +42,10 @@ jobs:
         id: rustfmt
         uses: actions-rust-lang/rustfmt@v1
 
+  clippy:
+    name: Clippy
+    uses: ./github/workflows/clippy.yml
+
   ## Release tests: Execute on every run
   release-tests:
     name: Release Tests
