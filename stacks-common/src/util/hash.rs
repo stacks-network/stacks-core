@@ -605,20 +605,15 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     let mut v = vec![];
     let mut iter = s.chars().pair();
     // Do the parsing
-    iter.by_ref().fold(Ok(()), |e, (f, s)| {
-        if e.is_err() {
-            e
-        } else {
-            match (f.to_digit(16), s.to_digit(16)) {
-                (None, _) => Err(HexError::BadCharacter(f)),
-                (_, None) => Err(HexError::BadCharacter(s)),
-                (Some(f), Some(s)) => {
-                    v.push((f * 0x10 + s) as u8);
-                    Ok(())
-                }
+    iter.by_ref()
+        .try_fold((), |_, (f, s)| match (f.to_digit(16), s.to_digit(16)) {
+            (None, _) => Err(HexError::BadCharacter(f)),
+            (_, None) => Err(HexError::BadCharacter(s)),
+            (Some(f), Some(s)) => {
+                v.push((f * 0x10 + s) as u8);
+                Ok(())
             }
-        }
-    })?;
+        })?;
     // Check that there was no remainder
     match iter.remainder() {
         Some(_) => Err(HexError::BadLength(s.len())),
