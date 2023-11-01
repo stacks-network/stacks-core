@@ -5569,6 +5569,7 @@ impl<'a> SortitionHandleTx<'a> {
         let winner = hash_tied
             .first()
             .expect("FATAL: zero-length list of tied block IDs");
+
         let winner_index = *mapping
             .get(&winner)
             .expect("FATAL: winning block ID not mapped");

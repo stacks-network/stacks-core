@@ -30,6 +30,7 @@ use stacks_common::codec::{
     StacksMessageCodec, MAX_MESSAGE_LEN, MAX_RELAYERS_LEN, PREAMBLE_ENCODED_SIZE,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, DoubleSha256, Hash160, MerkleHashFunc};
 use stacks_common::util::log;
@@ -700,41 +701,6 @@ impl StacksMessageCodec for NatPunchData {
             port,
             nonce,
         })
-    }
-}
-
-impl StacksMessageCodec for MemPoolSyncData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        match *self {
-            MemPoolSyncData::BloomFilter(ref bloom_filter) => {
-                write_next(fd, &MemPoolSyncDataID::BloomFilter.to_u8())?;
-                write_next(fd, bloom_filter)?;
-            }
-            MemPoolSyncData::TxTags(ref seed, ref tags) => {
-                write_next(fd, &MemPoolSyncDataID::TxTags.to_u8())?;
-                write_next(fd, seed)?;
-                write_next(fd, tags)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MemPoolSyncData, codec_error> {
-        let data_id: u8 = read_next(fd)?;
-        match MemPoolSyncDataID::from_u8(data_id).ok_or(codec_error::DeserializeError(format!(
-            "Unrecognized MemPoolSyncDataID {}",
-            &data_id
-        )))? {
-            MemPoolSyncDataID::BloomFilter => {
-                let bloom_filter: BloomFilter<BloomNodeHasher> = read_next(fd)?;
-                Ok(MemPoolSyncData::BloomFilter(bloom_filter))
-            }
-            MemPoolSyncDataID::TxTags => {
-                let seed: [u8; 32] = read_next(fd)?;
-                let txtags: Vec<TxTag> = read_next(fd)?;
-                Ok(MemPoolSyncData::TxTags(seed, txtags))
-            }
-        }
     }
 }
 

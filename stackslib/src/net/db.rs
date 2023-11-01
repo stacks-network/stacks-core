@@ -25,6 +25,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util;
 use stacks_common::util::hash::{
     bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
@@ -37,7 +38,7 @@ use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::NETWORK_P2P_PORT;
 use crate::net::asn::ASEntry4;
-use crate::net::{Neighbor, NeighborAddress, NeighborKey, PeerAddress, ServiceFlags};
+use crate::net::{Neighbor, NeighborAddress, NeighborKey, ServiceFlags};
 use crate::util_lib::db::{
     query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler,
     u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
@@ -47,12 +48,6 @@ use crate::util_lib::strings::UrlString;
 pub const PEERDB_VERSION: &'static str = "2";
 
 const NUM_SLOTS: usize = 8;
-
-impl PeerAddress {
-    pub fn to_bin(&self) -> String {
-        to_bin(&self.0)
-    }
-}
 
 impl FromColumn<PeerAddress> for PeerAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
@@ -1332,7 +1327,7 @@ impl PeerDB {
     }
 
     /// Get a peer's advertized stacker DBs
-    fn static_get_peer_stacker_dbs(
+    pub fn static_get_peer_stacker_dbs(
         conn: &Connection,
         neighbor: &Neighbor,
     ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
@@ -1805,10 +1800,11 @@ impl PeerDB {
 mod test {
     use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
     use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::net::{PeerAddress, PeerHost};
     use stacks_common::util::hash::Hash160;
 
     use super::*;
-    use crate::net::{Neighbor, NeighborKey, PeerAddress};
+    use crate::net::{Neighbor, NeighborKey};
 
     /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
     #[test]

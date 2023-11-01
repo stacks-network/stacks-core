@@ -68,7 +68,6 @@ use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::db::LocalPeer;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::PeerAddress;
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use libstackerdb::StackerDBChunkData;
@@ -79,6 +78,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};

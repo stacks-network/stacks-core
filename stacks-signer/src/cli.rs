@@ -2,10 +2,12 @@ use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use crate::config::Network;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::{address::b58, types::chainstate::StacksPrivateKey};
+use stacks_common::address::b58;
+use stacks_common::types::chainstate::StacksPrivateKey;
+
+use crate::config::Network;
 
 extern crate alloc;
 

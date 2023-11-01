@@ -18,9 +18,10 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use regex::{Captures, Regex};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::log;
 
-use crate::net::{Error as net_error, PeerAddress};
+use crate::net::Error as net_error;
 
 // IPv4 prefix to ASN/org map entry
 #[derive(Debug, Clone, PartialEq)]

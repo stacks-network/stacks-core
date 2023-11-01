@@ -21,12 +21,13 @@ use std::sync::mpsc::{
     sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
 };
 
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
-use crate::net::{Error as net_error, Neighbor, NeighborKey, PeerAddress, *};
+use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::Error as db_error;
 
 /// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in

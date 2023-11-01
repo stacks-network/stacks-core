@@ -28,7 +28,8 @@ use stacks_common::util::uint::{Uint256, Uint512};
 
 use crate::burnchains::{BurnchainSigner, Txid};
 use crate::core::MemPoolDB;
-use crate::net::{Error as net_error, HttpRequestType};
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::Error as net_error;
 use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as DatabaseError};
 
 #[cfg(feature = "monitoring_prom")]
@@ -45,17 +46,17 @@ pub fn increment_rpc_calls_counter() {
 }
 
 pub fn instrument_http_request_handler<F, R>(
-    req: HttpRequestType,
+    req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
-    F: FnOnce(HttpRequestType) -> Result<R, net_error>,
+    F: FnOnce(StacksHttpRequest) -> Result<R, net_error>,
 {
     #[cfg(feature = "monitoring_prom")]
     increment_rpc_calls_counter();
 
     #[cfg(feature = "monitoring_prom")]
-    let timer = prometheus::new_rpc_call_timer(req.get_path());
+    let timer = prometheus::new_rpc_call_timer(req.request_path());
 
     let res = handler(req);
 

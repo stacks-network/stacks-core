@@ -63,8 +63,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for sha256d hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} in sha256d hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
+            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
         }
     }
 }
@@ -75,8 +75,8 @@ impl error::Error for HexError {
     }
     fn description(&self) -> &str {
         match *self {
-            HexError::BadLength(_) => "sha256d hex string non-64 length",
-            HexError::BadCharacter(_) => "sha256d bad hex character",
+            HexError::BadLength(_) => "hex string non-64 length",
+            HexError::BadCharacter(_) => "bad hex character",
         }
     }
 }

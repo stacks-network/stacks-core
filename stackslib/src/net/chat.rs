@@ -24,6 +24,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rand;
 use rand::{thread_rng, Rng};
 use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -45,8 +46,8 @@ use crate::net::p2p::PeerNetwork;
 use crate::net::relay::*;
 use crate::net::stackerdb::StackerDBs;
 use crate::net::{
-    Error as net_error, GetBlocksInv, GetPoxInv, Neighbor, NeighborKey, PeerAddress, StacksMessage,
-    StacksP2P, GETPOXINV_MAX_BITLEN, *,
+    Error as net_error, GetBlocksInv, GetPoxInv, Neighbor, NeighborKey, StacksMessage, StacksP2P,
+    GETPOXINV_MAX_BITLEN, *,
 };
 use crate::util_lib::db::{DBConn, Error as db_error};
 
@@ -701,7 +702,7 @@ impl ConversationP2P {
                 return false;
             }
         };
-        if *bhh != *their_burn_header_hash {
+        if bhh != their_burn_header_hash {
             test_debug!(
                 "Burn header hash mismatch in preamble: {} != {}",
                 bhh,
@@ -3323,7 +3324,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn convo_handshake_accept() {
         with_timeout(100, || {
             let conn_opts = ConnectionOptions::default();

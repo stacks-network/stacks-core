@@ -187,15 +187,17 @@ use stacks::net::db::{LocalPeer, PeerDB};
 use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
-use stacks::net::rpc::RPCHandlerArgs;
 use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
-use stacks::net::{Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags};
+use stacks::net::{
+    Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
+};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, VRFSeed,
 };
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;

@@ -220,6 +220,11 @@ impl PipeWrite {
         Ok(buf.len())
     }
 
+    /// How many bytes are pending?
+    pub fn pending(&self) -> usize {
+        self.buf.as_ref().map(|b| b.len()).unwrap_or(0)
+    }
+
     /// Try and flush all data to the reader.
     /// Return True if we succeeded; False if not.
     pub fn try_flush(&mut self) -> io::Result<bool> {

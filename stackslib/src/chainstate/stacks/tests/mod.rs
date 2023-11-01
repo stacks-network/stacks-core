@@ -246,7 +246,7 @@ impl TestMinerTrace {
             for miner_id in p.miner_node_map.keys() {
                 if let Some(test_name) = p.miner_node_map.get(miner_id) {
                     if !all_test_names.contains(test_name) {
-                        all_test_names.insert(test_name.clone());
+                        all_test_names.insert(test_name.to_owned());
                     }
                 }
             }

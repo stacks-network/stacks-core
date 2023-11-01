@@ -1,33 +1,25 @@
 use std::time::Duration;
 
 use bincode::Error as BincodeError;
-use blockstack_lib::{
-    burnchains::Txid,
-    chainstate::stacks::{
-        StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
-        TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-        TransactionSpendingCondition, TransactionVersion,
-    },
+use blockstack_lib::burnchains::Txid;
+use blockstack_lib::chainstate::stacks::{
+    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSpendingCondition, TransactionVersion,
 };
-use clarity::vm::{
-    types::{serialization::SerializationError, QualifiedContractIdentifier, SequenceData},
-    Value as ClarityValue, {ClarityName, ContractName},
-};
+use clarity::vm::types::serialization::SerializationError;
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData};
+use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use hashbrown::HashMap;
 use libsigner::{RPCError, SignerSession, StackerDBSession};
 use libstackerdb::{Error as StackerDBError, StackerDBChunkAckData, StackerDBChunkData};
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
-use stacks_common::{
-    codec::StacksMessageCodec,
-    debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
-    warn,
-};
-use wsts::{
-    net::{Message, Packet},
-    Point, Scalar,
-};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::{debug, warn};
+use wsts::net::{Message, Packet};
+use wsts::{Point, Scalar};
 
 use crate::config::Config;
 
@@ -466,11 +458,9 @@ fn slot_id(id: u32, message: &Message) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{BufWriter, Read, Write},
-        net::{SocketAddr, TcpListener},
-        thread::spawn,
-    };
+    use std::io::{BufWriter, Read, Write};
+    use std::net::{SocketAddr, TcpListener};
+    use std::thread::spawn;
 
     use super::*;
 

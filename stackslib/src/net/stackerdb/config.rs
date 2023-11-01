@@ -47,6 +47,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
@@ -57,7 +58,7 @@ use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_err
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
-use crate::net::{Error as net_error, NeighborAddress, PeerAddress};
+use crate::net::{Error as net_error, NeighborAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 

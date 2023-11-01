@@ -25,10 +25,10 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1,
 };
-use stacks::net::{
-    AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse,
-    GetIsTraitImplementedResponse,
-};
+use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
+use stacks::net::api::getaccount::AccountEntryResponse;
+use stacks::net::api::getcontractsrc::ContractSrcResponse;
+use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
