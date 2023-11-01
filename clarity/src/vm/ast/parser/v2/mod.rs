@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
                         Token::Rparen => {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))
@@ -253,7 +253,7 @@ impl<'a> Parser<'a> {
                             )?;
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))

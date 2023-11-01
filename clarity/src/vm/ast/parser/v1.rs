@@ -132,11 +132,11 @@ lazy_static! {
 
     static ref lex_matchers: Vec<LexMatcher> = vec![
         LexMatcher::new(
-            r##"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""##,
+            r#"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringUTF8Literal,
         ),
         LexMatcher::new(
-            r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##,
+            r#""(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringASCIILiteral,
         ),
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
