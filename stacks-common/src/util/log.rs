@@ -238,8 +238,7 @@ fn make_logger() -> Logger {
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
         let isatty = isatty(Stream::Stdout);
         let drain = TermFormat::new(plain, false, debug, isatty);
-        let logger = Logger::root(drain.ignore_res(), o!());
-        logger
+        Logger::root(drain.ignore_res(), o!())
     }
 }
 
