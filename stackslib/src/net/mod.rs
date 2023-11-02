@@ -2778,6 +2778,8 @@ pub mod test {
                 u32::MAX,
                 u32::MAX,
                 u32::MAX,
+                u32::MAX,
+                u32::MAX,
             );
 
             let mut spending_account = TestMinerFactory::new().next_miner(
@@ -3521,8 +3523,9 @@ pub mod test {
             Option<BlockHeaderHash>,
         ) {
             let sortdb = self.sortdb.take().unwrap();
-            let (block_height, block_hash) = {
+            let (block_height, block_hash, epoch_id) = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1).unwrap().unwrap().epoch_id;
 
                 if set_consensus_hash {
                     TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
@@ -3579,20 +3582,25 @@ pub mod test {
                     )
                     .unwrap();
 
-                // NOTE: this is harmless in the Nakamoto epoch, but it will never be read
-                Burnchain::process_affirmation_maps(
-                    &self.config.burnchain,
-                    &mut burnchain_db,
-                    &indexer,
-                    block_header.block_height,
-                )
-                .unwrap();
-
-                (block_header.block_height, block_header_hash)
+                if epoch_id < StacksEpochId::Epoch30 {
+                    Burnchain::process_affirmation_maps(
+                        &self.config.burnchain,
+                        &mut burnchain_db,
+                        &indexer,
+                        block_header.block_height,
+                    )
+                    .unwrap();
+                }
+                (block_header.block_height, block_header_hash, epoch_id)
             };
 
             let missing_pox_anchor_block_hash_opt =
-                self.coord.handle_new_burnchain_block().unwrap();
+                if epoch_id < StacksEpochId::Epoch30 {
+                    self.coord.handle_new_burnchain_block().unwrap()
+                }
+                else {
+                    self.coord.handle_new_nakamoto_burnchain_block().unwrap()
+                };
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -4044,7 +4052,8 @@ pub mod test {
             tip_id
         }
 
-        // Make a tenure
+        /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
+        /// microblocks.
         pub fn make_tenure<F>(
             &mut self,
             mut tenure_builder: F,
@@ -4191,7 +4200,7 @@ pub mod test {
             )
         }
 
-        // have this peer produce an anchored block and microblock tail using its internal miner.
+        /// Produce a default, non-empty tenure for epoch 2.x
         pub fn make_default_tenure(
             &mut self,
         ) -> (
@@ -4263,7 +4272,7 @@ pub mod test {
                 microblocks,
             )
         }
-
+       
         pub fn to_neighbor(&self) -> Neighbor {
             self.config.to_neighbor()
         }
