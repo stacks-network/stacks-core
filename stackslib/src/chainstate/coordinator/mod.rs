@@ -58,6 +58,7 @@ use crate::chainstate::coordinator::comm::{
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::POX_3_NAME;
+use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
@@ -89,14 +90,14 @@ pub mod tests;
 
 /// The 3 different states for the current
 ///  reward cycle's relationship to its PoX anchor
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PoxAnchorBlockStatus {
     SelectedAndKnown(BlockHeaderHash, Txid, RewardSet),
     SelectedAndUnknown(BlockHeaderHash, Txid),
     NotSelected,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RewardCycleInfo {
     pub reward_cycle: u64,
     pub anchor_status: PoxAnchorBlockStatus,
@@ -316,7 +317,7 @@ impl OnChainRewardSetProvider {
                 info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
                 return Ok(RewardSet::empty());
             }
-            StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
+            StacksEpochId::Epoch24 => {
                 // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
                 if burnchain
                     .pox_constants
@@ -328,6 +329,21 @@ impl OnChainRewardSetProvider {
                     //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
                     //   start height
                     info!("PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation");
+                    return Ok(RewardSet::empty());
+                }
+            }
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
+                // Epoch 2.5 and 3.0 compute reward sets, but *only* if PoX-4 is active
+                if burnchain
+                    .pox_constants
+                    .active_pox_contract(current_burn_height)
+                    != POX_4_NAME
+                {
+                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                    //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
+                    //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
+                    //   start height
+                    info!("PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation");
                     return Ok(RewardSet::empty());
                 }
             }
@@ -629,7 +645,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     burnchain: &Burnchain,
     burnchain_db: &BurnchainDB,
     chain_state: &mut StacksChainState,
-    sort_db: &SortitionDB,
+    sort_db: &mut SortitionDB,
     provider: &U,
     always_use_affirmation_maps: bool,
 ) -> Result<Option<RewardCycleInfo>, Error> {
@@ -637,7 +653,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         &format!("FATAL: no epoch defined for burn height {}", burn_height),
     );
 
-    if burnchain.is_reward_cycle_start(burn_height) {
+    let reward_cycle_info = if burnchain.is_reward_cycle_start(burn_height) {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_height)
             .expect("FATAL: no reward cycle for burn height");
@@ -723,7 +739,30 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         }
     } else {
         Ok(None)
+    };
+
+    if let Ok(Some(reward_cycle_info)) = reward_cycle_info.as_ref() {
+        // cache the reward cycle info as of the first sortition in the prepare phase, so that
+        // the Nakamoto epoch can go find it later
+        let ic = sort_db.index_handle(sortition_tip);
+        let prev_reward_cycle = burnchain
+            .block_height_to_reward_cycle(burn_height)
+            .expect("FATAL: no reward cycle for burn height");
+
+        if prev_reward_cycle > 1 {
+            let prev_reward_cycle_start = burnchain.reward_cycle_to_block_height(prev_reward_cycle - 1);
+            let prepare_phase_start = prev_reward_cycle_start + u64::from(burnchain.pox_constants.reward_cycle_length) - u64::from(burnchain.pox_constants.prepare_length);
+            let first_prepare_sn = SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
+                .expect("FATAL: no start-of-prepare-phase sortition");
+
+            let mut tx = sort_db.tx_begin()?;
+            if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?.is_none() {
+                SortitionDB::store_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id, &reward_cycle_info)?;
+            }
+            tx.commit()?;
+        }
     }
+    reward_cycle_info
 }
 
 /// PoX payout event to be sent to connected event observers
@@ -2212,9 +2251,40 @@ impl<
     }
 
     /// Outermost call to process a burnchain block.
+    /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not 
     /// Not called internally.
+    /// NOTE: the 2.x and Nakamoto handlers return `Some(..)` in _different_ circumstances.  If
+    /// that matters to you, then you should call them directly.
     pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
-        self.inner_handle_new_burnchain_block(&mut HashSet::new())
+        let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
+        let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
+        let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_burnchain_tip.block_height).expect("FATAL: epoch not defined for burnchain height");
+        let target_epoch = epochs.get(target_epoch_index).expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+        if target_epoch.epoch_id < StacksEpochId::Epoch30 {
+            // burnchain has not yet advanced to epoch 3.0
+            self.handle_new_epoch2_burnchain_block(&mut HashSet::new())
+        }
+        else {
+            // burnchain has advanced to epoch 3.0, but has our sortition DB?
+            let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
+                Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
+                    .expect(&format!(
+                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                        sn_tip
+                    )),
+                None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
+            };
+            let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height).expect("FATAL: epoch not defined for BlockSnapshot height");
+            let target_epoch = epochs.get(target_epoch_index).expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+
+            if target_epoch.epoch_id < StacksEpochId::Epoch30 {
+                // need to catch the sortition DB up
+                self.handle_new_epoch2_burnchain_block(&mut HashSet::new())?;
+            }
+
+            // proceed to process sortitions in epoch 3.0
+            self.handle_new_nakamoto_burnchain_block()
+        }
     }
 
     /// Are affirmation maps active during the epoch?
@@ -2232,7 +2302,7 @@ impl<
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
     /// unavailability of a PoX anchor block that *must now* exist, then return the hash of this
     /// anchor block.
-    fn inner_handle_new_burnchain_block(
+    pub fn handle_new_epoch2_burnchain_block(
         &mut self,
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
@@ -2683,7 +2753,7 @@ impl<
             &self.burnchain,
             &self.burnchain_blocks_db,
             &mut self.chain_state_db,
-            &self.sortition_db,
+            &mut self.sortition_db,
             &self.reward_set_provider,
             self.config.always_use_affirmation_maps,
         )
@@ -3195,7 +3265,7 @@ impl<
         self.canonical_sortition_tip = Some(prep_end.sortition_id);
 
         // Start processing from the beginning of the new PoX reward set
-        self.inner_handle_new_burnchain_block(already_processed_burn_blocks)
+        self.handle_new_epoch2_burnchain_block(already_processed_burn_blocks)
     }
 }
 
