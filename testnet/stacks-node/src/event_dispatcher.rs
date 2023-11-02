@@ -12,6 +12,7 @@ use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
@@ -66,6 +67,7 @@ pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_MINED_BLOCK: &str = "mined_block";
 pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
+pub const PATH_MINED_NAKAMOTO_BLOCK: &str = "mined_nakamoto_block";
 pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
@@ -89,6 +91,17 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MinedNakamotoBlockEvent {
+    pub target_burn_height: u64,
+    pub block_hash: String,
+    pub block_id: String,
+    pub stacks_height: u64,
+    pub block_size: u64,
+    pub cost: ExecutionCost,
+    pub tx_events: Vec<TransactionEvent>,
 }
 
 impl EventObserver {
@@ -342,6 +355,10 @@ impl EventObserver {
     fn send_mined_microblock(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MINED_MICROBLOCK);
     }
+    
+    fn send_mined_nakamoto_block(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
+    }
 
     fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS);
@@ -464,6 +481,23 @@ impl MemPoolEventDispatcher for EventDispatcher {
             anchor_block_consensus_hash,
             anchor_block,
         );
+    }
+    
+    fn mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        self.process_mined_nakamoto_block_event(
+            target_burn_height,
+            block,
+            block_size_bytes,
+            consumed,
+            tx_events,
+        )
     }
 }
 
@@ -901,6 +935,40 @@ impl EventDispatcher {
 
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_microblock(&payload);
+        }
+    }
+   
+    pub fn process_mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| self.miner_observers_lookup.contains(&(*obs_id as u16)))
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(MinedNakamotoBlockEvent {
+            target_burn_height,
+            block_hash: block.header.block_hash().to_string(),
+            block_id: block.header.block_id().to_string(),
+            stacks_height: block.header.chain_length,
+            block_size: block_size_bytes,
+            cost: consumed.clone(),
+            tx_events,
+        })
+        .unwrap();
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_mined_nakamoto_block(&payload);
         }
     }
 
