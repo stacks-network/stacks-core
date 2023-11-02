@@ -38,7 +38,10 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature};
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::PrivateKey;
 
 use super::burn::db::sortdb::{SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
@@ -64,15 +67,20 @@ use crate::util_lib::db::{
     query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 
+use crate::core::BOOT_BLOCK_HASH;
+
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::coordinator::Error;
 
 use crate::net::Error as net_error;
 
 pub mod coordinator;
+pub mod miner;
 
 #[cfg(test)]
 pub mod tests;
+
+pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
 
 define_named_enum!(HeaderTypeNames {
     Nakamoto("nakamoto"),
@@ -202,16 +210,26 @@ lazy_static! {
     ];
 }
 
+/// Result of preparing to produce or validate a block
 pub struct SetupBlockResult<'a, 'b> {
+    /// Handle to the ClarityVM
     pub clarity_tx: ClarityTx<'a, 'b>,
+    /// Transaction receipts from any Stacks-on-Bitcoin transactions and epoch transition events
     pub tx_receipts: Vec<StacksTransactionReceipt>,
+    /// Miner rewards that can be paid now: (this-miner-reward, parent-miner-reward, miner-info)
     pub matured_miner_rewards_opt: Option<(MinerReward, MinerReward, MinerRewardInfo)>,
+    /// Epoch in which this block was set up
     pub evaluated_epoch: StacksEpochId,
+    /// Whether or not we applied an epoch transition in this block
     pub applied_epoch_transition: bool,
+    /// stack-stx Stacks-on-Bitcoin txs
     pub burn_stack_stx_ops: Vec<StackStxOp>,
+    /// transfer-stx Stacks-on-Bitcoin txs
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
-    pub auto_unlock_events: Vec<StacksTransactionEvent>,
+    /// delegate-stx Stacks-on-Bitcoin txs
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
+    /// STX auto-unlock events from PoX
+    pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,6 +328,8 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 }
 
 impl NakamotoBlockHeader {
+    /// Calculate the message digest to sign.
+    /// This includes all fields _except_ the signatures.
     pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
@@ -323,10 +343,10 @@ impl NakamotoBlockHeader {
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
-    pub fn recover_miner_pk(&self) -> Option<Secp256k1PublicKey> {
+    pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
         let signed_hash = self.signature_hash().ok()?;
         let recovered_pk =
-            Secp256k1PublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature)
+            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature)
                 .ok()?;
 
         Some(recovered_pk)
@@ -343,6 +363,67 @@ impl NakamotoBlockHeader {
 
     pub fn is_first_mined(&self) -> bool {
         StacksBlockHeader::is_first_index_block_hash(&self.parent_block_id)
+    }
+
+    /// Sign the block header by the miner
+    pub fn sign_miner(&mut self, privk: &StacksPrivateKey) -> Result<(), ChainstateError> {
+        let sighash = self.signature_hash()?.0;
+        let sig = privk
+            .sign(&sighash)
+            .map_err(|se| net_error::SigningError(se.to_string()))?;
+        self.miner_signature = sig;
+        Ok(())
+    }
+
+    /// Make an "empty" header whose block data needs to be filled in.
+    /// This is used by the miner code.
+    pub fn from_parent_empty(
+        chain_length: u64,
+        burn_spent: u64,
+        consensus_hash: ConsensusHash,
+        parent_block_id: StacksBlockId,
+    ) -> NakamotoBlockHeader {
+        NakamotoBlockHeader {
+            version: NAKAMOTO_BLOCK_VERSION,
+            chain_length,
+            burn_spent,
+            consensus_hash,
+            parent_block_id,
+            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+            state_index_root: TrieHash([0u8; 32]),
+            miner_signature: MessageSignature::empty(),
+            stacker_signature: MessageSignature::empty()
+        }
+    }
+
+    /// Make a completely empty header
+    pub fn empty() -> NakamotoBlockHeader {
+        NakamotoBlockHeader {
+            version: 0,
+            chain_length: 0,
+            burn_spent: 0,
+            consensus_hash: ConsensusHash([0u8; 20]),
+            parent_block_id: StacksBlockId([0u8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+            state_index_root: TrieHash([0u8; 32]),
+            miner_signature: MessageSignature::empty(),
+            stacker_signature: MessageSignature::empty()
+        }
+    }
+    
+    /// Make a genesis header (testing only)
+    pub fn genesis() -> NakamotoBlockHeader {
+        NakamotoBlockHeader {
+            version: 0,
+            chain_length: 0,
+            burn_spent: 0,
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0.clone()),
+            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+            state_index_root: TrieHash([0u8; 32]),
+            miner_signature: MessageSignature::empty(),
+            stacker_signature: MessageSignature::empty()
+        }
     }
 }
 
@@ -388,11 +469,37 @@ impl NakamotoBlock {
         self.header.is_first_mined()
     }
 
+    /// Get the coinbase transaction in Nakamoto.
+    /// It's the first non-TenureChange transaction
+    /// (and, all preceding transactions _must_ be TenureChanges)
     pub fn get_coinbase_tx(&self) -> Option<&StacksTransaction> {
-        match self.txs.get(0).map(|x| &x.payload) {
-            Some(TransactionPayload::Coinbase(..)) => Some(&self.txs[0]),
-            _ => None,
+        let mut tx_ref = None;
+        for tx in self.txs.iter() {
+            if let TransactionPayload::TenureChange(..) = &tx.payload {
+                if tx_ref.is_none() {
+                    continue;
+                }
+                // non-TenureChange tx precedes a coinbase, so there's no valid coinbase.
+                // (a coinbase in any other position is invalid anyway).
+                return None;
+            }
+            else if let TransactionPayload::Coinbase(..) = &tx.payload {
+                if tx_ref.is_none() {
+                    // contender
+                    tx_ref = Some(tx);
+                }
+                else {
+                    // multiple coinbases, so none of them are valid.
+                    return None;
+                }
+            }
+            else if tx_ref.is_none() {
+                // non-Coinbase and non-TenureChange tx, so there's no valid coinbase.
+                // (a coinbase in any other position is invalid anyway)
+                return None;
+            }
         }
+        tx_ref
     }
 
     pub fn block_id(&self) -> StacksBlockId {
@@ -613,7 +720,7 @@ impl NakamotoChainState {
 
         // attach the block to the chain state and calculate the next chain tip.
         let pox_constants = sort_tx.context.pox_constants.clone();
-        let (epoch_receipt, clarity_commit) = match NakamotoChainState::append_block(
+        let (receipt, clarity_commit) = match NakamotoChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -645,11 +752,11 @@ impl NakamotoChainState {
         };
 
         assert_eq!(
-            epoch_receipt.header.anchored_header.block_hash(),
+            receipt.header.anchored_header.block_hash(),
             next_ready_block.header.block_hash()
         );
         assert_eq!(
-            epoch_receipt.header.consensus_hash,
+            receipt.header.consensus_hash,
             next_ready_block.header.consensus_hash
         );
 
@@ -670,17 +777,17 @@ impl NakamotoChainState {
                     parent_header_info.anchored_header.block_hash(),
                 )
                     .into(),
-                &epoch_receipt.header.clone(),
-                &epoch_receipt.tx_receipts,
+                &receipt.header.clone(),
+                &receipt.tx_receipts,
                 &parent_block_id,
                 next_ready_block_snapshot.winning_block_txid,
-                &epoch_receipt.matured_rewards,
-                epoch_receipt.matured_rewards_info.as_ref(),
-                epoch_receipt.parent_burn_block_hash,
-                epoch_receipt.parent_burn_block_height,
-                epoch_receipt.parent_burn_block_timestamp,
-                &epoch_receipt.anchored_block_cost,
-                &epoch_receipt.parent_microblocks_cost,
+                &receipt.matured_rewards,
+                receipt.matured_rewards_info.as_ref(),
+                receipt.parent_burn_block_hash,
+                receipt.parent_burn_block_height,
+                receipt.parent_burn_block_timestamp,
+                &receipt.anchored_block_cost,
+                &receipt.parent_microblocks_cost,
                 &pox_constants,
             );
         }
@@ -694,55 +801,7 @@ impl NakamotoChainState {
                 panic!()
             });
 
-        Ok(Some(epoch_receipt))
-    }
-
-    /// Process some staging blocks, up to max_blocks.
-    /// Return new chain tips.
-    pub fn process_nakamoto_blocks<'a, T: BlockEventDispatcher>(
-        stacks_chain_state: &mut StacksChainState,
-        mut sort_tx: SortitionHandleTx,
-        max_blocks: usize,
-        dispatcher_opt: Option<&'a T>,
-    ) -> Result<Vec<Option<StacksEpochReceipt>>, ChainstateError> {
-        debug!("Process up to {} new blocks", max_blocks);
-        let mut ret = vec![];
-
-        if max_blocks == 0 {
-            // nothing to do
-            return Ok(vec![]);
-        }
-
-        for _ in 0..max_blocks {
-            // process up to max_blocks pending blocks
-            match Self::process_next_nakamoto_block(
-                stacks_chain_state,
-                &mut sort_tx,
-                dispatcher_opt,
-            ) {
-                Ok(next_tip_opt) => {
-                    ret.push(next_tip_opt);
-                }
-                Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                    warn!("Encountered invalid block: {}", &msg);
-                    ret.push(None);
-                    continue;
-                }
-                Err(ChainstateError::NetError(net_error::DeserializeError(msg))) => {
-                    // happens if we load a zero-sized block (i.e. an invalid block)
-                    warn!("Encountered invalid block: {}", &msg);
-                    ret.push(None);
-                    continue;
-                }
-                Err(e) => {
-                    error!("Unrecoverable error when processing blocks: {:?}", &e);
-                    return Err(e);
-                }
-            }
-        }
-
-        sort_tx.commit()?;
-        Ok(ret)
+        Ok(Some(receipt))
     }
 
     /// Accept a Nakamoto block into the staging blocks DB.
@@ -750,24 +809,79 @@ impl NakamotoChainState {
     /// * the public key cannot be recovered from the miner's signature
     /// * the stackers during the tenure didn't sign it
     /// * a DB error occurs
+    /// Does nothing if:
+    /// * we already have the block
+    /// Returns true if we stored the block; false if not.
     pub fn accept_block(
         block: NakamotoBlock,
         sortdb: &SortitionHandleConn,
         staging_db_tx: &rusqlite::Transaction,
-    ) -> Result<(), ChainstateError> {
-        let recovered_miner_pk = block.header.recover_miner_pk().ok_or_else(|| {
+    ) -> Result<bool, ChainstateError> {
+        // do nothing if we already have this block
+        if let Some(_) = Self::get_block_header(&staging_db_tx, &block.header.block_id())? {
+            debug!("Already have block {}", &block.header.block_id());
+            return Ok(false)
+        }
+
+        // identify the winning block-commit
+        let sortition = SortitionDB::get_block_snapshot_consensus(sortdb, &block.header.consensus_hash)?
+            .ok_or(ChainstateError::NoSuchBlockError)
+            .map_err(|e| {
+                warn!("No block snapshot for {}", &block.header.consensus_hash);
+                e
+            })?;
+
+        let block_commit = SortitionDB::get_block_commit(sortdb, &sortition.winning_block_txid, &sortition.sortition_id)?
+            .ok_or(ChainstateError::NoSuchBlockError)
+            .map_err(|e| {
+                warn!("No block commit {} off of sortition tip {}", &sortition.winning_block_txid, &sortition.sortition_id);
+                e
+            })?;
+
+        // identify the leader key for this block-commit
+        let leader_key = SortitionDB::get_leader_key_at(sortdb, u64::from(block_commit.key_block_ptr), u32::from(block_commit.key_vtxindex), &sortition.sortition_id)?
+            .ok_or(ChainstateError::NoSuchBlockError)
+            .map_err(|e| {
+                warn!("No leader key at {},{} for block-commit {} off of sortition tip {}", block_commit.key_block_ptr, block_commit.key_vtxindex, &block_commit.txid, &sortition.sortition_id);
+                e
+            })?;
+
+        let miner_pubkey_hash160 = leader_key.interpret_nakamoto_signing_key()
+            .ok_or(ChainstateError::NoSuchBlockError)
+            .map_err(|e| {
+                warn!(
+                    "Leader key did not contain a hash160 of the miner signing public key";
+                    "leader_key" => format!("{:?}", &leader_key),
+                );
+                e
+            })?;
+
+        let recovered_miner_pubk = block.header.recover_miner_pk().ok_or_else(|| {
             warn!(
-                "Stacks block downloaded with unrecoverable miner public key";
+                "Nakamoto Stacks block downloaded with unrecoverable miner public key";
                 "block_hash" => %block.header.block_hash(),
+                "block_id" => %block.header.block_id(),
             );
             return ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into());
         })?;
+
+        let recovered_miner_hash160 = Hash160::from_node_public_key(&recovered_miner_pubk);
+        if recovered_miner_hash160 != miner_pubkey_hash160 {
+            warn!(
+                "Nakamoto Stacks block signature from {recovered_miner_pubk:?} mismatch: {recovered_miner_hash160} != {miner_pubkey_hash160} from leader-key";
+                "block_hash" => %block.header.block_hash(),
+                "block_id" => %block.header.block_id(),
+                "leader_key" => format!("{:?}", &leader_key),
+                "block_commit" => format!("{:?}", &block_commit)
+            );
+            return Err(ChainstateError::InvalidStacksBlock("Invalid miner signature".into()));
+        }
 
         if !sortdb.expects_stacker_signature(
             &block.header.consensus_hash,
             &block.header.stacker_signature,
         )? {
-            let msg = format!("Received block, signed by {recovered_miner_pk:?}, but the stacker signature does not match the active stacking cycle");
+            let msg = format!("Received block, signed by {recovered_miner_pubk:?}, but the stacker signature does not match the active stacking cycle");
             warn!("{}", msg);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
@@ -777,11 +891,28 @@ impl NakamotoChainState {
         let burn_attachable = sortdb.processed_block(&block.header.consensus_hash)?;
 
         // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
-        let stacks_attachable = block.is_first_mined() || staging_db_tx.query_row(
-            "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ? AND processed = 1",
-            rusqlite::params![&block.header.parent_block_id],
-            |_row| Ok(())
-        ).optional()?.is_some();
+        let stacks_attachable =
+            // block is the first-ever mined (test only)
+            block.is_first_mined()
+            // block attaches to a processed nakamoto block
+            || staging_db_tx.query_row(
+                "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ? AND processed = 1 AND orphaned = 0",
+                rusqlite::params![&block.header.parent_block_id],
+                |_row| Ok(())
+            ).optional()?.is_some()
+            // block attaches to a Stacks epoch 2.x block, and there are no nakamoto blocks at all
+            || (
+                staging_db_tx.query_row(
+                    "SELECT 1 FROM block_headers WHERE index_block_hash = ?",
+                    rusqlite::params![&block.header.parent_block_id],
+                    |_row| Ok(())
+                ).optional()?.is_some()
+                && staging_db_tx.query_row(
+                    "SELECT 1 FROM nakamoto_block_headers LIMIT 1",
+                    rusqlite::NO_PARAMS,
+                    |_row| Ok(())
+                ).optional()?.is_none()
+               );
 
         let block_id = block.block_id();
         staging_db_tx.execute(
@@ -818,7 +949,7 @@ impl NakamotoChainState {
             ],
         )?;
 
-        Ok(())
+        Ok(true)
     }
 
     /// Create the block reward for a NakamotoBlock
@@ -844,7 +975,7 @@ impl NakamotoChainState {
         let recipient = if epoch_id >= StacksEpochId::Epoch21 {
             // pay to tx-designated recipient, or if there is none, pay to the origin
             match coinbase_tx.try_as_coinbase() {
-                Some((_, recipient_opt)) => recipient_opt
+                Some((_, recipient_opt, _)) => recipient_opt
                     .cloned()
                     .unwrap_or(miner_addr.to_account_principal()),
                 None => miner_addr.to_account_principal(),
@@ -1037,6 +1168,24 @@ impl NakamotoChainState {
             "FATAL: multiple rows for the same consensus hash".to_string()
         })
         .map_err(ChainstateError::DBError)
+    }
+
+    /// Get the status of a Nakamoto block.
+    /// Returns Some(accepted?, orphaned?) on success
+    /// Returns None if there's no such block
+    /// Returns Err on DBError
+    pub fn get_nakamoto_block_status(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash
+    ) -> Result<Option<(bool, bool)>, ChainstateError> {
+        let sql = "SELECT (processed, orphaned) FROM nakamoto_block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
+        let args: &[&dyn ToSql] = &[consensus_hash, block_hash];
+        Ok(query_row_panic(conn, sql, args, || {
+            "FATAL: multiple rows for the same consensus hash and block hash".to_string()
+        })
+        .map_err(ChainstateError::DBError)?
+        .map(|(processed, orphaned): (u32, u32)| (processed != 0, orphaned != 0)))
     }
 
     /// Insert a nakamoto block header that is paired with an
