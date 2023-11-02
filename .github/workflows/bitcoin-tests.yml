@@ -142,6 +142,7 @@ jobs:
           - tests::epoch_24::verify_auto_unlock_behavior
           - tests::stackerdb::test_stackerdb_load_store
           - tests::stackerdb::test_stackerdb_event_observer
+          - tests::signer::test_stackerdb_dkg
     steps:
       - name: Checkout the latest code
         id: git_checkout
