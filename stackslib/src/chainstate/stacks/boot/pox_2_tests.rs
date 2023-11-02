@@ -480,6 +480,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
             "cycle" => cycle_number,
             "cycle_start" => cycle_start,
             "pox_3_activation" => peer.config.burnchain.pox_constants.pox_3_activation_height,
+            "pox_4_activation" => peer.config.burnchain.pox_constants.pox_4_activation_height,
             "epoch_2_4_start" => cycle_start_epoch.start_height,
         );
         return;
@@ -524,6 +525,15 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                     <= peer.config.burnchain.pox_constants.pox_3_activation_height
             {
                 // if the tip is epoch-2.4, and pox-3 isn't the active pox contract yet,
+                //  the invariant checks will not make sense for the same reasons as above
+                continue;
+            }
+            
+            if tip_epoch.epoch_id >= StacksEpochId::Epoch25
+                && current_burn_height
+                    <= peer.config.burnchain.pox_constants.pox_4_activation_height
+            {
+                // if the tip is epoch-2.5, and pox-5 isn't the active pox contract yet,
                 //  the invariant checks will not make sense for the same reasons as above
                 continue;
             }
@@ -1238,6 +1248,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         height_target + 1,
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
+        burnchain.pox_constants.v3_unlock_height,
     );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
@@ -1267,6 +1278,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         height_target + 1,
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
+        burnchain.pox_constants.v3_unlock_height,
     );
     assert_eq!(bob_bal.amount_locked(), 0);
 
@@ -1280,6 +1292,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         height_target + 1,
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
+        burnchain.pox_constants.v3_unlock_height,
     );
     assert_eq!(bob_bal.amount_locked(), 0);
 
