@@ -44,6 +44,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -659,6 +660,76 @@ impl Relayer {
             );
         }
         Ok(res)
+    }
+    
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
+    /// downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we stored it, Ok(false) if we didn't
+    pub fn process_new_nakamoto_block(
+        sort_handle: &SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        block: NakamotoBlock,
+    ) -> Result<bool, chainstate_error> {
+        debug!(
+            "Handle incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
+        
+        // do we have this block?  don't lock the DB needlessly if so.
+        if let Some(_) = NakamotoChainState::get_block_header(chainstate.db(), &block.header.block_id())? {
+            debug!("Already have Nakamoto block {}", &block.header.block_id());
+            return Ok(false);
+        }
+
+        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
+            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+
+        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
+        // txs problematic).
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
+
+        if epoch_id < StacksEpochId::Epoch30 {
+            error!("Nakamoto blocks are not supported in this epoch");
+            return Err(chainstate_error::InvalidStacksBlock("Nakamoto blocks are not supported in this epoch".into()));
+        }
+
+        if !Relayer::static_check_problematic_relayed_nakamoto_block(
+            chainstate.mainnet,
+            epoch_id,
+            &block,
+            ASTRules::PrecheckSize,
+        ) {
+            warn!(
+                "Nakamoto block is problematic; will not store or relay";
+                "stacks_block_hash" => %block.header.block_hash(),
+                "consensus_hash" => %block.header.consensus_hash,
+                "burn_height" => block.header.chain_length,
+                "sortition_height" => block_sn.block_height,
+            );
+            return Ok(false);
+        }
+
+        let accept_msg = format!(
+            "Stored incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
+
+        let staging_db_tx = chainstate.db_tx_begin()?;
+        let accepted = NakamotoChainState::accept_block(
+            block,
+            sort_handle,
+            &staging_db_tx
+        )?;
+        staging_db_tx.commit()?;
+
+        if accepted {
+            debug!("{}", &accept_msg);
+        }
+        Ok(accepted)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -1306,6 +1377,32 @@ impl Relayer {
                 info!(
                     "Block {} with tx {} will not be stored or relayed",
                     block.block_hash(),
+                    tx.txid()
+                );
+                return false;
+            }
+        }
+        true
+    }
+    
+    /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
+    /// transactions.  This is a static check -- we only look at the block contents.
+    ///
+    /// Returns true if the check passed -- i.e. no problems.
+    /// Returns false if not
+    pub fn static_check_problematic_relayed_nakamoto_block(
+        mainnet: bool,
+        epoch_id: StacksEpochId,
+        block: &NakamotoBlock,
+        ast_rules: ASTRules,
+    ) -> bool {
+        for tx in block.txs.iter() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
+                info!(
+                    "Nakamoto block {} with tx {} will not be stored or relayed",
+                    block.header.block_hash(),
                     tx.txid()
                 );
                 return false;
