@@ -4177,7 +4177,7 @@ impl StacksChainState {
         let recipient = if epoch_id >= StacksEpochId::Epoch21 {
             // pay to tx-designated recipient, or if there is none, pay to the origin
             match coinbase_tx.try_as_coinbase() {
-                Some((_, recipient_opt)) => recipient_opt
+                Some((_, recipient_opt, _)) => recipient_opt
                     .cloned()
                     .unwrap_or(miner_addr.to_account_principal()),
                 None => miner_addr.to_account_principal(),
@@ -4609,6 +4609,11 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch24;
                     }
                     StacksEpochId::Epoch24 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_5()?);
+                        current_epoch = StacksEpochId::Epoch25;
+                    }
+                    StacksEpochId::Epoch25 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
                         current_epoch = StacksEpochId::Epoch30;
                     }
                     StacksEpochId::Epoch30 => {
@@ -5206,7 +5211,9 @@ impl StacksChainState {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
+                // TODO: sbtc ops in epoch 3.0
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5291,8 +5298,15 @@ impl StacksChainState {
                         pox_start_cycle_info,
                     )
                 }
-                StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
+                StacksEpochId::Epoch24 => {
                     Self::handle_pox_cycle_start_pox_3(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
+                StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
+                    Self::handle_pox_cycle_start_pox_4(
                         clarity_tx,
                         pox_reward_cycle,
                         pox_start_cycle_info,
@@ -6898,12 +6912,13 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) = clarity_connection
             .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height() as u64,
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height(),
+                    db.get_v3_unlock_height(),
                 )
             });
 
@@ -6913,6 +6928,7 @@ impl StacksChainState {
             block_height,
             v1_unlock_height,
             v2_unlock_height,
+            v3_unlock_height,
         ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -6925,6 +6941,7 @@ impl StacksChainState {
                             block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         ),
                     ));
                 }
@@ -6949,6 +6966,7 @@ impl StacksChainState {
                     block_height,
                     v1_unlock_height,
                     v2_unlock_height,
+                    v3_unlock_height,
                 ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
@@ -6956,6 +6974,7 @@ impl StacksChainState {
                             block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         ),
                     ));
                 }
@@ -6967,6 +6986,7 @@ impl StacksChainState {
                         block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
@@ -6974,6 +6994,7 @@ impl StacksChainState {
                                 block_height,
                                 v1_unlock_height,
                                 v2_unlock_height,
+                                v3_unlock_height,
                             ),
                         ));
                     }
@@ -7120,7 +7141,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -7185,7 +7206,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
