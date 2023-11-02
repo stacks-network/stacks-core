@@ -37,17 +37,20 @@ use crate::chainstate::burn::SortitionId;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use crate::core::STACKS_EPOCH_2_05_MARKER;
+use crate::core::STACKS_EPOCH_2_1_MARKER;
 use crate::core::STACKS_EPOCH_2_2_MARKER;
 use crate::core::STACKS_EPOCH_2_3_MARKER;
 use crate::core::STACKS_EPOCH_2_4_MARKER;
+use crate::core::STACKS_EPOCH_2_5_MARKER;
+use crate::core::STACKS_EPOCH_3_0_MARKER;
 use crate::core::{StacksEpoch, StacksEpochId};
-use crate::core::{STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::net::Error as net_error;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -163,6 +166,12 @@ impl LeaderBlockCommitOp {
 
     pub fn burn_block_mined_at(&self) -> u64 {
         self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
+    }
+
+    /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
+    /// block of the last tenure (the "tenure id"). This helper obtains it.
+    pub fn last_tenure_id(&self) -> StacksBlockId {
+        StacksBlockId(self.block_header_hash.0.clone())
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -761,6 +770,7 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch22 => self.check_epoch_commit_marker(STACKS_EPOCH_2_2_MARKER),
             StacksEpochId::Epoch23 => self.check_epoch_commit_marker(STACKS_EPOCH_2_3_MARKER),
             StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
+            StacksEpochId::Epoch25 => self.check_epoch_commit_marker(STACKS_EPOCH_2_5_MARKER),
             StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
         }
     }
@@ -780,6 +790,7 @@ impl LeaderBlockCommitOp {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
@@ -1789,6 +1800,8 @@ mod tests {
                 u32::MAX,
                 u32::MAX,
                 u32::MAX,
+                u32::MAX,
+                u32::MAX,
             ),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
@@ -2331,6 +2344,8 @@ mod tests {
                 5,
                 5000,
                 10000,
+                u32::MAX,
+                u32::MAX,
                 u32::MAX,
                 u32::MAX,
                 u32::MAX,
@@ -3032,6 +3047,8 @@ mod tests {
                 5,
                 5000,
                 10000,
+                u32::MAX,
+                u32::MAX,
                 u32::MAX,
                 u32::MAX,
                 u32::MAX,
