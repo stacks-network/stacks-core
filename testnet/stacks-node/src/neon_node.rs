@@ -1269,7 +1269,7 @@ impl BlockMinerThread {
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt, None),
         );
         tx.chain_id = chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
