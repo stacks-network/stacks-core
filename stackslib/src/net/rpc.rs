@@ -63,7 +63,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
 use crate::chainstate::stacks::Error as chain_error;
@@ -337,6 +337,13 @@ impl RPCPoxInfoData {
                 "PoX-3 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
+        
+        let pox_4_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-4 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
@@ -548,6 +555,14 @@ impl RPCPoxInfoData {
                         .pox_3_activation_height
                         as u64,
                     first_reward_cycle_id: pox_3_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_4_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_4_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_4_first_cycle,
                 },
             ],
         })
@@ -1379,6 +1394,7 @@ impl ConversationHttp {
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
                     let v1_unlock_height = clarity_db.get_v1_unlock_height();
                     let v2_unlock_height = clarity_db.get_v2_unlock_height();
+                    let v3_unlock_height = clarity_db.get_v3_unlock_height();
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
@@ -1408,11 +1424,13 @@ impl ConversationHttp {
                         burn_block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     );
                     let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                         burn_block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     );
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
@@ -4312,7 +4330,7 @@ mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
