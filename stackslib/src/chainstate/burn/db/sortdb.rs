@@ -875,8 +875,15 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     );"#,
 ];
 
-const SORTITION_DB_SCHEMA_9: &'static [&'static str] =
-    &[r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#];
+const SORTITION_DB_SCHEMA_9: &'static [&'static str] = &[
+    r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
+    r#"
+    -- eagerly-processed reward sets, before they're applied to the start of the next reward cycle
+    CREATE TABLE preprocessed_reward_sets (
+        sortition_id TEXT PRIMARY KEY,
+        reward_set TEXT NOT NULL
+    );"#
+];       
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -1823,9 +1830,10 @@ impl<'a> SortitionHandleTx<'a> {
             burn_tip.block_height
         );
 
-        // NOTE: in Nakamoto, this only works if this is a tenure-start block
-        let num_rows = self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
-        assert!(num_rows > 0);
+        // NOTE: in Nakamoto, this may return zero rows since blocks are no longer coupled to
+        // snapshots.  However, it will update at least one row if the block is a tenure-start
+        // block.
+        self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
 
         // update arrival data across all Stacks forks
         let (best_ch, best_bhh, best_height) = self.find_new_block_arrivals(burn_tip)?;
@@ -3173,6 +3181,15 @@ impl SortitionDB {
                     // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
             }
+            StacksEpochId::Epoch25 => {
+                version == "3"
+                    || version == "4"
+                    || version == "5"
+                    || version == "6"
+                    || version == "7"
+                    // TODO: This should move to Epoch 30 once it is added
+                    || version == "8"
+            }
             StacksEpochId::Epoch30 => {
                 version == "3"
                     || version == "4"
@@ -3480,6 +3497,34 @@ impl SortitionDB {
 
         return Ok(last_rules);
     }
+
+    /// Store a pre-processed reward set.
+    /// `sortition_id` is the first sortition ID of the prepare phase
+    pub fn store_preprocessed_reward_set(sort_tx: &mut DBTx, sortition_id: &SortitionId, rc_info: &RewardCycleInfo) -> Result<(), db_error> {
+        let sql = "INSERT INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
+        let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
+        let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
+        sort_tx.execute(sql, args)?;
+        Ok(())
+    }
+
+    /// Get a pre-processed reawrd set.
+    /// `sortition_id` is the first sortition ID of the prepare phase.
+    pub fn get_preprocessed_reward_set(sortdb: &DBConn, sortition_id: &SortitionId) -> Result<Option<RewardCycleInfo>, db_error> {
+        let sql = "SELECT reward_set FROM preprocessed_reward_sets WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let reward_set_opt : Option<String> = sortdb.query_row(sql, args, |row| row.get(0))
+            .optional()
+            .map_err(db_error::from)?;
+
+        if let Some(reward_set_str) = reward_set_opt {
+            let rc_info : RewardCycleInfo = serde_json::from_str(&reward_set_str).map_err(|_| db_error::ParseError)?;
+            Ok(Some(rc_info))
+        }
+        else {
+            Ok(None)
+        }
+    } 
 }
 
 impl<'a> SortitionDBTx<'a> {
@@ -4825,7 +4870,9 @@ impl SortitionDB {
         })
     }
 
-    /// Get a block commit by its committed block
+    /// Get a block commit by its committed block.
+    /// For Nakamoto, `consensus_hash` and `block_hash` are the hashes that combine to form the
+    /// `last_tenure_id` (i.e. the index block hash of the first block in the last tenure)
     pub fn get_block_commit_for_stacks_block(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4868,6 +4915,16 @@ impl SortitionDB {
             }
             None => Ok(None),
         }
+    }
+    
+    /// Get a block snapshot for a winning Nakamoto tenure in a given burn chain fork.
+    pub fn get_block_snapshot_for_winning_nakamoto_tenure(
+        ic: &SortitionDBConn,
+        tip: &SortitionId,
+        last_tenure_id: &StacksBlockId,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        let block_hash = BlockHeaderHash(last_tenure_id.0.clone());
+        Self::get_block_snapshot_for_winning_stacks_block(ic, tip, &block_hash)
     }
 
     /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
@@ -5095,8 +5152,6 @@ impl<'a> SortitionHandleTx<'a> {
 
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
-
-        // TODO: update canonical Stacks tip across burnchain forks
 
         // preserve memoized stacks chain tip from this burn chain fork
         sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
@@ -10287,6 +10342,8 @@ pub mod tests {
             5,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
