@@ -1493,13 +1493,13 @@ impl NakamotoChainState {
         // PoX constants for the system
         pox_constants: &PoxConstants,
         // Stacks chain tip
-        chain_tip: &StacksHeaderInfo,
+        parent_consensus_hash: ConsensusHash,
+        parent_header_hash: BlockHeaderHash,
+        parent_stacks_height: u64,
+        parent_burn_height: u32,
         // Burnchain block hash and height of the tenure for this Stacks block
         burn_header_hash: BurnchainHeaderHash,
         burn_header_height: u32,
-        // Parent Stacks block's tenure's burnchain block hash and its consensus hash
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
         // are we in mainnet or testnet?
         mainnet: bool,
         // is this the start of a new tenure?
@@ -1511,7 +1511,7 @@ impl NakamotoChainState {
         let parent_sortition_id = sortition_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
-        let tip_index_hash = chain_tip.index_block_hash();
+        let tip_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_rewards_pair = if !tenure_changed {
@@ -1588,7 +1588,7 @@ impl NakamotoChainState {
                 StacksChainState::find_mature_miner_rewards(
                     &mut clarity_tx,
                     sortition_dbconn.sqlite_conn(),
-                    &chain_tip,
+                    parent_stacks_height,
                     latest_matured_miners,
                     matured_miner_parent,
                 )
@@ -1630,9 +1630,9 @@ impl NakamotoChainState {
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_header_height)?;
 
         debug!(
-            "Setup block: Processed epoch transition at {}/{}",
-            &chain_tip.consensus_hash,
-            &chain_tip.anchored_header.block_hash()
+            "Setup block: Processed epoch transition";
+            "parent_consensus_hash" => %parent_consensus_hash,
+            "parent_header_hash" => %parent_header_hash,
         );
 
         let evaluated_epoch = clarity_tx.get_epoch();
@@ -1643,13 +1643,13 @@ impl NakamotoChainState {
                 sortition_dbconn.as_burn_state_db(),
                 sortition_dbconn,
                 &mut clarity_tx,
-                chain_tip,
+                parent_burn_height,
                 &parent_sortition_id,
             )?;
             debug!(
-                "Setup block: Processed unlock events at {}/{}",
-                &chain_tip.consensus_hash,
-                &chain_tip.anchored_header.block_hash()
+                "Setup block: Processed unlock events";
+                "parent_consensus_hash" => %parent_consensus_hash,
+                "parent_header_hash" => %parent_header_hash,
             );
             unlock_events
         } else {
@@ -1664,20 +1664,16 @@ impl NakamotoChainState {
             stacking_burn_ops.clone(),
             active_pox_contract,
         ));
-        debug!(
-            "Setup block: Processed burnchain stacking ops for {}/{}",
-            &chain_tip.consensus_hash,
-            &chain_tip.anchored_header.block_hash()
-        );
         tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
         debug!(
-            "Setup block: Processed burnchain transfer ops for {}/{}",
-            &chain_tip.consensus_hash,
-            &chain_tip.anchored_header.block_hash()
+            "Setup block: Processed burnchain stacking and transfer ops";
+            "parent_consensus_hash" => %parent_consensus_hash,
+            "parent_header_hash" => %parent_header_hash,
         );
+
         // DelegateStx ops are allowed from epoch 2.1 onward.
         // The query for the delegate ops only returns anything in and after Epoch 2.1,
         // but we do a second check here just to be safe.
@@ -1688,17 +1684,18 @@ impl NakamotoChainState {
                 active_pox_contract,
             ));
             debug!(
-                "Setup block: Processed burnchain delegate ops for {}/{}",
-                &chain_tip.consensus_hash,
-                &chain_tip.anchored_header.block_hash()
+                "Setup block: Processed burnchain delegate ops";
+                "parent_consensus_hash" => %parent_consensus_hash,
+                "parent_header_hash" => %parent_header_hash,
             );
         }
 
         debug!(
-            "Setup block: ready to go for {}/{}",
-            &chain_tip.consensus_hash,
-            &chain_tip.anchored_header.block_hash()
+            "Setup block: completed setup";
+            "parent_consensus_hash" => %parent_consensus_hash,
+            "parent_header_hash" => %parent_header_hash,
         );
+
         Ok(SetupBlockResult {
             clarity_tx,
             tx_receipts,
@@ -1713,7 +1710,7 @@ impl NakamotoChainState {
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
-    fn append_block<'a>(
+    pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
@@ -1830,13 +1827,14 @@ impl NakamotoChainState {
             clarity_instance,
             burn_dbconn,
             pox_constants,
-            &parent_chain_tip,
+            parent_ch,
+            parent_block_hash,
+            parent_chain_tip.stacks_block_height,
+            parent_chain_tip.burn_header_height,
             burn_header_hash,
             burn_header_height.try_into().map_err(|_| {
                 ChainstateError::InvalidStacksBlock("Burn block height exceeded u32".into())
             })?,
-            parent_ch,
-            parent_block_hash,
             mainnet,
             tenure_changed,
             tenure_height,

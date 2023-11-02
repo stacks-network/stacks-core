@@ -25,13 +25,14 @@ use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::ClarityVersion;
 use clarity::vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::TransactionPayloadID;
 use crate::core::*;
 use crate::net::Error as net_error;
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
@@ -256,28 +257,33 @@ impl StacksMessageCodec for TransactionPayload {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, codec_error> {
-        let type_id: u8 = read_next(fd)?;
+        let type_id_u8 = read_next(fd)?;
+        let type_id = TransactionPayloadID::from_u8(type_id_u8).ok_or_else(|| {
+            codec_error::DeserializeError(format!(
+                "Failed to parse transaction -- unknown payload ID {type_id_u8}"
+            ))
+        })?;
         let payload = match type_id {
-            x if x == TransactionPayloadID::TokenTransfer as u8 => {
+            TransactionPayloadID::TokenTransfer => {
                 let principal = read_next(fd)?;
                 let amount = read_next(fd)?;
                 let memo = read_next(fd)?;
                 TransactionPayload::TokenTransfer(principal, amount, memo)
             }
-            x if x == TransactionPayloadID::ContractCall as u8 => {
+            TransactionPayloadID::ContractCall => {
                 let payload: TransactionContractCall = read_next(fd)?;
                 TransactionPayload::ContractCall(payload)
             }
-            x if x == TransactionPayloadID::SmartContract as u8 => {
+            TransactionPayloadID::SmartContract => {
                 let payload: TransactionSmartContract = read_next(fd)?;
                 TransactionPayload::SmartContract(payload, None)
             }
-            x if x == TransactionPayloadID::VersionedSmartContract as u8 => {
+            TransactionPayloadID::VersionedSmartContract => {
                 let version = ClarityVersion_consensus_deserialize(fd)?;
                 let payload: TransactionSmartContract = read_next(fd)?;
                 TransactionPayload::SmartContract(payload, Some(version))
             }
-            x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
+            TransactionPayloadID::PoisonMicroblock => {
                 let h1: StacksMicroblockHeader = read_next(fd)?;
                 let h2: StacksMicroblockHeader = read_next(fd)?;
 
@@ -298,11 +304,11 @@ impl StacksMessageCodec for TransactionPayload {
 
                 TransactionPayload::PoisonMicroblock(h1, h2)
             }
-            x if x == TransactionPayloadID::Coinbase as u8 => {
+            TransactionPayloadID::Coinbase => {
                 let payload: CoinbasePayload = read_next(fd)?;
                 TransactionPayload::Coinbase(payload, None, None)
             }
-            x if x == TransactionPayloadID::CoinbaseToAltRecipient as u8 => {
+            TransactionPayloadID::CoinbaseToAltRecipient => {
                 let payload: CoinbasePayload = read_next(fd)?;
                 let principal_value: Value = read_next(fd)?;
                 let recipient = match principal_value {
@@ -314,12 +320,12 @@ impl StacksMessageCodec for TransactionPayload {
 
                 TransactionPayload::Coinbase(payload, Some(recipient), None)
             }
-            x if x == TransactionPayloadID::TenureChange as u8 => {
+            TransactionPayloadID::TenureChange => {
                 let payload : TenureChangePayload = read_next(fd)?;
                 TransactionPayload::TenureChange(payload)
             }
             // TODO: gate this!
-            x if x == TransactionPayloadID::NakamotoCoinbase as u8 => {
+            TransactionPayloadID::NakamotoCoinbase => {
                 let payload: CoinbasePayload = read_next(fd)?;
                 let principal_value_opt: Value = read_next(fd)?;
                 let recipient_opt = if let Value::Optional(optional_data) = principal_value_opt {
@@ -344,15 +350,22 @@ impl StacksMessageCodec for TransactionPayload {
                 };
                 TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
             }
-            _ => {
-                return Err(codec_error::DeserializeError(format!(
-                    "Failed to parse transaction -- unknown payload ID {}",
-                    type_id
-                )));
-            }
         };
 
         Ok(payload)
+    }
+}
+
+impl<'a, H> FromIterator<&'a StacksTransaction> for MerkleTree<H>
+where
+    H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
+{
+    fn from_iter<T: IntoIterator<Item = &'a StacksTransaction>>(iter: T) -> Self {
+        let txid_vec = iter
+            .into_iter()
+            .map(|x| x.txid().as_bytes().to_vec())
+            .collect();
+        MerkleTree::new(&txid_vec)
     }
 }
 

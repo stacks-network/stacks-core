@@ -716,9 +716,7 @@ impl TransactionPayload {
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPayloadID {
+define_u8_enum!(TransactionPayloadID {
     TokenTransfer = 0,
     SmartContract = 1,
     ContractCall = 2,
@@ -729,8 +727,8 @@ pub enum TransactionPayloadID {
     VersionedSmartContract = 6,
     TenureChange = 7,
     // has a VRF proof, and may have an alt principal
-    NakamotoCoinbase = 8,
-}
+    NakamotoCoinbase = 8
+});
 
 /// Encoding of an asset type identifier
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

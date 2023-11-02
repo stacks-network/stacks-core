@@ -268,6 +268,39 @@ impl ConfigFile {
         }
     }
 
+    pub fn mockamoto() -> ConfigFile {
+        let burnchain = BurnchainConfigFile {
+            mode: Some("mockamoto".into()),
+            rpc_port: Some(8332),
+            peer_port: Some(8333),
+            peer_host: Some("localhost".into()),
+            username: Some("blockstack".into()),
+            password: Some("blockstacksystem".into()),
+            magic_bytes: Some("M3".into()),
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: None,
+            miner: Some(true),
+            ..NodeConfigFile::default()
+        };
+
+        let mining_key = Secp256k1PrivateKey::new();
+        let miner = MinerConfigFile {
+            mining_key: Some(mining_key.to_hex()),
+            ..MinerConfigFile::default()
+        };
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            ustx_balance: None,
+            miner: Some(miner),
+            ..ConfigFile::default()
+        }
+    }
+
     pub fn helium() -> ConfigFile {
         // ## Settings for local testnet, relying on a local bitcoind server
         // ## running with the following bitcoin.conf:
@@ -922,12 +955,24 @@ impl Config {
                 unprocessed_block_deadline_secs: miner
                     .unprocessed_block_deadline_secs
                     .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
+                mining_key: miner
+                    .mining_key
+                    .as_ref()
+                    .map(|x| Secp256k1PrivateKey::from_hex(x))
+                    .transpose()?,
             },
             None => miner_default_config,
         };
 
         let supported_modes = vec![
-            "mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet",
+            "mocknet",
+            "helium",
+            "neon",
+            "argon",
+            "krypton",
+            "xenon",
+            "mainnet",
+            "mockamoto",
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
@@ -1447,7 +1492,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" => {
+            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
@@ -1925,6 +1970,7 @@ pub struct MinerConfig {
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
+    pub mining_key: Option<Secp256k1PrivateKey>,
 }
 
 impl MinerConfig {
@@ -1941,6 +1987,7 @@ impl MinerConfig {
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
+            mining_key: None,
         }
     }
 }
@@ -2045,6 +2092,7 @@ pub struct MinerConfigFile {
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
+    pub mining_key: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

@@ -130,9 +130,10 @@ pub struct MinerTenureInfo<'a> {
     ///  of the mined block
     pub burn_tip_height: u32,
     pub mainnet: bool,
-    pub chain_tip: StacksHeaderInfo,
     pub parent_consensus_hash: ConsensusHash,
     pub parent_header_hash: BlockHeaderHash,
+    pub parent_stacks_block_height: u64,
+    pub parent_burn_block_height: u32,
     pub tenure_start: bool,
     pub tenure_height: u64,
 }
@@ -317,7 +318,7 @@ impl NakamotoBlockBuilder {
             (StacksHeaderInfo::regtest_genesis(), FIRST_BURNCHAIN_CONSENSUS_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
         };
         
-        let tenure_height = if let Ok(Some(parent_tenure_height)) = NakamotoChainState::get_tenure_height(chainstate.db(), &chain_tip.index_block_hash()) {
+        let tenure_height = if let Ok(Some(parent_tenure_height)) = NakamotoChainState::get_tenure_height(chainstate.db(), &StacksBlockId::new(&parent_consensus_hash, &parent_header_hash)) {
             parent_tenure_height.checked_add(1).expect("Blockchain overflow")
         }
         else {
@@ -333,9 +334,10 @@ impl NakamotoBlockBuilder {
             burn_tip,
             burn_tip_height,
             mainnet,
-            chain_tip,
             parent_consensus_hash,
             parent_header_hash,
+            parent_stacks_block_height: chain_tip.stacks_block_height,
+            parent_burn_block_height: chain_tip.burn_header_height,
             tenure_start,
             tenure_height
         })
@@ -360,11 +362,12 @@ impl NakamotoBlockBuilder {
             info.clarity_instance,
             burn_dbconn,
             &burn_dbconn.context.pox_constants,
-            &info.chain_tip,
-            info.burn_tip,
-            info.burn_tip_height,
             info.parent_consensus_hash,
             info.parent_header_hash,
+            info.parent_stacks_block_height,
+            info.parent_burn_block_height,
+            info.burn_tip,
+            info.burn_tip_height,
             info.mainnet,
             info.tenure_start,
             info.tenure_height,

@@ -5235,7 +5235,7 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         sortition_dbconn: &dyn SortitionDBRef,
         clarity_tx: &mut ClarityTx,
-        chain_tip: &StacksHeaderInfo,
+        chain_tip_burn_header_height: u32,
         parent_sortition_id: &SortitionId,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
@@ -5274,7 +5274,7 @@ impl StacksChainState {
 
         let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
             parent_sortition_id,
-            chain_tip.burn_header_height.into(),
+            chain_tip_burn_header_height.into(),
             pox_reward_cycle,
         )?;
         debug!("check_and_handle_reward_start: got pox reward cycle info");
@@ -5421,7 +5421,7 @@ impl StacksChainState {
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
             conn,
-            &chain_tip,
+            chain_tip.stacks_block_height,
             latest_matured_miners,
             matured_miner_parent,
         ) {
@@ -5510,7 +5510,7 @@ impl StacksChainState {
                 burn_dbconn,
                 sortition_dbconn,
                 &mut clarity_tx,
-                chain_tip,
+                chain_tip.burn_header_height,
                 &parent_sortition_id,
             )?;
             debug!(

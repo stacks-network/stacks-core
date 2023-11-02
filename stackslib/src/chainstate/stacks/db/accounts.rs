@@ -991,17 +991,17 @@ impl StacksChainState {
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
         sortdb_conn: &Connection,
-        tip: &StacksHeaderInfo,
+        tip_stacks_height: u64,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
-        if tip.stacks_block_height <= MINER_REWARD_MATURITY {
+        if tip_stacks_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let reward_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
+        let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
