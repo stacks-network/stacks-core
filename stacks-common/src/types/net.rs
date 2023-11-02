@@ -107,9 +107,7 @@ impl PeerAddress {
     /// order.  Return None if this is not an IPv4 address.
     pub fn ipv4_bits(&self) -> Option<u32> {
         let octets_opt = self.ipv4_octets();
-        if octets_opt.is_none() {
-            return None;
-        }
+        octets_opt?;
 
         let octets = octets_opt.unwrap();
         Some(
@@ -291,8 +289,8 @@ impl FromStr for PeerHost {
                         // try as DNS-name:port
                         let host;
                         let port;
-                        let parts: Vec<&str> = header.split(":").collect();
-                        if parts.len() == 0 {
+                        let parts: Vec<&str> = header.split(':').collect();
+                        if parts.is_empty() {
                             return Err(Error::DecodeError(
                                 "Failed to parse PeerHost: no parts".to_string(),
                             ));
@@ -305,7 +303,7 @@ impl FromStr for PeerHost {
                             if parts[np - 1].chars().all(char::is_numeric) {
                                 // ends in :port
                                 let host_str = parts[0..np - 1].join(":");
-                                if host_str.len() == 0 {
+                                if host_str.is_empty() {
                                     return Err(Error::DecodeError("Empty host".to_string()));
                                 }
                                 host = Some(host_str);

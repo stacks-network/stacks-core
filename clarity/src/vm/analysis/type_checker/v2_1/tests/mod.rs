@@ -2239,7 +2239,7 @@ fn test_response_inference(#[case] version: ClarityVersion, #[case] epoch: Stack
 fn test_function_arg_names() {
     use crate::vm::analysis::type_check;
 
-    let functions = vec![
+    let functions = [
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))
          (define-read-only (test-ro (x int)) (ok 0))",
