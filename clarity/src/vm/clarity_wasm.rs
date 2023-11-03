@@ -13,7 +13,7 @@ use super::{
     types::{
         ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, CharType, FixedFunction,
         FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-        SequenceData, StandardPrincipalData, TupleData,
+        SequenceData, StandardPrincipalData, TraitIdentifier, TupleData,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -1603,6 +1603,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_define_ft_fn(linker)?;
     link_define_nft_fn(linker)?;
     link_define_map_fn(linker)?;
+    link_define_trait_fn(linker)?;
+    link_impl_trait_fn(linker)?;
 
     link_get_variable_fn(linker)?;
     link_set_variable_fn(linker)?;
@@ -2068,6 +2070,81 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_function".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "define_trait",
+            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let name =
+                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+                let cname = ClarityName::try_from(name.clone())?;
+
+                let trait_def = caller
+                    .data()
+                    .contract_analysis
+                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .get_defined_trait(name.as_str())
+                    .ok_or(Error::Unchecked(CheckErrors::DefineTraitBadSignature))?;
+
+                caller
+                    .data_mut()
+                    .contract_context_mut()?
+                    .defined_traits
+                    .insert(cname, trait_def.clone());
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_map".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "impl_trait",
+            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let trait_id_string =
+                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+                let trait_id = TraitIdentifier::parse_fully_qualified(trait_id_string.as_str())?;
+
+                caller
+                    .data_mut()
+                    .contract_context_mut()?
+                    .implemented_traits
+                    .insert(trait_id);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "define_map".to_string(),
                 e,
             ))
         })
