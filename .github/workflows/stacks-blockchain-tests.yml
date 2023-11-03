@@ -145,12 +145,15 @@ jobs:
         uses: actions/checkout@v3
       - name: Execute core contract unit tests in Clarinet
         id: clarinet_unit_test
-        uses: docker://hirosystems/clarinet:1.1.0
+        uses: actions/setup-node@v3
         with:
-          args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
+          node-version: 18.x
+          cache: "npm"
+      - run: npm ci
+      - run: npm test
       - name: Export code coverage
         id: clarinet_codecov
         uses: codecov/codecov-action@v3
         with:
-          files: ./coverage.lcov
+          files: ./lcov.info
           verbose: true
