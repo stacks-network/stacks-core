@@ -1637,7 +1637,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_map_insert_fn(linker)?;
     link_map_delete_fn(linker)?;
     link_get_block_info_fn(linker)?;
-    link_static_contract_call_fn(linker)?;
+    link_contract_call_fn(linker)?;
     link_print_fn(linker)?;
 
     link_log(linker)
@@ -4593,13 +4593,13 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         })
 }
 
-/// Link host interface function, `static_contract_call`, into the Wasm module.
+/// Link host interface function, `contract_call`, into the Wasm module.
 /// This function is called for `contract-call?`s with literal targets (not traits).
-fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
-            "static_contract_call",
+            "contract_call",
             |mut caller: Caller<'_, ClarityWasmContext>,
              contract_offset: i32,
              contract_length: i32,
@@ -4719,7 +4719,7 @@ fn link_static_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "static_contract_call".to_string(),
+                "contract_call".to_string(),
                 e,
             ))
         })
