@@ -1298,6 +1298,7 @@ pub mod test {
                 ))),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+            TransactionPayload::TenureChange(TenureChangePayload::mock())
         ];
 
         // create all kinds of transactions
@@ -1324,8 +1325,8 @@ pub mod test {
 
                     let tx = StacksTransaction {
                         version: (*version).clone(),
-                        chain_id: chain_id,
-                        auth: auth,
+                        chain_id,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1414,7 +1415,7 @@ pub mod test {
         };
 
         StacksBlock {
-            header: header,
+            header,
             txs: txs_anchored,
         }
     }

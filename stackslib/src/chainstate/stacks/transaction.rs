@@ -195,7 +195,21 @@ impl ThresholdSignature {
 
 impl TenureChangePayload {
     pub fn validate(&self) -> Result<(), TenureChangeError> {
+        // TODO
         Ok(())
+    }
+
+    /// Create mock data for testing. Not valid data (yet)
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        Self {
+            previous_tenure_end: StacksBlockId([0x55u8; 32]),
+            previous_tenure_blocks: 0x3579,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0xAAu8; 20]),
+            signature: ThresholdSignature::mock(),
+            signers: vec![],
+        }
     }
 }
 
@@ -1642,7 +1656,15 @@ mod test {
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
                 TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
-            TransactionPayload::TenureChange(_) => todo!(),
+            TransactionPayload::TenureChange(ref tc) => {
+                let mut hash = tc.pubkey_hash.as_bytes().clone();
+                hash[8] ^= 0x04; // Flip one bit
+                let corrupt_tc = TenureChangePayload {
+                    pubkey_hash: hash.into(),
+                    ..tc.clone()
+                };
+                TransactionPayload::TenureChange(corrupt_tc)
+            }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
 
@@ -3398,12 +3420,19 @@ mod test {
             TransactionPayload::PoisonMicroblock(header_1, header_2),
         );
 
+        let tx_tenure_change = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            auth.clone(),
+            TransactionPayload::TenureChange(TenureChangePayload::mock()),
+        );
+
         let txs = vec![
             tx_contract_call,
             tx_smart_contract,
             tx_coinbase,
             tx_stx,
             tx_poison,
+            tx_tenure_change,
         ];
         txs
     }
