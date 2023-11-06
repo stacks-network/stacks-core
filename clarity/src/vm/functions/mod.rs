@@ -69,6 +69,8 @@ macro_rules! switch_on_global_epoch {
 
 use crate::vm::ClarityVersion;
 
+use super::errors::InterpreterError;
+
 mod arithmetic;
 mod assets;
 mod boolean;
@@ -606,7 +608,10 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let input = eval(&args[0], env, context)?;
+    let arg = args.get(0).ok_or_else(|| {
+        InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
+    })?;
+    let input = eval(arg, env, context)?;
 
     runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
