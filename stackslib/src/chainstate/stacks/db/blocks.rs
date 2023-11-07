@@ -5298,13 +5298,11 @@ impl StacksChainState {
                         pox_start_cycle_info,
                     )
                 }
-                StacksEpochId::Epoch24 => {
-                    Self::handle_pox_cycle_start_pox_3(
-                        clarity_tx,
-                        pox_reward_cycle,
-                        pox_start_cycle_info,
-                    )
-                }
+                StacksEpochId::Epoch24 => Self::handle_pox_cycle_start_pox_3(
+                    clarity_tx,
+                    pox_reward_cycle,
+                    pox_start_cycle_info,
+                ),
                 StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
                     Self::handle_pox_cycle_start_pox_4(
                         clarity_tx,
@@ -6912,8 +6910,8 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) = clarity_connection
-            .with_clarity_db_readonly(|ref mut db| {
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+            clarity_connection.with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height() as u64,
                     db.get_v1_unlock_height(),

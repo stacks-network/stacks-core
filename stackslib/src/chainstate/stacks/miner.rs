@@ -619,7 +619,7 @@ pub trait BlockBuilder {
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
     ) -> TransactionResult;
-    
+
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Errors out if we fail to mine the tx (exceed budget, or the transaction is invalid).
     fn try_mine_tx(
@@ -2152,7 +2152,7 @@ impl StacksBlockBuilder {
         coinbase_tx: Option<&StacksTransaction>,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        ast_rules: ASTRules
+        ast_rules: ASTRules,
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let max_miner_time_ms = settings.max_miner_time_ms;
         let mempool_settings = settings.mempool_settings.clone();
@@ -2193,7 +2193,7 @@ impl StacksBlockBuilder {
             &parent_stacks_header.anchored_header.block_hash()
         );
         let result = {
-            let mut intermediate_result : Result<_, Error> = Ok(0);
+            let mut intermediate_result: Result<_, Error> = Ok(0);
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
                 intermediate_result = mempool.iterate_candidates(
@@ -2442,7 +2442,7 @@ impl StacksBlockBuilder {
         let block_limit = epoch_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
-        
+
         let (blocked, tx_events) = match Self::select_and_apply_transactions(
             &mut epoch_tx,
             &mut builder,
@@ -2451,7 +2451,7 @@ impl StacksBlockBuilder {
             Some(coinbase_tx),
             settings,
             event_observer,
-            ast_rules
+            ast_rules,
         ) {
             Ok(x) => x,
             Err(e) => {

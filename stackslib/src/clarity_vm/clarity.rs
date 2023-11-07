@@ -1278,7 +1278,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             (old_cost_tracker, Ok(vec![pox_3_initialization_receipt]))
         })
     }
-    
+
     pub fn initialize_epoch_2_5(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -1299,7 +1299,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // require 3.0 rules henceforth in this connection as well
                 tx_conn.epoch = StacksEpochId::Epoch25;
             });
-            
+
             /////////////////// .pox-4 ////////////////////////
             let mainnet = self.mainnet;
             let first_block_height = self.burn_state_db.get_burn_start_height();
@@ -1414,7 +1414,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             debug!("Epoch 2.5 initialized");
             (old_cost_tracker, Ok(vec![pox_4_initialization_receipt]))
         })
-    }    
+    }
 
     pub fn initialize_epoch_3_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
@@ -1440,7 +1440,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             debug!("Epoch 3.0 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
-    }    
+    }
 
     pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {
         let store = &mut self.datastore;
@@ -2609,7 +2609,7 @@ mod tests {
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
-            
+
             fn get_v3_unlock_height(&self) -> u32 {
                 u32::MAX
             }
@@ -2621,7 +2621,7 @@ mod tests {
             fn get_pox_3_activation_height(&self) -> u32 {
                 u32::MAX
             }
-            
+
             fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }

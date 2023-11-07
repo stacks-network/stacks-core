@@ -31,8 +31,8 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
-use crate::chainstate::stacks::*;
 use crate::chainstate::stacks::TransactionPayloadID;
+use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
@@ -243,7 +243,12 @@ impl StacksMessageCodec for TransactionPayload {
                     (Some(recipient), Some(vrf_proof)) => {
                         write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
                         write_next(fd, buf)?;
-                        write_next(fd, &Value::some(Value::Principal(recipient.clone())).expect("FATAL: failed to encode recipient principal as `optional`"))?;
+                        write_next(
+                            fd,
+                            &Value::some(Value::Principal(recipient.clone())).expect(
+                                "FATAL: failed to encode recipient principal as `optional`",
+                            ),
+                        )?;
                         write_next(fd, &vrf_proof.to_bytes().to_vec())?;
                     }
                 }
@@ -321,7 +326,7 @@ impl StacksMessageCodec for TransactionPayload {
                 TransactionPayload::Coinbase(payload, Some(recipient), None)
             }
             TransactionPayloadID::TenureChange => {
-                let payload : TenureChangePayload = read_next(fd)?;
+                let payload: TenureChangePayload = read_next(fd)?;
                 TransactionPayload::TenureChange(payload)
             }
             // TODO: gate this!
@@ -332,21 +337,20 @@ impl StacksMessageCodec for TransactionPayload {
                     if let Some(principal_value) = optional_data.data {
                         if let Value::Principal(recipient_principal) = *principal_value {
                             Some(recipient_principal)
-                        }
-                        else {
+                        } else {
                             None
                         }
-                    }
-                    else {
+                    } else {
                         None
                     }
-                }
-                else {
+                } else {
                     return Err(codec_error::DeserializeError("Failed to parse nakamoto coinbase transaction -- did not receive an optional recipient principal value".to_string()));
                 };
                 let vrf_proof_bytes: Vec<u8> = read_next(fd)?;
                 let Some(vrf_proof) = VRFProof::from_bytes(&vrf_proof_bytes) else {
-                    return Err(codec_error::DeserializeError("Failed to decode coinbase VRF proof".to_string()));
+                    return Err(codec_error::DeserializeError(
+                        "Failed to decode coinbase VRF proof".to_string(),
+                    ));
                 };
                 TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
             }
@@ -677,7 +681,9 @@ impl StacksTransaction {
     }
 
     /// Try to convert to a coinbase payload
-    pub fn try_as_coinbase(&self) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
+    pub fn try_as_coinbase(
+        &self,
+    ) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
         match &self.payload {
             TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
                 Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
@@ -1652,7 +1658,11 @@ mod test {
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone(), vrf_proof_opt.clone())
+                TransactionPayload::Coinbase(
+                    corrupt_buf,
+                    recipient_opt.clone(),
+                    vrf_proof_opt.clone(),
+                )
             }
             TransactionPayload::TenureChange(_) => todo!(),
         };
@@ -1890,7 +1900,8 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_coinbase() {
-        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None);
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None);
         let coinbase_payload_bytes = vec![
             // payload type ID
             TransactionPayloadID::Coinbase as u8,

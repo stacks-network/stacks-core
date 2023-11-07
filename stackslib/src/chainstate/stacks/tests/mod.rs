@@ -427,7 +427,7 @@ impl TestStacksNode {
         };
         block_commit_op
     }
-    
+
     pub fn get_last_key(&self, miner: &TestMiner) -> LeaderKeyRegisterOp {
         let last_vrf_pubkey = miner.last_VRF_public_key().unwrap();
         let idx = *self.key_ops.get(&last_vrf_pubkey).unwrap();
@@ -445,7 +445,7 @@ impl TestStacksNode {
             }
         }
     }
-    
+
     pub fn get_last_accepted_anchored_block(
         &self,
         sortdb: &SortitionDB,
@@ -490,7 +490,7 @@ impl TestStacksNode {
         }
         return None;
     }
-    
+
     pub fn get_microblock_stream(
         &self,
         miner: &TestMiner,
@@ -508,7 +508,7 @@ impl TestStacksNode {
             Some(idx) => Some(self.anchored_blocks[*idx].clone()),
         }
     }
-    
+
     pub fn get_last_winning_snapshot(
         ic: &SortitionDBConn,
         fork_tip: &BlockSnapshot,
@@ -584,7 +584,7 @@ impl TestStacksNode {
         );
         block_commit_op
     }
-    
+
     /// Mine a single Stacks block and a microblock stream.
     /// Produce its block-commit.
     pub fn mine_stacks_block<F>(
@@ -1035,7 +1035,7 @@ pub fn make_coinbase_with_nonce(
         TransactionPayload::Coinbase(
             CoinbasePayload([(burnchain_height % 256) as u8; 32]),
             recipient,
-            None
+            None,
         ),
     );
     tx_coinbase.chain_id = 0x80000000;

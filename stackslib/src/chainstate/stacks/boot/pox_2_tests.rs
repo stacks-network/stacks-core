@@ -528,7 +528,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 //  the invariant checks will not make sense for the same reasons as above
                 continue;
             }
-            
+
             if tip_epoch.epoch_id >= StacksEpochId::Epoch25
                 && current_burn_height
                     <= peer.config.burnchain.pox_constants.pox_4_activation_height

@@ -379,7 +379,6 @@ lazy_static! {
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
-            
             epoch_id: StacksEpochId::Epoch25,
             start_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
@@ -996,7 +995,7 @@ impl StacksEpochExtension for StacksEpoch {
             },
         ]
     }
-    
+
     #[cfg(test)]
     fn unit_test_2_5(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
@@ -1266,7 +1265,7 @@ impl StacksEpochExtension for StacksEpoch {
             },
         ]
     }
-    
+
     #[cfg(test)]
     fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(

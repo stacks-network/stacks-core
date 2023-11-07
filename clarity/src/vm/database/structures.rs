@@ -149,7 +149,7 @@ pub enum STXBalance {
     LockedPoxFour {
         amount_unlocked: u128,
         amount_locked: u128,
-        unlock_height: u64
+        unlock_height: u64,
     },
 }
 
@@ -392,7 +392,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
-            v3_unlock_height
+            v3_unlock_height,
         )
     }
 
@@ -401,7 +401,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let v2_unlock_height = self.db_ref.get_v2_unlock_height();
         let v3_unlock_height = self.db_ref.get_v3_unlock_height();
         self.balance
-            .canonical_repr_at_block(self.burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height)
+            .canonical_repr_at_block(
+                self.burn_block_height,
+                v1_unlock_height,
+                v2_unlock_height,
+                v3_unlock_height,
+            )
             .0
     }
 
@@ -413,7 +418,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
-            v3_unlock_height
+            v3_unlock_height,
         )
     }
 
@@ -719,7 +724,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             STXBalance::LockedPoxThree { .. }
         )
     }
-    
+
     //////////////// Pox-4 //////////////////
 
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
@@ -926,7 +931,12 @@ impl STXBalance {
     ///  *while* factoring in the PoX 2 early unlock for PoX 1 and PoX 3 early unlock for PoX 2.
     /// This value is still lazy: this unlock height may be less than the current
     ///  burn block height, if so it will be updated in a canonicalized view.
-    pub fn effective_unlock_height(&self, v1_unlock_height: u32, v2_unlock_height: u32, v3_unlock_height: u32) -> u64 {
+    pub fn effective_unlock_height(
+        &self,
+        v1_unlock_height: u32,
+        v2_unlock_height: u32,
+        v3_unlock_height: u32,
+    ) -> u64 {
         match self {
             STXBalance::Unlocked { .. } => 0,
             STXBalance::LockedPoxOne { unlock_height, .. } => {

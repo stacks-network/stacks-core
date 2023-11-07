@@ -202,7 +202,7 @@ impl BurnStateDB for &dyn BurnStateDB {
     fn get_v2_unlock_height(&self) -> u32 {
         (*self).get_v2_unlock_height()
     }
-    
+
     fn get_v3_unlock_height(&self) -> u32 {
         (*self).get_v3_unlock_height()
     }
@@ -210,7 +210,7 @@ impl BurnStateDB for &dyn BurnStateDB {
     fn get_pox_3_activation_height(&self) -> u32 {
         (*self).get_pox_3_activation_height()
     }
-    
+
     fn get_pox_4_activation_height(&self) -> u32 {
         (*self).get_pox_4_activation_height()
     }
@@ -388,7 +388,7 @@ impl BurnStateDB for NullBurnStateDB {
     fn get_v2_unlock_height(&self) -> u32 {
         u32::MAX
     }
-    
+
     fn get_v3_unlock_height(&self) -> u32 {
         u32::MAX
     }
@@ -396,7 +396,7 @@ impl BurnStateDB for NullBurnStateDB {
     fn get_pox_3_activation_height(&self) -> u32 {
         u32::MAX
     }
-    
+
     fn get_pox_4_activation_height(&self) -> u32 {
         u32::MAX
     }
@@ -837,7 +837,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_pox_3_activation_height(&self) -> u32 {
         self.burn_state_db.get_pox_3_activation_height()
     }
-    
+
     /// Return the height for PoX 4 activation from the burn state db
     pub fn get_pox_4_activation_height(&self) -> u32 {
         self.burn_state_db.get_pox_4_activation_height()
@@ -852,7 +852,7 @@ impl<'a> ClarityDatabase<'a> {
             u32::MAX
         }
     }
-    
+
     /// Return the height for PoX v3 -> v4 auto unlocks
     ///   from the burn state db
     pub fn get_v3_unlock_height(&mut self) -> u32 {

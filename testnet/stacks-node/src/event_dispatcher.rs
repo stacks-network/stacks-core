@@ -355,7 +355,7 @@ impl EventObserver {
     fn send_mined_microblock(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MINED_MICROBLOCK);
     }
-    
+
     fn send_mined_nakamoto_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
     }
@@ -482,7 +482,7 @@ impl MemPoolEventDispatcher for EventDispatcher {
             anchor_block,
         );
     }
-    
+
     fn mined_nakamoto_block_event(
         &self,
         target_burn_height: u64,
@@ -937,7 +937,7 @@ impl EventDispatcher {
             observer.send_mined_microblock(&payload);
         }
     }
-   
+
     pub fn process_mined_nakamoto_block_event(
         &self,
         target_burn_height: u64,

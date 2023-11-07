@@ -356,7 +356,7 @@ impl StacksChainState {
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
     }
-    
+
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
@@ -987,7 +987,7 @@ impl StacksChainState {
 
         Ok(ret)
     }
-    
+
     /// Get all PoX reward addresses from .pox-4
     /// TODO: also return their stacker signer keys (as part of `RawRewardSetEntry`
     fn get_reward_addresses_pox_4(
@@ -1099,7 +1099,10 @@ impl StacksChainState {
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
-        debug!("Active PoX contract at {} (burn height {}): {}", block_id, current_burn_height, &pox_contract_name);
+        debug!(
+            "Active PoX contract at {} (burn height {}): {}",
+            block_id, current_burn_height, &pox_contract_name
+        );
         let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
@@ -1222,8 +1225,20 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants =
-            PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX, u32::MAX, u32::MAX);
+        let test_pox_constants = PoxConstants::new(
+            501,
+            1,
+            1,
+            1,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        );
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
@@ -1603,7 +1618,7 @@ pub mod test {
     ) -> StacksTransaction {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
-    
+
     /// TODO: add signer key
     pub fn make_pox_4_lockup(
         key: &StacksPrivateKey,

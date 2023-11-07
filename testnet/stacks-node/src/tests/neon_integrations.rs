@@ -212,7 +212,9 @@ pub mod test_observer {
     use warp;
     use warp::Filter;
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent, StackerDBChunksEvent};
+    use crate::event_dispatcher::{
+        MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent, StackerDBChunksEvent,
+    };
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -220,7 +222,8 @@ pub mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
-        pub static ref MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
+        pub static ref MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> =
+            Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
             Mutex::new(Vec::new());
@@ -251,7 +254,7 @@ pub mod test_observer {
         microblock_events.push(microblocks);
         Ok(warp::http::StatusCode::OK)
     }
-    
+
     async fn handle_stackerdb_chunks(
         chunks: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -310,8 +313,10 @@ pub mod test_observer {
         mined_txs.push(serde_json::from_value(tx_event).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
-    
-    async fn handle_mined_nakamoto_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+
+    async fn handle_mined_nakamoto_block(
+        block: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
         let mut mined_blocks = MINED_NAKAMOTO_BLOCKS.lock().unwrap();
         // assert that the mined transaction events have string-y txids
         block
