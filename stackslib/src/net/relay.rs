@@ -43,8 +43,8 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -661,7 +661,7 @@ impl Relayer {
         }
         Ok(res)
     }
-    
+
     /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
@@ -675,27 +675,34 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash()
         );
-        
+
         // do we have this block?  don't lock the DB needlessly if so.
-        if let Some(_) = NakamotoChainState::get_block_header(chainstate.db(), &block.header.block_id())? {
+        if let Some(_) =
+            NakamotoChainState::get_block_header(chainstate.db(), &block.header.block_id())?
+        {
             debug!("Already have Nakamoto block {}", &block.header.block_id());
             return Ok(false);
         }
 
-        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
-            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+        let block_sn =
+            SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
+                .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
 
-        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
-        // txs problematic).
-        let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height)?
+        // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
+        // tenure, right after the last 2.x sortition
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
 
         if epoch_id < StacksEpochId::Epoch30 {
             error!("Nakamoto blocks are not supported in this epoch");
-            return Err(chainstate_error::InvalidStacksBlock("Nakamoto blocks are not supported in this epoch".into()));
+            return Err(chainstate_error::InvalidStacksBlock(
+                "Nakamoto blocks are not supported in this epoch".into(),
+            ));
         }
 
+        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
+        // txs problematic).
         if !Relayer::static_check_problematic_relayed_nakamoto_block(
             chainstate.mainnet,
             epoch_id,
@@ -718,12 +725,10 @@ impl Relayer {
             &block.header.block_hash()
         );
 
+        let config = chainstate.config();
         let staging_db_tx = chainstate.db_tx_begin()?;
-        let accepted = NakamotoChainState::accept_block(
-            block,
-            sort_handle,
-            &staging_db_tx
-        )?;
+        let accepted =
+            NakamotoChainState::accept_block(&config, block, sort_handle, &staging_db_tx)?;
         staging_db_tx.commit()?;
 
         if accepted {
@@ -1384,7 +1389,7 @@ impl Relayer {
         }
         true
     }
-    
+
     /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
     /// transactions.  This is a static check -- we only look at the block contents.
     ///
@@ -1773,6 +1778,7 @@ impl Relayer {
     }
 
     /// Set up the unconfirmed chain state off of the canonical chain tip.
+    /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -1794,7 +1800,8 @@ impl Relayer {
         Ok(processed_unconfirmed_state)
     }
 
-    /// Set up unconfirmed chain state in a read-only fashion
+    /// Set up unconfirmed chain state in a read-only fashion.
+    /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state_readonly(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -1815,6 +1822,8 @@ impl Relayer {
         Ok(())
     }
 
+    /// Reload unconfirmed microblock stream.
+    /// Only call if we're in Stacks 2.x
     pub fn refresh_unconfirmed(
         chainstate: &mut StacksChainState,
         sortdb: &mut SortitionDB,
