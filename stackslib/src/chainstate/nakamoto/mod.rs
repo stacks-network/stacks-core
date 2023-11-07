@@ -51,7 +51,7 @@ use super::stacks::db::{
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TransactionPayload,
+    TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
 };
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -345,7 +345,7 @@ impl NakamotoBlock {
             .txs
             .iter()
             .filter_map(|tx| match &tx.payload {
-                TransactionPayload::TenureChange(payload) => Some(payload),
+                TransactionPayload::TenureChange(payload, signature) => Some((payload, signature)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -359,18 +359,19 @@ impl NakamotoBlock {
             );
         }
 
-        let validate = |tc: &TenureChangePayload| -> Result<(), TenureChangeError> {
-            if tc.previous_tenure_end != *parent {
-                return Err(TenureChangeError::PreviousTenureInvalid);
-            }
+        let validate =
+            |tc: &TenureChangePayload, sig: &ThresholdSignature| -> Result<(), TenureChangeError> {
+                if tc.previous_tenure_end != *parent {
+                    return Err(TenureChangeError::PreviousTenureInvalid);
+                }
 
-            tc.validate()
-        };
+                tc.validate(sig)
+            };
 
         // Return true if there is a valid TenureChange
         tenure_changes
-            .iter()
-            .find(|tc| validate(tc).is_ok())
+            .into_iter()
+            .find(|(tc, sig)| validate(tc, sig).is_ok())
             .is_some()
     }
 

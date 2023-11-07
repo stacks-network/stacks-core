@@ -194,7 +194,7 @@ impl ThresholdSignature {
 }
 
 impl TenureChangePayload {
-    pub fn validate(&self) -> Result<(), TenureChangeError> {
+    pub fn validate(&self, signature: &ThresholdSignature) -> Result<(), TenureChangeError> {
         // TODO
         Ok(())
     }
@@ -207,7 +207,6 @@ impl TenureChangePayload {
             previous_tenure_blocks: 0x3579,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0xAAu8; 20]),
-            signature: ThresholdSignature::mock(),
             signers: vec![],
         }
     }
@@ -219,7 +218,6 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
         write_next(fd, &self.pubkey_hash)?;
-        write_next(fd, &self.signature)?;
         write_next(fd, &self.signers)
     }
 
@@ -229,7 +227,6 @@ impl StacksMessageCodec for TenureChangePayload {
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
             pubkey_hash: read_next(fd)?,
-            signature: read_next(fd)?,
             signers: read_next(fd)?,
         })
     }
@@ -279,9 +276,10 @@ impl StacksMessageCodec for TransactionPayload {
                     }
                 }
             }
-            TransactionPayload::TenureChange(tc) => {
+            TransactionPayload::TenureChange(tc, sig) => {
                 write_next(fd, &(TransactionPayloadID::TenureChange as u8))?;
                 tc.consensus_serialize(fd)?;
+                sig.consensus_serialize(fd)?;
             }
         }
         Ok(())
@@ -351,7 +349,11 @@ impl StacksMessageCodec for TransactionPayload {
 
                 TransactionPayload::Coinbase(payload, Some(recipient))
             }
-            TransactionPayloadID::TenureChange => TransactionPayload::TenureChange(read_next(fd)?),
+            TransactionPayloadID::TenureChange => {
+                let payload: TenureChangePayload = read_next(fd)?;
+                let signature: ThresholdSignature = read_next(fd)?;
+                TransactionPayload::TenureChange(payload, signature)
+            }
         };
 
         Ok(payload)
@@ -1656,14 +1658,14 @@ mod test {
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
                 TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
-            TransactionPayload::TenureChange(ref tc) => {
+            TransactionPayload::TenureChange(ref tc, ref sig) => {
                 let mut hash = tc.pubkey_hash.as_bytes().clone();
                 hash[8] ^= 0x04; // Flip one bit
                 let corrupt_tc = TenureChangePayload {
                     pubkey_hash: hash.into(),
                     ..tc.clone()
                 };
-                TransactionPayload::TenureChange(corrupt_tc)
+                TransactionPayload::TenureChange(corrupt_tc, sig.clone())
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
@@ -3423,7 +3425,10 @@ mod test {
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::TenureChange(TenureChangePayload::mock()),
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
         );
 
         let txs = vec![

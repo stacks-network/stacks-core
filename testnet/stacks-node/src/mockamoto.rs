@@ -398,9 +398,9 @@ impl MockamotoNode {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0; 20]),
-            signature: ThresholdSignature::mock(),
+            
             signers: vec![],
-        });
+        }, ThresholdSignature::mock());
         let mut tenure_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),

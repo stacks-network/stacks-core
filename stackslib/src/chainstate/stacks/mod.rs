@@ -680,8 +680,6 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
-    /// A Schnorr signature from at least 70% of the Stackers
-    pub signature: ThresholdSignature,
     /// A bitmap of which Stackers signed
     pub signers: Vec<u8>,
 }
@@ -693,7 +691,8 @@ pub enum TransactionPayload {
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload, Option<PrincipalData>),
-    TenureChange(TenureChangePayload),
+    /// Must contain a Schnorr threshold signature from at least 70% of the Stackers
+    TenureChange(TenureChangePayload, ThresholdSignature),
 }
 
 impl TransactionPayload {
@@ -1298,7 +1297,10 @@ pub mod test {
                 ))),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
-            TransactionPayload::TenureChange(TenureChangePayload::mock())
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
         ];
 
         // create all kinds of transactions
