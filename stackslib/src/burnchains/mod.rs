@@ -518,7 +518,11 @@ impl PoxConstants {
 
     /// Is this burnchain block height the start of a prepare phase?
     pub fn is_prepare_phase_start(&self, first_block_height: u64, burn_height: u64) -> bool {
-        let effective_height = burn_height - first_block_height;
+        let Some(effective_height) = burn_height.checked_sub(first_block_height)
+        else {
+            // if `burn_height < first_block_height`, then return false: this isn't the start of a prepare phase.
+            return false;
+        };
         (effective_height % u64::from(self.reward_cycle_length))
             == u64::from((self.reward_cycle_length - self.prepare_length) + 1)
     }
