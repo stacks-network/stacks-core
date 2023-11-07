@@ -19,13 +19,15 @@ use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::types::StacksAddressExtensions;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPrivateKey, StacksWorkScore,
     TrieHash,
 };
 use stacks_common::types::{PrivateKey, StacksEpoch, StacksEpochId};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, hex_bytes};
+use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof};
 use stdext::prelude::Integer;
@@ -41,7 +43,8 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-    ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
+    StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, SchnorrThresholdSignature, StacksBlockHeader, StacksTransaction,
@@ -50,6 +53,34 @@ use crate::chainstate::stacks::{
 };
 use crate::core;
 use crate::core::StacksEpochExtension;
+
+/// Get an address's account
+pub fn get_account(
+    chainstate: &mut StacksChainState,
+    sortdb: &SortitionDB,
+    addr: &StacksAddress,
+) -> StacksAccount {
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+        .unwrap()
+        .unwrap();
+    debug!(
+        "Canonical block header is {}/{} ({}): {:?}",
+        &tip.consensus_hash,
+        &tip.anchored_header.block_hash(),
+        &tip.index_block_hash(),
+        &tip
+    );
+
+    chainstate
+        .with_read_only_clarity_tx(
+            &sortdb.index_conn(),
+            &tip.index_block_hash(),
+            |clarity_conn| {
+                StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
+            },
+        )
+        .unwrap()
+}
 
 fn test_path(name: &str) -> String {
     format!("/tmp/stacks-node-tests/nakamoto-tests/{}", name)
@@ -99,10 +130,11 @@ pub fn nakamoto_advance_tip_simple() {
     let chain_tip_burn_header_hash = BurnchainHeaderHash([0; 32]);
     let chain_tip_burn_header_height = 1;
     let chain_tip_burn_header_timestamp = 100;
-    
+
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
     let proof = VRFProof::from_bytes(&proof_bytes).unwrap();
-    let coinbase_tx_payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(proof));
+    let coinbase_tx_payload =
+        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(proof));
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&stacker_sk).unwrap(),
@@ -308,10 +340,11 @@ pub fn staging_blocks() {
 
     block.header.miner_signature = miner_signature;
 
+    let config = chainstate.config();
     let (chainstate_tx, _clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
     let sortdb_conn = sort_db.index_handle_at_tip();
 
-    NakamotoChainState::accept_block(block.clone(), &sortdb_conn, &chainstate_tx).unwrap();
+    NakamotoChainState::accept_block(&config, block.clone(), &sortdb_conn, &chainstate_tx).unwrap();
 
     chainstate_tx.commit().unwrap();
 
@@ -427,7 +460,8 @@ pub fn nakamoto_advance_tip_multiple() {
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes).unwrap();
-        let coinbase_tx_payload = TransactionPayload::Coinbase(CoinbasePayload([i; 32]), None, Some(proof));
+        let coinbase_tx_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([i; 32]), None, Some(proof));
         let mut coinbase_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&miner_sk).unwrap(),
