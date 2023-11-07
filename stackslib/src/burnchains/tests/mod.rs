@@ -396,7 +396,8 @@ impl TestBurnchainBlock {
         leader_key: &LeaderKeyRegisterOp,
         fork_snapshot: Option<&BlockSnapshot>,
         parent_block_snapshot: Option<&BlockSnapshot>,
-        epoch_marker: u8
+        new_seed: Option<VRFSeed>,
+        epoch_marker: u8,
     ) -> LeaderBlockCommitOp {
         let input = (Txid([0; 32]), 0);
         let pubks = miner
@@ -417,15 +418,20 @@ impl TestBurnchainBlock {
             None => SortitionDB::get_first_block_snapshot(ic).unwrap(),
         };
 
-        // prove on the last-ever sortition's hash to produce the new seed
-        let proof = miner
-            .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
-            .expect(&format!(
-                "FATAL: no private key for {}",
-                leader_key.public_key.to_hex()
-            ));
+        let new_seed = if let Some(new_seed) = new_seed {
+            new_seed
+        } else {
+            // prove on the last-ever sortition's hash to produce the new seed
+            let proof = miner
+                .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
+                .expect(&format!(
+                    "FATAL: no private key for {}",
+                    leader_key.public_key.to_hex()
+                ));
 
-        let new_seed = VRFSeed::from_proof(&proof);
+            let new_seed = VRFSeed::from_proof(&proof);
+            new_seed
+        };
 
         let get_commit_res = SortitionDB::get_block_commit(
             ic.conn(),
@@ -480,7 +486,7 @@ impl TestBurnchainBlock {
         miner.block_commits.push(txop.clone());
         txop
     }
-    
+
     /// Add an epoch 2.x block-commit
     pub fn add_leader_block_commit(
         &mut self,
@@ -492,9 +498,19 @@ impl TestBurnchainBlock {
         fork_snapshot: Option<&BlockSnapshot>,
         parent_block_snapshot: Option<&BlockSnapshot>,
     ) -> LeaderBlockCommitOp {
-        self.inner_add_block_commit(ic, miner, block_hash, burn_fee, leader_key, fork_snapshot, parent_block_snapshot, STACKS_EPOCH_2_4_MARKER)
+        self.inner_add_block_commit(
+            ic,
+            miner,
+            block_hash,
+            burn_fee,
+            leader_key,
+            fork_snapshot,
+            parent_block_snapshot,
+            None,
+            STACKS_EPOCH_2_4_MARKER,
+        )
     }
-    
+
     pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) -> () {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
