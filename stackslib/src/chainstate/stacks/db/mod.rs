@@ -57,7 +57,8 @@ use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStx
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::nakamoto::{
-    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    NAKAMOTO_CHAINSTATE_SCHEMA_1,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -843,6 +844,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1976,9 +1978,9 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
-        match StacksChainState::has_stacks_block(self.db(), parent_tip) {
-            Ok(true) => {}
-            Ok(false) => {
+        match NakamotoChainState::get_block_header(self.db(), parent_tip) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 return None;
             }
             Err(e) => {
