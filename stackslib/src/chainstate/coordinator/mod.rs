@@ -750,14 +750,24 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             .expect("FATAL: no reward cycle for burn height");
 
         if prev_reward_cycle > 1 {
-            let prev_reward_cycle_start = burnchain.reward_cycle_to_block_height(prev_reward_cycle - 1);
-            let prepare_phase_start = prev_reward_cycle_start + u64::from(burnchain.pox_constants.reward_cycle_length) - u64::from(burnchain.pox_constants.prepare_length);
-            let first_prepare_sn = SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
-                .expect("FATAL: no start-of-prepare-phase sortition");
+            let prev_reward_cycle_start =
+                burnchain.reward_cycle_to_block_height(prev_reward_cycle - 1);
+            let prepare_phase_start = prev_reward_cycle_start
+                + u64::from(burnchain.pox_constants.reward_cycle_length)
+                - u64::from(burnchain.pox_constants.prepare_length);
+            let first_prepare_sn =
+                SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
+                    .expect("FATAL: no start-of-prepare-phase sortition");
 
             let mut tx = sort_db.tx_begin()?;
-            if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?.is_none() {
-                SortitionDB::store_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id, &reward_cycle_info)?;
+            if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?
+                .is_none()
+            {
+                SortitionDB::store_preprocessed_reward_set(
+                    &mut tx,
+                    &first_prepare_sn.sortition_id,
+                    &reward_cycle_info,
+                )?;
             }
             tx.commit()?;
         }
@@ -2251,20 +2261,23 @@ impl<
     }
 
     /// Outermost call to process a burnchain block.
-    /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not 
+    /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not
     /// Not called internally.
     /// NOTE: the 2.x and Nakamoto handlers return `Some(..)` in _different_ circumstances.  If
     /// that matters to you, then you should call them directly.
     pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
-        let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_burnchain_tip.block_height).expect("FATAL: epoch not defined for burnchain height");
-        let target_epoch = epochs.get(target_epoch_index).expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+        let target_epoch_index =
+            StacksEpoch::find_epoch(&epochs, canonical_burnchain_tip.block_height)
+                .expect("FATAL: epoch not defined for burnchain height");
+        let target_epoch = epochs
+            .get(target_epoch_index)
+            .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // burnchain has not yet advanced to epoch 3.0
             self.handle_new_epoch2_burnchain_block(&mut HashSet::new())
-        }
-        else {
+        } else {
             // burnchain has advanced to epoch 3.0, but has our sortition DB?
             let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
                 Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
@@ -2274,8 +2287,12 @@ impl<
                     )),
                 None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
             };
-            let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height).expect("FATAL: epoch not defined for BlockSnapshot height");
-            let target_epoch = epochs.get(target_epoch_index).expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+            let target_epoch_index =
+                StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height)
+                    .expect("FATAL: epoch not defined for BlockSnapshot height");
+            let target_epoch = epochs
+                .get(target_epoch_index)
+                .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
 
             if target_epoch.epoch_id < StacksEpochId::Epoch30 {
                 // need to catch the sortition DB up
