@@ -2073,12 +2073,16 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Has `consensus_hash` been processed in the current fork?
     pub fn processed_block(&self, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
-        let Some(bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
+        let Some(snapshot) = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
         else {
             return Ok(false);
         };
-        self.get_sortition_id_for_bhh(&bhh)
-            .map(|result| result.is_some())
+        let Some(expected_sortition_id) = self.get_sortition_id_for_bhh(&snapshot.burn_header_hash)?
+        else {
+            return Ok(false);
+        };
+        let matched_fork = expected_sortition_id == snapshot.sortition_id;
+        Ok(matched_fork)
     }
 
     pub fn get_tip_snapshot(&self) -> Result<Option<BlockSnapshot>, db_error> {
