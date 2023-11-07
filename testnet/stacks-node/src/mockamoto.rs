@@ -329,10 +329,7 @@ impl MockamotoNode {
         sortdb_tx.commit()?;
 
         let staging_db_tx = self.chainstate.db_tx_begin()?;
-        NakamotoChainState::set_burn_block_processed(
-            &staging_db_tx,
-            &new_snapshot.consensus_hash,
-        )?;
+        NakamotoChainState::set_burn_block_processed(&staging_db_tx, &new_snapshot.consensus_hash)?;
         staging_db_tx.commit()?;
 
         Ok(())
@@ -343,22 +340,24 @@ impl MockamotoNode {
         let chain_id = self.chainstate.chain_id;
         let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin().unwrap();
 
-        let (is_genesis, chain_tip_bh, chain_tip_ch) = match NakamotoChainState::get_canonical_block_header(
-            &chainstate_tx,
-            &self.sortdb,
-        ) {
-            Ok(Some(chain_tip)) => (false, chain_tip.anchored_header.block_hash(), chain_tip.consensus_hash),
-            Ok(None) | Err(ChainstateError::NoSuchBlockError) =>
-            // No stacks tip yet, parent should be genesis
-            {
-                (
-                    true,
-                    FIRST_STACKS_BLOCK_HASH,
-                    FIRST_BURNCHAIN_CONSENSUS_HASH,
-                )
-            }
-            Err(e) => return Err(e),
-        };
+        let (is_genesis, chain_tip_bh, chain_tip_ch) =
+            match NakamotoChainState::get_canonical_block_header(&chainstate_tx, &self.sortdb) {
+                Ok(Some(chain_tip)) => (
+                    false,
+                    chain_tip.anchored_header.block_hash(),
+                    chain_tip.consensus_hash,
+                ),
+                Ok(None) | Err(ChainstateError::NoSuchBlockError) =>
+                // No stacks tip yet, parent should be genesis
+                {
+                    (
+                        true,
+                        FIRST_STACKS_BLOCK_HASH,
+                        FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    )
+                }
+                Err(e) => return Err(e),
+            };
 
         let (parent_chain_length, parent_burn_height) = if is_genesis {
             (0, 0)
@@ -372,7 +371,8 @@ impl MockamotoNode {
         let miner_nonce = 2 * parent_chain_length;
 
         // TODO: VRF proof cannot be None in Nakamoto rules
-        let coinbase_tx_payload = TransactionPayload::Coinbase(CoinbasePayload([1; 32]), None, None);
+        let coinbase_tx_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([1; 32]), None, None);
         let mut coinbase_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
@@ -503,9 +503,10 @@ impl MockamotoNode {
 
     fn mine_and_stage_block(&mut self) -> Result<(), ChainstateError> {
         let block = self.mine_stacks_block()?;
+        let config = self.chainstate.config();
         let chainstate_tx = self.chainstate.db_tx_begin()?;
         let sortition_handle = self.sortdb.index_handle_at_tip();
-        NakamotoChainState::accept_block(block, &sortition_handle, &chainstate_tx)?;
+        NakamotoChainState::accept_block(&config, block, &sortition_handle, &chainstate_tx)?;
         chainstate_tx.commit()?;
         Ok(())
     }
@@ -514,7 +515,8 @@ impl MockamotoNode {
         let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin()?;
         let pox_constants = self.sortdb.pox_constants.clone();
         let mut sortdb_tx = self.sortdb.tx_begin_at_tip();
-        let Some((next_block, _)) = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)? else {
+        let Some((next_block, _)) = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)?
+        else {
             return Ok(false);
         };
 
