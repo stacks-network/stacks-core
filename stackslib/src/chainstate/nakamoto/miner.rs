@@ -30,10 +30,10 @@ use clarity::vm::analysis::{CheckError, CheckErrors};
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
-use clarity::vm::costs::ExecutionCost;
 
 use serde::Deserialize;
 use stacks_common::util::get_epoch_time_ms;
@@ -47,31 +47,31 @@ use crate::burnchains::PublicKey;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::nakamoto::SetupBlockResult;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::SetupBlockResult;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
+use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::db::{
     blocks::MemPoolRejection, ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState,
     MINER_REWARD_MATURITY,
 };
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::db::StacksHeaderInfo;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::miner::BlockBuilderSettings;
 use crate::chainstate::stacks::miner::BlockLimitFunction;
-use crate::chainstate::stacks::miner::TransactionResult;
-use crate::chainstate::stacks::miner::TransactionSkipped;
 use crate::chainstate::stacks::miner::TransactionError;
 use crate::chainstate::stacks::miner::TransactionProblematic;
-use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::miner::TransactionSkipped;
 use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::*;
-use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance, Error as clarity_error};
 use crate::core::mempool::*;
 use crate::core::*;
@@ -89,7 +89,7 @@ use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, ConsensusHash};
+use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksAddress};
 use stacks_common::util::hash::Hash160;
 
 /// New tenure information
@@ -97,7 +97,7 @@ pub struct NakamotoTenureStart {
     /// coinbase transaction for this miner
     pub coinbase_tx: StacksTransaction,
     /// VRF proof for this miner
-    pub vrf_proof: VRFProof
+    pub vrf_proof: VRFProof,
 }
 
 pub struct NakamotoBlockBuilder {
@@ -145,7 +145,7 @@ impl NakamotoBlockBuilder {
         parent: &NakamotoBlockHeader,
         consensus_hash: &ConsensusHash,
         total_burn: u64,
-        proof: &VRFProof
+        proof: &VRFProof,
     ) -> NakamotoBlockBuilder {
         let parent_commit_hash_value = BlockHeaderHash(parent_tenure_id.0.clone());
         NakamotoBlockBuilder {
@@ -157,10 +157,15 @@ impl NakamotoBlockBuilder {
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(parent.chain_length + 1, total_burn, consensus_hash.clone(), parent.block_id())
+            header: NakamotoBlockHeader::from_parent_empty(
+                parent.chain_length + 1,
+                total_burn,
+                consensus_hash.clone(),
+                parent.block_id(),
+            ),
         }
     }
-    
+
     /// Make a block builder atop a Nakamoto parent for a new block within a tenure
     pub fn continue_tenure_from_nakamoto_parent(
         parent: &NakamotoBlockHeader,
@@ -177,17 +182,22 @@ impl NakamotoBlockBuilder {
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(parent.chain_length + 1, total_burn, consensus_hash.clone(), parent.block_id())
+            header: NakamotoBlockHeader::from_parent_empty(
+                parent.chain_length + 1,
+                total_burn,
+                consensus_hash.clone(),
+                parent.block_id(),
+            ),
         }
     }
-    
+
     /// Make a block builder atop an epoch 2 parent for a new tenure
     pub fn new_tenure_from_epoch2_parent(
         parent: &StacksBlockHeader,
         parent_consensus_hash: &ConsensusHash,
         consensus_hash: &ConsensusHash,
         total_burn: u64,
-        proof: &VRFProof
+        proof: &VRFProof,
     ) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             epoch2_parent_header: Some((parent.clone(), parent_consensus_hash.clone())),
@@ -198,14 +208,17 @@ impl NakamotoBlockBuilder {
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(parent.total_work.work + 1, total_burn, consensus_hash.clone(), StacksBlockId::new(parent_consensus_hash, &parent.block_hash()))
+            header: NakamotoBlockHeader::from_parent_empty(
+                parent.total_work.work + 1,
+                total_burn,
+                consensus_hash.clone(),
+                StacksBlockId::new(parent_consensus_hash, &parent.block_hash()),
+            ),
         }
     }
 
     /// Make a block builder from genesis (testing only)
-    pub fn new_tenure_from_genesis(
-        proof: &VRFProof
-    ) -> NakamotoBlockBuilder {
+    pub fn new_tenure_from_genesis(proof: &VRFProof) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             epoch2_parent_header: None,
             nakamoto_parent_header: None,
@@ -215,7 +228,7 @@ impl NakamotoBlockBuilder {
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
-            header: NakamotoBlockHeader::genesis()
+            header: NakamotoBlockHeader::genesis(),
         }
     }
 
@@ -234,37 +247,54 @@ impl NakamotoBlockBuilder {
         // VRF proof, if we're starting a _new_ tenure (instead of continuing an existing one)
         vrf_proof_opt: Option<VRFProof>,
     ) -> Result<NakamotoBlockBuilder, Error> {
-        let builder = if let Some(parent_nakamoto_header) = parent_stacks_header.anchored_header.as_stacks_nakamoto() {
+        let builder = if let Some(parent_nakamoto_header) =
+            parent_stacks_header.anchored_header.as_stacks_nakamoto()
+        {
             // building atop a nakamoto block
             // new tenure?
             if let Some(vrf_proof) = vrf_proof_opt.as_ref() {
-                NakamotoBlockBuilder::new_tenure_from_nakamoto_parent(parent_tenure_id, parent_nakamoto_header, consensus_hash, total_burn, vrf_proof)
+                NakamotoBlockBuilder::new_tenure_from_nakamoto_parent(
+                    parent_tenure_id,
+                    parent_nakamoto_header,
+                    consensus_hash,
+                    total_burn,
+                    vrf_proof,
+                )
+            } else {
+                NakamotoBlockBuilder::continue_tenure_from_nakamoto_parent(
+                    parent_nakamoto_header,
+                    consensus_hash,
+                    total_burn,
+                )
             }
-            else {
-                NakamotoBlockBuilder::continue_tenure_from_nakamoto_parent(parent_nakamoto_header, consensus_hash, total_burn)
-            }
-        }
-        else if let Some(parent_epoch2_header) = parent_stacks_header.anchored_header.as_stacks_epoch2() {
+        } else if let Some(parent_epoch2_header) =
+            parent_stacks_header.anchored_header.as_stacks_epoch2()
+        {
             // building atop a stacks 2.x block.
             // we are necessarily starting a new tenure
             if let Some(vrf_proof) = vrf_proof_opt.as_ref() {
-                NakamotoBlockBuilder::new_tenure_from_epoch2_parent(parent_epoch2_header, &parent_stacks_header.consensus_hash, consensus_hash, total_burn, vrf_proof)
-            }
-            else {
+                NakamotoBlockBuilder::new_tenure_from_epoch2_parent(
+                    parent_epoch2_header,
+                    &parent_stacks_header.consensus_hash,
+                    consensus_hash,
+                    total_burn,
+                    vrf_proof,
+                )
+            } else {
                 // not allowed
                 warn!("Failed to start a Nakamoto tenure atop a Stacks 2.x block -- missing a VRF proof");
                 return Err(Error::ExpectedTenureChange);
             }
-        }
-        else {
+        } else {
             // not reachable -- no other choices
-            return Err(Error::InvalidStacksBlock("Parent is neither a Nakamoto block nor a Stacks 2.x block".into()));
+            return Err(Error::InvalidStacksBlock(
+                "Parent is neither a Nakamoto block nor a Stacks 2.x block".into(),
+            ));
         };
 
         Ok(builder)
     }
 
-    
     /// This function should be called before `tenure_begin`.
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
@@ -273,11 +303,9 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
-        tenure_start: bool
+        tenure_start: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!(
-            "Nakamoto miner tenure begin"
-        );
+        debug!("Nakamoto miner tenure begin");
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
         let burn_tip_height =
@@ -285,43 +313,73 @@ impl NakamotoBlockBuilder {
 
         let mainnet = chainstate.config().mainnet;
 
-        let (chain_tip, parent_consensus_hash, parent_header_hash) = if let Some(nakamoto_parent_header) = self.nakamoto_parent_header.as_ref() {
-            // parent is a nakamoto block
-            let parent_header_info = NakamotoChainState::get_block_header(
-                chainstate.db(),
-                &StacksBlockId::new(&nakamoto_parent_header.consensus_hash, &nakamoto_parent_header.block_hash())
-            )?
-            .ok_or(Error::NoSuchBlockError)
-            .map_err(|e| {
-                warn!("No such Nakamoto parent block {}/{} ({})", &nakamoto_parent_header.consensus_hash, &nakamoto_parent_header.block_hash(), &nakamoto_parent_header.block_id());
-                e
-            })?;
+        let (chain_tip, parent_consensus_hash, parent_header_hash) =
+            if let Some(nakamoto_parent_header) = self.nakamoto_parent_header.as_ref() {
+                // parent is a nakamoto block
+                let parent_header_info = NakamotoChainState::get_block_header(
+                    chainstate.db(),
+                    &StacksBlockId::new(
+                        &nakamoto_parent_header.consensus_hash,
+                        &nakamoto_parent_header.block_hash(),
+                    ),
+                )?
+                .ok_or(Error::NoSuchBlockError)
+                .map_err(|e| {
+                    warn!(
+                        "No such Nakamoto parent block {}/{} ({})",
+                        &nakamoto_parent_header.consensus_hash,
+                        &nakamoto_parent_header.block_hash(),
+                        &nakamoto_parent_header.block_id()
+                    );
+                    e
+                })?;
 
-            (parent_header_info, nakamoto_parent_header.consensus_hash.clone(), nakamoto_parent_header.block_hash())
-        }
-        else if let Some((stacks_header, consensus_hash)) = self.epoch2_parent_header.as_ref() {
-            // parent is a Stacks epoch2 block
-            let parent_header_info = NakamotoChainState::get_block_header(
-                chainstate.db(),
-                &StacksBlockId::new(consensus_hash, &stacks_header.block_hash())
-            )?
-            .ok_or(Error::NoSuchBlockError)
-            .map_err(|e| {
-                warn!("No such Stacks 2.x parent block {}/{} ({})", &consensus_hash, &stacks_header.block_hash(), &StacksBlockId::new(&consensus_hash, &stacks_header.block_hash()));
-                e
-            })?;
+                (
+                    parent_header_info,
+                    nakamoto_parent_header.consensus_hash.clone(),
+                    nakamoto_parent_header.block_hash(),
+                )
+            } else if let Some((stacks_header, consensus_hash)) = self.epoch2_parent_header.as_ref()
+            {
+                // parent is a Stacks epoch2 block
+                let parent_header_info = NakamotoChainState::get_block_header(
+                    chainstate.db(),
+                    &StacksBlockId::new(consensus_hash, &stacks_header.block_hash()),
+                )?
+                .ok_or(Error::NoSuchBlockError)
+                .map_err(|e| {
+                    warn!(
+                        "No such Stacks 2.x parent block {}/{} ({})",
+                        &consensus_hash,
+                        &stacks_header.block_hash(),
+                        &StacksBlockId::new(&consensus_hash, &stacks_header.block_hash())
+                    );
+                    e
+                })?;
 
-            (parent_header_info, consensus_hash.clone(), stacks_header.block_hash())
-        }
-        else {
-            // parent is genesis (testing only)
-            (StacksHeaderInfo::regtest_genesis(), FIRST_BURNCHAIN_CONSENSUS_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
-        };
-        
-        let tenure_height = if let Ok(Some(parent_tenure_height)) = NakamotoChainState::get_tenure_height(chainstate.db(), &StacksBlockId::new(&parent_consensus_hash, &parent_header_hash)) {
-            parent_tenure_height.checked_add(1).expect("Blockchain overflow")
-        }
-        else {
+                (
+                    parent_header_info,
+                    consensus_hash.clone(),
+                    stacks_header.block_hash(),
+                )
+            } else {
+                // parent is genesis (testing only)
+                (
+                    StacksHeaderInfo::regtest_genesis(),
+                    FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                    FIRST_STACKS_BLOCK_HASH.clone(),
+                )
+            };
+
+        let tenure_height = if let Ok(Some(parent_tenure_height)) =
+            NakamotoChainState::get_tenure_height(
+                chainstate.db(),
+                &StacksBlockId::new(&parent_consensus_hash, &parent_header_hash),
+            ) {
+            parent_tenure_height
+                .checked_add(1)
+                .expect("Blockchain overflow")
+        } else {
             0
         };
 
@@ -339,7 +397,7 @@ impl NakamotoBlockBuilder {
             parent_stacks_block_height: chain_tip.stacks_block_height,
             parent_burn_block_height: chain_tip.burn_header_height,
             tenure_start,
-            tenure_height
+            tenure_height,
         })
     }
 
@@ -388,13 +446,11 @@ impl NakamotoBlockBuilder {
         // write out the trie...
         let consumed = tx.commit_mined_block(&index_block_hash);
 
-        test_debug!(
-            "\n\nFinished mining. Trie is in mined_blocks table.\n",
-        );
+        test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
 
         consumed
     }
-    
+
     /// Finish constructing a Nakamoto block.
     /// The block will not be signed yet.
     /// Returns the unsigned Nakamoto block
@@ -419,7 +475,7 @@ impl NakamotoBlockBuilder {
         };
 
         test_debug!(
-            "\n\nMined Nakamoo block {}, {} transactions, state root is {}\n",
+            "\n\nMined Nakamoto block {}, {} transactions, state root is {}\n",
             block.header.block_hash(),
             block.txs.len(),
             state_root_hash
@@ -427,6 +483,7 @@ impl NakamotoBlockBuilder {
 
         info!(
             "Miner: mined Nakamoto block";
+            "consensus_hash" => %block.header.consensus_hash,
             "block_hash" => %block.header.block_hash(),
             "block_height" => block.header.chain_length,
             "num_txs" => block.txs.len(),
@@ -439,11 +496,8 @@ impl NakamotoBlockBuilder {
 
     /// Finish building the Nakamoto block
     pub fn mine_nakamoto_block(&mut self, clarity_tx: &mut ClarityTx) -> NakamotoBlock {
-        NakamotoChainState::finish_block(
-            clarity_tx,
-            self.matured_miner_rewards_opt.as_ref(),
-        )
-        .expect("FATAL: call to `finish_block` failed");
+        NakamotoChainState::finish_block(clarity_tx, self.matured_miner_rewards_opt.as_ref())
+            .expect("FATAL: call to `finish_block` failed");
         self.finalize_block(clarity_tx)
     }
 
@@ -485,12 +539,13 @@ impl NakamotoBlockBuilder {
             parent_stacks_header,
             consensus_hash,
             total_burn,
-            new_tenure_info.as_ref().map(|info| info.vrf_proof.clone())
+            new_tenure_info.as_ref().map(|info| info.vrf_proof.clone()),
         )?;
 
         let ts_start = get_epoch_time_ms();
 
-        let mut miner_tenure_info = builder.load_tenure_info(&mut chainstate, burn_dbconn, new_tenure_info.is_some())?;
+        let mut miner_tenure_info =
+            builder.load_tenure_info(&mut chainstate, burn_dbconn, new_tenure_info.is_some())?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
 
         let block_limit = tenure_tx
@@ -505,7 +560,7 @@ impl NakamotoBlockBuilder {
             new_tenure_info.as_ref().map(|info| &info.coinbase_tx),
             settings,
             event_observer,
-            ASTRules::PrecheckSize
+            ASTRules::PrecheckSize,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -558,7 +613,7 @@ impl NakamotoBlockBuilder {
 
         Ok((block, consumed, size))
     }
-    
+
     #[cfg(test)]
     pub fn make_nakamoto_block_from_txs(
         mut self,
@@ -568,21 +623,35 @@ impl NakamotoBlockBuilder {
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
-        
-        let new_tenure = txs.iter().find(|txn| if let TransactionPayload::TenureChange(..) = txn.payload { true } else { false }).is_some();
 
-        let mut miner_tenure_info = self.load_tenure_info(&mut chainstate, burn_dbconn, new_tenure)?;
+        let new_tenure = txs
+            .iter()
+            .find(|txn| {
+                if let TransactionPayload::TenureChange(..) = txn.payload {
+                    true
+                } else {
+                    false
+                }
+            })
+            .is_some();
+
+        let mut miner_tenure_info =
+            self.load_tenure_info(&mut chainstate, burn_dbconn, new_tenure)?;
         let mut tenure_tx = self.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
         for tx in txs.drain(..) {
             let tx_len = tx.tx_len();
-            match self.try_mine_tx_with_len(&mut tenure_tx, &tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT, ASTRules::PrecheckSize) {
+            match self.try_mine_tx_with_len(
+                &mut tenure_tx,
+                &tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                ASTRules::PrecheckSize,
+            ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());
                 }
                 TransactionResult::Skipped(TransactionSkipped { error, .. })
-                | TransactionResult::ProcessingError(TransactionError {
-                    error, ..
-                }) => {
+                | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                     match error {
                         Error::BlockTooBigError => {
                             // done mining -- our execution budget is exceeded.
@@ -608,9 +677,7 @@ impl NakamotoBlockBuilder {
                         }
                     }
                 }
-                TransactionResult::Problematic(TransactionProblematic {
-                    tx, ..
-                }) => {
+                TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
                     // drop from the mempool
                     debug!("Encountered problematic transaction {}", &tx.txid());
                     return Err(Error::ProblematicTransaction(tx.txid()));
