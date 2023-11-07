@@ -1779,6 +1779,8 @@ impl PeerNetwork {
 
         // affirmation maps are compatible, so just resume scanning off of wherever we are at the
         // tip.
+        // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
+        // machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
