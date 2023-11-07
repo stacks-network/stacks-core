@@ -3525,7 +3525,10 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash, epoch_id) = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1).unwrap().unwrap().epoch_id;
+                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1)
+                    .unwrap()
+                    .unwrap()
+                    .epoch_id;
 
                 if set_consensus_hash {
                     TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
@@ -3582,25 +3585,22 @@ pub mod test {
                     )
                     .unwrap();
 
-                if epoch_id < StacksEpochId::Epoch30 {
-                    Burnchain::process_affirmation_maps(
-                        &self.config.burnchain,
-                        &mut burnchain_db,
-                        &indexer,
-                        block_header.block_height,
-                    )
-                    .unwrap();
-                }
+                Burnchain::process_affirmation_maps(
+                    &self.config.burnchain,
+                    &mut burnchain_db,
+                    &indexer,
+                    block_header.block_height,
+                )
+                .unwrap();
+
                 (block_header.block_height, block_header_hash, epoch_id)
             };
 
-            let missing_pox_anchor_block_hash_opt =
-                if epoch_id < StacksEpochId::Epoch30 {
-                    self.coord.handle_new_burnchain_block().unwrap()
-                }
-                else {
-                    self.coord.handle_new_nakamoto_burnchain_block().unwrap()
-                };
+            let missing_pox_anchor_block_hash_opt = if epoch_id < StacksEpochId::Epoch30 {
+                self.coord.handle_new_burnchain_block().unwrap()
+            } else {
+                self.coord.handle_new_nakamoto_burnchain_block().unwrap()
+            };
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -4272,7 +4272,7 @@ pub mod test {
                 microblocks,
             )
         }
-       
+
         pub fn to_neighbor(&self) -> Neighbor {
             self.config.to_neighbor()
         }
